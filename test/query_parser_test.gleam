@@ -38,3 +38,27 @@ pub fn reject_query_without_sql_body_test() {
   query_parser.error_to_string(error)
   |> should.equal("broken.sql:1: query GetAuthor is missing SQL body")
 }
+
+pub fn count_mysql_placeholders_test() {
+  let content =
+    "-- name: CreateAuthor :exec\n"
+    <> "INSERT INTO authors (name, bio) VALUES (?, ?);"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("mysql.sql", model.MySQL, content)
+  let assert [query] = queries
+
+  query.param_count |> should.equal(2)
+}
+
+pub fn count_sqlite_named_placeholders_test() {
+  let content =
+    "-- name: GetAuthor :one\n"
+    <> "SELECT id FROM authors WHERE id = :id OR name = @name OR slug = $slug OR code = ?1;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("sqlite.sql", model.SQLite, content)
+  let assert [query] = queries
+
+  query.param_count |> should.equal(4)
+}

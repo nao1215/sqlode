@@ -4,12 +4,15 @@ import simplifile
 import sqlode/codegen
 import sqlode/config
 import sqlode/model
+import sqlode/query_analyzer
 import sqlode/query_parser
+import sqlode/schema_parser
 import sqlode/writer
 
 pub type GenerateError {
   ConfigError(config.ConfigError)
   SchemaReadError(path: String, detail: String)
+  SchemaParseError(detail: String)
   QueryReadError(path: String, detail: String)
   QueryParseError(path: String, detail: String)
   NoQueriesGenerated(output: String)
@@ -39,37 +42,85 @@ pub fn generate_config(cfg: model.Config) -> Result(List(String), GenerateError)
 fn generate_sql_block(
   block: model.SqlBlock,
 ) -> Result(List(writer.GeneratedFile), GenerateError) {
-  use _ <- result.try(validate_schema_files(block.schema))
+  use catalog <- result.try(load_catalog(block.schema))
   use queries <- result.try(load_queries(block))
+  let analyzed = query_analyzer.analyze_queries(block.engine, catalog, queries)
 
   let model.SqlBlock(gleam:, ..) = block
   let model.GleamOutput(out:, ..) = gleam
 
-  case queries {
+  case analyzed {
     [] -> Error(NoQueriesGenerated(output: out))
-    _ ->
-      Ok([
+    _ -> {
+      let has_row_types =
+        list.any(analyzed, fn(query) {
+          case query.base.command {
+            model.One | model.Many -> !list.is_empty(query.result_columns)
+            _ -> False
+          }
+        })
+
+      let base_files = [
+        writer.GeneratedFile(
+          directory: out,
+          path: "params.gleam",
+          content: codegen.render_params_module(analyzed),
+        ),
         writer.GeneratedFile(
           directory: out,
           path: "queries.gleam",
-          content: codegen.render_queries_module(block, queries),
+          content: codegen.render_queries_module(block, analyzed),
         ),
-      ])
+      ]
+
+      let files = case has_row_types {
+        True ->
+          list.append(base_files, [
+            writer.GeneratedFile(
+              directory: out,
+              path: "models.gleam",
+              content: codegen.render_models_module(analyzed),
+            ),
+          ])
+        False -> base_files
+      }
+
+      let files = case gleam.runtime {
+        model.Raw -> files
+        _ ->
+          list.append(files, [
+            writer.GeneratedFile(
+              directory: out,
+              path: adapter_filename(block.engine),
+              content: codegen.render_adapter_module(block, analyzed),
+            ),
+          ])
+      }
+
+      Ok(files)
+    }
   }
 }
 
-fn validate_schema_files(paths: List(String)) -> Result(Nil, GenerateError) {
-  paths
-  |> list.try_fold(Nil, fn(_, path) {
-    simplifile.read(path)
-    |> result.map(fn(_) { Nil })
-    |> result.map_error(fn(error) {
-      SchemaReadError(
-        path:,
-        detail: "Failed to read schema file: "
-          <> simplifile.describe_error(error),
-      )
-    })
+fn load_catalog(paths: List(String)) -> Result(model.Catalog, GenerateError) {
+  use entries <- result.try(
+    paths
+    |> list.try_map(fn(path) {
+      simplifile.read(path)
+      |> result.map(fn(content) { #(path, content) })
+      |> result.map_error(fn(error) {
+        SchemaReadError(
+          path:,
+          detail: "Failed to read schema file: "
+            <> simplifile.describe_error(error),
+        )
+      })
+    }),
+  )
+
+  schema_parser.parse_files(entries)
+  |> result.map_error(fn(error) {
+    SchemaParseError(detail: schema_parser.error_to_string(error))
   })
 }
 
@@ -99,10 +150,19 @@ fn load_queries(
   |> result.map(list.flatten)
 }
 
+fn adapter_filename(engine: model.Engine) -> String {
+  case engine {
+    model.PostgreSQL -> "pog_adapter.gleam"
+    model.SQLite -> "sqlight_adapter.gleam"
+    model.MySQL -> "mysql_adapter.gleam"
+  }
+}
+
 pub fn error_to_string(error: GenerateError) -> String {
   case error {
     ConfigError(inner) -> config.error_to_string(inner)
     SchemaReadError(path:, detail:) -> path <> ": " <> detail
+    SchemaParseError(detail:) -> detail
     QueryReadError(path:, detail:) -> path <> ": " <> detail
     QueryParseError(detail:, ..) -> detail
     NoQueriesGenerated(output:) ->

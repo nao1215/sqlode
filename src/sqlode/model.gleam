@@ -109,3 +109,64 @@ pub type ParsedQuery {
     param_count: Int,
   )
 }
+
+pub type ScalarType {
+  IntType
+  FloatType
+  BoolType
+  StringType
+  BytesType
+}
+
+pub fn scalar_type_to_gleam_type(scalar_type: ScalarType) -> String {
+  case scalar_type {
+    IntType -> "Int"
+    FloatType -> "Float"
+    BoolType -> "Bool"
+    StringType -> "String"
+    BytesType -> "BitArray"
+  }
+}
+
+pub fn scalar_type_to_runtime_function(scalar_type: ScalarType) -> String {
+  case scalar_type {
+    IntType -> "runtime.int"
+    FloatType -> "runtime.float"
+    BoolType -> "runtime.bool"
+    StringType -> "runtime.string"
+    BytesType -> "runtime.bytes"
+  }
+}
+
+pub type Column {
+  Column(name: String, scalar_type: ScalarType, nullable: Bool)
+}
+
+pub type Table {
+  Table(name: String, columns: List(Column))
+}
+
+pub type Catalog {
+  Catalog(tables: List(Table))
+}
+
+pub type QueryParam {
+  QueryParam(
+    index: Int,
+    field_name: String,
+    scalar_type: ScalarType,
+    nullable: Bool,
+  )
+}
+
+pub type ResultColumn {
+  ResultColumn(name: String, scalar_type: ScalarType, nullable: Bool)
+}
+
+pub type AnalyzedQuery {
+  AnalyzedQuery(
+    base: ParsedQuery,
+    params: List(QueryParam),
+    result_columns: List(ResultColumn),
+  )
+}

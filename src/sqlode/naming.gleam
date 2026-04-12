@@ -19,6 +19,15 @@ fn compile_regexes() -> Regexes {
   Regexes(word_separator:, camel_case:, underscore_before_caps:)
 }
 
+pub fn to_pascal_case(input: String) -> String {
+  let re = compile_regexes()
+
+  input
+  |> split_words(re)
+  |> list.map(capitalize)
+  |> string.join("")
+}
+
 pub fn to_snake_case(input: String) -> String {
   let re = compile_regexes()
   let result =
@@ -29,6 +38,13 @@ pub fn to_snake_case(input: String) -> String {
     |> string.join("_")
 
   escape_keyword(result)
+}
+
+fn capitalize(input: String) -> String {
+  case string.pop_grapheme(input) {
+    Ok(#(first, rest)) -> string.uppercase(first) <> rest
+    Error(_) -> input
+  }
 }
 
 fn split_words(input: String, re: Regexes) -> List(String) {
