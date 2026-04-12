@@ -75,6 +75,7 @@ pub fn normalize_identifier(identifier: String) -> String {
   |> string.trim
   |> strip_identifier_quotes
   |> last_dot_segment
+  |> strip_identifier_quotes
   |> string.lowercase
 }
 

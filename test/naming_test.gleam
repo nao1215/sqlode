@@ -1,0 +1,118 @@
+import gleeunit
+import gleeunit/should
+import sqlode/naming
+
+pub fn main() {
+  gleeunit.main()
+}
+
+// to_pascal_case tests
+
+pub fn pascal_case_from_snake_case_test() {
+  let ctx = naming.new()
+  naming.to_pascal_case(ctx, "get_author") |> should.equal("GetAuthor")
+}
+
+pub fn pascal_case_from_camel_case_test() {
+  let ctx = naming.new()
+  naming.to_pascal_case(ctx, "getAuthor") |> should.equal("GetAuthor")
+}
+
+pub fn pascal_case_from_all_caps_test() {
+  let ctx = naming.new()
+  naming.to_pascal_case(ctx, "HTTP") |> should.equal("HTTP")
+}
+
+pub fn pascal_case_with_numbers_test() {
+  let ctx = naming.new()
+  naming.to_pascal_case(ctx, "get_v2_author") |> should.equal("GetV2Author")
+}
+
+pub fn pascal_case_single_word_test() {
+  let ctx = naming.new()
+  naming.to_pascal_case(ctx, "author") |> should.equal("Author")
+}
+
+pub fn pascal_case_already_pascal_test() {
+  let ctx = naming.new()
+  naming.to_pascal_case(ctx, "GetAuthor") |> should.equal("GetAuthor")
+}
+
+pub fn pascal_case_with_consecutive_underscores_test() {
+  let ctx = naming.new()
+  naming.to_pascal_case(ctx, "get__author") |> should.equal("GetAuthor")
+}
+
+// to_snake_case tests
+
+pub fn snake_case_from_pascal_case_test() {
+  let ctx = naming.new()
+  naming.to_snake_case(ctx, "GetAuthor") |> should.equal("get_author")
+}
+
+pub fn snake_case_from_camel_case_test() {
+  let ctx = naming.new()
+  naming.to_snake_case(ctx, "getAuthor") |> should.equal("get_author")
+}
+
+pub fn snake_case_already_snake_test() {
+  let ctx = naming.new()
+  naming.to_snake_case(ctx, "get_author") |> should.equal("get_author")
+}
+
+pub fn snake_case_from_all_caps_test() {
+  let ctx = naming.new()
+  naming.to_snake_case(ctx, "HTTP") |> should.equal("http")
+}
+
+pub fn snake_case_with_numbers_test() {
+  let ctx = naming.new()
+  naming.to_snake_case(ctx, "GetV2Author") |> should.equal("get_v_2_author")
+}
+
+pub fn snake_case_reserved_word_escaped_test() {
+  let ctx = naming.new()
+  naming.to_snake_case(ctx, "type") |> should.equal("type_")
+  naming.to_snake_case(ctx, "let") |> should.equal("let_")
+  naming.to_snake_case(ctx, "case") |> should.equal("case_")
+  naming.to_snake_case(ctx, "fn") |> should.equal("fn_")
+  naming.to_snake_case(ctx, "pub") |> should.equal("pub_")
+  naming.to_snake_case(ctx, "import") |> should.equal("import_")
+}
+
+pub fn snake_case_non_reserved_word_not_escaped_test() {
+  let ctx = naming.new()
+  naming.to_snake_case(ctx, "name") |> should.equal("name")
+  naming.to_snake_case(ctx, "author") |> should.equal("author")
+}
+
+// normalize_identifier tests
+
+pub fn normalize_strips_double_quotes_test() {
+  naming.normalize_identifier("\"authors\"") |> should.equal("authors")
+}
+
+pub fn normalize_strips_backticks_test() {
+  naming.normalize_identifier("`authors`") |> should.equal("authors")
+}
+
+pub fn normalize_strips_square_brackets_test() {
+  naming.normalize_identifier("[authors]") |> should.equal("authors")
+}
+
+pub fn normalize_extracts_last_dot_segment_test() {
+  naming.normalize_identifier("public.authors") |> should.equal("authors")
+}
+
+pub fn normalize_lowercases_test() {
+  naming.normalize_identifier("Authors") |> should.equal("authors")
+}
+
+pub fn normalize_trims_whitespace_test() {
+  naming.normalize_identifier("  authors  ") |> should.equal("authors")
+}
+
+pub fn normalize_dot_then_quotes_test() {
+  naming.normalize_identifier("public.\"Authors\"")
+  |> should.equal("authors")
+}
