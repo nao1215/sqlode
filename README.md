@@ -10,10 +10,10 @@ Supported engines: PostgreSQL, MySQL (parsing only), SQLite.
 
 ### Install
 
-Add sqlode as a development dependency:
+Add sqlode as a dependency (required at runtime for generated code):
 
 ```console
-gleam add --dev sqlode
+gleam add sqlode
 ```
 
 ### Initialize config
@@ -116,6 +116,24 @@ pub type Query {
 pub fn get_author() -> Query { ... }
 pub fn list_authors() -> Query { ... }
 pub fn create_author() -> Query { ... }
+```
+
+## Runtime modes
+
+The `runtime` option controls what code sqlode generates and what dependencies your project needs.
+
+| Mode | Generated files | DB driver needed | Use case |
+|------|----------------|-----------------|----------|
+| `raw` | queries, params, models | No | You handle database interaction yourself |
+| `based` | queries, params, models, adapter | Yes (pog/sqlight) | Same as `native` (reserved for future use) |
+| `native` | queries, params, models, adapter | Yes (pog/sqlight) | Full adapter with parameter binding and result decoding |
+
+**Dependency note:** In all modes, sqlode must be a dependency (not just a dev-dependency) because the generated code imports `sqlode/runtime` for the `Value` type and `QueryCommand` type. The adapter modes (`based`, `native`) additionally require a database driver package:
+
+```console
+gleam add sqlode
+gleam add pog       # for PostgreSQL with native/based runtime
+gleam add sqlight   # for SQLite with native/based runtime
 ```
 
 ## Adapter generation
