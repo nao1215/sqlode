@@ -92,13 +92,56 @@ fn run_init(path: String) -> Nil {
     }
     _ -> {
       case simplifile.write(path, template) {
-        Ok(_) -> io.println("Created " <> path)
+        Ok(_) -> {
+          io.println("Created " <> path)
+          create_stub_files()
+        }
         Error(_) -> {
           io.println("Error: failed to write " <> path)
           halt(1)
         }
       }
     }
+  }
+}
+
+fn create_stub_files() -> Nil {
+  let schema_content =
+    "CREATE TABLE authors (\n"
+    <> "  id BIGSERIAL PRIMARY KEY,\n"
+    <> "  name TEXT NOT NULL,\n"
+    <> "  bio TEXT\n"
+    <> ");\n"
+
+  let query_content =
+    "-- name: GetAuthor :one\n"
+    <> "SELECT id, name, bio\n"
+    <> "FROM authors\n"
+    <> "WHERE id = $1;\n"
+    <> "\n"
+    <> "-- name: ListAuthors :many\n"
+    <> "SELECT id, name\n"
+    <> "FROM authors\n"
+    <> "ORDER BY name;\n"
+
+  let _ = simplifile.create_directory_all("db")
+
+  case simplifile.is_file("db/schema.sql") {
+    Ok(True) -> io.println("  Skipped db/schema.sql (already exists)")
+    _ ->
+      case simplifile.write("db/schema.sql", schema_content) {
+        Ok(_) -> io.println("  Created db/schema.sql")
+        Error(_) -> io.println("  Warning: failed to create db/schema.sql")
+      }
+  }
+
+  case simplifile.is_file("db/query.sql") {
+    Ok(True) -> io.println("  Skipped db/query.sql (already exists)")
+    _ ->
+      case simplifile.write("db/query.sql", query_content) {
+        Ok(_) -> io.println("  Created db/query.sql")
+        Error(_) -> io.println("  Warning: failed to create db/query.sql")
+      }
   }
 }
 
