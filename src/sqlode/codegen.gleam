@@ -285,16 +285,63 @@ pub fn render_adapter_module(
   queries: List(model.AnalyzedQuery),
 ) -> String {
   case block.engine {
-    model.PostgreSQL -> render_pog_adapter(naming_ctx, block, queries)
-    model.SQLite -> render_sqlight_adapter(naming_ctx, block, queries)
-    model.MySQL -> render_mysql_adapter(block, queries)
+    model.PostgreSQL ->
+      render_adapter(naming_ctx, block, queries, pog_adapter_config())
+    model.SQLite ->
+      render_adapter(naming_ctx, block, queries, sqlight_adapter_config())
+    model.MySQL -> render_mysql_adapter()
   }
 }
 
-fn render_pog_adapter(
+// ============================================================
+// Adapter config: engine-specific rendering strategies
+// ============================================================
+
+type AdapterConfig {
+  AdapterConfig(
+    library_import: String,
+    connection_type: String,
+    error_type: String,
+    value_function: fn(model.ScalarType) -> String,
+    decoder_function: fn(model.ScalarType) -> String,
+    render_params: fn(List(model.QueryParam), String) -> String,
+    render_query_call: fn(String, String, String, String) -> List(String),
+  )
+}
+
+fn pog_adapter_config() -> AdapterConfig {
+  AdapterConfig(
+    library_import: "import pog",
+    connection_type: "pog.Connection",
+    error_type: "pog.QueryError",
+    value_function: pog_value_function,
+    decoder_function: pog_decoder_function,
+    render_params: render_pog_params,
+    render_query_call: render_pog_query_call,
+  )
+}
+
+fn sqlight_adapter_config() -> AdapterConfig {
+  AdapterConfig(
+    library_import: "import sqlight",
+    connection_type: "sqlight.Connection",
+    error_type: "sqlight.Error",
+    value_function: sqlight_value_function,
+    decoder_function: sqlight_decoder_function,
+    render_params: render_sqlight_params,
+    render_query_call: render_sqlight_query_call,
+  )
+}
+
+// ============================================================
+// Shared adapter rendering
+// ============================================================
+
+fn render_adapter(
   naming_ctx: naming.NamingContext,
   block: model.SqlBlock,
   queries: List(model.AnalyzedQuery),
+  config: AdapterConfig,
 ) -> String {
   let model.SqlBlock(gleam:, ..) = block
   let model.GleamOutput(package:, ..) = gleam
@@ -319,7 +366,7 @@ fn render_pog_adapter(
         True -> ["import gleam/option.{type Option, None, Some}"]
         False -> []
       },
-      ["import pog"],
+      [config.library_import],
       case has_results {
         True -> ["import " <> package <> "/models"]
         False -> []
@@ -329,64 +376,107 @@ fn render_pog_adapter(
 
   let functions =
     queries
-    |> list.map(render_pog_function(naming_ctx, _))
+    |> list.map(render_adapter_function(naming_ctx, _, config))
     |> string.join("\n\n")
 
   string.join(list.flatten([imports, ["", functions]]), "\n")
 }
 
-fn render_pog_function(
+fn render_adapter_function(
   naming_ctx: naming.NamingContext,
   query: model.AnalyzedQuery,
+  config: AdapterConfig,
 ) -> String {
   let fn_name = query.base.function_name
   let has_params = !list.is_empty(query.params)
 
   case query.base.command {
-    model.One -> render_pog_one(naming_ctx, query, fn_name, has_params)
-    model.Many -> render_pog_many(naming_ctx, query, fn_name, has_params)
-    model.Exec | model.ExecResult ->
-      render_pog_exec(naming_ctx, query, fn_name, has_params)
+    model.One ->
+      render_adapter_one(naming_ctx, query, fn_name, has_params, config)
+    model.Many ->
+      render_adapter_many(naming_ctx, query, fn_name, has_params, config)
+    model.Exec | model.ExecResult | model.ExecLastId ->
+      render_adapter_exec(naming_ctx, query, fn_name, has_params, config)
     model.ExecRows ->
-      render_pog_exec_rows(naming_ctx, query, fn_name, has_params)
-    model.ExecLastId -> render_pog_exec(naming_ctx, query, fn_name, has_params)
+      render_adapter_exec_rows(naming_ctx, query, fn_name, has_params, config)
   }
 }
 
-fn render_pog_one(
+fn render_params_arg(
   naming_ctx: naming.NamingContext,
   query: model.AnalyzedQuery,
-  fn_name: String,
   has_params: Bool,
 ) -> String {
-  let type_name = naming.to_pascal_case(naming_ctx, query.base.name) <> "Row"
-  let params_arg = case has_params {
+  case has_params {
     True ->
       ", p: params."
       <> naming.to_pascal_case(naming_ctx, query.base.name)
       <> "Params"
     False -> ""
   }
-  let param_bindings = render_pog_params(query)
-  let decoder = render_pog_decoder(query, type_name)
+}
+
+fn render_decoder(
+  query: model.AnalyzedQuery,
+  type_name: String,
+  config: AdapterConfig,
+) -> String {
+  case query.result_columns {
+    [] -> "decode.success(Nil)"
+    columns -> {
+      let field_decoders =
+        columns
+        |> list.index_map(fn(col, idx) {
+          let decoder = config.decoder_function(col.scalar_type)
+          "    |> decode.field("
+          <> int.to_string(idx)
+          <> ", "
+          <> case col.nullable {
+            True -> "decode.optional(" <> decoder <> ")"
+            False -> decoder
+          }
+          <> ")"
+        })
+        |> string.join("\n")
+
+      "{\n    decode.into(models."
+      <> type_name
+      <> ")\n"
+      <> field_decoders
+      <> "\n  }"
+    }
+  }
+}
+
+fn render_adapter_one(
+  naming_ctx: naming.NamingContext,
+  query: model.AnalyzedQuery,
+  fn_name: String,
+  has_params: Bool,
+  config: AdapterConfig,
+) -> String {
+  let type_name = naming.to_pascal_case(naming_ctx, query.base.name) <> "Row"
+  let params_arg = render_params_arg(naming_ctx, query, has_params)
+  let params_str = config.render_params(query.params, "p")
+  let decoder = render_decoder(query, type_name, config)
 
   string.join(
     list.flatten([
       [
         "pub fn "
           <> fn_name
-          <> "(db: pog.Connection"
+          <> "(db: "
+          <> config.connection_type
           <> params_arg
           <> ") -> Result(Option(models."
           <> type_name
-          <> "), pog.QueryError) {",
+          <> "), "
+          <> config.error_type
+          <> ") {",
         "  let q = queries." <> fn_name <> "()",
-        "  pog.query(q.sql)",
       ],
-      param_bindings,
+      config.render_query_call(fn_name, params_str, decoder, "q.sql"),
       [
-        "  |> pog.returning(" <> decoder <> ")",
-        "  |> pog.execute(db)",
         "  |> result.map(fn(returned) {",
         "    case returned.rows {",
         "      [row, ..] -> Some(row)",
@@ -400,40 +490,35 @@ fn render_pog_one(
   )
 }
 
-fn render_pog_many(
+fn render_adapter_many(
   naming_ctx: naming.NamingContext,
   query: model.AnalyzedQuery,
   fn_name: String,
   has_params: Bool,
+  config: AdapterConfig,
 ) -> String {
   let type_name = naming.to_pascal_case(naming_ctx, query.base.name) <> "Row"
-  let params_arg = case has_params {
-    True ->
-      ", p: params."
-      <> naming.to_pascal_case(naming_ctx, query.base.name)
-      <> "Params"
-    False -> ""
-  }
-  let param_bindings = render_pog_params(query)
-  let decoder = render_pog_decoder(query, type_name)
+  let params_arg = render_params_arg(naming_ctx, query, has_params)
+  let params_str = config.render_params(query.params, "p")
+  let decoder = render_decoder(query, type_name, config)
 
   string.join(
     list.flatten([
       [
         "pub fn "
           <> fn_name
-          <> "(db: pog.Connection"
+          <> "(db: "
+          <> config.connection_type
           <> params_arg
           <> ") -> Result(List(models."
           <> type_name
-          <> "), pog.QueryError) {",
+          <> "), "
+          <> config.error_type
+          <> ") {",
         "  let q = queries." <> fn_name <> "()",
-        "  pog.query(q.sql)",
       ],
-      param_bindings,
+      config.render_query_call(fn_name, params_str, decoder, "q.sql"),
       [
-        "  |> pog.returning(" <> decoder <> ")",
-        "  |> pog.execute(db)",
         "  |> result.map(fn(returned) { returned.rows })",
         "}",
       ],
@@ -442,35 +527,36 @@ fn render_pog_many(
   )
 }
 
-fn render_pog_exec(
+fn render_adapter_exec(
   naming_ctx: naming.NamingContext,
   query: model.AnalyzedQuery,
   fn_name: String,
   has_params: Bool,
+  config: AdapterConfig,
 ) -> String {
-  let params_arg = case has_params {
-    True ->
-      ", p: params."
-      <> naming.to_pascal_case(naming_ctx, query.base.name)
-      <> "Params"
-    False -> ""
-  }
-  let param_bindings = render_pog_params(query)
+  let params_arg = render_params_arg(naming_ctx, query, has_params)
+  let params_str = config.render_params(query.params, "p")
 
   string.join(
     list.flatten([
       [
         "pub fn "
           <> fn_name
-          <> "(db: pog.Connection"
+          <> "(db: "
+          <> config.connection_type
           <> params_arg
-          <> ") -> Result(Nil, pog.QueryError) {",
+          <> ") -> Result(Nil, "
+          <> config.error_type
+          <> ") {",
         "  let q = queries." <> fn_name <> "()",
-        "  pog.query(q.sql)",
       ],
-      param_bindings,
+      config.render_query_call(
+        fn_name,
+        params_str,
+        "decode.success(Nil)",
+        "q.sql",
+      ),
       [
-        "  |> pog.execute(db)",
         "  |> result.map(fn(_) { Nil })",
         "}",
       ],
@@ -479,35 +565,36 @@ fn render_pog_exec(
   )
 }
 
-fn render_pog_exec_rows(
+fn render_adapter_exec_rows(
   naming_ctx: naming.NamingContext,
   query: model.AnalyzedQuery,
   fn_name: String,
   has_params: Bool,
+  config: AdapterConfig,
 ) -> String {
-  let params_arg = case has_params {
-    True ->
-      ", p: params."
-      <> naming.to_pascal_case(naming_ctx, query.base.name)
-      <> "Params"
-    False -> ""
-  }
-  let param_bindings = render_pog_params(query)
+  let params_arg = render_params_arg(naming_ctx, query, has_params)
+  let params_str = config.render_params(query.params, "p")
 
   string.join(
     list.flatten([
       [
         "pub fn "
           <> fn_name
-          <> "(db: pog.Connection"
+          <> "(db: "
+          <> config.connection_type
           <> params_arg
-          <> ") -> Result(Int, pog.QueryError) {",
+          <> ") -> Result(Int, "
+          <> config.error_type
+          <> ") {",
         "  let q = queries." <> fn_name <> "()",
-        "  pog.query(q.sql)",
       ],
-      param_bindings,
+      config.render_query_call(
+        fn_name,
+        params_str,
+        "decode.success(Nil)",
+        "q.sql",
+      ),
       [
-        "  |> pog.execute(db)",
         "  |> result.map(fn(returned) { returned.count })",
         "}",
       ],
@@ -516,8 +603,33 @@ fn render_pog_exec_rows(
   )
 }
 
-fn render_pog_params(query: model.AnalyzedQuery) -> List(String) {
-  query.params
+// ============================================================
+// pog-specific rendering
+// ============================================================
+
+fn render_pog_query_call(
+  _fn_name: String,
+  params_str: String,
+  decoder: String,
+  _sql_expr: String,
+) -> List(String) {
+  let param_lines = case params_str {
+    "" -> []
+    _ ->
+      params_str
+      |> string.split("\n")
+      |> list.filter(fn(l) { l != "" })
+  }
+
+  list.flatten([
+    ["  pog.query(q.sql)"],
+    param_lines,
+    ["  |> pog.returning(" <> decoder <> ")", "  |> pog.execute(db)"],
+  ])
+}
+
+fn render_pog_params(params: List(model.QueryParam), _prefix: String) -> String {
+  params
   |> list.map(fn(param) {
     let value_fn = pog_value_function(param.scalar_type)
     case param.nullable {
@@ -535,36 +647,7 @@ fn render_pog_params(query: model.AnalyzedQuery) -> List(String) {
         <> "))"
     }
   })
-}
-
-fn render_pog_decoder(query: model.AnalyzedQuery, type_name: String) -> String {
-  case query.result_columns {
-    [] -> "decode.success(Nil)"
-    columns -> {
-      let field_decoders =
-        columns
-        |> list.index_map(fn(col, idx) {
-          let decoder = pog_decoder_function(col.scalar_type)
-          let field_line =
-            "    |> decode.field("
-            <> int.to_string(idx)
-            <> ", "
-            <> case col.nullable {
-              True -> "decode.optional(" <> decoder <> ")"
-              False -> decoder
-            }
-            <> ")"
-          field_line
-        })
-        |> string.join("\n")
-
-      "{\n    decode.into(models."
-      <> type_name
-      <> ")\n"
-      <> field_decoders
-      <> "\n  }"
-    }
-  }
+  |> string.join("\n")
 }
 
 fn pog_value_function(scalar_type: model.ScalarType) -> String {
@@ -599,191 +682,33 @@ fn pog_decoder_function(scalar_type: model.ScalarType) -> String {
   }
 }
 
-fn render_sqlight_adapter(
-  naming_ctx: naming.NamingContext,
-  block: model.SqlBlock,
-  queries: List(model.AnalyzedQuery),
-) -> String {
-  let model.SqlBlock(gleam:, ..) = block
-  let model.GleamOutput(package:, ..) = gleam
+// ============================================================
+// sqlight-specific rendering
+// ============================================================
 
-  let has_results =
-    list.any(queries, fn(query) {
-      case query.base.command {
-        model.One | model.Many -> !list.is_empty(query.result_columns)
-        _ -> False
-      }
-    })
-
-  let imports =
-    list.flatten([
-      [
-        "// Code generated by sqlode. DO NOT EDIT.",
-        "",
-        "import gleam/dynamic/decode",
-        "import gleam/result",
-      ],
-      case needs_option_import_for_adapter(queries) {
-        True -> ["import gleam/option.{type Option, None, Some}"]
-        False -> []
-      },
-      ["import sqlight"],
-      case has_results {
-        True -> ["import " <> package <> "/models"]
-        False -> []
-      },
-      ["import " <> package <> "/params", "import " <> package <> "/queries"],
-    ])
-
-  let functions =
-    queries
-    |> list.map(render_sqlight_function(naming_ctx, _))
-    |> string.join("\n\n")
-
-  string.join(list.flatten([imports, ["", functions]]), "\n")
+fn render_sqlight_query_call(
+  _fn_name: String,
+  params_str: String,
+  decoder: String,
+  _sql_expr: String,
+) -> List(String) {
+  [
+    "  sqlight.query(",
+    "    q.sql,",
+    "    on: db,",
+    "    with: " <> params_str <> ",",
+    "    expecting: " <> decoder <> ",",
+    "  )",
+  ]
 }
 
-fn render_sqlight_function(
-  naming_ctx: naming.NamingContext,
-  query: model.AnalyzedQuery,
+fn render_sqlight_params(
+  params: List(model.QueryParam),
+  _prefix: String,
 ) -> String {
-  let fn_name = query.base.function_name
-  let has_params = !list.is_empty(query.params)
-
-  case query.base.command {
-    model.One -> render_sqlight_one(naming_ctx, query, fn_name, has_params)
-    model.Many -> render_sqlight_many(naming_ctx, query, fn_name, has_params)
-    model.Exec | model.ExecResult | model.ExecLastId ->
-      render_sqlight_exec(naming_ctx, query, fn_name, has_params)
-    model.ExecRows ->
-      render_sqlight_exec(naming_ctx, query, fn_name, has_params)
-  }
-}
-
-fn render_sqlight_one(
-  naming_ctx: naming.NamingContext,
-  query: model.AnalyzedQuery,
-  fn_name: String,
-  has_params: Bool,
-) -> String {
-  let type_name = naming.to_pascal_case(naming_ctx, query.base.name) <> "Row"
-  let params_arg = case has_params {
-    True ->
-      ", p: params."
-      <> naming.to_pascal_case(naming_ctx, query.base.name)
-      <> "Params"
-    False -> ""
-  }
-  let param_list = render_sqlight_params(query)
-  let decoder = render_sqlight_decoder(query, type_name)
-
-  string.join(
-    [
-      "pub fn "
-        <> fn_name
-        <> "(db: sqlight.Connection"
-        <> params_arg
-        <> ") -> Result(Option(models."
-        <> type_name
-        <> "), sqlight.Error) {",
-      "  let q = queries." <> fn_name <> "()",
-      "  sqlight.query(",
-      "    q.sql,",
-      "    on: db,",
-      "    with: " <> param_list <> ",",
-      "    expecting: " <> decoder <> ",",
-      "  )",
-      "  |> result.map(fn(rows) {",
-      "    case rows {",
-      "      [row, ..] -> Some(row)",
-      "      [] -> None",
-      "    }",
-      "  })",
-      "}",
-    ],
-    "\n",
-  )
-}
-
-fn render_sqlight_many(
-  naming_ctx: naming.NamingContext,
-  query: model.AnalyzedQuery,
-  fn_name: String,
-  has_params: Bool,
-) -> String {
-  let type_name = naming.to_pascal_case(naming_ctx, query.base.name) <> "Row"
-  let params_arg = case has_params {
-    True ->
-      ", p: params."
-      <> naming.to_pascal_case(naming_ctx, query.base.name)
-      <> "Params"
-    False -> ""
-  }
-  let param_list = render_sqlight_params(query)
-  let decoder = render_sqlight_decoder(query, type_name)
-
-  string.join(
-    [
-      "pub fn "
-        <> fn_name
-        <> "(db: sqlight.Connection"
-        <> params_arg
-        <> ") -> Result(List(models."
-        <> type_name
-        <> "), sqlight.Error) {",
-      "  let q = queries." <> fn_name <> "()",
-      "  sqlight.query(",
-      "    q.sql,",
-      "    on: db,",
-      "    with: " <> param_list <> ",",
-      "    expecting: " <> decoder <> ",",
-      "  )",
-      "}",
-    ],
-    "\n",
-  )
-}
-
-fn render_sqlight_exec(
-  naming_ctx: naming.NamingContext,
-  query: model.AnalyzedQuery,
-  fn_name: String,
-  has_params: Bool,
-) -> String {
-  let params_arg = case has_params {
-    True ->
-      ", p: params."
-      <> naming.to_pascal_case(naming_ctx, query.base.name)
-      <> "Params"
-    False -> ""
-  }
-  let param_list = render_sqlight_params(query)
-
-  string.join(
-    [
-      "pub fn "
-        <> fn_name
-        <> "(db: sqlight.Connection"
-        <> params_arg
-        <> ") -> Result(Nil, sqlight.Error) {",
-      "  let q = queries." <> fn_name <> "()",
-      "  sqlight.query(",
-      "    q.sql,",
-      "    on: db,",
-      "    with: " <> param_list <> ",",
-      "    expecting: decode.success(Nil),",
-      "  )",
-      "  |> result.map(fn(_) { Nil })",
-      "}",
-    ],
-    "\n",
-  )
-}
-
-fn render_sqlight_params(query: model.AnalyzedQuery) -> String {
-  case query.params {
+  case params {
     [] -> "[]"
-    params ->
+    _ ->
       "["
       <> {
         params
@@ -802,37 +727,6 @@ fn render_sqlight_params(query: model.AnalyzedQuery) -> String {
         |> string.join(", ")
       }
       <> "]"
-  }
-}
-
-fn render_sqlight_decoder(
-  query: model.AnalyzedQuery,
-  type_name: String,
-) -> String {
-  case query.result_columns {
-    [] -> "decode.success(Nil)"
-    columns -> {
-      let field_decoders =
-        columns
-        |> list.index_map(fn(col, idx) {
-          let decoder = sqlight_decoder_function(col.scalar_type)
-          "    |> decode.field("
-          <> int.to_string(idx)
-          <> ", "
-          <> case col.nullable {
-            True -> "decode.optional(" <> decoder <> ")"
-            False -> decoder
-          }
-          <> ")"
-        })
-        |> string.join("\n")
-
-      "{\n    decode.into(models."
-      <> type_name
-      <> ")\n"
-      <> field_decoders
-      <> "\n  }"
-    }
   }
 }
 
@@ -869,10 +763,11 @@ fn sqlight_decoder_function(scalar_type: model.ScalarType) -> String {
   }
 }
 
-fn render_mysql_adapter(
-  _block: model.SqlBlock,
-  _queries: List(model.AnalyzedQuery),
-) -> String {
+// ============================================================
+// MySQL stub
+// ============================================================
+
+fn render_mysql_adapter() -> String {
   string.join(
     [
       "// Code generated by sqlode. DO NOT EDIT.",
@@ -883,6 +778,10 @@ fn render_mysql_adapter(
     "\n",
   )
 }
+
+// ============================================================
+// Shared helpers
+// ============================================================
 
 fn needs_option_import_for_adapter(queries: List(model.AnalyzedQuery)) -> Bool {
   list.any(queries, fn(query) {
