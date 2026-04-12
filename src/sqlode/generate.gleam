@@ -252,9 +252,14 @@ fn apply_column_renames(
     [] -> queries
     _ ->
       list.map(queries, fn(query) {
+        let sql_lowered = string.lowercase(query.base.sql)
+        let applicable_renames =
+          list.filter(renames, fn(r) {
+            string.contains(sql_lowered, string.lowercase(r.table))
+          })
         let result_columns =
           list.map(query.result_columns, fn(col) {
-            case find_column_rename(col.name, renames) {
+            case find_column_rename(col.name, applicable_renames) {
               Ok(new_name) -> model.ResultColumn(..col, name: new_name)
               Error(_) -> col
             }
