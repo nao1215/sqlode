@@ -1,0 +1,10 @@
+version: "2"
+sql:
+  - schema: "test/fixtures/schema.sql"
+    queries: "test/fixtures/query.sql"
+    engine: "postgresql"
+    gen:
+      gleam:
+        package: "db"
+        out: "test_output/db"
+        runtime: "raw"
