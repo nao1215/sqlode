@@ -1,0 +1,2 @@
+version: "2"
+sql: "this should be a list not a string"
