@@ -270,59 +270,33 @@ fn take_type_tokens(tokens: List(String), acc: List(String)) -> List(String) {
 fn infer_scalar_type(type_text: String) -> model.ScalarType {
   let lowered = string.lowercase(type_text)
 
-  case string.contains(lowered, "int") || string.contains(lowered, "serial") {
-    True -> model.IntType
-    False ->
-      case
-        string.contains(lowered, "double")
-        || string.contains(lowered, "real")
-        || string.contains(lowered, "float")
-        || string.contains(lowered, "numeric")
-        || string.contains(lowered, "decimal")
-      {
-        True -> model.FloatType
-        False ->
-          case string.contains(lowered, "bool") {
-            True -> model.BoolType
-            False ->
-              case
-                string.contains(lowered, "bytea")
-                || string.contains(lowered, "blob")
-                || string.contains(lowered, "binary")
-              {
-                True -> model.BytesType
-                False ->
-                  case string.contains(lowered, "uuid") {
-                    True -> model.UuidType
-                    False ->
-                      case
-                        string.contains(lowered, "json")
-                        || string.contains(lowered, "jsonb")
-                      {
-                        True -> model.JsonType
-                        False ->
-                          case
-                            string.contains(lowered, "timestamp")
-                            || string.contains(lowered, "datetime")
-                          {
-                            True -> model.DateTimeType
-                            False ->
-                              case string.contains(lowered, "date") {
-                                True -> model.DateType
-                                False ->
-                                  case
-                                    string.contains(lowered, "time")
-                                    || string.contains(lowered, "timetz")
-                                  {
-                                    True -> model.TimeType
-                                    False -> model.StringType
-                                  }
-                              }
-                          }
-                      }
-                  }
-              }
-          }
+  // Order matters: check more specific patterns before general ones
+  // (e.g. "timestamp"/"datetime" before "time"/"date", "jsonb" before "json")
+  let type_rules = [
+    #(["int", "serial"], model.IntType),
+    #(["double", "real", "float", "numeric", "decimal"], model.FloatType),
+    #(["bool"], model.BoolType),
+    #(["bytea", "blob", "binary"], model.BytesType),
+    #(["uuid"], model.UuidType),
+    #(["jsonb", "json"], model.JsonType),
+    #(["timestamp", "datetime"], model.DateTimeType),
+    #(["date"], model.DateType),
+    #(["timetz", "time"], model.TimeType),
+  ]
+
+  find_matching_type(lowered, type_rules)
+}
+
+fn find_matching_type(
+  lowered: String,
+  rules: List(#(List(String), model.ScalarType)),
+) -> model.ScalarType {
+  case rules {
+    [] -> model.StringType
+    [#(patterns, scalar_type), ..rest] ->
+      case list.any(patterns, fn(p) { string.contains(lowered, p) }) {
+        True -> scalar_type
+        False -> find_matching_type(lowered, rest)
       }
   }
 }
