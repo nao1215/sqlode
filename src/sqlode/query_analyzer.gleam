@@ -2,7 +2,6 @@ import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/regexp
-import gleam/result
 import gleam/string
 import sqlode/model
 import sqlode/naming
@@ -236,7 +235,7 @@ fn infer_insert_params(
         [Some(table_name), Some(columns_text), Some(values_text)] -> {
           let columns =
             split_csv(columns_text)
-            |> list.map(normalize_identifier)
+            |> list.map(naming.normalize_identifier)
 
           let values =
             split_csv(values_text)
@@ -343,7 +342,7 @@ fn scan_equality_matches(
                 find_column(
                   catalog,
                   table_name,
-                  normalize_identifier(column_name),
+                  naming.normalize_identifier(column_name),
                 )
               {
                 Some(column) -> [#(index, column), ..acc]
@@ -527,12 +526,14 @@ fn find_column(
 ) -> Option(model.Column) {
   case
     catalog.tables
-    |> list.find(fn(table) { table.name == normalize_identifier(table_name) })
+    |> list.find(fn(table) {
+      table.name == naming.normalize_identifier(table_name)
+    })
   {
     Ok(table) ->
       table.columns
       |> list.find(fn(column) {
-        column.name == normalize_identifier(column_name)
+        column.name == naming.normalize_identifier(column_name)
       })
       |> column_result_to_option
     Error(_) -> None
@@ -544,40 +545,6 @@ fn split_csv(text: String) -> List(String) {
   |> string.split(",")
   |> list.map(string.trim)
   |> list.filter(fn(entry) { entry != "" })
-}
-
-fn normalize_identifier(identifier: String) -> String {
-  identifier
-  |> string.trim
-  |> fn(value) {
-    case string.contains(value, ".") {
-      True ->
-        value
-        |> string.split(".")
-        |> list.last
-        |> result.unwrap(value)
-      False -> value
-    }
-  }
-  |> fn(value) {
-    let length = string.length(value)
-    case length >= 2 {
-      True -> {
-        let first = string.slice(value, 0, 1)
-        let last = string.slice(value, length - 1, 1)
-        case first == "\"" && last == "\"" {
-          True -> string.slice(value, 1, length - 2)
-          False ->
-            case first == "`" && last == "`" {
-              True -> string.slice(value, 1, length - 2)
-              False -> value
-            }
-        }
-      }
-      False -> value
-    }
-  }
-  |> string.lowercase
 }
 
 fn sequential_placeholder(engine: model.Engine) -> Bool {

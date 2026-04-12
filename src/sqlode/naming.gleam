@@ -1,5 +1,6 @@
 import gleam/list
 import gleam/regexp
+import gleam/result
 import gleam/string
 
 pub type NamingContext {
@@ -67,6 +68,47 @@ fn split_camel_case(input: String, ctx: NamingContext) -> List(String) {
 
 fn insert_underscores_before_caps(input: String, ctx: NamingContext) -> String {
   regexp.replace(ctx.underscore_before_caps, input, "\\1_\\2")
+}
+
+pub fn normalize_identifier(identifier: String) -> String {
+  identifier
+  |> string.trim
+  |> strip_identifier_quotes
+  |> last_dot_segment
+  |> string.lowercase
+}
+
+fn strip_identifier_quotes(identifier: String) -> String {
+  let length = string.length(identifier)
+
+  case length >= 2 {
+    False -> identifier
+    True -> {
+      let first = string.slice(identifier, 0, 1)
+      let last = string.slice(identifier, length - 1, 1)
+
+      let is_quoted =
+        { first == "\"" && last == "\"" }
+        || { first == "`" && last == "`" }
+        || { first == "[" && last == "]" }
+
+      case is_quoted {
+        True -> string.slice(identifier, 1, length - 2)
+        False -> identifier
+      }
+    }
+  }
+}
+
+fn last_dot_segment(identifier: String) -> String {
+  case string.contains(identifier, ".") {
+    True ->
+      identifier
+      |> string.split(".")
+      |> list.last
+      |> result.unwrap(identifier)
+    False -> identifier
+  }
 }
 
 fn escape_keyword(name: String) -> String {

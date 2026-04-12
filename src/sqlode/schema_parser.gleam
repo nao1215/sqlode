@@ -3,6 +3,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import sqlode/model
+import sqlode/naming
 
 pub type ParseError {
   InvalidCreateTable(detail: String)
@@ -131,7 +132,7 @@ fn parse_create_table(
   use table_name <- result.try(
     header_tokens
     |> list.last
-    |> result.map(trim_identifier)
+    |> result.map(naming.normalize_identifier)
     |> result.map_error(fn(_) {
       InvalidCreateTable(detail: "missing table name")
     }),
@@ -185,7 +186,7 @@ fn parse_column(
       case is_table_constraint(first_lower) {
         True -> Ok(None)
         False -> {
-          let name = trim_identifier(first)
+          let name = naming.normalize_identifier(first)
           let type_tokens = take_type_tokens(rest, [])
 
           case type_tokens {
@@ -332,43 +333,6 @@ fn contains_phrase(tokens: List(String), first: String, second: String) -> Bool 
         False -> contains_phrase([b, ..rest], first, second)
       }
   }
-}
-
-fn trim_identifier(identifier: String) -> String {
-  identifier
-  |> string.trim
-  |> trim_identifier_quotes
-  |> last_identifier_segment
-  |> string.lowercase
-}
-
-fn trim_identifier_quotes(identifier: String) -> String {
-  let length = string.length(identifier)
-
-  case length >= 2 {
-    False -> identifier
-    True -> {
-      let first = string.slice(identifier, 0, 1)
-      let last = string.slice(identifier, length - 1, 1)
-
-      let is_quoted =
-        { first == "\"" && last == "\"" }
-        || { first == "`" && last == "`" }
-        || { first == "[" && last == "]" }
-
-      case is_quoted {
-        True -> string.slice(identifier, 1, length - 2)
-        False -> identifier
-      }
-    }
-  }
-}
-
-fn last_identifier_segment(identifier: String) -> String {
-  identifier
-  |> string.split(".")
-  |> list.last
-  |> result.unwrap(identifier)
 }
 
 fn find_enum(type_text: String, enums: List(model.EnumDef)) -> Option(String) {
