@@ -11,27 +11,103 @@ type PlaceholderOccurrence {
   PlaceholderOccurrence(index: Int, token: String, default_name: String)
 }
 
+type AnalyzerContext {
+  AnalyzerContext(
+    naming: naming.NamingContext,
+    insert_re: regexp.Regexp,
+    equality_re: regexp.Regexp,
+    postgresql_placeholder_re: regexp.Regexp,
+    mysql_placeholder_re: regexp.Regexp,
+    sqlite_placeholder_re: regexp.Regexp,
+    whitespace_re: regexp.Regexp,
+    table_from_re: regexp.Regexp,
+    table_into_re: regexp.Regexp,
+    table_update_re: regexp.Regexp,
+    table_delete_re: regexp.Regexp,
+    cte_re: regexp.Regexp,
+    returning_re: regexp.Regexp,
+    join_re: regexp.Regexp,
+    select_columns_re: regexp.Regexp,
+  )
+}
+
+fn new_analyzer_context(naming_ctx: naming.NamingContext) -> AnalyzerContext {
+  let assert Ok(insert_re) =
+    regexp.from_string(
+      "insert\\s+into\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(([^)]*)\\)\\s*values\\s*\\(([^)]*)\\)",
+    )
+  let assert Ok(equality_re) =
+    regexp.from_string(
+      "([a-zA-Z_][a-zA-Z0-9_.]*)\\s*=\\s*(\\$[0-9]+|\\?|:[A-Za-z_][A-Za-z0-9_]*|@[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*)",
+    )
+  let assert Ok(postgresql_placeholder_re) = regexp.from_string("(\\$[0-9]+)")
+  let assert Ok(mysql_placeholder_re) = regexp.from_string("(\\?)")
+  let assert Ok(sqlite_placeholder_re) =
+    regexp.from_string(
+      "(\\?[0-9]+|\\?|:[A-Za-z_][A-Za-z0-9_]*|@[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*)",
+    )
+  let assert Ok(whitespace_re) = regexp.from_string("\\s+")
+  let assert Ok(table_from_re) =
+    regexp.from_string("from\\s+([a-zA-Z_][a-zA-Z0-9_]*)")
+  let assert Ok(table_into_re) =
+    regexp.from_string("into\\s+([a-zA-Z_][a-zA-Z0-9_]*)")
+  let assert Ok(table_update_re) =
+    regexp.from_string("update\\s+([a-zA-Z_][a-zA-Z0-9_]*)")
+  let assert Ok(table_delete_re) =
+    regexp.from_string("delete\\s+from\\s+([a-zA-Z_][a-zA-Z0-9_]*)")
+  let assert Ok(cte_re) =
+    regexp.from_string("^with\\s+.+\\)\\s+(select|insert|update|delete)\\s")
+  let assert Ok(returning_re) =
+    regexp.from_string("returning\\s+(.+?)\\s*;?\\s*$")
+  let assert Ok(join_re) =
+    regexp.from_string("join\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s")
+  let assert Ok(select_columns_re) =
+    regexp.from_string("select\\s+(.+?)\\s+from\\s")
+
+  AnalyzerContext(
+    naming: naming_ctx,
+    insert_re:,
+    equality_re:,
+    postgresql_placeholder_re:,
+    mysql_placeholder_re:,
+    sqlite_placeholder_re:,
+    whitespace_re:,
+    table_from_re:,
+    table_into_re:,
+    table_update_re:,
+    table_delete_re:,
+    cte_re:,
+    returning_re:,
+    join_re:,
+    select_columns_re:,
+  )
+}
+
 pub fn analyze_queries(
   engine: model.Engine,
   catalog: model.Catalog,
+  naming_ctx: naming.NamingContext,
   queries: List(model.ParsedQuery),
 ) -> List(model.AnalyzedQuery) {
-  list.map(queries, analyze_query(engine, catalog, _))
+  let ctx = new_analyzer_context(naming_ctx)
+  list.map(queries, analyze_query(ctx, engine, catalog, _))
 }
 
 fn analyze_query(
+  ctx: AnalyzerContext,
   engine: model.Engine,
   catalog: model.Catalog,
   query: model.ParsedQuery,
 ) -> model.AnalyzedQuery {
-  let occurrences = extract_placeholder_occurrences(engine, query.sql)
-  let params = build_params(engine, query, catalog, occurrences)
-  let result_columns = infer_result_columns(query, catalog)
+  let occurrences = extract_placeholder_occurrences(ctx, engine, query.sql)
+  let params = build_params(ctx, engine, query, catalog, occurrences)
+  let result_columns = infer_result_columns(ctx, query, catalog)
 
   model.AnalyzedQuery(base: query, params:, result_columns:)
 }
 
 fn build_params(
+  ctx: AnalyzerContext,
   engine: model.Engine,
   query: model.ParsedQuery,
   catalog: model.Catalog,
@@ -39,8 +115,8 @@ fn build_params(
 ) -> List(model.QueryParam) {
   let inferences =
     list.append(
-      infer_insert_params(engine, query, catalog),
-      infer_equality_params(engine, query, catalog),
+      infer_insert_params(ctx, engine, query, catalog),
+      infer_equality_params(ctx, engine, query, catalog),
     )
 
   unique_occurrences(occurrences, [])
@@ -58,26 +134,26 @@ fn build_params(
           Some(column) -> column.nullable
           None -> False
         }
-        #(naming.to_snake_case(name), st, n, False)
+        #(naming.to_snake_case(ctx.naming, name), st, n, False)
       }
       Some(model.SqlcNarg(name:, ..)) -> {
         let st = case inferred {
           Some(column) -> column.scalar_type
           None -> model.StringType
         }
-        #(naming.to_snake_case(name), st, True, False)
+        #(naming.to_snake_case(ctx.naming, name), st, True, False)
       }
       Some(model.SqlcSlice(name:, ..)) -> {
         let st = case inferred {
           Some(column) -> column.scalar_type
           None -> model.StringType
         }
-        #(naming.to_snake_case(name), st, False, True)
+        #(naming.to_snake_case(ctx.naming, name), st, False, True)
       }
       None ->
         case inferred {
           Some(column) -> #(
-            naming.to_snake_case(column.name),
+            naming.to_snake_case(ctx.naming, column.name),
             column.scalar_type,
             column.nullable,
             False,
@@ -147,17 +223,14 @@ fn find_inference(
 }
 
 fn infer_insert_params(
+  ctx: AnalyzerContext,
   engine: model.Engine,
   query: model.ParsedQuery,
   catalog: model.Catalog,
 ) -> List(#(Int, model.Column)) {
-  let normalized = normalize_sql(query.sql)
-  let assert Ok(re) =
-    regexp.from_string(
-      "insert\\s+into\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(([^)]*)\\)\\s*values\\s*\\(([^)]*)\\)",
-    )
+  let normalized = normalize_sql(ctx, query.sql)
 
-  case regexp.scan(re, normalized) {
+  case regexp.scan(ctx.insert_re, normalized) {
     [match, ..] ->
       case match.submatches {
         [Some(table_name), Some(columns_text), Some(values_text)] -> {
@@ -226,16 +299,13 @@ fn map_insert_columns(
 }
 
 fn infer_equality_params(
+  ctx: AnalyzerContext,
   engine: model.Engine,
   query: model.ParsedQuery,
   catalog: model.Catalog,
 ) -> List(#(Int, model.Column)) {
-  let normalized = normalize_sql(query.sql)
-  let table_name = primary_table_name(normalized)
-  let assert Ok(re) =
-    regexp.from_string(
-      "([a-zA-Z_][a-zA-Z0-9_.]*)\\s*=\\s*(\\$[0-9]+|\\?|:[A-Za-z_][A-Za-z0-9_]*|@[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*)",
-    )
+  let normalized = normalize_sql(ctx, query.sql)
+  let table_name = primary_table_name(ctx, normalized)
 
   case table_name {
     None -> []
@@ -244,7 +314,7 @@ fn infer_equality_params(
         engine,
         catalog,
         name,
-        regexp.scan(re, normalized),
+        regexp.scan(ctx.equality_re, normalized),
         1,
         [],
       )
@@ -310,14 +380,16 @@ fn scan_equality_matches(
 }
 
 fn extract_placeholder_occurrences(
+  ctx: AnalyzerContext,
   engine: model.Engine,
   sql: String,
 ) -> List(PlaceholderOccurrence) {
-  let tokens = placeholder_tokens(engine, sql)
-  build_occurrences(engine, tokens, 1, [])
+  let tokens = placeholder_tokens(ctx, engine, sql)
+  build_occurrences(ctx, engine, tokens, 1, [])
 }
 
 fn build_occurrences(
+  ctx: AnalyzerContext,
   engine: model.Engine,
   tokens: List(String),
   occurrence: Int,
@@ -331,9 +403,9 @@ fn build_occurrences(
         None -> occurrence
       }
 
-      let default_name = default_param_name(token, index)
+      let default_name = default_param_name(ctx, token, index)
 
-      build_occurrences(engine, rest, occurrence + 1, [
+      build_occurrences(ctx, engine, rest, occurrence + 1, [
         PlaceholderOccurrence(index:, token:, default_name:),
         ..acc
       ])
@@ -341,15 +413,16 @@ fn build_occurrences(
   }
 }
 
-fn placeholder_tokens(engine: model.Engine, sql: String) -> List(String) {
-  let pattern = case engine {
-    model.PostgreSQL -> "(\\$[0-9]+)"
-    model.MySQL -> "(\\?)"
-    model.SQLite ->
-      "(\\?[0-9]+|\\?|:[A-Za-z_][A-Za-z0-9_]*|@[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*)"
+fn placeholder_tokens(
+  ctx: AnalyzerContext,
+  engine: model.Engine,
+  sql: String,
+) -> List(String) {
+  let re = case engine {
+    model.PostgreSQL -> ctx.postgresql_placeholder_re
+    model.MySQL -> ctx.mysql_placeholder_re
+    model.SQLite -> ctx.sqlite_placeholder_re
   }
-
-  let assert Ok(re) = regexp.from_string(pattern)
 
   regexp.scan(re, sql)
   |> list.filter_map(fn(match) {
@@ -384,9 +457,9 @@ fn placeholder_index_for_token(
   }
 }
 
-fn default_param_name(token: String, index: Int) -> String {
+fn default_param_name(ctx: AnalyzerContext, token: String, index: Int) -> String {
   case named_placeholder_name(token) {
-    Some(name) -> naming.to_snake_case(name)
+    Some(name) -> naming.to_snake_case(ctx.naming, name)
     None -> "param" <> int.to_string(index)
   }
 }
@@ -413,31 +486,28 @@ fn named_placeholder_name(token: String) -> Option(String) {
   }
 }
 
-fn normalize_sql(sql: String) -> String {
-  let assert Ok(whitespace) = regexp.from_string("\\s+")
+fn normalize_sql(ctx: AnalyzerContext, sql: String) -> String {
   let lowered = string.lowercase(sql)
 
-  regexp.replace(whitespace, lowered, " ")
+  regexp.replace(ctx.whitespace_re, lowered, " ")
   |> string.trim
 }
 
-fn primary_table_name(sql: String) -> Option(String) {
-  let patterns = [
-    "from\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
-    "into\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
-    "update\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
-    "delete\\s+from\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+fn primary_table_name(ctx: AnalyzerContext, sql: String) -> Option(String) {
+  let regexes = [
+    ctx.table_from_re,
+    ctx.table_into_re,
+    ctx.table_update_re,
+    ctx.table_delete_re,
   ]
 
-  find_first_match(patterns, sql)
+  find_first_match(regexes, sql)
 }
 
-fn find_first_match(patterns: List(String), sql: String) -> Option(String) {
-  case patterns {
+fn find_first_match(regexes: List(regexp.Regexp), sql: String) -> Option(String) {
+  case regexes {
     [] -> None
-    [pattern, ..rest] -> {
-      let assert Ok(re) = regexp.from_string(pattern)
-
+    [re, ..rest] -> {
       case regexp.scan(re, sql) {
         [match, ..] ->
           case match.submatches {
@@ -560,17 +630,18 @@ fn column_result_to_option(
 }
 
 fn infer_result_columns(
+  ctx: AnalyzerContext,
   query: model.ParsedQuery,
   catalog: model.Catalog,
 ) -> List(model.ResultColumn) {
   case query.command {
     model.Exec | model.ExecResult | model.ExecRows | model.ExecLastId -> []
     model.One | model.Many -> {
-      let normalized = normalize_sql(query.sql)
+      let normalized = normalize_sql(ctx, query.sql)
 
-      case extract_returning_columns(normalized) {
+      case extract_returning_columns(ctx, normalized) {
         Some(returning_cols) -> {
-          let table_names = extract_table_names(normalized)
+          let table_names = extract_table_names(ctx, normalized)
           case table_names {
             [] -> []
             _ ->
@@ -586,13 +657,13 @@ fn infer_result_columns(
           }
         }
         None -> {
-          let main_sql = strip_cte(normalized)
-          let table_names = extract_table_names(main_sql)
+          let main_sql = strip_cte(ctx, normalized)
+          let table_names = extract_table_names(ctx, main_sql)
 
           case table_names {
             [] -> []
             [primary, ..] -> {
-              let select_columns = extract_select_columns(main_sql)
+              let select_columns = extract_select_columns(ctx, main_sql)
               resolve_select_columns(
                 select_columns,
                 catalog,
@@ -607,14 +678,11 @@ fn infer_result_columns(
   }
 }
 
-fn strip_cte(sql: String) -> String {
+fn strip_cte(ctx: AnalyzerContext, sql: String) -> String {
   case string.starts_with(sql, "with ") {
     False -> sql
     True -> {
-      let assert Ok(re) =
-        regexp.from_string("^with\\s+.+\\)\\s+(select|insert|update|delete)\\s")
-
-      case regexp.scan(re, sql) {
+      case regexp.scan(ctx.cte_re, sql) {
         [match, ..] ->
           case match.submatches {
             [Some(keyword)] -> {
@@ -631,10 +699,11 @@ fn strip_cte(sql: String) -> String {
   }
 }
 
-fn extract_returning_columns(sql: String) -> Option(List(String)) {
-  let assert Ok(re) = regexp.from_string("returning\\s+(.+?)\\s*;?\\s*$")
-
-  case regexp.scan(re, sql) {
+fn extract_returning_columns(
+  ctx: AnalyzerContext,
+  sql: String,
+) -> Option(List(String)) {
+  case regexp.scan(ctx.returning_re, sql) {
     [match, ..] ->
       case match.submatches {
         [Some(columns_text)] -> {
@@ -650,9 +719,9 @@ fn extract_returning_columns(sql: String) -> Option(List(String)) {
   }
 }
 
-fn extract_table_names(sql: String) -> List(String) {
-  let primary = primary_table_name(sql)
-  let join_tables = extract_join_tables(sql)
+fn extract_table_names(ctx: AnalyzerContext, sql: String) -> List(String) {
+  let primary = primary_table_name(ctx, sql)
+  let join_tables = extract_join_tables(ctx, sql)
 
   case primary {
     Some(name) -> [name, ..join_tables]
@@ -660,10 +729,8 @@ fn extract_table_names(sql: String) -> List(String) {
   }
 }
 
-fn extract_join_tables(sql: String) -> List(String) {
-  let assert Ok(re) = regexp.from_string("join\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s")
-
-  regexp.scan(re, sql)
+fn extract_join_tables(ctx: AnalyzerContext, sql: String) -> List(String) {
+  regexp.scan(ctx.join_re, sql)
   |> list.filter_map(fn(match) {
     case match.submatches {
       [Some(name)] -> Ok(name)
@@ -672,10 +739,8 @@ fn extract_join_tables(sql: String) -> List(String) {
   })
 }
 
-fn extract_select_columns(sql: String) -> List(String) {
-  let assert Ok(re) = regexp.from_string("select\\s+(.+?)\\s+from\\s")
-
-  case regexp.scan(re, sql) {
+fn extract_select_columns(ctx: AnalyzerContext, sql: String) -> List(String) {
+  case regexp.scan(ctx.select_columns_re, sql) {
     [match, ..] ->
       case match.submatches {
         [Some(columns_text)] -> {

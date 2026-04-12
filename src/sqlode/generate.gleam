@@ -5,6 +5,7 @@ import simplifile
 import sqlode/codegen
 import sqlode/config
 import sqlode/model
+import sqlode/naming
 import sqlode/query_analyzer
 import sqlode/query_parser
 import sqlode/schema_parser
@@ -30,9 +31,10 @@ pub fn run(config_path: String) -> Result(List(String), GenerateError) {
 }
 
 pub fn generate_config(cfg: model.Config) -> Result(List(String), GenerateError) {
+  let naming_ctx = naming.new()
   use files <- result.try(
     cfg.sql
-    |> list.try_map(generate_sql_block)
+    |> list.try_map(generate_sql_block(naming_ctx, _))
     |> result.map(list.flatten),
   )
 
@@ -41,14 +43,15 @@ pub fn generate_config(cfg: model.Config) -> Result(List(String), GenerateError)
 }
 
 fn generate_sql_block(
+  naming_ctx: naming.NamingContext,
   block: model.SqlBlock,
 ) -> Result(List(writer.GeneratedFile), GenerateError) {
   use raw_catalog <- result.try(load_catalog(block.schema))
   let catalog =
     apply_type_overrides(raw_catalog, block.overrides.type_overrides)
-  use queries <- result.try(load_queries(block))
+  use queries <- result.try(load_queries(naming_ctx, block))
   let analyzed =
-    query_analyzer.analyze_queries(block.engine, catalog, queries)
+    query_analyzer.analyze_queries(block.engine, catalog, naming_ctx, queries)
     |> apply_column_renames(block.overrides.column_renames)
 
   let model.SqlBlock(gleam:, ..) = block
@@ -69,7 +72,7 @@ fn generate_sql_block(
         writer.GeneratedFile(
           directory: out,
           path: "params.gleam",
-          content: codegen.render_params_module(analyzed),
+          content: codegen.render_params_module(naming_ctx, analyzed),
         ),
         writer.GeneratedFile(
           directory: out,
@@ -84,7 +87,7 @@ fn generate_sql_block(
             writer.GeneratedFile(
               directory: out,
               path: "models.gleam",
-              content: codegen.render_models_module(analyzed),
+              content: codegen.render_models_module(naming_ctx, analyzed),
             ),
           ])
         False -> base_files
@@ -97,7 +100,11 @@ fn generate_sql_block(
             writer.GeneratedFile(
               directory: out,
               path: adapter_filename(block.engine),
-              content: codegen.render_adapter_module(block, analyzed),
+              content: codegen.render_adapter_module(
+                naming_ctx,
+                block,
+                analyzed,
+              ),
             ),
           ])
       }
@@ -130,6 +137,7 @@ fn load_catalog(paths: List(String)) -> Result(model.Catalog, GenerateError) {
 }
 
 fn load_queries(
+  naming_ctx: naming.NamingContext,
   block: model.SqlBlock,
 ) -> Result(List(model.ParsedQuery), GenerateError) {
   let model.SqlBlock(engine:, queries:, ..) = block
@@ -147,7 +155,7 @@ fn load_queries(
       }),
     )
 
-    query_parser.parse_file(path, engine, content)
+    query_parser.parse_file(path, engine, naming_ctx, content)
     |> result.map_error(fn(error) {
       QueryParseError(path:, detail: query_parser.error_to_string(error))
     })

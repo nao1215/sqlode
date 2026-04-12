@@ -53,7 +53,10 @@ pub fn render_queries_module(
   )
 }
 
-pub fn render_params_module(queries: List(model.AnalyzedQuery)) -> String {
+pub fn render_params_module(
+  naming_ctx: naming.NamingContext,
+  queries: List(model.AnalyzedQuery),
+) -> String {
   let imports = case needs_option_import(queries) {
     True -> [
       "import gleam/option.{type Option, None, Some}",
@@ -64,7 +67,7 @@ pub fn render_params_module(queries: List(model.AnalyzedQuery)) -> String {
 
   let declarations =
     queries
-    |> list.map(render_params_declaration)
+    |> list.map(render_params_declaration(naming_ctx, _))
     |> string.join("\n\n")
 
   let lines =
@@ -101,8 +104,11 @@ fn render_query_function(query: model.ParsedQuery) -> String {
   )
 }
 
-fn render_params_declaration(query: model.AnalyzedQuery) -> String {
-  let type_name = params_type_name(query.base)
+fn render_params_declaration(
+  naming_ctx: naming.NamingContext,
+  query: model.AnalyzedQuery,
+) -> String {
+  let type_name = params_type_name(naming_ctx, query.base)
   let function_name = query.base.function_name <> "_values"
 
   case query.params {
@@ -147,8 +153,11 @@ fn render_params_declaration(query: model.AnalyzedQuery) -> String {
   }
 }
 
-fn params_type_name(query: model.ParsedQuery) -> String {
-  naming.to_pascal_case(query.name) <> "Params"
+fn params_type_name(
+  naming_ctx: naming.NamingContext,
+  query: model.ParsedQuery,
+) -> String {
+  naming.to_pascal_case(naming_ctx, query.name) <> "Params"
 }
 
 fn param_fields(params: List(model.QueryParam)) -> List(String) {
@@ -191,7 +200,10 @@ fn int_to_string(value: Int) -> String {
   int.to_string(value)
 }
 
-pub fn render_models_module(queries: List(model.AnalyzedQuery)) -> String {
+pub fn render_models_module(
+  naming_ctx: naming.NamingContext,
+  queries: List(model.AnalyzedQuery),
+) -> String {
   let row_types =
     queries
     |> list.filter(fn(query) {
@@ -200,7 +212,7 @@ pub fn render_models_module(queries: List(model.AnalyzedQuery)) -> String {
         _ -> False
       }
     })
-    |> list.map(render_row_type)
+    |> list.map(render_row_type(naming_ctx, _))
     |> string.join("\n\n")
 
   let imports = case needs_option_import_for_results(queries) {
@@ -232,8 +244,11 @@ fn needs_option_import_for_results(queries: List(model.AnalyzedQuery)) -> Bool {
   })
 }
 
-fn render_row_type(query: model.AnalyzedQuery) -> String {
-  let type_name = naming.to_pascal_case(query.base.name) <> "Row"
+fn render_row_type(
+  naming_ctx: naming.NamingContext,
+  query: model.AnalyzedQuery,
+) -> String {
+  let type_name = naming.to_pascal_case(naming_ctx, query.base.name) <> "Row"
 
   case query.result_columns {
     [] -> ""
@@ -248,7 +263,7 @@ fn render_row_type(query: model.AnalyzedQuery) -> String {
               <> ")"
             False -> model.scalar_type_to_gleam_type(col.scalar_type)
           }
-          naming.to_snake_case(col.name) <> ": " <> gleam_type
+          naming.to_snake_case(naming_ctx, col.name) <> ": " <> gleam_type
         })
         |> string.join(", ")
 
@@ -265,17 +280,19 @@ fn render_row_type(query: model.AnalyzedQuery) -> String {
 }
 
 pub fn render_adapter_module(
+  naming_ctx: naming.NamingContext,
   block: model.SqlBlock,
   queries: List(model.AnalyzedQuery),
 ) -> String {
   case block.engine {
-    model.PostgreSQL -> render_pog_adapter(block, queries)
-    model.SQLite -> render_sqlight_adapter(block, queries)
+    model.PostgreSQL -> render_pog_adapter(naming_ctx, block, queries)
+    model.SQLite -> render_sqlight_adapter(naming_ctx, block, queries)
     model.MySQL -> render_mysql_adapter(block, queries)
   }
 }
 
 fn render_pog_adapter(
+  naming_ctx: naming.NamingContext,
   block: model.SqlBlock,
   queries: List(model.AnalyzedQuery),
 ) -> String {
@@ -312,33 +329,42 @@ fn render_pog_adapter(
 
   let functions =
     queries
-    |> list.map(render_pog_function)
+    |> list.map(render_pog_function(naming_ctx, _))
     |> string.join("\n\n")
 
   string.join(list.flatten([imports, ["", functions]]), "\n")
 }
 
-fn render_pog_function(query: model.AnalyzedQuery) -> String {
+fn render_pog_function(
+  naming_ctx: naming.NamingContext,
+  query: model.AnalyzedQuery,
+) -> String {
   let fn_name = query.base.function_name
   let has_params = !list.is_empty(query.params)
 
   case query.base.command {
-    model.One -> render_pog_one(query, fn_name, has_params)
-    model.Many -> render_pog_many(query, fn_name, has_params)
-    model.Exec | model.ExecResult -> render_pog_exec(query, fn_name, has_params)
-    model.ExecRows -> render_pog_exec_rows(query, fn_name, has_params)
-    model.ExecLastId -> render_pog_exec(query, fn_name, has_params)
+    model.One -> render_pog_one(naming_ctx, query, fn_name, has_params)
+    model.Many -> render_pog_many(naming_ctx, query, fn_name, has_params)
+    model.Exec | model.ExecResult ->
+      render_pog_exec(naming_ctx, query, fn_name, has_params)
+    model.ExecRows ->
+      render_pog_exec_rows(naming_ctx, query, fn_name, has_params)
+    model.ExecLastId -> render_pog_exec(naming_ctx, query, fn_name, has_params)
   }
 }
 
 fn render_pog_one(
+  naming_ctx: naming.NamingContext,
   query: model.AnalyzedQuery,
   fn_name: String,
   has_params: Bool,
 ) -> String {
-  let type_name = naming.to_pascal_case(query.base.name) <> "Row"
+  let type_name = naming.to_pascal_case(naming_ctx, query.base.name) <> "Row"
   let params_arg = case has_params {
-    True -> ", p: params." <> naming.to_pascal_case(query.base.name) <> "Params"
+    True ->
+      ", p: params."
+      <> naming.to_pascal_case(naming_ctx, query.base.name)
+      <> "Params"
     False -> ""
   }
   let param_bindings = render_pog_params(query)
@@ -375,13 +401,17 @@ fn render_pog_one(
 }
 
 fn render_pog_many(
+  naming_ctx: naming.NamingContext,
   query: model.AnalyzedQuery,
   fn_name: String,
   has_params: Bool,
 ) -> String {
-  let type_name = naming.to_pascal_case(query.base.name) <> "Row"
+  let type_name = naming.to_pascal_case(naming_ctx, query.base.name) <> "Row"
   let params_arg = case has_params {
-    True -> ", p: params." <> naming.to_pascal_case(query.base.name) <> "Params"
+    True ->
+      ", p: params."
+      <> naming.to_pascal_case(naming_ctx, query.base.name)
+      <> "Params"
     False -> ""
   }
   let param_bindings = render_pog_params(query)
@@ -413,12 +443,16 @@ fn render_pog_many(
 }
 
 fn render_pog_exec(
+  naming_ctx: naming.NamingContext,
   query: model.AnalyzedQuery,
   fn_name: String,
   has_params: Bool,
 ) -> String {
   let params_arg = case has_params {
-    True -> ", p: params." <> naming.to_pascal_case(query.base.name) <> "Params"
+    True ->
+      ", p: params."
+      <> naming.to_pascal_case(naming_ctx, query.base.name)
+      <> "Params"
     False -> ""
   }
   let param_bindings = render_pog_params(query)
@@ -446,12 +480,16 @@ fn render_pog_exec(
 }
 
 fn render_pog_exec_rows(
+  naming_ctx: naming.NamingContext,
   query: model.AnalyzedQuery,
   fn_name: String,
   has_params: Bool,
 ) -> String {
   let params_arg = case has_params {
-    True -> ", p: params." <> naming.to_pascal_case(query.base.name) <> "Params"
+    True ->
+      ", p: params."
+      <> naming.to_pascal_case(naming_ctx, query.base.name)
+      <> "Params"
     False -> ""
   }
   let param_bindings = render_pog_params(query)
@@ -562,6 +600,7 @@ fn pog_decoder_function(scalar_type: model.ScalarType) -> String {
 }
 
 fn render_sqlight_adapter(
+  naming_ctx: naming.NamingContext,
   block: model.SqlBlock,
   queries: List(model.AnalyzedQuery),
 ) -> String {
@@ -598,33 +637,41 @@ fn render_sqlight_adapter(
 
   let functions =
     queries
-    |> list.map(render_sqlight_function)
+    |> list.map(render_sqlight_function(naming_ctx, _))
     |> string.join("\n\n")
 
   string.join(list.flatten([imports, ["", functions]]), "\n")
 }
 
-fn render_sqlight_function(query: model.AnalyzedQuery) -> String {
+fn render_sqlight_function(
+  naming_ctx: naming.NamingContext,
+  query: model.AnalyzedQuery,
+) -> String {
   let fn_name = query.base.function_name
   let has_params = !list.is_empty(query.params)
 
   case query.base.command {
-    model.One -> render_sqlight_one(query, fn_name, has_params)
-    model.Many -> render_sqlight_many(query, fn_name, has_params)
+    model.One -> render_sqlight_one(naming_ctx, query, fn_name, has_params)
+    model.Many -> render_sqlight_many(naming_ctx, query, fn_name, has_params)
     model.Exec | model.ExecResult | model.ExecLastId ->
-      render_sqlight_exec(query, fn_name, has_params)
-    model.ExecRows -> render_sqlight_exec(query, fn_name, has_params)
+      render_sqlight_exec(naming_ctx, query, fn_name, has_params)
+    model.ExecRows ->
+      render_sqlight_exec(naming_ctx, query, fn_name, has_params)
   }
 }
 
 fn render_sqlight_one(
+  naming_ctx: naming.NamingContext,
   query: model.AnalyzedQuery,
   fn_name: String,
   has_params: Bool,
 ) -> String {
-  let type_name = naming.to_pascal_case(query.base.name) <> "Row"
+  let type_name = naming.to_pascal_case(naming_ctx, query.base.name) <> "Row"
   let params_arg = case has_params {
-    True -> ", p: params." <> naming.to_pascal_case(query.base.name) <> "Params"
+    True ->
+      ", p: params."
+      <> naming.to_pascal_case(naming_ctx, query.base.name)
+      <> "Params"
     False -> ""
   }
   let param_list = render_sqlight_params(query)
@@ -659,13 +706,17 @@ fn render_sqlight_one(
 }
 
 fn render_sqlight_many(
+  naming_ctx: naming.NamingContext,
   query: model.AnalyzedQuery,
   fn_name: String,
   has_params: Bool,
 ) -> String {
-  let type_name = naming.to_pascal_case(query.base.name) <> "Row"
+  let type_name = naming.to_pascal_case(naming_ctx, query.base.name) <> "Row"
   let params_arg = case has_params {
-    True -> ", p: params." <> naming.to_pascal_case(query.base.name) <> "Params"
+    True ->
+      ", p: params."
+      <> naming.to_pascal_case(naming_ctx, query.base.name)
+      <> "Params"
     False -> ""
   }
   let param_list = render_sqlight_params(query)
@@ -694,12 +745,16 @@ fn render_sqlight_many(
 }
 
 fn render_sqlight_exec(
+  naming_ctx: naming.NamingContext,
   query: model.AnalyzedQuery,
   fn_name: String,
   has_params: Bool,
 ) -> String {
   let params_arg = case has_params {
-    True -> ", p: params." <> naming.to_pascal_case(query.base.name) <> "Params"
+    True ->
+      ", p: params."
+      <> naming.to_pascal_case(naming_ctx, query.base.name)
+      <> "Params"
     False -> ""
   }
   let param_list = render_sqlight_params(query)
