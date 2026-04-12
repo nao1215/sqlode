@@ -57,13 +57,9 @@ pub fn render_params_module(queries: List(model.AnalyzedQuery)) -> String {
   let imports = case needs_option_import(queries) {
     True -> [
       "import gleam/option.{type Option, None, Some}",
-      "import sqlode/runtime",
       "import sqlode/runtime.{type Value}",
     ]
-    False -> [
-      "import sqlode/runtime",
-      "import sqlode/runtime.{type Value}",
-    ]
+    False -> ["import sqlode/runtime.{type Value}"]
   }
 
   let declarations =
