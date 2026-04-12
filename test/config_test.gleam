@@ -1,4 +1,5 @@
 import gleam/list
+import gleam/string
 import gleeunit
 import gleeunit/should
 import sqlode/config
@@ -26,4 +27,53 @@ pub fn reject_unsupported_config_version_test() {
 
   config.error_to_string(error)
   |> should.equal("Invalid value for version: expected \"2\", got 1")
+}
+
+// Error cases
+
+pub fn file_not_found_test() {
+  let assert Error(error) = config.load("nonexistent/path/sqlode.yaml")
+  let msg = config.error_to_string(error)
+  string.contains(msg, "not found") |> should.be_true()
+}
+
+pub fn sql_not_a_list_test() {
+  let assert Error(error) = config.load("test/fixtures/malformed.yaml")
+  let msg = config.error_to_string(error)
+  string.contains(msg, "sql") |> should.be_true()
+}
+
+pub fn missing_sql_field_test() {
+  let assert Error(error) = config.load("test/fixtures/missing_sql.yaml")
+  let msg = config.error_to_string(error)
+  string.contains(msg, "sql") |> should.be_true()
+}
+
+pub fn missing_engine_field_test() {
+  let assert Error(error) = config.load("test/fixtures/missing_engine.yaml")
+  let msg = config.error_to_string(error)
+  string.contains(msg, "engine") |> should.be_true()
+}
+
+pub fn invalid_engine_value_test() {
+  let assert Error(error) = config.load("test/fixtures/invalid_engine.yaml")
+  let msg = config.error_to_string(error)
+  string.contains(msg, "engine") |> should.be_true()
+}
+
+// error_to_string coverage
+
+pub fn error_to_string_file_read_error_test() {
+  config.error_to_string(config.FileReadError(
+    path: "foo.yaml",
+    detail: "permission denied",
+  ))
+  |> string.contains("foo.yaml")
+  |> should.be_true()
+}
+
+pub fn error_to_string_missing_field_test() {
+  config.error_to_string(config.MissingField(field: "engine"))
+  |> string.contains("engine")
+  |> should.be_true()
 }

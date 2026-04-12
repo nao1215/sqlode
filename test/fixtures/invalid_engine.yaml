@@ -1,0 +1,9 @@
+version: "2"
+sql:
+  - schema: "test/fixtures/schema.sql"
+    queries: "test/fixtures/query.sql"
+    engine: "oracle"
+    gen:
+      gleam:
+        package: "db"
+        out: "test_output/db"

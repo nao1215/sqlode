@@ -121,3 +121,119 @@ pub fn expand_sqlc_arg_mysql_test() {
   query.param_count |> should.equal(1)
   string.contains(query.sql, "?") |> should.be_true()
 }
+
+// Error and boundary tests
+
+pub fn invalid_annotation_format_test() {
+  let naming_ctx = naming.new()
+  let content = "-- name: OnlyName\nSELECT 1;"
+
+  let assert Error(error) =
+    query_parser.parse_file("bad.sql", model.PostgreSQL, naming_ctx, content)
+  let msg = query_parser.error_to_string(error)
+  string.contains(msg, "expected") |> should.be_true()
+}
+
+pub fn invalid_command_test() {
+  let naming_ctx = naming.new()
+  let content = "-- name: MyQuery :unknown\nSELECT 1;"
+
+  let assert Error(error) =
+    query_parser.parse_file("bad.sql", model.PostgreSQL, naming_ctx, content)
+  let msg = query_parser.error_to_string(error)
+  string.contains(msg, "must be one of") |> should.be_true()
+}
+
+pub fn file_with_no_annotations_test() {
+  let naming_ctx = naming.new()
+  let content = "SELECT 1;\nSELECT 2;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("none.sql", model.PostgreSQL, naming_ctx, content)
+  queries |> should.equal([])
+}
+
+pub fn empty_file_test() {
+  let naming_ctx = naming.new()
+  let assert Ok(queries) =
+    query_parser.parse_file("empty.sql", model.PostgreSQL, naming_ctx, "")
+  queries |> should.equal([])
+}
+
+pub fn multiple_queries_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: Q1 :one\nSELECT 1;\n"
+    <> "-- name: Q2 :many\nSELECT 2;\n"
+    <> "-- name: Q3 :exec\nINSERT INTO t VALUES (1);"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("multi.sql", model.PostgreSQL, naming_ctx, content)
+  list.length(queries) |> should.equal(3)
+
+  let assert [q1, q2, q3] = queries
+  q1.name |> should.equal("Q1")
+  q1.command |> should.equal(model.One)
+  q2.name |> should.equal("Q2")
+  q2.command |> should.equal(model.Many)
+  q3.name |> should.equal("Q3")
+  q3.command |> should.equal(model.Exec)
+}
+
+pub fn all_command_types_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: A :one\nSELECT 1;\n"
+    <> "-- name: B :many\nSELECT 1;\n"
+    <> "-- name: C :exec\nSELECT 1;\n"
+    <> "-- name: D :execresult\nSELECT 1;\n"
+    <> "-- name: E :execrows\nSELECT 1;\n"
+    <> "-- name: F :execlastid\nSELECT 1;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("cmds.sql", model.PostgreSQL, naming_ctx, content)
+  list.length(queries) |> should.equal(6)
+
+  let assert [a, b, c, d, e, f] = queries
+  a.command |> should.equal(model.One)
+  b.command |> should.equal(model.Many)
+  c.command |> should.equal(model.Exec)
+  d.command |> should.equal(model.ExecResult)
+  e.command |> should.equal(model.ExecRows)
+  f.command |> should.equal(model.ExecLastId)
+}
+
+pub fn multiline_sql_body_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthor :one\n"
+    <> "SELECT id,\n"
+    <> "       name,\n"
+    <> "       bio\n"
+    <> "FROM authors\n"
+    <> "WHERE id = $1;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("multi.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+  query.param_count |> should.equal(1)
+  string.contains(query.sql, "SELECT id,") |> should.be_true()
+}
+
+pub fn error_to_string_coverage_test() {
+  query_parser.error_to_string(query_parser.InvalidAnnotation(
+    path: "test.sql",
+    line: 5,
+    detail: "bad format",
+  ))
+  |> string.contains("test.sql:5")
+  |> should.be_true()
+
+  query_parser.error_to_string(query_parser.MissingSql(
+    path: "test.sql",
+    line: 3,
+    name: "MyQuery",
+  ))
+  |> string.contains("MyQuery")
+  |> should.be_true()
+}
