@@ -1,3 +1,4 @@
+import gleam/int
 import gleam/list
 import gleam/result
 import gleam/string
@@ -17,7 +18,13 @@ pub type GenerateError {
   SchemaParseError(detail: String)
   QueryReadError(path: String, detail: String)
   QueryParseError(path: String, detail: String)
-  NoQueriesGenerated(output: String)
+  NoQueriesGenerated(
+    output: String,
+    parsed_query_count: Int,
+    schema_table_count: Int,
+    query_paths: List(String),
+    schema_paths: List(String),
+  )
   WriteError(writer.WriteError)
 }
 
@@ -58,7 +65,14 @@ fn generate_sql_block(
   let model.GleamOutput(out:, ..) = gleam
 
   case analyzed {
-    [] -> Error(NoQueriesGenerated(output: out))
+    [] ->
+      Error(NoQueriesGenerated(
+        output: out,
+        parsed_query_count: list.length(queries),
+        schema_table_count: list.length(catalog.tables),
+        query_paths: block.queries,
+        schema_paths: block.schema,
+      ))
     _ -> {
       let has_row_types =
         list.any(analyzed, fn(query) {
@@ -277,8 +291,36 @@ pub fn error_to_string(error: GenerateError) -> String {
     SchemaParseError(detail:) -> detail
     QueryReadError(path:, detail:) -> path <> ": " <> detail
     QueryParseError(detail:, ..) -> detail
-    NoQueriesGenerated(output:) ->
-      "No queries were generated for output directory: " <> output
+    NoQueriesGenerated(
+      output:,
+      parsed_query_count:,
+      schema_table_count:,
+      query_paths:,
+      schema_paths:,
+    ) ->
+      "No queries were generated for output directory: "
+      <> output
+      <> "\n  Parsed queries: "
+      <> int.to_string(parsed_query_count)
+      <> " (from "
+      <> string.join(query_paths, ", ")
+      <> ")"
+      <> "\n  Schema tables: "
+      <> int.to_string(schema_table_count)
+      <> " (from "
+      <> string.join(schema_paths, ", ")
+      <> ")"
+      <> case parsed_query_count {
+        0 ->
+          "\n  Hint: No queries were found. Ensure your query files contain annotations like '-- name: QueryName :one'"
+        _ ->
+          case schema_table_count {
+            0 ->
+              "\n  Hint: No tables found in schema. Ensure your schema files contain CREATE TABLE statements"
+            _ ->
+              "\n  Hint: Queries were parsed but none produced output. Check that your schema defines the tables referenced in your queries"
+          }
+      }
     WriteError(inner) -> writer.error_to_string(inner)
   }
 }
