@@ -108,18 +108,21 @@ fn finalize_pending(
 
       case sql == "" {
         True -> Error(MissingSql(path:, line: start_line, name:))
-        False ->
+        False -> {
+          let #(expanded_sql, macros) = expand_sqlc_macros(engine, sql)
           Ok([
             model.ParsedQuery(
               name:,
               function_name:,
               command:,
-              sql:,
+              sql: expanded_sql,
               source_path: path,
-              param_count: count_parameters(engine, sql),
+              param_count: count_parameters(engine, expanded_sql),
+              macros:,
             ),
             ..parsed_rev
           ])
+        }
       }
     }
   }
@@ -233,5 +236,49 @@ pub fn error_to_string(error: ParseError) -> String {
       <> ": query "
       <> name
       <> " is missing SQL body"
+  }
+}
+
+fn expand_sqlc_macros(
+  engine: model.Engine,
+  sql: String,
+) -> #(String, List(model.SqlcMacro)) {
+  let assert Ok(re) =
+    regexp.from_string("sqlc\\.(arg|narg)\\(([a-zA-Z_][a-zA-Z0-9_]*)\\)")
+
+  let matches = regexp.scan(re, sql)
+
+  case matches {
+    [] -> #(sql, [])
+    _ -> {
+      let #(expanded, macros, _) =
+        list.fold(matches, #(sql, [], 1), fn(acc, match) {
+          let #(current_sql, macro_acc, idx) = acc
+
+          case match.submatches {
+            [Some(kind), Some(name)] -> {
+              let placeholder = engine_placeholder(engine, idx)
+              let new_sql =
+                string.replace(current_sql, match.content, placeholder)
+              let sqlc_macro = case kind {
+                "narg" -> model.SqlcNarg(index: idx, name:)
+                _ -> model.SqlcArg(index: idx, name:)
+              }
+              #(new_sql, [sqlc_macro, ..macro_acc], idx + 1)
+            }
+            _ -> acc
+          }
+        })
+
+      #(expanded, list.reverse(macros))
+    }
+  }
+}
+
+fn engine_placeholder(engine: model.Engine, index: Int) -> String {
+  case engine {
+    model.PostgreSQL -> "$" <> int.to_string(index)
+    model.MySQL -> "?"
+    model.SQLite -> "?" <> int.to_string(index)
   }
 }

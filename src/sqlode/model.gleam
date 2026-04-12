@@ -99,6 +99,11 @@ pub fn query_command_to_variant(command: QueryCommand) -> String {
   }
 }
 
+pub type SqlcMacro {
+  SqlcArg(index: Int, name: String)
+  SqlcNarg(index: Int, name: String)
+}
+
 pub type ParsedQuery {
   ParsedQuery(
     name: String,
@@ -107,6 +112,7 @@ pub type ParsedQuery {
     sql: String,
     source_path: String,
     param_count: Int,
+    macros: List(SqlcMacro),
   )
 }
 
@@ -116,6 +122,11 @@ pub type ScalarType {
   BoolType
   StringType
   BytesType
+  DateTimeType
+  DateType
+  TimeType
+  UuidType
+  JsonType
 }
 
 pub fn scalar_type_to_gleam_type(scalar_type: ScalarType) -> String {
@@ -125,6 +136,7 @@ pub fn scalar_type_to_gleam_type(scalar_type: ScalarType) -> String {
     BoolType -> "Bool"
     StringType -> "String"
     BytesType -> "BitArray"
+    DateTimeType | DateType | TimeType | UuidType | JsonType -> "String"
   }
 }
 
@@ -135,6 +147,7 @@ pub fn scalar_type_to_runtime_function(scalar_type: ScalarType) -> String {
     BoolType -> "runtime.bool"
     StringType -> "runtime.string"
     BytesType -> "runtime.bytes"
+    DateTimeType | DateType | TimeType | UuidType | JsonType -> "runtime.string"
   }
 }
 

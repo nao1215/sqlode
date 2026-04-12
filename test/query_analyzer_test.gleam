@@ -167,6 +167,46 @@ pub fn infer_result_columns_with_table_prefix_test() {
   ])
 }
 
+pub fn sqlc_arg_sets_param_name_test() {
+  let catalog = test_catalog()
+  let sql =
+    "-- name: GetByName :one\nSELECT id, name FROM authors WHERE name = sqlc.arg(author_name);"
+  let assert Ok(queries) =
+    query_parser.parse_file("arg.sql", model.PostgreSQL, sql)
+
+  let analyzed =
+    query_analyzer.analyze_queries(model.PostgreSQL, catalog, queries)
+  let assert [query] = analyzed
+
+  query.params
+  |> should.equal([
+    model.QueryParam(
+      index: 1,
+      field_name: "author_name",
+      scalar_type: model.StringType,
+      nullable: False,
+    ),
+  ])
+}
+
+pub fn sqlc_narg_sets_nullable_test() {
+  let catalog = test_catalog()
+  let sql =
+    "-- name: UpdateBio :exec\nUPDATE authors SET bio = sqlc.narg(new_bio) WHERE id = sqlc.arg(author_id);"
+  let assert Ok(queries) =
+    query_parser.parse_file("narg.sql", model.PostgreSQL, sql)
+
+  let analyzed =
+    query_analyzer.analyze_queries(model.PostgreSQL, catalog, queries)
+  let assert [query] = analyzed
+
+  let assert [bio_param, id_param] = query.params
+  bio_param.field_name |> should.equal("new_bio")
+  bio_param.nullable |> should.equal(True)
+  id_param.field_name |> should.equal("author_id")
+  id_param.nullable |> should.equal(False)
+}
+
 fn test_catalog() -> model.Catalog {
   let assert Ok(content) = simplifile.read("test/fixtures/schema.sql")
   let assert Ok(catalog) =

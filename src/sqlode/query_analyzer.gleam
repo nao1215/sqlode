@@ -45,23 +45,55 @@ fn build_params(
 
   unique_occurrences(occurrences, [])
   |> list.map(fn(occurrence) {
+    let macro_info = find_macro(occurrence.index, query.macros)
     let inferred = find_inference(occurrence.index, inferences)
 
-    case inferred {
-      Some(column) ->
+    case macro_info {
+      Some(model.SqlcArg(name:, ..)) -> {
+        let scalar_type = case inferred {
+          Some(column) -> column.scalar_type
+          None -> model.StringType
+        }
+        let nullable = case inferred {
+          Some(column) -> column.nullable
+          None -> False
+        }
         model.QueryParam(
           index: occurrence.index,
-          field_name: naming.to_snake_case(column.name),
-          scalar_type: column.scalar_type,
-          nullable: column.nullable,
+          field_name: naming.to_snake_case(name),
+          scalar_type:,
+          nullable:,
         )
+      }
+      Some(model.SqlcNarg(name:, ..)) -> {
+        let scalar_type = case inferred {
+          Some(column) -> column.scalar_type
+          None -> model.StringType
+        }
+        model.QueryParam(
+          index: occurrence.index,
+          field_name: naming.to_snake_case(name),
+          scalar_type:,
+          nullable: True,
+        )
+      }
       None ->
-        model.QueryParam(
-          index: occurrence.index,
-          field_name: occurrence.default_name,
-          scalar_type: model.StringType,
-          nullable: False,
-        )
+        case inferred {
+          Some(column) ->
+            model.QueryParam(
+              index: occurrence.index,
+              field_name: naming.to_snake_case(column.name),
+              scalar_type: column.scalar_type,
+              nullable: column.nullable,
+            )
+          None ->
+            model.QueryParam(
+              index: occurrence.index,
+              field_name: occurrence.default_name,
+              scalar_type: model.StringType,
+              nullable: False,
+            )
+        }
     }
   })
 }
@@ -77,6 +109,25 @@ fn unique_occurrences(
         True -> unique_occurrences(rest, acc)
         False -> unique_occurrences(rest, [occurrence, ..acc])
       }
+  }
+}
+
+fn find_macro(
+  index: Int,
+  macros: List(model.SqlcMacro),
+) -> Option(model.SqlcMacro) {
+  case macros {
+    [] -> None
+    [entry, ..rest] -> {
+      let entry_index = case entry {
+        model.SqlcArg(index: i, ..) -> i
+        model.SqlcNarg(index: i, ..) -> i
+      }
+      case entry_index == index {
+        True -> Some(entry)
+        False -> find_macro(index, rest)
+      }
+    }
   }
 }
 

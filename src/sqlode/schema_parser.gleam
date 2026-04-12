@@ -225,7 +225,36 @@ fn infer_scalar_type(type_text: String) -> model.ScalarType {
                 || string.contains(lowered, "binary")
               {
                 True -> model.BytesType
-                False -> model.StringType
+                False ->
+                  case string.contains(lowered, "uuid") {
+                    True -> model.UuidType
+                    False ->
+                      case
+                        string.contains(lowered, "json")
+                        || string.contains(lowered, "jsonb")
+                      {
+                        True -> model.JsonType
+                        False ->
+                          case
+                            string.contains(lowered, "timestamp")
+                            || string.contains(lowered, "datetime")
+                          {
+                            True -> model.DateTimeType
+                            False ->
+                              case string.contains(lowered, "date") {
+                                True -> model.DateType
+                                False ->
+                                  case
+                                    string.contains(lowered, "time")
+                                    || string.contains(lowered, "timetz")
+                                  {
+                                    True -> model.TimeType
+                                    False -> model.StringType
+                                  }
+                              }
+                          }
+                      }
+                  }
               }
           }
       }

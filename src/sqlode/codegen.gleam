@@ -537,6 +537,11 @@ fn pog_value_function(scalar_type: model.ScalarType) -> String {
     model.BoolType -> "bool"
     model.StringType -> "text"
     model.BytesType -> "bytea"
+    model.DateTimeType
+    | model.DateType
+    | model.TimeType
+    | model.UuidType
+    | model.JsonType -> "text"
   }
 }
 
@@ -547,6 +552,11 @@ fn pog_decoder_function(scalar_type: model.ScalarType) -> String {
     model.BoolType -> "decode.bool"
     model.StringType -> "decode.string"
     model.BytesType -> "decode.bit_array"
+    model.DateTimeType
+    | model.DateType
+    | model.TimeType
+    | model.UuidType
+    | model.JsonType -> "decode.string"
   }
 }
 
@@ -777,6 +787,11 @@ fn sqlight_value_function(scalar_type: model.ScalarType) -> String {
     model.BoolType -> "bool"
     model.StringType -> "text"
     model.BytesType -> "blob"
+    model.DateTimeType
+    | model.DateType
+    | model.TimeType
+    | model.UuidType
+    | model.JsonType -> "text"
   }
 }
 
@@ -788,6 +803,11 @@ fn sqlight_decoder_function(scalar_type: model.ScalarType) -> String {
       "decode.then(decode.int, fn(v) { decode.success(v != 0) })"
     model.StringType -> "decode.string"
     model.BytesType -> "decode.bit_array"
+    model.DateTimeType
+    | model.DateType
+    | model.TimeType
+    | model.UuidType
+    | model.JsonType -> "decode.string"
   }
 }
 
