@@ -22,16 +22,45 @@ type PendingQuery {
   )
 }
 
+type ParserContext {
+  ParserContext(
+    naming: naming.NamingContext,
+    postgresql_param_re: regexp.Regexp,
+    sqlite_param_re: regexp.Regexp,
+    sqlc_macro_re: regexp.Regexp,
+  )
+}
+
+fn new_parser_context(naming_ctx: naming.NamingContext) -> ParserContext {
+  let assert Ok(postgresql_param_re) = regexp.from_string("\\$([0-9]+)")
+  let assert Ok(sqlite_param_re) =
+    regexp.from_string(
+      "(\\?[0-9]+|\\?|:[A-Za-z_][A-Za-z0-9_]*|@[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*)",
+    )
+  let assert Ok(sqlc_macro_re) =
+    regexp.from_string("sqlc\\.(arg|narg|slice)\\(([a-zA-Z_][a-zA-Z0-9_]*)\\)")
+
+  ParserContext(
+    naming: naming_ctx,
+    postgresql_param_re:,
+    sqlite_param_re:,
+    sqlc_macro_re:,
+  )
+}
+
 pub fn parse_file(
   path: String,
   engine: model.Engine,
+  naming_ctx: naming.NamingContext,
   content: String,
 ) -> Result(List(model.ParsedQuery), ParseError) {
-  parse_lines(string.split(content, "\n"), path, engine, 1, None, [])
+  let ctx = new_parser_context(naming_ctx)
+  parse_lines(ctx, string.split(content, "\n"), path, engine, 1, None, [])
   |> result.map(list.reverse)
 }
 
 fn parse_lines(
+  ctx: ParserContext,
   lines: List(String),
   path: String,
   engine: model.Engine,
@@ -40,13 +69,14 @@ fn parse_lines(
   parsed_rev: List(model.ParsedQuery),
 ) -> Result(List(model.ParsedQuery), ParseError) {
   case lines {
-    [] -> finalize_pending(pending, path, engine, parsed_rev)
+    [] -> finalize_pending(ctx, pending, path, engine, parsed_rev)
     [line, ..rest] -> {
       let trimmed = string.trim(line)
 
-      case parse_annotation(trimmed, path, line_number) {
+      case parse_annotation(ctx, trimmed, path, line_number) {
         Ok(Some(next_pending)) -> {
           use parsed_rev <- result.try(finalize_pending(
+            ctx,
             pending,
             path,
             engine,
@@ -54,6 +84,7 @@ fn parse_lines(
           ))
 
           parse_lines(
+            ctx,
             rest,
             path,
             engine,
@@ -83,7 +114,15 @@ fn parse_lines(
             None -> None
           }
 
-          parse_lines(rest, path, engine, line_number + 1, pending, parsed_rev)
+          parse_lines(
+            ctx,
+            rest,
+            path,
+            engine,
+            line_number + 1,
+            pending,
+            parsed_rev,
+          )
         }
         Error(error) -> Error(error)
       }
@@ -92,6 +131,7 @@ fn parse_lines(
 }
 
 fn finalize_pending(
+  ctx: ParserContext,
   pending: Option(PendingQuery),
   path: String,
   engine: model.Engine,
@@ -109,7 +149,7 @@ fn finalize_pending(
       case sql == "" {
         True -> Error(MissingSql(path:, line: start_line, name:))
         False -> {
-          let #(expanded_sql, macros) = expand_sqlc_macros(engine, sql)
+          let #(expanded_sql, macros) = expand_sqlc_macros(ctx, engine, sql)
           Ok([
             model.ParsedQuery(
               name:,
@@ -117,7 +157,7 @@ fn finalize_pending(
               command:,
               sql: expanded_sql,
               source_path: path,
-              param_count: count_parameters(engine, expanded_sql),
+              param_count: count_parameters(ctx, engine, expanded_sql),
               macros:,
             ),
             ..parsed_rev
@@ -129,6 +169,7 @@ fn finalize_pending(
 }
 
 fn parse_annotation(
+  ctx: ParserContext,
   line: String,
   path: String,
   line_number: Int,
@@ -159,7 +200,7 @@ fn parse_annotation(
             Some(
               PendingQuery(
                 name:,
-                function_name: naming.to_snake_case(name),
+                function_name: naming.to_snake_case(ctx.naming, name),
                 command:,
                 start_line: line_number,
                 body_rev: [],
@@ -178,18 +219,20 @@ fn parse_annotation(
   }
 }
 
-fn count_parameters(engine: model.Engine, sql: String) -> Int {
+fn count_parameters(
+  ctx: ParserContext,
+  engine: model.Engine,
+  sql: String,
+) -> Int {
   case engine {
-    model.PostgreSQL -> count_postgresql_parameters(sql)
+    model.PostgreSQL -> count_postgresql_parameters(ctx, sql)
     model.MySQL -> count_question_mark_parameters(sql)
-    model.SQLite -> count_sqlite_parameters(sql)
+    model.SQLite -> count_sqlite_parameters(ctx, sql)
   }
 }
 
-fn count_postgresql_parameters(sql: String) -> Int {
-  let assert Ok(re) = regexp.from_string("\\$([0-9]+)")
-
-  regexp.scan(re, sql)
+fn count_postgresql_parameters(ctx: ParserContext, sql: String) -> Int {
+  regexp.scan(ctx.postgresql_param_re, sql)
   |> list.filter_map(fn(match) {
     case match.submatches {
       [Some(index_text)] -> int.parse(index_text)
@@ -211,13 +254,8 @@ fn count_question_mark_parameters(sql: String) -> Int {
   |> fn(count) { count - 1 }
 }
 
-fn count_sqlite_parameters(sql: String) -> Int {
-  let assert Ok(re) =
-    regexp.from_string(
-      "(\\?[0-9]+|\\?|:[A-Za-z_][A-Za-z0-9_]*|@[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*)",
-    )
-
-  regexp.scan(re, sql)
+fn count_sqlite_parameters(ctx: ParserContext, sql: String) -> Int {
+  regexp.scan(ctx.sqlite_param_re, sql)
   |> list.length
 }
 
@@ -240,13 +278,11 @@ pub fn error_to_string(error: ParseError) -> String {
 }
 
 fn expand_sqlc_macros(
+  ctx: ParserContext,
   engine: model.Engine,
   sql: String,
 ) -> #(String, List(model.SqlcMacro)) {
-  let assert Ok(re) =
-    regexp.from_string("sqlc\\.(arg|narg|slice)\\(([a-zA-Z_][a-zA-Z0-9_]*)\\)")
-
-  let matches = regexp.scan(re, sql)
+  let matches = regexp.scan(ctx.sqlc_macro_re, sql)
 
   case matches {
     [] -> #(sql, [])
