@@ -31,6 +31,7 @@ pub fn infer_param_type_from_where_clause_test() {
       field_name: "id",
       scalar_type: model.IntType,
       nullable: False,
+      is_list: False,
     ),
   ])
   list_authors.params |> should.equal([])
@@ -57,12 +58,14 @@ pub fn infer_insert_param_types_from_column_order_test() {
       field_name: "name",
       scalar_type: model.StringType,
       nullable: False,
+      is_list: False,
     ),
     model.QueryParam(
       index: 2,
       field_name: "bio",
       scalar_type: model.StringType,
       nullable: True,
+      is_list: False,
     ),
   ])
 }
@@ -185,6 +188,7 @@ pub fn sqlc_arg_sets_param_name_test() {
       field_name: "author_name",
       scalar_type: model.StringType,
       nullable: False,
+      is_list: False,
     ),
   ])
 }
@@ -205,6 +209,42 @@ pub fn sqlc_narg_sets_nullable_test() {
   bio_param.nullable |> should.equal(True)
   id_param.field_name |> should.equal("author_id")
   id_param.nullable |> should.equal(False)
+}
+
+pub fn sqlc_slice_sets_is_list_test() {
+  let catalog = test_catalog()
+  let sql =
+    "-- name: GetByIds :many\nSELECT id, name FROM authors WHERE id IN (sqlc.slice(ids));"
+  let assert Ok(queries) =
+    query_parser.parse_file("slice.sql", model.PostgreSQL, sql)
+
+  let analyzed =
+    query_analyzer.analyze_queries(model.PostgreSQL, catalog, queries)
+  let assert [query] = analyzed
+
+  let assert [param] = query.params
+  param.field_name |> should.equal("ids")
+  param.is_list |> should.equal(True)
+}
+
+pub fn parse_enum_column_type_test() {
+  let schema =
+    "CREATE TYPE status AS ENUM ('active', 'inactive', 'banned');\n"
+    <> "CREATE TABLE users (\n"
+    <> "  id BIGSERIAL PRIMARY KEY,\n"
+    <> "  name TEXT NOT NULL,\n"
+    <> "  status status NOT NULL\n"
+    <> ");"
+
+  let assert Ok(catalog) = schema_parser.parse_files([#("enum.sql", schema)])
+
+  let assert [table] = catalog.tables
+  let assert [_id, _name, status_col] = table.columns
+  status_col.scalar_type |> should.equal(model.EnumType("status"))
+
+  let assert [enum_def] = catalog.enums
+  enum_def.name |> should.equal("status")
+  enum_def.values |> should.equal(["active", "inactive", "banned"])
 }
 
 fn test_catalog() -> model.Catalog {

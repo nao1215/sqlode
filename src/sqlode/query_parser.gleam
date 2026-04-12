@@ -244,7 +244,7 @@ fn expand_sqlc_macros(
   sql: String,
 ) -> #(String, List(model.SqlcMacro)) {
   let assert Ok(re) =
-    regexp.from_string("sqlc\\.(arg|narg)\\(([a-zA-Z_][a-zA-Z0-9_]*)\\)")
+    regexp.from_string("sqlc\\.(arg|narg|slice)\\(([a-zA-Z_][a-zA-Z0-9_]*)\\)")
 
   let matches = regexp.scan(re, sql)
 
@@ -262,6 +262,7 @@ fn expand_sqlc_macros(
                 string.replace(current_sql, match.content, placeholder)
               let sqlc_macro = case kind {
                 "narg" -> model.SqlcNarg(index: idx, name:)
+                "slice" -> model.SqlcSlice(index: idx, name:)
                 _ -> model.SqlcArg(index: idx, name:)
               }
               #(new_sql, [sqlc_macro, ..macro_acc], idx + 1)

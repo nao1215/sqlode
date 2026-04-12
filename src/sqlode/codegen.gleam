@@ -158,13 +158,16 @@ fn params_type_name(query: model.ParsedQuery) -> String {
 fn param_fields(params: List(model.QueryParam)) -> List(String) {
   params
   |> list.map(fn(param) {
-    param.field_name
-    <> ": "
-    <> case param.nullable {
-      True ->
-        "Option(" <> model.scalar_type_to_gleam_type(param.scalar_type) <> ")"
-      False -> model.scalar_type_to_gleam_type(param.scalar_type)
+    let base_type = model.scalar_type_to_gleam_type(param.scalar_type)
+    let typed = case param.is_list {
+      True -> "List(" <> base_type <> ")"
+      False ->
+        case param.nullable {
+          True -> "Option(" <> base_type <> ")"
+          False -> base_type
+        }
     }
+    param.field_name <> ": " <> typed
   })
 }
 
@@ -541,7 +544,8 @@ fn pog_value_function(scalar_type: model.ScalarType) -> String {
     | model.DateType
     | model.TimeType
     | model.UuidType
-    | model.JsonType -> "text"
+    | model.JsonType
+    | model.EnumType(_) -> "text"
   }
 }
 
@@ -556,7 +560,8 @@ fn pog_decoder_function(scalar_type: model.ScalarType) -> String {
     | model.DateType
     | model.TimeType
     | model.UuidType
-    | model.JsonType -> "decode.string"
+    | model.JsonType
+    | model.EnumType(_) -> "decode.string"
   }
 }
 
@@ -791,7 +796,8 @@ fn sqlight_value_function(scalar_type: model.ScalarType) -> String {
     | model.DateType
     | model.TimeType
     | model.UuidType
-    | model.JsonType -> "text"
+    | model.JsonType
+    | model.EnumType(_) -> "text"
   }
 }
 
@@ -807,7 +813,8 @@ fn sqlight_decoder_function(scalar_type: model.ScalarType) -> String {
     | model.DateType
     | model.TimeType
     | model.UuidType
-    | model.JsonType -> "decode.string"
+    | model.JsonType
+    | model.EnumType(_) -> "decode.string"
   }
 }
 

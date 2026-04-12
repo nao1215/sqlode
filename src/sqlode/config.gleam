@@ -116,13 +116,60 @@ fn parse_sql_block(node: yay.Node) -> Result(model.SqlBlock, ConfigError) {
     None -> Ok(model.Raw)
   })
 
+  let overrides = parse_overrides(node)
+
   Ok(model.SqlBlock(
     name:,
     engine:,
     schema:,
     queries:,
     gleam: model.GleamOutput(package:, out:, runtime:),
+    overrides:,
   ))
+}
+
+fn parse_overrides(node: yay.Node) -> model.Overrides {
+  case yay.select_sugar(from: node, selector: "overrides") {
+    Error(_) -> model.empty_overrides()
+    Ok(overrides_node) -> {
+      let type_overrides = case
+        yay.select_sugar(from: overrides_node, selector: "types")
+      {
+        Ok(yay.NodeSeq(items)) ->
+          list.filter_map(items, fn(item) {
+            case
+              optional_string(item, "db_type"),
+              optional_string(item, "gleam_type")
+            {
+              Some(db_type), Some(gleam_type) ->
+                Ok(model.TypeOverride(db_type:, gleam_type:))
+              _, _ -> Error(Nil)
+            }
+          })
+        _ -> []
+      }
+
+      let column_renames = case
+        yay.select_sugar(from: overrides_node, selector: "renames")
+      {
+        Ok(yay.NodeSeq(items)) ->
+          list.filter_map(items, fn(item) {
+            case
+              optional_string(item, "table"),
+              optional_string(item, "column"),
+              optional_string(item, "rename_to")
+            {
+              Some(table), Some(column), Some(rename_to) ->
+                Ok(model.ColumnRename(table:, column:, rename_to:))
+              _, _, _ -> Error(Nil)
+            }
+          })
+        _ -> []
+      }
+
+      model.Overrides(type_overrides:, column_renames:)
+    }
+  }
 }
 
 fn required_string(

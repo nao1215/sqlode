@@ -114,6 +114,7 @@ pub fn render_sqlight_adapter_test() {
         out: "test_output/db",
         runtime: model.Native,
       ),
+      overrides: model.empty_overrides(),
     )
 
   let assert Ok(schema_content) = simplifile.read("test/fixtures/schema.sql")
@@ -144,6 +145,7 @@ fn test_block() -> model.SqlBlock {
       out: "test_output/db",
       runtime: model.Raw,
     ),
+    overrides: model.empty_overrides(),
   )
 }
 
@@ -158,6 +160,7 @@ fn test_block_native() -> model.SqlBlock {
       out: "test_output/db",
       runtime: model.Native,
     ),
+    overrides: model.empty_overrides(),
   )
 }
 

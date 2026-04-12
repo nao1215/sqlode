@@ -46,6 +46,25 @@ pub fn runtime_to_string(runtime: Runtime) -> String {
   }
 }
 
+pub type TypeOverride {
+  TypeOverride(db_type: String, gleam_type: String)
+}
+
+pub type ColumnRename {
+  ColumnRename(table: String, column: String, rename_to: String)
+}
+
+pub type Overrides {
+  Overrides(
+    type_overrides: List(TypeOverride),
+    column_renames: List(ColumnRename),
+  )
+}
+
+pub fn empty_overrides() -> Overrides {
+  Overrides(type_overrides: [], column_renames: [])
+}
+
 pub type GleamOutput {
   GleamOutput(package: String, out: String, runtime: Runtime)
 }
@@ -57,6 +76,7 @@ pub type SqlBlock {
     schema: List(String),
     queries: List(String),
     gleam: GleamOutput,
+    overrides: Overrides,
   )
 }
 
@@ -102,6 +122,7 @@ pub fn query_command_to_variant(command: QueryCommand) -> String {
 pub type SqlcMacro {
   SqlcArg(index: Int, name: String)
   SqlcNarg(index: Int, name: String)
+  SqlcSlice(index: Int, name: String)
 }
 
 pub type ParsedQuery {
@@ -127,6 +148,11 @@ pub type ScalarType {
   TimeType
   UuidType
   JsonType
+  EnumType(name: String)
+}
+
+pub type EnumDef {
+  EnumDef(name: String, values: List(String))
 }
 
 pub fn scalar_type_to_gleam_type(scalar_type: ScalarType) -> String {
@@ -137,6 +163,7 @@ pub fn scalar_type_to_gleam_type(scalar_type: ScalarType) -> String {
     StringType -> "String"
     BytesType -> "BitArray"
     DateTimeType | DateType | TimeType | UuidType | JsonType -> "String"
+    EnumType(_) -> "String"
   }
 }
 
@@ -148,6 +175,7 @@ pub fn scalar_type_to_runtime_function(scalar_type: ScalarType) -> String {
     StringType -> "runtime.string"
     BytesType -> "runtime.bytes"
     DateTimeType | DateType | TimeType | UuidType | JsonType -> "runtime.string"
+    EnumType(_) -> "runtime.string"
   }
 }
 
@@ -160,7 +188,7 @@ pub type Table {
 }
 
 pub type Catalog {
-  Catalog(tables: List(Table))
+  Catalog(tables: List(Table), enums: List(EnumDef))
 }
 
 pub type QueryParam {
@@ -169,6 +197,7 @@ pub type QueryParam {
     field_name: String,
     scalar_type: ScalarType,
     nullable: Bool,
+    is_list: Bool,
   )
 }
 

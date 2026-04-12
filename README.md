@@ -153,6 +153,23 @@ pub fn get_author(db: pog.Connection, p: params.GetAuthorParams)
 |---|---|
 | `sqlc.arg(name)` | Names a parameter |
 | `sqlc.narg(name)` | Names a nullable parameter |
+| `sqlc.slice(name)` | Expands to a list parameter for IN clauses |
+
+### sqlc.slice example
+
+```sql
+-- name: GetAuthorsByIds :many
+SELECT id, name FROM authors
+WHERE id IN (sqlc.slice(ids));
+```
+
+Generates a parameter with type `List(Int)`:
+
+```gleam
+pub type GetAuthorsByIdsParams {
+  GetAuthorsByIdsParams(ids: List(Int))
+}
+```
 
 ## Type mapping
 
@@ -168,8 +185,32 @@ pub fn get_author(db: pog.Connection, p: params.GetAuthorParams)
 | TIME, TIMETZ | String |
 | UUID | String |
 | JSON, JSONB | String |
+| PostgreSQL ENUM | String |
 
 Nullable columns (without `NOT NULL`) are wrapped in `Option(T)`.
+
+## Overrides
+
+Type overrides and column renames can be configured per SQL block:
+
+```yaml
+sql:
+  - schema: "db/schema.sql"
+    queries: "db/query.sql"
+    engine: "postgresql"
+    gen:
+      gleam:
+        package: "db"
+        out: "src/db"
+    overrides:
+      types:
+        - db_type: "uuid"
+          gleam_type: "String"
+      renames:
+        - table: "authors"
+          column: "bio"
+          rename_to: "biography"
+```
 
 ## CLI
 

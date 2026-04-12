@@ -9,44 +9,109 @@ pub type ParseError {
   InvalidColumn(table: String, detail: String)
 }
 
+type ParsedSchema {
+  ParsedSchema(tables: List(model.Table), enums: List(model.EnumDef))
+}
+
 pub fn parse_files(
   entries: List(#(String, String)),
 ) -> Result(model.Catalog, ParseError) {
   entries
-  |> list.try_fold([], fn(tables, entry) {
+  |> list.try_fold(ParsedSchema(tables: [], enums: []), fn(acc, entry) {
     let #(_path, content) = entry
-    use parsed <- result.try(parse_content(content))
-    Ok(list.append(tables, parsed))
+    use parsed <- result.try(parse_content(content, acc.enums))
+    Ok(ParsedSchema(
+      tables: list.append(acc.tables, parsed.tables),
+      enums: list.append(acc.enums, parsed.enums),
+    ))
   })
-  |> result.map(fn(tables) { model.Catalog(tables:) })
+  |> result.map(fn(schema) {
+    model.Catalog(tables: schema.tables, enums: schema.enums)
+  })
 }
 
-fn parse_content(content: String) -> Result(List(model.Table), ParseError) {
-  content
-  |> string.split(";")
-  |> list.map(string.trim)
-  |> list.filter(fn(statement) { statement != "" })
-  |> list.try_fold([], fn(tables, statement) {
-    use maybe_table <- result.try(parse_statement(statement))
-    Ok(case maybe_table {
-      Some(table) -> [table, ..tables]
-      None -> tables
+fn parse_content(
+  content: String,
+  known_enums: List(model.EnumDef),
+) -> Result(ParsedSchema, ParseError) {
+  let statements =
+    content
+    |> string.split(";")
+    |> list.map(string.trim)
+    |> list.filter(fn(statement) { statement != "" })
+
+  let enums =
+    statements
+    |> list.filter_map(fn(statement) {
+      let lowered = string.lowercase(statement)
+      case
+        string.contains(lowered, "create type")
+        && string.contains(lowered, "as enum")
+      {
+        True -> parse_create_enum(statement)
+        False -> Error(Nil)
+      }
     })
-  })
-  |> result.map(list.reverse)
+
+  let all_enums = list.append(known_enums, enums)
+
+  use tables <- result.try(
+    statements
+    |> list.try_fold([], fn(tables, statement) {
+      use maybe_table <- result.try(parse_statement(statement, all_enums))
+      Ok(case maybe_table {
+        Some(table) -> [table, ..tables]
+        None -> tables
+      })
+    })
+    |> result.map(list.reverse),
+  )
+
+  Ok(ParsedSchema(tables:, enums:))
 }
 
-fn parse_statement(statement: String) -> Result(Option(model.Table), ParseError) {
+fn parse_create_enum(statement: String) -> Result(model.EnumDef, Nil) {
+  case string.split_once(statement, "(") {
+    Error(_) -> Error(Nil)
+    Ok(#(header, body)) -> {
+      let header_lower = string.lowercase(header)
+      let name =
+        header_lower
+        |> string.replace("create type", "")
+        |> string.replace("as enum", "")
+        |> string.trim
+
+      let values =
+        body
+        |> string.replace(")", "")
+        |> string.split(",")
+        |> list.map(fn(v) {
+          v
+          |> string.trim
+          |> string.replace("'", "")
+        })
+        |> list.filter(fn(v) { v != "" })
+
+      Ok(model.EnumDef(name:, values:))
+    }
+  }
+}
+
+fn parse_statement(
+  statement: String,
+  enums: List(model.EnumDef),
+) -> Result(Option(model.Table), ParseError) {
   let lowered = string.lowercase(statement)
 
   case string.starts_with(lowered, "create table") {
     False -> Ok(None)
-    True -> parse_create_table(statement)
+    True -> parse_create_table(statement, enums)
   }
 }
 
 fn parse_create_table(
   statement: String,
+  enums: List(model.EnumDef),
 ) -> Result(Option(model.Table), ParseError) {
   use parts <- result.try(case string.split_once(statement, on: "(") {
     Ok(parts) -> Ok(parts)
@@ -77,7 +142,7 @@ fn parse_create_table(
     False -> raw_body
   }
 
-  use columns <- result.try(parse_columns(table_name, body))
+  use columns <- result.try(parse_columns(table_name, body, enums))
 
   Ok(Some(model.Table(name: table_name, columns:)))
 }
@@ -85,13 +150,14 @@ fn parse_create_table(
 fn parse_columns(
   table_name: String,
   body: String,
+  enums: List(model.EnumDef),
 ) -> Result(List(model.Column), ParseError) {
   body
   |> split_top_level_commas
   |> list.map(string.trim)
   |> list.filter(fn(entry) { entry != "" })
   |> list.try_fold([], fn(columns, entry) {
-    use maybe_column <- result.try(parse_column(table_name, entry))
+    use maybe_column <- result.try(parse_column(table_name, entry, enums))
     Ok(case maybe_column {
       Some(column) -> [column, ..columns]
       None -> columns
@@ -103,6 +169,7 @@ fn parse_columns(
 fn parse_column(
   table_name: String,
   entry: String,
+  enums: List(model.EnumDef),
 ) -> Result(Option(model.Column), ParseError) {
   let tokens =
     entry
@@ -138,13 +205,12 @@ fn parse_column(
                 False -> True
               }
 
-              Ok(
-                Some(model.Column(
-                  name:,
-                  scalar_type: infer_scalar_type(type_text),
-                  nullable:,
-                )),
-              )
+              let scalar_type = case find_enum(type_text, enums) {
+                Some(enum_name) -> model.EnumType(enum_name)
+                None -> infer_scalar_type(type_text)
+              }
+
+              Ok(Some(model.Column(name:, scalar_type:, nullable:)))
             }
           }
         }
@@ -329,6 +395,15 @@ fn last_identifier_segment(identifier: String) -> String {
   |> string.split(".")
   |> list.last
   |> result.unwrap(identifier)
+}
+
+fn find_enum(type_text: String, enums: List(model.EnumDef)) -> Option(String) {
+  let lowered = string.lowercase(string.trim(type_text))
+
+  case list.find(enums, fn(e) { e.name == lowered }) {
+    Ok(e) -> Some(e.name)
+    Error(_) -> None
+  }
 }
 
 pub fn error_to_string(error: ParseError) -> String {

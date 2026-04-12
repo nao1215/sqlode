@@ -48,53 +48,51 @@ fn build_params(
     let macro_info = find_macro(occurrence.index, query.macros)
     let inferred = find_inference(occurrence.index, inferences)
 
-    case macro_info {
+    let #(field_name, scalar_type, nullable, is_list) = case macro_info {
       Some(model.SqlcArg(name:, ..)) -> {
-        let scalar_type = case inferred {
+        let st = case inferred {
           Some(column) -> column.scalar_type
           None -> model.StringType
         }
-        let nullable = case inferred {
+        let n = case inferred {
           Some(column) -> column.nullable
           None -> False
         }
-        model.QueryParam(
-          index: occurrence.index,
-          field_name: naming.to_snake_case(name),
-          scalar_type:,
-          nullable:,
-        )
+        #(naming.to_snake_case(name), st, n, False)
       }
       Some(model.SqlcNarg(name:, ..)) -> {
-        let scalar_type = case inferred {
+        let st = case inferred {
           Some(column) -> column.scalar_type
           None -> model.StringType
         }
-        model.QueryParam(
-          index: occurrence.index,
-          field_name: naming.to_snake_case(name),
-          scalar_type:,
-          nullable: True,
-        )
+        #(naming.to_snake_case(name), st, True, False)
+      }
+      Some(model.SqlcSlice(name:, ..)) -> {
+        let st = case inferred {
+          Some(column) -> column.scalar_type
+          None -> model.StringType
+        }
+        #(naming.to_snake_case(name), st, False, True)
       }
       None ->
         case inferred {
-          Some(column) ->
-            model.QueryParam(
-              index: occurrence.index,
-              field_name: naming.to_snake_case(column.name),
-              scalar_type: column.scalar_type,
-              nullable: column.nullable,
-            )
-          None ->
-            model.QueryParam(
-              index: occurrence.index,
-              field_name: occurrence.default_name,
-              scalar_type: model.StringType,
-              nullable: False,
-            )
+          Some(column) -> #(
+            naming.to_snake_case(column.name),
+            column.scalar_type,
+            column.nullable,
+            False,
+          )
+          None -> #(occurrence.default_name, model.StringType, False, False)
         }
     }
+
+    model.QueryParam(
+      index: occurrence.index,
+      field_name:,
+      scalar_type:,
+      nullable:,
+      is_list:,
+    )
   })
 }
 
@@ -122,6 +120,7 @@ fn find_macro(
       let entry_index = case entry {
         model.SqlcArg(index: i, ..) -> i
         model.SqlcNarg(index: i, ..) -> i
+        model.SqlcSlice(index: i, ..) -> i
       }
       case entry_index == index {
         True -> Some(entry)
