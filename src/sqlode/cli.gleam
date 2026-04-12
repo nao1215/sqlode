@@ -5,6 +5,7 @@ import gleam/result
 import glint
 import simplifile
 import sqlode/generate
+import sqlode/version
 
 pub fn app() -> glint.Glint(Nil) {
   glint.new()
@@ -52,7 +53,7 @@ fn init_command() -> glint.Command(Nil) {
 }
 
 fn run_generate(config_path: String) -> Nil {
-  io.println("sqlode v0.1.0")
+  io.println("sqlode v" <> version.version)
   io.println("Loading config from: " <> config_path)
 
   case generate.run(config_path) {
