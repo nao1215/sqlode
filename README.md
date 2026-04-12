@@ -10,14 +10,16 @@ Supported engines: PostgreSQL, MySQL, SQLite.
 
 ### Install
 
+Add sqlode as a development dependency:
+
 ```console
-gleam add sqlode
+gleam add --dev sqlode
 ```
 
 ### Initialize config
 
 ```console
-sqlode init
+gleam run -m sqlode -- init
 ```
 
 This creates `sqlode.yaml`:
@@ -69,7 +71,7 @@ VALUES (sqlc.arg(author_name), sqlc.narg(bio));
 ### Generate
 
 ```console
-sqlode generate
+gleam run -m sqlode -- generate
 ```
 
 This produces `params.gleam`, `queries.gleam`, and `models.gleam` in the configured output directory.
@@ -277,8 +279,8 @@ sql:
 ## CLI
 
 ```
-sqlode generate [--config=./sqlode.yaml]
-sqlode init [--output=./sqlode.yaml]
+gleam run -m sqlode -- generate [--config=./sqlode.yaml]
+gleam run -m sqlode -- init [--output=./sqlode.yaml]
 ```
 
 ## License
