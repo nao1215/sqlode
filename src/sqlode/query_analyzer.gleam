@@ -424,6 +424,7 @@ fn normalize_sql(sql: String) -> String {
 fn primary_table_name(sql: String) -> Option(String) {
   let patterns = [
     "from\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+    "into\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
     "update\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
     "delete\\s+from\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
   ]
@@ -566,16 +567,86 @@ fn infer_result_columns(
     model.Exec | model.ExecResult | model.ExecRows | model.ExecLastId -> []
     model.One | model.Many -> {
       let normalized = normalize_sql(query.sql)
-      let table_names = extract_table_names(normalized)
 
-      case table_names {
-        [] -> []
-        [primary, ..] -> {
-          let select_columns = extract_select_columns(normalized)
-          resolve_select_columns(select_columns, catalog, primary, table_names)
+      case extract_returning_columns(normalized) {
+        Some(returning_cols) -> {
+          let table_names = extract_table_names(normalized)
+          case table_names {
+            [] -> []
+            _ ->
+              resolve_select_columns(
+                returning_cols,
+                catalog,
+                case table_names {
+                  [first, ..] -> first
+                  [] -> ""
+                },
+                table_names,
+              )
+          }
+        }
+        None -> {
+          let main_sql = strip_cte(normalized)
+          let table_names = extract_table_names(main_sql)
+
+          case table_names {
+            [] -> []
+            [primary, ..] -> {
+              let select_columns = extract_select_columns(main_sql)
+              resolve_select_columns(
+                select_columns,
+                catalog,
+                primary,
+                table_names,
+              )
+            }
+          }
         }
       }
     }
+  }
+}
+
+fn strip_cte(sql: String) -> String {
+  case string.starts_with(sql, "with ") {
+    False -> sql
+    True -> {
+      let assert Ok(re) =
+        regexp.from_string("^with\\s+.+\\)\\s+(select|insert|update|delete)\\s")
+
+      case regexp.scan(re, sql) {
+        [match, ..] ->
+          case match.submatches {
+            [Some(keyword)] -> {
+              let prefix_len =
+                string.length(match.content) - string.length(keyword) - 1
+              string.drop_start(sql, prefix_len)
+              |> string.trim
+            }
+            _ -> sql
+          }
+        [] -> sql
+      }
+    }
+  }
+}
+
+fn extract_returning_columns(sql: String) -> Option(List(String)) {
+  let assert Ok(re) = regexp.from_string("returning\\s+(.+?)\\s*;?\\s*$")
+
+  case regexp.scan(re, sql) {
+    [match, ..] ->
+      case match.submatches {
+        [Some(columns_text)] -> {
+          let cols = case string.trim(columns_text) == "*" {
+            True -> ["*"]
+            False -> split_csv(columns_text)
+          }
+          Some(cols)
+        }
+        _ -> None
+      }
+    [] -> None
   }
 }
 

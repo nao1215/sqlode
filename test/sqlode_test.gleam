@@ -101,6 +101,14 @@ pub fn sqlc_embed_expands_table_columns_test() {
   query_analyzer_test.sqlc_embed_expands_table_columns_test()
 }
 
+pub fn returning_clause_result_columns_test() {
+  query_analyzer_test.returning_clause_result_columns_test()
+}
+
+pub fn cte_select_from_real_table_test() {
+  query_analyzer_test.cte_select_from_real_table_test()
+}
+
 pub fn render_queries_module_test() {
   codegen_test.render_queries_module_test()
 }

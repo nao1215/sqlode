@@ -203,6 +203,36 @@ JOIN authors ON books.author_id = authors.id;
 
 Both `title` from `books` and `name` from `authors` are correctly typed in the generated row type.
 
+## RETURNING clause
+
+Queries with a `RETURNING` clause (PostgreSQL) generate result types from the returned columns:
+
+```sql
+-- name: CreateAuthor :one
+INSERT INTO authors (name, bio) VALUES ($1, $2)
+RETURNING id, name;
+```
+
+```gleam
+pub type CreateAuthorRow {
+  CreateAuthorRow(id: Int, name: String)
+}
+```
+
+## CTE (WITH clause)
+
+Common Table Expressions are supported. sqlode strips the CTE prefix and infers types from the main query:
+
+```sql
+-- name: GetRecentAuthors :many
+WITH filtered AS (
+  SELECT id FROM authors WHERE id > 0
+)
+SELECT authors.id, authors.name
+FROM authors
+JOIN filtered ON authors.id = filtered.id;
+```
+
 ## Type mapping
 
 | SQL type | Gleam type |

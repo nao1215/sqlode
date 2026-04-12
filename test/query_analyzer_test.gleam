@@ -293,6 +293,45 @@ pub fn sqlc_embed_expands_table_columns_test() {
   title_col.name |> should.equal("title")
 }
 
+pub fn returning_clause_result_columns_test() {
+  let catalog = test_catalog()
+  let sql =
+    "-- name: CreateAuthorReturning :one\nINSERT INTO authors (name, bio) VALUES ($1, $2) RETURNING id, name;"
+  let assert Ok(queries) =
+    query_parser.parse_file("ret.sql", model.PostgreSQL, sql)
+
+  let analyzed =
+    query_analyzer.analyze_queries(model.PostgreSQL, catalog, queries)
+  let assert [query] = analyzed
+
+  query.result_columns
+  |> should.equal([
+    model.ResultColumn(name: "id", scalar_type: model.IntType, nullable: False),
+    model.ResultColumn(
+      name: "name",
+      scalar_type: model.StringType,
+      nullable: False,
+    ),
+  ])
+}
+
+pub fn cte_select_from_real_table_test() {
+  let catalog = test_catalog()
+  let sql =
+    "-- name: GetRecentAuthors :many\nWITH filtered AS (SELECT id FROM authors WHERE id > 0) SELECT authors.id, authors.name FROM authors JOIN filtered ON authors.id = filtered.id;"
+  let assert Ok(queries) =
+    query_parser.parse_file("cte.sql", model.PostgreSQL, sql)
+
+  let analyzed =
+    query_analyzer.analyze_queries(model.PostgreSQL, catalog, queries)
+  let assert [query] = analyzed
+
+  let assert [id_col, name_col] = query.result_columns
+  id_col.name |> should.equal("id")
+  id_col.scalar_type |> should.equal(model.IntType)
+  name_col.name |> should.equal("name")
+}
+
 fn test_catalog() -> model.Catalog {
   let assert Ok(content) = simplifile.read("test/fixtures/schema.sql")
   let assert Ok(catalog) =
