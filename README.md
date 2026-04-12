@@ -74,7 +74,7 @@ VALUES (sqlc.arg(author_name), sqlc.narg(bio));
 gleam run -m sqlode -- generate
 ```
 
-This produces `params.gleam`, `queries.gleam`, and `models.gleam` in the configured output directory.
+This produces `params.gleam` and `queries.gleam` in the configured output directory. `models.gleam` is also generated when at least one query uses `:one` or `:many` and returns result columns.
 
 ## Generated code
 
