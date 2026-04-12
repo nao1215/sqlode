@@ -247,10 +247,64 @@ pub fn parse_enum_column_type_test() {
   enum_def.values |> should.equal(["active", "inactive", "banned"])
 }
 
+pub fn join_result_columns_test() {
+  let catalog = join_catalog()
+  let sql =
+    "-- name: GetBookWithAuthor :one\nSELECT books.title, authors.name FROM books JOIN authors ON books.author_id = authors.id WHERE books.id = $1;"
+  let assert Ok(queries) =
+    query_parser.parse_file("join.sql", model.PostgreSQL, sql)
+
+  let analyzed =
+    query_analyzer.analyze_queries(model.PostgreSQL, catalog, queries)
+  let assert [query] = analyzed
+
+  query.result_columns
+  |> should.equal([
+    model.ResultColumn(
+      name: "title",
+      scalar_type: model.StringType,
+      nullable: False,
+    ),
+    model.ResultColumn(
+      name: "name",
+      scalar_type: model.StringType,
+      nullable: False,
+    ),
+  ])
+}
+
+pub fn sqlc_embed_expands_table_columns_test() {
+  let catalog = join_catalog()
+  let sql =
+    "-- name: GetBookFull :one\nSELECT sqlc.embed(authors), books.title FROM books JOIN authors ON books.author_id = authors.id WHERE books.id = $1;"
+  let assert Ok(queries) =
+    query_parser.parse_file("embed.sql", model.PostgreSQL, sql)
+
+  let analyzed =
+    query_analyzer.analyze_queries(model.PostgreSQL, catalog, queries)
+  let assert [query] = analyzed
+
+  let assert [id_col, name_col, bio_col, title_col] = query.result_columns
+  id_col.name |> should.equal("id")
+  id_col.scalar_type |> should.equal(model.IntType)
+  name_col.name |> should.equal("name")
+  bio_col.name |> should.equal("bio")
+  bio_col.nullable |> should.equal(True)
+  title_col.name |> should.equal("title")
+}
+
 fn test_catalog() -> model.Catalog {
   let assert Ok(content) = simplifile.read("test/fixtures/schema.sql")
   let assert Ok(catalog) =
     schema_parser.parse_files([#("test/fixtures/schema.sql", content)])
+
+  catalog
+}
+
+fn join_catalog() -> model.Catalog {
+  let assert Ok(content) = simplifile.read("test/fixtures/join_schema.sql")
+  let assert Ok(catalog) =
+    schema_parser.parse_files([#("test/fixtures/join_schema.sql", content)])
 
   catalog
 }

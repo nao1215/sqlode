@@ -1,5 +1,6 @@
 import gleam/list
 import gleam/result
+import gleam/string
 import simplifile
 import sqlode/codegen
 import sqlode/config
@@ -42,9 +43,13 @@ pub fn generate_config(cfg: model.Config) -> Result(List(String), GenerateError)
 fn generate_sql_block(
   block: model.SqlBlock,
 ) -> Result(List(writer.GeneratedFile), GenerateError) {
-  use catalog <- result.try(load_catalog(block.schema))
+  use raw_catalog <- result.try(load_catalog(block.schema))
+  let catalog =
+    apply_type_overrides(raw_catalog, block.overrides.type_overrides)
   use queries <- result.try(load_queries(block))
-  let analyzed = query_analyzer.analyze_queries(block.engine, catalog, queries)
+  let analyzed =
+    query_analyzer.analyze_queries(block.engine, catalog, queries)
+    |> apply_column_renames(block.overrides.column_renames)
 
   let model.SqlBlock(gleam:, ..) = block
   let model.GleamOutput(out:, ..) = gleam
@@ -148,6 +153,105 @@ fn load_queries(
     })
   })
   |> result.map(list.flatten)
+}
+
+fn apply_type_overrides(
+  catalog: model.Catalog,
+  overrides: List(model.TypeOverride),
+) -> model.Catalog {
+  case overrides {
+    [] -> catalog
+    _ -> {
+      let tables =
+        list.map(catalog.tables, fn(table) {
+          let columns =
+            list.map(table.columns, fn(col) {
+              case find_type_override(col.scalar_type, overrides) {
+                Ok(gleam_type) ->
+                  model.Column(
+                    ..col,
+                    scalar_type: gleam_type_to_scalar(gleam_type),
+                  )
+                Error(_) -> col
+              }
+            })
+          model.Table(..table, columns:)
+        })
+      model.Catalog(..catalog, tables:)
+    }
+  }
+}
+
+fn find_type_override(
+  scalar_type: model.ScalarType,
+  overrides: List(model.TypeOverride),
+) -> Result(String, Nil) {
+  let type_name = scalar_type_name(scalar_type)
+
+  list.find_map(overrides, fn(ovr) {
+    case string.lowercase(ovr.db_type) == type_name {
+      True -> Ok(ovr.gleam_type)
+      False -> Error(Nil)
+    }
+  })
+}
+
+fn scalar_type_name(scalar_type: model.ScalarType) -> String {
+  case scalar_type {
+    model.IntType -> "int"
+    model.FloatType -> "float"
+    model.BoolType -> "bool"
+    model.StringType -> "string"
+    model.BytesType -> "bytes"
+    model.DateTimeType -> "datetime"
+    model.DateType -> "date"
+    model.TimeType -> "time"
+    model.UuidType -> "uuid"
+    model.JsonType -> "json"
+    model.EnumType(name) -> name
+  }
+}
+
+fn gleam_type_to_scalar(gleam_type: String) -> model.ScalarType {
+  case string.lowercase(gleam_type) {
+    "int" -> model.IntType
+    "float" -> model.FloatType
+    "bool" -> model.BoolType
+    "bitarray" -> model.BytesType
+    _ -> model.StringType
+  }
+}
+
+fn apply_column_renames(
+  queries: List(model.AnalyzedQuery),
+  renames: List(model.ColumnRename),
+) -> List(model.AnalyzedQuery) {
+  case renames {
+    [] -> queries
+    _ ->
+      list.map(queries, fn(query) {
+        let result_columns =
+          list.map(query.result_columns, fn(col) {
+            case find_column_rename(col.name, renames) {
+              Ok(new_name) -> model.ResultColumn(..col, name: new_name)
+              Error(_) -> col
+            }
+          })
+        model.AnalyzedQuery(..query, result_columns:)
+      })
+  }
+}
+
+fn find_column_rename(
+  column_name: String,
+  renames: List(model.ColumnRename),
+) -> Result(String, Nil) {
+  list.find_map(renames, fn(r) {
+    case string.lowercase(r.column) == string.lowercase(column_name) {
+      True -> Ok(r.rename_to)
+      False -> Error(Nil)
+    }
+  })
 }
 
 fn adapter_filename(engine: model.Engine) -> String {

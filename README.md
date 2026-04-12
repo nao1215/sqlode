@@ -154,6 +154,7 @@ pub fn get_author(db: pog.Connection, p: params.GetAuthorParams)
 | `sqlc.arg(name)` | Names a parameter |
 | `sqlc.narg(name)` | Names a nullable parameter |
 | `sqlc.slice(name)` | Expands to a list parameter for IN clauses |
+| `sqlc.embed(table)` | Embeds all columns of a table into the result |
 
 ### sqlc.slice example
 
@@ -170,6 +171,37 @@ pub type GetAuthorsByIdsParams {
   GetAuthorsByIdsParams(ids: List(Int))
 }
 ```
+
+### sqlc.embed example
+
+```sql
+-- name: GetBookWithAuthor :one
+SELECT sqlc.embed(authors), books.title
+FROM books
+JOIN authors ON books.author_id = authors.id
+WHERE books.id = $1;
+```
+
+The result type includes all columns from the `authors` table followed by `title`:
+
+```gleam
+pub type GetBookWithAuthorRow {
+  GetBookWithAuthorRow(id: Int, name: String, bio: Option(String), title: String)
+}
+```
+
+## JOIN support
+
+Columns from JOINed tables are resolved when inferring result types:
+
+```sql
+-- name: GetBookWithAuthor :one
+SELECT books.title, authors.name
+FROM books
+JOIN authors ON books.author_id = authors.id;
+```
+
+Both `title` from `books` and `name` from `authors` are correctly typed in the generated row type.
 
 ## Type mapping
 

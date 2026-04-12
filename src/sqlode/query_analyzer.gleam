@@ -566,17 +566,39 @@ fn infer_result_columns(
     model.Exec | model.ExecResult | model.ExecRows | model.ExecLastId -> []
     model.One | model.Many -> {
       let normalized = normalize_sql(query.sql)
-      let table_name = primary_table_name(normalized)
+      let table_names = extract_table_names(normalized)
 
-      case table_name {
-        None -> []
-        Some(name) -> {
+      case table_names {
+        [] -> []
+        [primary, ..] -> {
           let select_columns = extract_select_columns(normalized)
-          resolve_select_columns(select_columns, catalog, name)
+          resolve_select_columns(select_columns, catalog, primary, table_names)
         }
       }
     }
   }
+}
+
+fn extract_table_names(sql: String) -> List(String) {
+  let primary = primary_table_name(sql)
+  let join_tables = extract_join_tables(sql)
+
+  case primary {
+    Some(name) -> [name, ..join_tables]
+    None -> join_tables
+  }
+}
+
+fn extract_join_tables(sql: String) -> List(String) {
+  let assert Ok(re) = regexp.from_string("join\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s")
+
+  regexp.scan(re, sql)
+  |> list.filter_map(fn(match) {
+    case match.submatches {
+      [Some(name)] -> Ok(name)
+      _ -> Error(Nil)
+    }
+  })
 }
 
 fn extract_select_columns(sql: String) -> List(String) {
@@ -593,22 +615,26 @@ fn extract_select_columns(sql: String) -> List(String) {
               |> split_csv
               |> list.map(fn(col) {
                 let trimmed = string.trim(col)
-                case string.contains(trimmed, " as ") {
-                  True -> {
-                    let assert Ok(#(_, alias)) =
-                      string.split_once(trimmed, " as ")
-                    string.trim(alias)
-                  }
+                case string.starts_with(trimmed, "sqlc.embed(") {
+                  True -> trimmed
                   False ->
-                    case string.contains(trimmed, ".") {
+                    case string.contains(trimmed, " as ") {
                       True -> {
-                        let parts = string.split(trimmed, ".")
-                        case list.last(parts) {
-                          Ok(last) -> string.trim(last)
-                          Error(_) -> trimmed
-                        }
+                        let assert Ok(#(_, alias)) =
+                          string.split_once(trimmed, " as ")
+                        string.trim(alias)
                       }
-                      False -> trimmed
+                      False ->
+                        case string.contains(trimmed, ".") {
+                          True -> {
+                            let parts = string.split(trimmed, ".")
+                            case list.last(parts) {
+                              Ok(last) -> string.trim(last)
+                              Error(_) -> trimmed
+                            }
+                          }
+                          False -> trimmed
+                        }
                     }
                 }
               })
@@ -623,13 +649,14 @@ fn extract_select_columns(sql: String) -> List(String) {
 fn resolve_select_columns(
   columns: List(String),
   catalog: model.Catalog,
-  table_name: String,
+  primary_table: String,
+  all_tables: List(String),
 ) -> List(model.ResultColumn) {
   case columns {
     ["*"] ->
       case
         catalog.tables
-        |> list.find(fn(table) { table.name == table_name })
+        |> list.find(fn(table) { table.name == primary_table })
       {
         Ok(table) ->
           list.map(table.columns, fn(col) {
@@ -642,22 +669,68 @@ fn resolve_select_columns(
         Error(_) -> []
       }
     _ ->
-      list.filter_map(columns, fn(col_name) {
-        let normalized_name = string.lowercase(string.trim(col_name))
-        case find_column(catalog, table_name, normalized_name) {
-          Some(column) ->
-            Ok(model.ResultColumn(
-              name: column.name,
-              scalar_type: column.scalar_type,
-              nullable: column.nullable,
-            ))
-          None ->
-            Ok(model.ResultColumn(
-              name: normalized_name,
-              scalar_type: model.StringType,
-              nullable: False,
-            ))
+      columns
+      |> list.flat_map(fn(col_name) {
+        let trimmed = string.trim(col_name)
+        case string.starts_with(trimmed, "sqlc.embed(") {
+          True -> {
+            let embed_name =
+              trimmed
+              |> string.replace("sqlc.embed(", "")
+              |> string.replace(")", "")
+              |> string.trim
+              |> string.lowercase
+
+            case
+              catalog.tables
+              |> list.find(fn(table) { table.name == embed_name })
+            {
+              Ok(table) ->
+                list.map(table.columns, fn(col) {
+                  model.ResultColumn(
+                    name: col.name,
+                    scalar_type: col.scalar_type,
+                    nullable: col.nullable,
+                  )
+                })
+              Error(_) -> []
+            }
+          }
+          False -> {
+            let normalized_name = string.lowercase(trimmed)
+            case find_column_in_tables(catalog, all_tables, normalized_name) {
+              Some(column) -> [
+                model.ResultColumn(
+                  name: column.name,
+                  scalar_type: column.scalar_type,
+                  nullable: column.nullable,
+                ),
+              ]
+              None -> [
+                model.ResultColumn(
+                  name: normalized_name,
+                  scalar_type: model.StringType,
+                  nullable: False,
+                ),
+              ]
+            }
+          }
         }
       })
+  }
+}
+
+fn find_column_in_tables(
+  catalog: model.Catalog,
+  table_names: List(String),
+  column_name: String,
+) -> Option(model.Column) {
+  case table_names {
+    [] -> None
+    [name, ..rest] ->
+      case find_column(catalog, name, column_name) {
+        Some(col) -> Some(col)
+        None -> find_column_in_tables(catalog, rest, column_name)
+      }
   }
 }

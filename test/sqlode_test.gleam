@@ -93,6 +93,14 @@ pub fn parse_enum_column_type_test() {
   query_analyzer_test.parse_enum_column_type_test()
 }
 
+pub fn join_result_columns_test() {
+  query_analyzer_test.join_result_columns_test()
+}
+
+pub fn sqlc_embed_expands_table_columns_test() {
+  query_analyzer_test.sqlc_embed_expands_table_columns_test()
+}
+
 pub fn render_queries_module_test() {
   codegen_test.render_queries_module_test()
 }
