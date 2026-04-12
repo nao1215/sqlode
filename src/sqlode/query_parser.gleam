@@ -295,7 +295,7 @@ fn expand_sqlc_macros(
             [Some(kind), Some(name)] -> {
               let placeholder = engine_placeholder(engine, idx)
               let new_sql =
-                string.replace(current_sql, match.content, placeholder)
+                replace_first(current_sql, match.content, placeholder)
               let sqlc_macro = case kind {
                 "narg" -> model.SqlcNarg(index: idx, name:)
                 "slice" -> model.SqlcSlice(index: idx, name:)
@@ -309,6 +309,17 @@ fn expand_sqlc_macros(
 
       #(expanded, list.reverse(macros))
     }
+  }
+}
+
+fn replace_first(
+  in text: String,
+  each pattern: String,
+  with replacement: String,
+) -> String {
+  case string.split_once(text, pattern) {
+    Ok(#(before, after)) -> before <> replacement <> after
+    Error(_) -> text
   }
 }
 
