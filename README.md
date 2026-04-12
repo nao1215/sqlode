@@ -4,7 +4,7 @@
 
 sqlode reads SQL schema and query files, then generates typed Gleam code. The workflow follows [sqlc](https://sqlc.dev/) conventions: write SQL, run the generator, get type-safe functions.
 
-Supported engines: PostgreSQL, MySQL, SQLite.
+Supported engines: PostgreSQL, MySQL (parsing only), SQLite.
 
 ## Getting started
 
@@ -121,6 +121,8 @@ pub fn create_author() -> Query { ... }
 ## Adapter generation
 
 When `runtime` is set to `native` or `based`, sqlode generates adapter modules that wrap [pog](https://hexdocs.pm/pog/) (PostgreSQL) or [sqlight](https://hexdocs.pm/sqlight/) (SQLite).
+
+**Note:** MySQL adapter generation is not yet available. MySQL schema parsing and query/params generation work, but `runtime: "native"` will produce a stub adapter. Use `runtime: "raw"` with MySQL and handle database interaction manually.
 
 ```yaml
 gen:
