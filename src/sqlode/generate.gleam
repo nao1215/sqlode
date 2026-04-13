@@ -198,7 +198,10 @@ fn apply_type_overrides(
                 Ok(gleam_type) ->
                   model.Column(
                     ..col,
-                    scalar_type: gleam_type_to_scalar(gleam_type),
+                    scalar_type: gleam_type_to_scalar(
+                      gleam_type,
+                      col.scalar_type,
+                    ),
                   )
                 Error(_) ->
                   case
@@ -211,7 +214,10 @@ fn apply_type_overrides(
                     Ok(gleam_type) ->
                       model.Column(
                         ..col,
-                        scalar_type: gleam_type_to_scalar(gleam_type),
+                        scalar_type: gleam_type_to_scalar(
+                          gleam_type,
+                          col.scalar_type,
+                        ),
                       )
                     Error(_) -> col
                   }
@@ -271,13 +277,17 @@ fn find_db_type_override(
   })
 }
 
-fn gleam_type_to_scalar(gleam_type: String) -> model.ScalarType {
+fn gleam_type_to_scalar(
+  gleam_type: String,
+  underlying: model.ScalarType,
+) -> model.ScalarType {
   case string.lowercase(gleam_type) {
     "int" -> model.IntType
     "float" -> model.FloatType
     "bool" -> model.BoolType
+    "string" -> model.StringType
     "bitarray" -> model.BytesType
-    _ -> model.StringType
+    _ -> model.CustomType(name: gleam_type, underlying:)
   }
 }
 

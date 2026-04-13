@@ -119,6 +119,19 @@ pub fn scalar_type_to_gleam_type_test() {
   model.scalar_type_to_gleam_type(model.JsonType) |> should.equal("String")
   model.scalar_type_to_gleam_type(model.EnumType("status"))
   |> should.equal("String")
+  model.scalar_type_to_gleam_type(model.CustomType("UserId", model.IntType))
+  |> should.equal("UserId")
+}
+
+pub fn custom_type_delegates_to_underlying_test() {
+  let custom = model.CustomType("UserId", model.IntType)
+  model.scalar_type_to_runtime_function(custom)
+  |> should.equal("runtime.int")
+  model.scalar_type_to_db_name(custom) |> should.equal("int")
+  model.scalar_type_to_value_function(model.PostgreSQL, custom)
+  |> should.equal("int")
+  model.scalar_type_to_decoder(model.PostgreSQL, custom)
+  |> should.equal("decode.int")
 }
 
 // scalar_type_to_runtime_function tests
