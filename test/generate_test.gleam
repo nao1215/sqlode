@@ -230,3 +230,132 @@ pub fn combined_type_override_and_column_rename_test() {
 
   cleanup()
 }
+
+// --- All 6 query command types tests ---
+
+const all_commands_out = "test_output/generate_test_commands"
+
+fn all_commands_block(
+  engine: model.Engine,
+  runtime: model.Runtime,
+) -> model.SqlBlock {
+  model.SqlBlock(
+    name: option.None,
+    engine: engine,
+    schema: ["test/fixtures/all_commands_schema.sql"],
+    queries: ["test/fixtures/all_commands_query.sql"],
+    gleam: model.GleamOutput(
+      package: "db",
+      out: all_commands_out,
+      runtime: runtime,
+    ),
+    overrides: model.empty_overrides(),
+  )
+}
+
+fn cleanup_commands() {
+  let _ = simplifile.delete(all_commands_out)
+  Nil
+}
+
+fn read_commands_file(filename: String) -> String {
+  let assert Ok(content) = simplifile.read(all_commands_out <> "/" <> filename)
+  content
+}
+
+pub fn all_commands_generate_queries_test() {
+  cleanup_commands()
+  let block = all_commands_block(model.SQLite, model.Raw)
+  let cfg = model.Config(version: 2, sql: [block])
+  let assert Ok(_) = generate.generate_config(cfg)
+
+  let queries = read_commands_file("queries.gleam")
+
+  // All 6 query functions should exist
+  string.contains(queries, "pub fn get_post()") |> should.be_true()
+  string.contains(queries, "pub fn list_posts()") |> should.be_true()
+  string.contains(queries, "pub fn create_post()") |> should.be_true()
+  string.contains(queries, "pub fn update_post()") |> should.be_true()
+  string.contains(queries, "pub fn count_posts()") |> should.be_true()
+  string.contains(queries, "pub fn insert_post()") |> should.be_true()
+
+  // Verify command types
+  string.contains(queries, "runtime.QueryOne") |> should.be_true()
+  string.contains(queries, "runtime.QueryMany") |> should.be_true()
+  string.contains(queries, "runtime.QueryExec") |> should.be_true()
+  string.contains(queries, "runtime.QueryExecResult") |> should.be_true()
+  string.contains(queries, "runtime.QueryExecRows") |> should.be_true()
+  string.contains(queries, "runtime.QueryExecLastId") |> should.be_true()
+
+  cleanup_commands()
+}
+
+pub fn all_commands_generate_params_test() {
+  cleanup_commands()
+  let block = all_commands_block(model.SQLite, model.Raw)
+  let cfg = model.Config(version: 2, sql: [block])
+  let assert Ok(_) = generate.generate_config(cfg)
+
+  let params = read_commands_file("params.gleam")
+
+  // :one and :many with params
+  string.contains(params, "GetPostParams") |> should.be_true()
+  // :exec with params
+  string.contains(params, "CreatePostParams") |> should.be_true()
+  // :execresult with params
+  string.contains(params, "UpdatePostParams") |> should.be_true()
+  // :execlastid with params
+  string.contains(params, "InsertPostParams") |> should.be_true()
+  // :many without params should still have type
+  string.contains(params, "ListPostsParams") |> should.be_true()
+
+  cleanup_commands()
+}
+
+pub fn all_commands_generate_models_test() {
+  cleanup_commands()
+  let block = all_commands_block(model.SQLite, model.Raw)
+  let cfg = model.Config(version: 2, sql: [block])
+  let assert Ok(_) = generate.generate_config(cfg)
+
+  let models = read_commands_file("models.gleam")
+
+  // :one and :many generate row types
+  string.contains(models, "GetPostRow") |> should.be_true()
+  string.contains(models, "ListPostsRow") |> should.be_true()
+
+  // :exec, :execresult, :execlastid should NOT generate row types
+  string.contains(models, "CreatePostRow") |> should.be_false()
+  string.contains(models, "UpdatePostRow") |> should.be_false()
+  string.contains(models, "InsertPostRow") |> should.be_false()
+
+  cleanup_commands()
+}
+
+pub fn all_commands_sqlight_adapter_test() {
+  cleanup_commands()
+  let block = all_commands_block(model.SQLite, model.Native)
+  let cfg = model.Config(version: 2, sql: [block])
+  let assert Ok(_) = generate.generate_config(cfg)
+
+  let adapter = read_commands_file("sqlight_adapter.gleam")
+
+  // :one returns Option
+  string.contains(adapter, "Result(Option(models.GetPostRow)")
+  |> should.be_true()
+  // :many returns List
+  string.contains(adapter, "Result(List(models.ListPostsRow)")
+  |> should.be_true()
+  // :exec returns Nil
+  string.contains(adapter, "fn create_post(") |> should.be_true()
+  string.contains(adapter, "Result(Nil, sqlight.Error)") |> should.be_true()
+  // :execresult returns Nil (same as exec for sqlight)
+  string.contains(adapter, "fn update_post(") |> should.be_true()
+  // :execrows returns Int
+  string.contains(adapter, "fn count_posts(") |> should.be_true()
+  string.contains(adapter, "Result(Int, sqlight.Error)") |> should.be_true()
+  // :execlastid returns Nil (same as exec for sqlight)
+  string.contains(adapter, "fn insert_post(") |> should.be_true()
+
+  cleanup_commands()
+}
