@@ -188,6 +188,94 @@ pub fn expand_sqlc_slice_double_quoted_test() {
   |> should.equal([model.SqlcSlice(index: 1, name: "ids")])
 }
 
+// @name shorthand tests
+
+pub fn expand_at_name_postgresql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetByName :one\n"
+    <> "SELECT id FROM authors WHERE name = @author_name;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("at.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+
+  query.param_count |> should.equal(1)
+  query.macros
+  |> should.equal([model.SqlcArg(index: 1, name: "author_name")])
+  string.contains(query.sql, "@author_name") |> should.be_false()
+  string.contains(query.sql, "$1") |> should.be_true()
+}
+
+pub fn expand_at_name_sqlite_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetByName :one\n"
+    <> "SELECT id FROM authors WHERE name = @author_name;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("at.sql", model.SQLite, naming_ctx, content)
+  let assert [query] = queries
+
+  query.param_count |> should.equal(1)
+  query.macros
+  |> should.equal([model.SqlcArg(index: 1, name: "author_name")])
+  string.contains(query.sql, "@author_name") |> should.be_false()
+  string.contains(query.sql, "?1") |> should.be_true()
+}
+
+pub fn expand_multiple_at_names_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: UpdateBio :exec\n"
+    <> "UPDATE authors SET bio = @new_bio WHERE id = @author_id;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("at.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+
+  query.param_count |> should.equal(2)
+  query.macros
+  |> should.equal([
+    model.SqlcArg(index: 1, name: "new_bio"),
+    model.SqlcArg(index: 2, name: "author_id"),
+  ])
+  string.contains(query.sql, "$1") |> should.be_true()
+  string.contains(query.sql, "$2") |> should.be_true()
+}
+
+pub fn expand_at_name_mixed_with_sqlc_arg_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: Update :exec\n"
+    <> "UPDATE authors SET bio = @new_bio WHERE id = sqlc.arg(author_id);"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("at.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+
+  query.param_count |> should.equal(2)
+  query.macros
+  |> should.equal([
+    model.SqlcArg(index: 1, name: "new_bio"),
+    model.SqlcArg(index: 2, name: "author_id"),
+  ])
+}
+
+pub fn at_name_not_expanded_on_mysql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetByName :one\n"
+    <> "SELECT id FROM authors WHERE name = @author_name;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("at.sql", model.MySQL, naming_ctx, content)
+  let assert [query] = queries
+
+  query.macros |> should.equal([])
+  string.contains(query.sql, "@author_name") |> should.be_true()
+}
+
 // Error and boundary tests
 
 pub fn invalid_annotation_format_test() {
