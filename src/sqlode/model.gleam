@@ -179,6 +179,57 @@ pub fn scalar_type_to_runtime_function(scalar_type: ScalarType) -> String {
   }
 }
 
+pub fn scalar_type_to_db_name(scalar_type: ScalarType) -> String {
+  case scalar_type {
+    IntType -> "int"
+    FloatType -> "float"
+    BoolType -> "bool"
+    StringType -> "string"
+    BytesType -> "bytes"
+    DateTimeType -> "datetime"
+    DateType -> "date"
+    TimeType -> "time"
+    UuidType -> "uuid"
+    JsonType -> "json"
+    EnumType(name) -> name
+  }
+}
+
+pub fn scalar_type_to_value_function(
+  engine: Engine,
+  scalar_type: ScalarType,
+) -> String {
+  case scalar_type {
+    IntType -> "int"
+    FloatType -> "float"
+    BoolType -> "bool"
+    StringType -> "text"
+    BytesType ->
+      case engine {
+        PostgreSQL -> "bytea"
+        SQLite | MySQL -> "blob"
+      }
+    DateTimeType | DateType | TimeType | UuidType | JsonType | EnumType(_) ->
+      "text"
+  }
+}
+
+pub fn scalar_type_to_decoder(engine: Engine, scalar_type: ScalarType) -> String {
+  case scalar_type {
+    IntType -> "decode.int"
+    FloatType -> "decode.float"
+    BoolType ->
+      case engine {
+        SQLite -> "decode.then(decode.int, fn(v) { decode.success(v != 0) })"
+        PostgreSQL | MySQL -> "decode.bool"
+      }
+    StringType -> "decode.string"
+    BytesType -> "decode.bit_array"
+    DateTimeType | DateType | TimeType | UuidType | JsonType | EnumType(_) ->
+      "decode.string"
+  }
+}
+
 pub type Column {
   Column(name: String, scalar_type: ScalarType, nullable: Bool)
 }

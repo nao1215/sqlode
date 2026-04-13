@@ -213,7 +213,7 @@ fn find_type_override(
   scalar_type: model.ScalarType,
   overrides: List(model.TypeOverride),
 ) -> Result(String, Nil) {
-  let type_name = scalar_type_name(scalar_type)
+  let type_name = model.scalar_type_to_db_name(scalar_type)
 
   list.find_map(overrides, fn(ovr) {
     case string.lowercase(ovr.db_type) == type_name {
@@ -221,22 +221,6 @@ fn find_type_override(
       False -> Error(Nil)
     }
   })
-}
-
-fn scalar_type_name(scalar_type: model.ScalarType) -> String {
-  case scalar_type {
-    model.IntType -> "int"
-    model.FloatType -> "float"
-    model.BoolType -> "bool"
-    model.StringType -> "string"
-    model.BytesType -> "bytes"
-    model.DateTimeType -> "datetime"
-    model.DateType -> "date"
-    model.TimeType -> "time"
-    model.UuidType -> "uuid"
-    model.JsonType -> "json"
-    model.EnumType(name) -> name
-  }
 }
 
 fn gleam_type_to_scalar(gleam_type: String) -> model.ScalarType {
