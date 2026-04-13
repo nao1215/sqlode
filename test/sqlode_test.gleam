@@ -1,5 +1,6 @@
 import codegen_test
 import config_test
+import generate_test
 import gleeunit
 import query_analyzer_test
 import query_parser_test
@@ -135,4 +136,40 @@ pub fn render_pog_adapter_test() {
 
 pub fn render_sqlight_adapter_test() {
   codegen_test.render_sqlight_adapter_test()
+}
+
+pub fn type_override_changes_scalar_type_test() {
+  generate_test.type_override_changes_scalar_type_test()
+}
+
+pub fn type_override_case_insensitive_db_type_test() {
+  generate_test.type_override_case_insensitive_db_type_test()
+}
+
+pub fn type_override_preserves_unmatched_columns_test() {
+  generate_test.type_override_preserves_unmatched_columns_test()
+}
+
+pub fn type_override_multiple_overrides_test() {
+  generate_test.type_override_multiple_overrides_test()
+}
+
+pub fn no_overrides_leaves_types_unchanged_test() {
+  generate_test.no_overrides_leaves_types_unchanged_test()
+}
+
+pub fn column_rename_changes_field_name_test() {
+  generate_test.column_rename_changes_field_name_test()
+}
+
+pub fn column_rename_case_insensitive_match_test() {
+  generate_test.column_rename_case_insensitive_match_test()
+}
+
+pub fn column_rename_only_applies_to_matching_table_test() {
+  generate_test.column_rename_only_applies_to_matching_table_test()
+}
+
+pub fn combined_type_override_and_column_rename_test() {
+  generate_test.combined_type_override_and_column_rename_test()
 }
