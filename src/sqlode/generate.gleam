@@ -1,3 +1,4 @@
+import gleam/dict.{type Dict}
 import gleam/int
 import gleam/io
 import gleam/list
@@ -68,6 +69,8 @@ fn generate_sql_block(
   )
   let analyzed = apply_column_renames(analyzed, block.overrides.column_renames)
 
+  let table_matches = compute_table_matches(naming_ctx, catalog, analyzed)
+
   let model.SqlBlock(gleam:, ..) = block
   let model.GleamOutput(out:, ..) = gleam
 
@@ -89,6 +92,8 @@ fn generate_sql_block(
           }
         })
 
+      let has_models = has_row_types || !list.is_empty(catalog.tables)
+
       let base_files = [
         writer.GeneratedFile(
           directory: out,
@@ -102,13 +107,18 @@ fn generate_sql_block(
         ),
       ]
 
-      let files = case has_row_types {
+      let files = case has_models {
         True ->
           list.append(base_files, [
             writer.GeneratedFile(
               directory: out,
               path: "models.gleam",
-              content: codegen.render_models_module(naming_ctx, analyzed),
+              content: codegen.render_models_module(
+                naming_ctx,
+                catalog,
+                analyzed,
+                table_matches,
+              ),
             ),
           ])
         False -> base_files
@@ -125,6 +135,7 @@ fn generate_sql_block(
                 naming_ctx,
                 block,
                 analyzed,
+                table_matches,
               ),
             ),
           ])
@@ -352,6 +363,81 @@ fn adapter_filename(engine: model.Engine) -> String {
     model.PostgreSQL -> "pog_adapter.gleam"
     model.SQLite -> "sqlight_adapter.gleam"
     model.MySQL -> "mysql_adapter.gleam"
+  }
+}
+
+/// Compute a mapping from query function_name to PascalCase table type name
+/// for queries whose result columns exactly match a table in the catalog.
+fn compute_table_matches(
+  naming_ctx: naming.NamingContext,
+  catalog: model.Catalog,
+  queries: List(model.AnalyzedQuery),
+) -> Dict(String, String) {
+  queries
+  |> list.filter_map(fn(query) {
+    case query.base.command {
+      model.One | model.Many ->
+        case query.result_columns {
+          [] -> Error(Nil)
+          [first, ..] ->
+            case first.source_table {
+              option.None -> Error(Nil)
+              option.Some(table_name) -> {
+                // All result columns must reference the same table
+                let all_same_table =
+                  list.all(query.result_columns, fn(col) {
+                    col.source_table == option.Some(table_name)
+                  })
+                case all_same_table {
+                  False -> Error(Nil)
+                  True ->
+                    case find_table(catalog, table_name) {
+                      Error(_) -> Error(Nil)
+                      Ok(table) ->
+                        case
+                          columns_match(query.result_columns, table.columns)
+                        {
+                          False -> Error(Nil)
+                          True ->
+                            Ok(#(
+                              query.base.function_name,
+                              naming.to_pascal_case(naming_ctx, table_name),
+                            ))
+                        }
+                    }
+                }
+              }
+            }
+        }
+      _ -> Error(Nil)
+    }
+  })
+  |> dict.from_list
+}
+
+fn find_table(
+  catalog: model.Catalog,
+  table_name: String,
+) -> Result(model.Table, Nil) {
+  list.find(catalog.tables, fn(t) {
+    string.lowercase(t.name) == string.lowercase(table_name)
+  })
+}
+
+fn columns_match(
+  result_columns: List(model.ResultColumn),
+  table_columns: List(model.Column),
+) -> Bool {
+  case list.length(result_columns) == list.length(table_columns) {
+    False -> False
+    True ->
+      list.zip(result_columns, table_columns)
+      |> list.all(fn(pair) {
+        let #(rc, tc) = pair
+        string.lowercase(rc.name) == string.lowercase(tc.name)
+        && rc.scalar_type == tc.scalar_type
+        && rc.nullable == tc.nullable
+      })
   }
 }
 

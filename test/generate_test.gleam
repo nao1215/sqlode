@@ -244,6 +244,61 @@ pub fn no_overrides_leaves_types_unchanged_test() {
   cleanup()
 }
 
+// --- Table record type tests ---
+
+pub fn table_types_are_emitted_test() {
+  cleanup()
+  let block = base_block(model.empty_overrides())
+
+  run_generate(block)
+  let models = read_generated("models.gleam")
+
+  // Table type should be emitted from schema
+  string.contains(models, "pub type Authors {") |> should.be_true()
+  string.contains(models, "bio: Option(String)") |> should.be_true()
+
+  cleanup()
+}
+
+pub fn exact_table_match_produces_alias_test() {
+  cleanup()
+  let block =
+    model.SqlBlock(
+      name: option.None,
+      engine: model.PostgreSQL,
+      schema: ["test/fixtures/schema.sql"],
+      queries: ["test/fixtures/star_query.sql"],
+      gleam: model.GleamOutput(package: "db", out: test_out, runtime: model.Raw),
+      overrides: model.empty_overrides(),
+    )
+
+  run_generate(block)
+  let models = read_generated("models.gleam")
+
+  // Table type emitted
+  string.contains(models, "pub type Authors {") |> should.be_true()
+  // Exact match should produce type alias
+  string.contains(models, "pub type GetAllAuthorsRow =") |> should.be_true()
+  // Should NOT have a separate record type for GetAllAuthorsRow
+  string.contains(models, "pub type GetAllAuthorsRow {") |> should.be_false()
+
+  cleanup()
+}
+
+pub fn partial_match_does_not_produce_alias_test() {
+  cleanup()
+  let block = base_block(model.empty_overrides())
+
+  run_generate(block)
+  let models = read_generated("models.gleam")
+
+  // Query selects only id, name (2 of 3 columns) — NOT an exact match
+  string.contains(models, "pub type GetAuthorRow {") |> should.be_true()
+  string.contains(models, "pub type GetAuthorRow =") |> should.be_false()
+
+  cleanup()
+}
+
 // --- Column rename tests ---
 
 pub fn column_rename_changes_field_name_test() {
@@ -263,8 +318,11 @@ pub fn column_rename_changes_field_name_test() {
   let models = read_generated("models.gleam")
 
   string.contains(models, "author_name: String") |> should.be_true()
-  // Original field pattern "id: Int, name: String" should be replaced
-  string.contains(models, "id: Int, name: String") |> should.be_false()
+  // Row type should use renamed field, not original
+  string.contains(models, "GetAuthorRow(id: Int, name: String)")
+  |> should.be_false()
+  string.contains(models, "GetAuthorRow(id: Int, author_name: String)")
+  |> should.be_true()
 
   cleanup()
 }
