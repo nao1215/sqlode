@@ -1,3 +1,4 @@
+import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
 import gleam/string
@@ -33,12 +34,25 @@ pub fn render(
   naming_ctx: naming.NamingContext,
   block: model.SqlBlock,
   queries: List(model.AnalyzedQuery),
+  table_matches: Dict(String, String),
 ) -> String {
   case block.engine {
     model.PostgreSQL ->
-      render_adapter(naming_ctx, block, queries, pog_adapter_config())
+      render_adapter(
+        naming_ctx,
+        block,
+        queries,
+        table_matches,
+        pog_adapter_config(),
+      )
     model.SQLite ->
-      render_adapter(naming_ctx, block, queries, sqlight_adapter_config())
+      render_adapter(
+        naming_ctx,
+        block,
+        queries,
+        table_matches,
+        sqlight_adapter_config(),
+      )
     model.MySQL -> render_mysql_adapter()
   }
 }
@@ -89,6 +103,7 @@ fn render_adapter(
   naming_ctx: naming.NamingContext,
   block: model.SqlBlock,
   queries: List(model.AnalyzedQuery),
+  table_matches: Dict(String, String),
   config: AdapterConfig,
 ) -> String {
   let model.SqlBlock(gleam:, ..) = block
@@ -143,7 +158,7 @@ fn render_adapter(
 
   let functions =
     queries
-    |> list.map(render_adapter_function(naming_ctx, _, config))
+    |> list.map(render_adapter_function(naming_ctx, _, table_matches, config))
     |> string.join("\n\n")
 
   string.join(list.flatten([imports, ["", functions]]), "\n")
@@ -152,6 +167,7 @@ fn render_adapter(
 fn render_adapter_function(
   naming_ctx: naming.NamingContext,
   query: model.AnalyzedQuery,
+  table_matches: Dict(String, String),
   config: AdapterConfig,
 ) -> String {
   let fn_name = query.base.function_name
@@ -159,9 +175,23 @@ fn render_adapter_function(
 
   case query.base.command {
     model.One ->
-      render_adapter_one(naming_ctx, query, fn_name, has_params, config)
+      render_adapter_one(
+        naming_ctx,
+        query,
+        fn_name,
+        has_params,
+        table_matches,
+        config,
+      )
     model.Many ->
-      render_adapter_many(naming_ctx, query, fn_name, has_params, config)
+      render_adapter_many(
+        naming_ctx,
+        query,
+        fn_name,
+        has_params,
+        table_matches,
+        config,
+      )
     model.Exec ->
       render_adapter_exec(naming_ctx, query, fn_name, has_params, config)
     model.ExecResult | model.ExecRows ->
@@ -242,12 +272,19 @@ fn render_adapter_one(
   query: model.AnalyzedQuery,
   fn_name: String,
   has_params: Bool,
+  table_matches: Dict(String, String),
   config: AdapterConfig,
 ) -> String {
   let type_name = naming.to_pascal_case(naming_ctx, query.base.name) <> "Row"
+  let constructor_name = case
+    dict.get(table_matches, query.base.function_name)
+  {
+    Ok(table_type) -> table_type
+    Error(_) -> type_name
+  }
   let params_arg = render_params_arg(naming_ctx, query, has_params)
   let params_str = config.render_params(query.params, "p")
-  let decoder = render_decoder(naming_ctx, query, type_name, config)
+  let decoder = render_decoder(naming_ctx, query, constructor_name, config)
 
   string.join(
     list.flatten([
@@ -283,12 +320,19 @@ fn render_adapter_many(
   query: model.AnalyzedQuery,
   fn_name: String,
   has_params: Bool,
+  table_matches: Dict(String, String),
   config: AdapterConfig,
 ) -> String {
   let type_name = naming.to_pascal_case(naming_ctx, query.base.name) <> "Row"
+  let constructor_name = case
+    dict.get(table_matches, query.base.function_name)
+  {
+    Ok(table_type) -> table_type
+    Error(_) -> type_name
+  }
   let params_arg = render_params_arg(naming_ctx, query, has_params)
   let params_str = config.render_params(query.params, "p")
-  let decoder = render_decoder(naming_ctx, query, type_name, config)
+  let decoder = render_decoder(naming_ctx, query, constructor_name, config)
 
   string.join(
     list.flatten([

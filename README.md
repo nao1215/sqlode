@@ -102,7 +102,7 @@ sqlode generate
 gleam run -m sqlode -- generate
 ```
 
-This produces `params.gleam` and `queries.gleam` in the configured output directory. `models.gleam` is also generated when at least one query uses `:one` or `:many` and returns result columns.
+This produces `params.gleam` and `queries.gleam` in the configured output directory. `models.gleam` is also generated when the schema defines tables or when at least one query uses `:one` or `:many` and returns result columns.
 
 ## Generated code
 
@@ -124,11 +124,19 @@ pub type CreateAuthorParams {
 
 ### models.gleam
 
+sqlode generates reusable record types for each table in the schema, plus per-query row types for queries that return results. When a query's result columns exactly match a table (same columns, types, nullability, and order), a type alias is emitted instead of a duplicate record type.
+
 ```gleam
-pub type GetAuthorRow {
-  GetAuthorRow(id: Int, name: String, bio: Option(String))
+// Table record type — reusable across queries
+pub type Authors {
+  Authors(id: Int, name: String, bio: Option(String), created_at: String)
 }
 
+// Exact table match — alias instead of duplicate
+pub type GetAuthorRow =
+  Authors
+
+// Partial match — separate row type
 pub type ListAuthorsRow {
   ListAuthorsRow(id: Int, name: String)
 }
