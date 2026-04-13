@@ -641,7 +641,9 @@ fn infer_result_columns(
           }
         }
         None -> {
-          let main_sql = strip_cte(ctx, normalized)
+          let main_sql =
+            strip_cte(ctx, normalized)
+            |> strip_compound
           let table_names = extract_table_names(ctx, main_sql)
 
           case table_names {
@@ -681,6 +683,22 @@ fn strip_cte(ctx: AnalyzerContext, sql: String) -> String {
         [] -> sql
       }
     }
+  }
+}
+
+fn strip_compound(sql: String) -> String {
+  let keywords = [" union all ", " union ", " intersect ", " except "]
+  strip_first_compound(sql, keywords)
+}
+
+fn strip_first_compound(sql: String, keywords: List(String)) -> String {
+  case keywords {
+    [] -> sql
+    [keyword, ..rest] ->
+      case string.split_once(sql, keyword) {
+        Ok(#(before, _)) -> before |> string.trim
+        Error(_) -> strip_first_compound(sql, rest)
+      }
   }
 }
 
