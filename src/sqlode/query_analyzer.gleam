@@ -1,3 +1,4 @@
+import gleam/dict
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -118,10 +119,15 @@ fn build_params(
       infer_equality_params(ctx, engine, query, catalog),
     )
 
-  unique_occurrences(occurrences, [])
+  let macro_dict = build_macro_dict(query.macros)
+  let inference_dict = build_inference_dict(inferences)
+
+  unique_occurrences(occurrences)
   |> list.map(fn(occurrence) {
-    let macro_info = find_macro(occurrence.index, query.macros)
-    let inferred = find_inference(occurrence.index, inferences)
+    let macro_info =
+      dict.get(macro_dict, occurrence.index) |> option.from_result
+    let inferred =
+      dict.get(inference_dict, occurrence.index) |> option.from_result
 
     let #(field_name, scalar_type, nullable, is_list) = case macro_info {
       Some(model.SqlcArg(name:, ..)) -> {
@@ -173,52 +179,42 @@ fn build_params(
 
 fn unique_occurrences(
   occurrences: List(PlaceholderOccurrence),
-  acc: List(PlaceholderOccurrence),
 ) -> List(PlaceholderOccurrence) {
-  case occurrences {
-    [] -> list.reverse(acc)
-    [occurrence, ..rest] ->
-      case list.any(acc, fn(existing) { existing.index == occurrence.index }) {
-        True -> unique_occurrences(rest, acc)
-        False -> unique_occurrences(rest, [occurrence, ..acc])
+  let #(_, result) =
+    list.fold(occurrences, #(dict.new(), []), fn(acc, occurrence) {
+      let #(seen, items) = acc
+      case dict.has_key(seen, occurrence.index) {
+        True -> acc
+        False -> #(dict.insert(seen, occurrence.index, Nil), [
+          occurrence,
+          ..items
+        ])
       }
+    })
+  list.reverse(result)
+}
+
+fn macro_index(m: model.SqlcMacro) -> Int {
+  case m {
+    model.SqlcArg(index: i, ..) -> i
+    model.SqlcNarg(index: i, ..) -> i
+    model.SqlcSlice(index: i, ..) -> i
   }
 }
 
-fn find_macro(
-  index: Int,
+fn build_macro_dict(
   macros: List(model.SqlcMacro),
-) -> Option(model.SqlcMacro) {
-  case macros {
-    [] -> None
-    [entry, ..rest] -> {
-      let entry_index = case entry {
-        model.SqlcArg(index: i, ..) -> i
-        model.SqlcNarg(index: i, ..) -> i
-        model.SqlcSlice(index: i, ..) -> i
-      }
-      case entry_index == index {
-        True -> Some(entry)
-        False -> find_macro(index, rest)
-      }
-    }
-  }
+) -> dict.Dict(Int, model.SqlcMacro) {
+  list.fold(macros, dict.new(), fn(d, m) { dict.insert(d, macro_index(m), m) })
 }
 
-fn find_inference(
-  index: Int,
+fn build_inference_dict(
   inferences: List(#(Int, model.Column)),
-) -> Option(model.Column) {
-  case inferences {
-    [] -> None
-    [entry, ..rest] -> {
-      let #(candidate, column) = entry
-      case candidate == index {
-        True -> Some(column)
-        False -> find_inference(index, rest)
-      }
-    }
-  }
+) -> dict.Dict(Int, model.Column) {
+  list.fold(inferences, dict.new(), fn(d, entry) {
+    let #(index, column) = entry
+    dict.insert(d, index, column)
+  })
 }
 
 fn infer_insert_params(
@@ -504,19 +500,17 @@ fn primary_table_name(ctx: AnalyzerContext, sql: String) -> Option(String) {
 }
 
 fn find_first_match(regexes: List(regexp.Regexp), sql: String) -> Option(String) {
-  case regexes {
-    [] -> None
-    [re, ..rest] -> {
-      case regexp.scan(re, sql) {
-        [match, ..] ->
-          case match.submatches {
-            [Some(name)] -> Some(name)
-            _ -> find_first_match(rest, sql)
-          }
-        [] -> find_first_match(rest, sql)
-      }
+  list.find_map(regexes, fn(re) {
+    case regexp.scan(re, sql) {
+      [match, ..] ->
+        case match.submatches {
+          [Some(name)] -> Ok(name)
+          _ -> Error(Nil)
+        }
+      [] -> Error(Nil)
     }
-  }
+  })
+  |> option.from_result
 }
 
 fn find_column(
@@ -828,12 +822,11 @@ fn find_column_in_tables(
   table_names: List(String),
   column_name: String,
 ) -> Option(model.Column) {
-  case table_names {
-    [] -> None
-    [name, ..rest] ->
-      case find_column(catalog, name, column_name) {
-        Some(col) -> Some(col)
-        None -> find_column_in_tables(catalog, rest, column_name)
-      }
-  }
+  list.find_map(table_names, fn(name) {
+    case find_column(catalog, name, column_name) {
+      Some(col) -> Ok(col)
+      None -> Error(Nil)
+    }
+  })
+  |> option.from_result
 }
