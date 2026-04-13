@@ -192,6 +192,45 @@ pub fn custom_column_override_preserves_type_name_test() {
   cleanup()
 }
 
+pub fn custom_type_override_adds_alias_warning_comment_test() {
+  cleanup()
+  let block =
+    base_block(
+      model.Overrides(
+        type_overrides: [
+          model.DbTypeOverride(
+            db_type: "int",
+            gleam_type: "UserId",
+            nullable: option.None,
+          ),
+        ],
+        column_renames: [],
+      ),
+    )
+
+  run_generate(block)
+  let models = read_generated("models.gleam")
+
+  // generated models should contain the alias warning comment
+  string.contains(models, "transparent type alias") |> should.be_true()
+  string.contains(models, "Opaque types") |> should.be_true()
+
+  cleanup()
+}
+
+pub fn no_custom_type_omits_alias_warning_comment_test() {
+  cleanup()
+  let block = base_block(model.empty_overrides())
+
+  run_generate(block)
+  let models = read_generated("models.gleam")
+
+  // no custom types, so no warning comment
+  string.contains(models, "transparent type alias") |> should.be_false()
+
+  cleanup()
+}
+
 pub fn no_overrides_leaves_types_unchanged_test() {
   cleanup()
   let block = base_block(model.empty_overrides())
