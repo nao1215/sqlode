@@ -12,11 +12,20 @@ type AdapterConfig {
     value_function: fn(model.ScalarType) -> String,
     decoder_function: fn(model.ScalarType) -> String,
     render_params: fn(List(model.QueryParam), String) -> String,
-    render_query_call: fn(String, String, String, String) -> List(String),
+    render_query_call: fn(
+      String,
+      String,
+      String,
+      String,
+      List(model.QueryParam),
+    ) ->
+      List(String),
     render_one_result: fn() -> List(String),
     render_many_result: fn() -> List(String),
     render_exec_rows_result: fn() -> List(String),
-    render_exec_last_id: fn(String, String, String) -> List(String),
+    render_exec_last_id: fn(String, String, String, List(model.QueryParam)) ->
+      List(String),
+    placeholder_prefix: String,
   )
 }
 
@@ -51,6 +60,7 @@ fn pog_adapter_config() -> AdapterConfig {
     render_many_result: render_pog_many_result,
     render_exec_rows_result: render_pog_exec_rows_result,
     render_exec_last_id: render_pog_exec_last_id,
+    placeholder_prefix: "$",
   )
 }
 
@@ -67,6 +77,7 @@ fn sqlight_adapter_config() -> AdapterConfig {
     render_many_result: render_sqlight_many_result,
     render_exec_rows_result: render_sqlight_exec_rows_result,
     render_exec_last_id: render_sqlight_exec_last_id,
+    placeholder_prefix: "?",
   )
 }
 
@@ -97,6 +108,11 @@ fn render_adapter(
       || query.base.command == model.ExecResult
     })
 
+  let has_slices =
+    list.any(queries, fn(query) {
+      list.any(query.params, fn(param) { param.is_list })
+    })
+
   let imports =
     list.flatten([
       [
@@ -104,7 +120,7 @@ fn render_adapter(
         "",
         "import gleam/dynamic/decode",
       ],
-      case has_exec_rows {
+      case has_exec_rows || has_slices {
         True -> ["import gleam/list"]
         False -> []
       },
@@ -114,6 +130,10 @@ fn render_adapter(
         False -> []
       },
       [config.library_import],
+      case has_slices {
+        True -> ["import sqlode/runtime"]
+        False -> []
+      },
       case has_results {
         True -> ["import " <> package <> "/models"]
         False -> []
@@ -244,7 +264,13 @@ fn render_adapter_one(
           <> ") {",
         "  let q = queries." <> fn_name <> "()",
       ],
-      config.render_query_call(fn_name, params_str, decoder, "q.sql"),
+      config.render_query_call(
+        fn_name,
+        params_str,
+        decoder,
+        "q.sql",
+        query.params,
+      ),
       config.render_one_result(),
       ["}"],
     ]),
@@ -279,7 +305,13 @@ fn render_adapter_many(
           <> ") {",
         "  let q = queries." <> fn_name <> "()",
       ],
-      config.render_query_call(fn_name, params_str, decoder, "q.sql"),
+      config.render_query_call(
+        fn_name,
+        params_str,
+        decoder,
+        "q.sql",
+        query.params,
+      ),
       config.render_many_result(),
       ["}"],
     ]),
@@ -315,6 +347,7 @@ fn render_adapter_exec(
         params_str,
         "decode.success(Nil)",
         "q.sql",
+        query.params,
       ),
       [
         "  |> result.map(fn(_) { Nil })",
@@ -353,6 +386,7 @@ fn render_adapter_exec_rows(
         params_str,
         "decode.success(Nil)",
         "q.sql",
+        query.params,
       ),
       config.render_exec_rows_result(),
       ["}"],
@@ -384,7 +418,7 @@ fn render_adapter_exec_last_id(
           <> ") {",
         "  let q = queries." <> fn_name <> "()",
       ],
-      config.render_exec_last_id(fn_name, params_str, "q.sql"),
+      config.render_exec_last_id(fn_name, params_str, "q.sql", query.params),
       ["}"],
     ]),
     "\n",
@@ -400,7 +434,10 @@ fn render_pog_query_call(
   params_str: String,
   decoder: String,
   _sql_expr: String,
+  params: List(model.QueryParam),
 ) -> List(String) {
+  let has_slices = list.any(params, fn(p) { p.is_list })
+
   let param_lines = case params_str {
     "" -> []
     _ ->
@@ -409,14 +446,37 @@ fn render_pog_query_call(
       |> list.filter(fn(l) { l != "" })
   }
 
-  list.flatten([
-    ["  pog.query(q.sql)"],
-    param_lines,
-    ["  |> pog.returning(" <> decoder <> ")", "  |> pog.execute(db)"],
-  ])
+  case has_slices {
+    True -> {
+      let slice_expansion = render_slice_expansion_line(params, "$")
+      list.flatten([
+        ["  " <> slice_expansion, "  let query = pog.query(sql)"],
+        param_lines,
+        [
+          "  query",
+          "  |> pog.returning(" <> decoder <> ")",
+          "  |> pog.execute(db)",
+        ],
+      ])
+    }
+    False ->
+      list.flatten([
+        ["  pog.query(q.sql)"],
+        param_lines,
+        ["  |> pog.returning(" <> decoder <> ")", "  |> pog.execute(db)"],
+      ])
+  }
 }
 
 fn render_pog_params(params: List(model.QueryParam), _prefix: String) -> String {
+  let has_slices = list.any(params, fn(p) { p.is_list })
+  case has_slices {
+    True -> render_pog_params_with_slices(params)
+    False -> render_pog_params_simple(params)
+  }
+}
+
+fn render_pog_params_simple(params: List(model.QueryParam)) -> String {
   params
   |> list.map(fn(param) {
     let value_fn =
@@ -434,6 +494,38 @@ fn render_pog_params(params: List(model.QueryParam), _prefix: String) -> String 
         <> ", p."
         <> param.field_name
         <> "))"
+    }
+  })
+  |> string.join("\n")
+}
+
+fn render_pog_params_with_slices(params: List(model.QueryParam)) -> String {
+  params
+  |> list.map(fn(param) {
+    let value_fn =
+      model.scalar_type_to_value_function(model.PostgreSQL, param.scalar_type)
+    case param.is_list {
+      True ->
+        "  let query = list.fold(p."
+        <> param.field_name
+        <> ", query, fn(acc, v) { pog.parameter(acc, pog."
+        <> value_fn
+        <> "(v)) })"
+      False ->
+        case param.nullable {
+          False ->
+            "  let query = pog.parameter(query, pog."
+            <> value_fn
+            <> "(p."
+            <> param.field_name
+            <> "))"
+          True ->
+            "  let query = pog.parameter(query, pog.nullable(pog."
+            <> value_fn
+            <> ", p."
+            <> param.field_name
+            <> "))"
+        }
     }
   })
   |> string.join("\n")
@@ -462,7 +554,10 @@ fn render_pog_exec_last_id(
   _fn_name: String,
   params_str: String,
   _sql_expr: String,
+  params: List(model.QueryParam),
 ) -> List(String) {
+  let has_slices = list.any(params, fn(p) { p.is_list })
+
   let param_lines = case params_str {
     "" -> []
     _ ->
@@ -471,20 +566,41 @@ fn render_pog_exec_last_id(
       |> list.filter(fn(l) { l != "" })
   }
 
-  list.flatten([
-    ["  pog.query(q.sql)"],
-    param_lines,
-    [
-      "  |> pog.returning(decode.int)",
-      "  |> pog.execute(db)",
-      "  |> result.map(fn(returned) {",
-      "    case returned.rows {",
-      "      [id, ..] -> id",
-      "      [] -> 0",
-      "    }",
-      "  })",
-    ],
-  ])
+  case has_slices {
+    True -> {
+      let slice_expansion = render_slice_expansion_line(params, "$")
+      list.flatten([
+        ["  " <> slice_expansion, "  let query = pog.query(sql)"],
+        param_lines,
+        [
+          "  query",
+          "  |> pog.returning(decode.int)",
+          "  |> pog.execute(db)",
+          "  |> result.map(fn(returned) {",
+          "    case returned.rows {",
+          "      [id, ..] -> id",
+          "      [] -> 0",
+          "    }",
+          "  })",
+        ],
+      ])
+    }
+    False ->
+      list.flatten([
+        ["  pog.query(q.sql)"],
+        param_lines,
+        [
+          "  |> pog.returning(decode.int)",
+          "  |> pog.execute(db)",
+          "  |> result.map(fn(returned) {",
+          "    case returned.rows {",
+          "      [id, ..] -> id",
+          "      [] -> 0",
+          "    }",
+          "  })",
+        ],
+      ])
+  }
 }
 
 // ============================================================
@@ -496,21 +612,45 @@ fn render_sqlight_query_call(
   params_str: String,
   decoder: String,
   _sql_expr: String,
+  params: List(model.QueryParam),
 ) -> List(String) {
-  [
-    "  sqlight.query(",
-    "    q.sql,",
-    "    on: db,",
-    "    with: " <> params_str <> ",",
-    "    expecting: " <> decoder <> ",",
-    "  )",
-  ]
+  let has_slices = list.any(params, fn(p) { p.is_list })
+  case has_slices {
+    True -> {
+      let slice_expansion = render_slice_expansion_line(params, "?")
+      [
+        "  " <> slice_expansion,
+        "  sqlight.query(",
+        "    sql,",
+        "    on: db,",
+        "    with: " <> params_str <> ",",
+        "    expecting: " <> decoder <> ",",
+        "  )",
+      ]
+    }
+    False -> [
+      "  sqlight.query(",
+      "    q.sql,",
+      "    on: db,",
+      "    with: " <> params_str <> ",",
+      "    expecting: " <> decoder <> ",",
+      "  )",
+    ]
+  }
 }
 
 fn render_sqlight_params(
   params: List(model.QueryParam),
   _prefix: String,
 ) -> String {
+  let has_slices = list.any(params, fn(p) { p.is_list })
+  case has_slices {
+    True -> render_sqlight_params_with_slices(params)
+    False -> render_sqlight_params_simple(params)
+  }
+}
+
+fn render_sqlight_params_simple(params: List(model.QueryParam)) -> String {
   case params {
     [] -> "[]"
     _ ->
@@ -533,6 +673,42 @@ fn render_sqlight_params(
         |> string.join(", ")
       }
       <> "]"
+  }
+}
+
+fn render_sqlight_params_with_slices(params: List(model.QueryParam)) -> String {
+  case params {
+    [] -> "[]"
+    _ ->
+      "list.flatten(["
+      <> {
+        params
+        |> list.map(fn(param) {
+          let value_fn =
+            model.scalar_type_to_value_function(model.SQLite, param.scalar_type)
+          case param.is_list {
+            True ->
+              "list.map(p."
+              <> param.field_name
+              <> ", sqlight."
+              <> value_fn
+              <> ")"
+            False ->
+              case param.nullable {
+                False ->
+                  "[sqlight." <> value_fn <> "(p." <> param.field_name <> ")]"
+                True ->
+                  "[sqlight.nullable(sqlight."
+                  <> value_fn
+                  <> ", p."
+                  <> param.field_name
+                  <> ")]"
+              }
+          }
+        })
+        |> string.join(", ")
+      }
+      <> "])"
   }
 }
 
@@ -559,29 +735,42 @@ fn render_sqlight_exec_last_id(
   _fn_name: String,
   params_str: String,
   _sql_expr: String,
+  params: List(model.QueryParam),
 ) -> List(String) {
-  [
-    "  sqlight.query(",
-    "    q.sql,",
-    "    on: db,",
-    "    with: " <> params_str <> ",",
-    "    expecting: decode.success(Nil),",
-    "  )",
-    "  |> result.try(fn(_) {",
-    "    sqlight.query(",
-    "      \"SELECT last_insert_rowid()\",",
-    "      on: db,",
-    "      with: [],",
-    "      expecting: decode.at([0], decode.int),",
-    "    )",
-    "  })",
-    "  |> result.map(fn(rows) {",
-    "    case rows {",
-    "      [id, ..] -> id",
-    "      [] -> 0",
-    "    }",
-    "  })",
-  ]
+  let has_slices = list.any(params, fn(p) { p.is_list })
+  let sql_var = case has_slices {
+    True -> "sql"
+    False -> "q.sql"
+  }
+  let preamble = case has_slices {
+    True -> ["  " <> render_slice_expansion_line(params, "?")]
+    False -> []
+  }
+  list.flatten([
+    preamble,
+    [
+      "  sqlight.query(",
+      "    " <> sql_var <> ",",
+      "    on: db,",
+      "    with: " <> params_str <> ",",
+      "    expecting: decode.success(Nil),",
+      "  )",
+      "  |> result.try(fn(_) {",
+      "    sqlight.query(",
+      "      \"SELECT last_insert_rowid()\",",
+      "      on: db,",
+      "      with: [],",
+      "      expecting: decode.at([0], decode.int),",
+      "    )",
+      "  })",
+      "  |> result.map(fn(rows) {",
+      "    case rows {",
+      "      [id, ..] -> id",
+      "      [] -> 0",
+      "    }",
+      "  })",
+    ],
+  ])
 }
 
 // ============================================================
@@ -603,6 +792,33 @@ fn render_mysql_adapter() -> String {
 // ============================================================
 // Shared helpers
 // ============================================================
+
+fn render_slice_expansion_line(
+  params: List(model.QueryParam),
+  prefix: String,
+) -> String {
+  let slice_entries =
+    params
+    |> list.filter(fn(p) { p.is_list })
+    |> list.map(fn(p) {
+      "#("
+      <> int.to_string(p.index)
+      <> ", list.length(p."
+      <> p.field_name
+      <> "))"
+    })
+    |> string.join(", ")
+
+  let total_params = list.length(params)
+
+  "let sql = runtime.expand_slice_placeholders(q.sql, ["
+  <> slice_entries
+  <> "], "
+  <> int.to_string(total_params)
+  <> ", \""
+  <> prefix
+  <> "\")"
+}
 
 fn needs_option_import_for_adapter(queries: List(model.AnalyzedQuery)) -> Bool {
   list.any(queries, fn(query) {
