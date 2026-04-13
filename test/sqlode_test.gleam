@@ -173,3 +173,19 @@ pub fn column_rename_only_applies_to_matching_table_test() {
 pub fn combined_type_override_and_column_rename_test() {
   generate_test.combined_type_override_and_column_rename_test()
 }
+
+pub fn all_commands_generate_queries_test() {
+  generate_test.all_commands_generate_queries_test()
+}
+
+pub fn all_commands_generate_params_test() {
+  generate_test.all_commands_generate_params_test()
+}
+
+pub fn all_commands_generate_models_test() {
+  generate_test.all_commands_generate_models_test()
+}
+
+pub fn all_commands_sqlight_adapter_test() {
+  generate_test.all_commands_sqlight_adapter_test()
+}
