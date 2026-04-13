@@ -95,6 +95,10 @@ pub fn parse_enum_column_type_test() {
   query_analyzer_test.parse_enum_column_type_test()
 }
 
+pub fn type_cast_infers_param_type_test() {
+  query_analyzer_test.type_cast_infers_param_type_test()
+}
+
 pub fn join_result_columns_test() {
   query_analyzer_test.join_result_columns_test()
 }

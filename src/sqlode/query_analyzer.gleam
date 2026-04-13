@@ -53,6 +53,7 @@ type AnalyzerContext {
     returning_re: regexp.Regexp,
     join_re: regexp.Regexp,
     select_columns_re: regexp.Regexp,
+    type_cast_re: regexp.Regexp,
   )
 }
 
@@ -88,6 +89,8 @@ fn new_analyzer_context(naming_ctx: naming.NamingContext) -> AnalyzerContext {
     regexp.from_string("join\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s")
   let assert Ok(select_columns_re) =
     regexp.from_string("select\\s+(.+?)\\s+from\\s")
+  let assert Ok(type_cast_re) =
+    regexp.from_string("(\\$[0-9]+)::[a-zA-Z_][a-zA-Z0-9_]*")
 
   AnalyzerContext(
     naming: naming_ctx,
@@ -105,6 +108,7 @@ fn new_analyzer_context(naming_ctx: naming.NamingContext) -> AnalyzerContext {
     returning_re:,
     join_re:,
     select_columns_re:,
+    type_cast_re:,
   )
 }
 
@@ -144,6 +148,7 @@ fn build_params(
       infer_equality_params(ctx, engine, query, catalog),
     )
 
+  let cast_dict = extract_type_casts(ctx, engine, query.sql)
   let macro_dict = build_macro_dict(query.macros)
   let inference_dict = build_inference_dict(inferences)
 
@@ -154,32 +159,36 @@ fn build_params(
     let inferred =
       dict.get(inference_dict, occurrence.index) |> option.from_result
 
-    let #(field_name, scalar_type, nullable, is_list) = case macro_info {
-      Some(model.SqlcArg(name:, ..)) -> {
-        let st = case inferred {
-          Some(column) -> column.scalar_type
+    let cast_type = dict.get(cast_dict, occurrence.index) |> option.from_result
+    let inferred_type = case inferred {
+      Some(column) -> column.scalar_type
+      None ->
+        case cast_type {
+          Some(st) -> st
           None -> model.StringType
         }
+    }
+
+    let #(field_name, scalar_type, nullable, is_list) = case macro_info {
+      Some(model.SqlcArg(name:, ..)) -> {
         let n = case inferred {
           Some(column) -> column.nullable
           None -> False
         }
-        #(naming.to_snake_case(ctx.naming, name), st, n, False)
+        #(naming.to_snake_case(ctx.naming, name), inferred_type, n, False)
       }
-      Some(model.SqlcNarg(name:, ..)) -> {
-        let st = case inferred {
-          Some(column) -> column.scalar_type
-          None -> model.StringType
-        }
-        #(naming.to_snake_case(ctx.naming, name), st, True, False)
-      }
-      Some(model.SqlcSlice(name:, ..)) -> {
-        let st = case inferred {
-          Some(column) -> column.scalar_type
-          None -> model.StringType
-        }
-        #(naming.to_snake_case(ctx.naming, name), st, False, True)
-      }
+      Some(model.SqlcNarg(name:, ..)) -> #(
+        naming.to_snake_case(ctx.naming, name),
+        inferred_type,
+        True,
+        False,
+      )
+      Some(model.SqlcSlice(name:, ..)) -> #(
+        naming.to_snake_case(ctx.naming, name),
+        inferred_type,
+        False,
+        True,
+      )
       None ->
         case inferred {
           Some(column) -> #(
@@ -188,7 +197,15 @@ fn build_params(
             column.nullable,
             False,
           )
-          None -> #(occurrence.default_name, model.StringType, False, False)
+          None -> #(
+            occurrence.default_name,
+            case cast_type {
+              Some(st) -> st
+              None -> model.StringType
+            },
+            False,
+            False,
+          )
         }
     }
 
@@ -240,6 +257,58 @@ fn build_inference_dict(
     let #(index, column) = entry
     dict.insert(d, index, column)
   })
+}
+
+fn extract_type_casts(
+  ctx: AnalyzerContext,
+  engine: model.Engine,
+  sql: String,
+) -> dict.Dict(Int, model.ScalarType) {
+  case engine {
+    model.PostgreSQL -> {
+      let normalized = normalize_sql(ctx, sql)
+      regexp.scan(ctx.type_cast_re, normalized)
+      |> list.filter_map(fn(match) {
+        case match.submatches {
+          [Some(placeholder)] -> {
+            let cast_type =
+              string.replace(match.content, placeholder <> "::", "")
+            case
+              placeholder
+              |> string.replace("$", "")
+              |> int.parse
+            {
+              Ok(index) -> Ok(#(index, cast_type_to_scalar(cast_type)))
+              Error(_) -> Error(Nil)
+            }
+          }
+          _ -> Error(Nil)
+        }
+      })
+      |> list.fold(dict.new(), fn(d, entry) {
+        let #(index, scalar_type) = entry
+        dict.insert(d, index, scalar_type)
+      })
+    }
+    _ -> dict.new()
+  }
+}
+
+fn cast_type_to_scalar(type_name: String) -> model.ScalarType {
+  let lowered = string.lowercase(string.trim(type_name))
+  case lowered {
+    "int" | "integer" | "bigint" | "smallint" | "serial" | "bigserial" ->
+      model.IntType
+    "float" | "double" | "real" | "numeric" | "decimal" -> model.FloatType
+    "bool" | "boolean" -> model.BoolType
+    "bytea" | "blob" | "binary" -> model.BytesType
+    "uuid" -> model.UuidType
+    "json" | "jsonb" -> model.JsonType
+    "timestamp" | "datetime" -> model.DateTimeType
+    "date" -> model.DateType
+    "time" | "timetz" -> model.TimeType
+    _ -> model.StringType
+  }
 }
 
 fn infer_insert_params(

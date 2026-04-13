@@ -423,6 +423,43 @@ fn test_catalog() -> model.Catalog {
   catalog
 }
 
+pub fn type_cast_infers_param_type_test() {
+  let naming_ctx = naming.new()
+  let catalog = typecast_catalog()
+  let assert Ok(content) = simplifile.read("test/fixtures/typecast_query.sql")
+  let assert Ok(queries) =
+    query_parser.parse_file(
+      "test/fixtures/typecast_query.sql",
+      model.PostgreSQL,
+      naming_ctx,
+      content,
+    )
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+
+  // GetUserByUuid: $1::int should infer IntType
+  let assert [get_user, create_user] = analyzed
+  let assert [param] = get_user.params
+  param.scalar_type |> should.equal(model.IntType)
+
+  // CreateUserWithUuid: $2::jsonb should infer JsonType
+  let assert [_, param2] = create_user.params
+  param2.scalar_type |> should.equal(model.JsonType)
+}
+
+fn typecast_catalog() -> model.Catalog {
+  let assert Ok(content) = simplifile.read("test/fixtures/typecast_schema.sql")
+  let assert Ok(catalog) =
+    schema_parser.parse_files([#("test/fixtures/typecast_schema.sql", content)])
+
+  catalog
+}
+
 fn join_catalog() -> model.Catalog {
   let assert Ok(content) = simplifile.read("test/fixtures/join_schema.sql")
   let assert Ok(catalog) =
