@@ -47,7 +47,7 @@ pub fn runtime_to_string(runtime: Runtime) -> String {
 }
 
 pub type TypeOverride {
-  DbTypeOverride(db_type: String, gleam_type: String)
+  DbTypeOverride(db_type: String, gleam_type: String, nullable: Option(Bool))
   ColumnOverride(table: String, column: String, gleam_type: String)
 }
 

@@ -42,7 +42,11 @@ pub fn type_override_changes_scalar_type_test() {
     base_block(
       model.Overrides(
         type_overrides: [
-          model.DbTypeOverride(db_type: "string", gleam_type: "Int"),
+          model.DbTypeOverride(
+            db_type: "string",
+            gleam_type: "Int",
+            nullable: option.None,
+          ),
         ],
         column_renames: [],
       ),
@@ -63,7 +67,11 @@ pub fn type_override_case_insensitive_db_type_test() {
     base_block(
       model.Overrides(
         type_overrides: [
-          model.DbTypeOverride(db_type: "STRING", gleam_type: "Float"),
+          model.DbTypeOverride(
+            db_type: "STRING",
+            gleam_type: "Float",
+            nullable: option.None,
+          ),
         ],
         column_renames: [],
       ),
@@ -83,7 +91,11 @@ pub fn type_override_preserves_unmatched_columns_test() {
     base_block(
       model.Overrides(
         type_overrides: [
-          model.DbTypeOverride(db_type: "bool", gleam_type: "String"),
+          model.DbTypeOverride(
+            db_type: "bool",
+            gleam_type: "String",
+            nullable: option.None,
+          ),
         ],
         column_renames: [],
       ),
@@ -105,8 +117,16 @@ pub fn type_override_multiple_overrides_test() {
     base_block(
       model.Overrides(
         type_overrides: [
-          model.DbTypeOverride(db_type: "int", gleam_type: "String"),
-          model.DbTypeOverride(db_type: "string", gleam_type: "BitArray"),
+          model.DbTypeOverride(
+            db_type: "int",
+            gleam_type: "String",
+            nullable: option.None,
+          ),
+          model.DbTypeOverride(
+            db_type: "string",
+            gleam_type: "BitArray",
+            nullable: option.None,
+          ),
         ],
         column_renames: [],
       ),
@@ -210,7 +230,11 @@ pub fn combined_type_override_and_column_rename_test() {
     base_block(
       model.Overrides(
         type_overrides: [
-          model.DbTypeOverride(db_type: "string", gleam_type: "BitArray"),
+          model.DbTypeOverride(
+            db_type: "string",
+            gleam_type: "BitArray",
+            nullable: option.None,
+          ),
         ],
         column_renames: [
           model.ColumnRename(
@@ -264,7 +288,11 @@ pub fn column_override_takes_precedence_over_db_type_test() {
     base_block(
       model.Overrides(
         type_overrides: [
-          model.DbTypeOverride(db_type: "int", gleam_type: "Float"),
+          model.DbTypeOverride(
+            db_type: "int",
+            gleam_type: "Float",
+            nullable: option.None,
+          ),
           model.ColumnOverride(
             table: "authors",
             column: "id",
@@ -305,6 +333,100 @@ pub fn column_override_does_not_affect_other_tables_test() {
 
   // Override for posts.id should not affect authors.id
   string.contains(models, "id: Int") |> should.be_true()
+
+  cleanup()
+}
+
+// --- Nullable-specific type override tests ---
+
+fn nullable_block(overrides: model.Overrides) -> model.SqlBlock {
+  model.SqlBlock(
+    name: option.None,
+    engine: model.SQLite,
+    schema: ["test/fixtures/sqlite_schema.sql"],
+    queries: ["test/fixtures/sqlite_crud_query.sql"],
+    gleam: model.GleamOutput(package: "db", out: test_out, runtime: model.Raw),
+    overrides: overrides,
+  )
+}
+
+pub fn nullable_override_applies_only_to_nullable_columns_test() {
+  cleanup()
+  // Override string type only for nullable columns
+  let block =
+    nullable_block(
+      model.Overrides(
+        type_overrides: [
+          model.DbTypeOverride(
+            db_type: "string",
+            gleam_type: "BitArray",
+            nullable: option.Some(True),
+          ),
+        ],
+        column_renames: [],
+      ),
+    )
+
+  run_generate(block)
+  let models = read_generated("models.gleam")
+
+  // bio is nullable TEXT → should be overridden to BitArray
+  string.contains(models, "bio: Option(BitArray)") |> should.be_true()
+  // name is NOT NULL TEXT → should remain String
+  string.contains(models, "name: String") |> should.be_true()
+
+  cleanup()
+}
+
+pub fn non_nullable_override_applies_only_to_non_nullable_columns_test() {
+  cleanup()
+  let block =
+    nullable_block(
+      model.Overrides(
+        type_overrides: [
+          model.DbTypeOverride(
+            db_type: "string",
+            gleam_type: "BitArray",
+            nullable: option.Some(False),
+          ),
+        ],
+        column_renames: [],
+      ),
+    )
+
+  run_generate(block)
+  let models = read_generated("models.gleam")
+
+  // name is NOT NULL TEXT → should be overridden to BitArray
+  string.contains(models, "name: BitArray") |> should.be_true()
+  // bio is nullable TEXT → should remain Option(String)
+  string.contains(models, "bio: Option(String)") |> should.be_true()
+
+  cleanup()
+}
+
+pub fn nullable_none_override_applies_to_all_test() {
+  cleanup()
+  let block =
+    nullable_block(
+      model.Overrides(
+        type_overrides: [
+          model.DbTypeOverride(
+            db_type: "string",
+            gleam_type: "BitArray",
+            nullable: option.None,
+          ),
+        ],
+        column_renames: [],
+      ),
+    )
+
+  run_generate(block)
+  let models = read_generated("models.gleam")
+
+  // Both nullable and non-nullable string columns should be overridden
+  string.contains(models, "name: BitArray") |> should.be_true()
+  string.contains(models, "bio: Option(BitArray)") |> should.be_true()
 
   cleanup()
 }

@@ -187,6 +187,18 @@ pub fn column_override_does_not_affect_other_tables_test() {
   generate_test.column_override_does_not_affect_other_tables_test()
 }
 
+pub fn nullable_override_applies_only_to_nullable_columns_test() {
+  generate_test.nullable_override_applies_only_to_nullable_columns_test()
+}
+
+pub fn non_nullable_override_applies_only_to_non_nullable_columns_test() {
+  generate_test.non_nullable_override_applies_only_to_non_nullable_columns_test()
+}
+
+pub fn nullable_none_override_applies_to_all_test() {
+  generate_test.nullable_none_override_applies_to_all_test()
+}
+
 pub fn all_commands_generate_queries_test() {
   generate_test.all_commands_generate_queries_test()
 }
