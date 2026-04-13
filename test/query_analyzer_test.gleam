@@ -1,3 +1,4 @@
+import gleam/option.{Some}
 import gleeunit
 import gleeunit/should
 import simplifile
@@ -108,21 +109,33 @@ pub fn infer_result_columns_for_select_test() {
 
   get_author.result_columns
   |> should.equal([
-    model.ResultColumn(name: "id", scalar_type: model.IntType, nullable: False),
+    model.ResultColumn(
+      name: "id",
+      scalar_type: model.IntType,
+      nullable: False,
+      source_table: Some("authors"),
+    ),
     model.ResultColumn(
       name: "name",
       scalar_type: model.StringType,
       nullable: False,
+      source_table: Some("authors"),
     ),
   ])
 
   list_authors.result_columns
   |> should.equal([
-    model.ResultColumn(name: "id", scalar_type: model.IntType, nullable: False),
+    model.ResultColumn(
+      name: "id",
+      scalar_type: model.IntType,
+      nullable: False,
+      source_table: Some("authors"),
+    ),
     model.ResultColumn(
       name: "name",
       scalar_type: model.StringType,
       nullable: False,
+      source_table: Some("authors"),
     ),
   ])
 }
@@ -169,16 +182,23 @@ pub fn infer_result_columns_with_star_test() {
 
   get_all.result_columns
   |> should.equal([
-    model.ResultColumn(name: "id", scalar_type: model.IntType, nullable: False),
+    model.ResultColumn(
+      name: "id",
+      scalar_type: model.IntType,
+      nullable: False,
+      source_table: Some("authors"),
+    ),
     model.ResultColumn(
       name: "name",
       scalar_type: model.StringType,
       nullable: False,
+      source_table: Some("authors"),
     ),
     model.ResultColumn(
       name: "bio",
       scalar_type: model.StringType,
       nullable: True,
+      source_table: Some("authors"),
     ),
   ])
 }
@@ -202,11 +222,17 @@ pub fn infer_result_columns_with_table_prefix_test() {
 
   get_author.result_columns
   |> should.equal([
-    model.ResultColumn(name: "id", scalar_type: model.IntType, nullable: False),
+    model.ResultColumn(
+      name: "id",
+      scalar_type: model.IntType,
+      nullable: False,
+      source_table: Some("authors"),
+    ),
     model.ResultColumn(
       name: "name",
       scalar_type: model.StringType,
       nullable: False,
+      source_table: Some("authors"),
     ),
   ])
 }
@@ -329,11 +355,13 @@ pub fn join_result_columns_test() {
       name: "title",
       scalar_type: model.StringType,
       nullable: False,
+      source_table: Some("books"),
     ),
     model.ResultColumn(
       name: "name",
       scalar_type: model.StringType,
       nullable: False,
+      source_table: Some("authors"),
     ),
   ])
 }
@@ -383,11 +411,17 @@ pub fn returning_clause_result_columns_test() {
 
   query.result_columns
   |> should.equal([
-    model.ResultColumn(name: "id", scalar_type: model.IntType, nullable: False),
+    model.ResultColumn(
+      name: "id",
+      scalar_type: model.IntType,
+      nullable: False,
+      source_table: Some("authors"),
+    ),
     model.ResultColumn(
       name: "name",
       scalar_type: model.StringType,
       nullable: False,
+      source_table: Some("authors"),
     ),
   ])
 }

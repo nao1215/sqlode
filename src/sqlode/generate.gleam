@@ -289,14 +289,9 @@ fn apply_column_renames(
     [] -> queries
     _ ->
       list.map(queries, fn(query) {
-        let sql_lowered = string.lowercase(query.base.sql)
-        let applicable_renames =
-          list.filter(renames, fn(r) {
-            string.contains(sql_lowered, string.lowercase(r.table))
-          })
         let result_columns =
           list.map(query.result_columns, fn(col) {
-            case find_column_rename(col.name, applicable_renames) {
+            case find_column_rename(col.name, col.source_table, renames) {
               Ok(new_name) -> model.ResultColumn(..col, name: new_name)
               Error(_) -> col
             }
@@ -308,10 +303,17 @@ fn apply_column_renames(
 
 fn find_column_rename(
   column_name: String,
+  source_table: option.Option(String),
   renames: List(model.ColumnRename),
 ) -> Result(String, Nil) {
   list.find_map(renames, fn(r) {
-    case string.lowercase(r.column) == string.lowercase(column_name) {
+    let column_matches =
+      string.lowercase(r.column) == string.lowercase(column_name)
+    let table_matches = case source_table {
+      option.Some(table) -> string.lowercase(r.table) == string.lowercase(table)
+      option.None -> False
+    }
+    case column_matches && table_matches {
       True -> Ok(r.rename_to)
       False -> Error(Nil)
     }
