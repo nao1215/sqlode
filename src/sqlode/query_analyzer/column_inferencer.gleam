@@ -8,6 +8,10 @@ import sqlode/query_analyzer/context.{
   type AnalysisError, type AnalyzerContext, ColumnNotFound, TableNotFound,
 }
 
+type ExtractedColumn {
+  ExtractedColumn(name: String, source_table: Option(String))
+}
+
 pub fn infer_result_columns(
   ctx: AnalyzerContext,
   query: model.ParsedQuery,
@@ -98,14 +102,18 @@ fn strip_first_compound(sql: String, keywords: List(String)) -> String {
 fn extract_returning_columns(
   ctx: AnalyzerContext,
   sql: String,
-) -> Option(List(String)) {
+) -> Option(List(ExtractedColumn)) {
   case regexp.scan(ctx.returning_re, sql) {
     [match, ..] ->
       case match.submatches {
         [Some(columns_text)] -> {
           let cols = case string.trim(columns_text) == "*" {
-            True -> ["*"]
-            False -> context.split_csv(columns_text)
+            True -> [ExtractedColumn(name: "*", source_table: None)]
+            False ->
+              context.split_csv(columns_text)
+              |> list.map(fn(c) {
+                ExtractedColumn(name: string.trim(c), source_table: None)
+              })
           }
           Some(cols)
         }
@@ -135,37 +143,50 @@ fn extract_join_tables(ctx: AnalyzerContext, sql: String) -> List(String) {
   })
 }
 
-fn extract_select_columns(ctx: AnalyzerContext, sql: String) -> List(String) {
+fn extract_select_columns(
+  ctx: AnalyzerContext,
+  sql: String,
+) -> List(ExtractedColumn) {
   case regexp.scan(ctx.select_columns_re, sql) {
     [match, ..] ->
       case match.submatches {
         [Some(columns_text)] -> {
           case string.trim(columns_text) == "*" {
-            True -> ["*"]
+            True -> [ExtractedColumn(name: "*", source_table: None)]
             False ->
               columns_text
               |> context.split_csv
               |> list.map(fn(col) {
                 let trimmed = string.trim(col)
                 case string.starts_with(trimmed, "sqlc.embed(") {
-                  True -> trimmed
+                  True -> ExtractedColumn(name: trimmed, source_table: None)
                   False ->
                     case string.contains(trimmed, " as ") {
                       True -> {
-                        let assert Ok(#(_, alias)) =
+                        let assert Ok(#(expr, alias)) =
                           string.split_once(trimmed, " as ")
-                        string.trim(alias)
+                        let table = extract_table_qualifier(string.trim(expr))
+                        ExtractedColumn(
+                          name: string.trim(alias),
+                          source_table: table,
+                        )
                       }
                       False ->
                         case string.contains(trimmed, ".") {
                           True -> {
                             let parts = string.split(trimmed, ".")
-                            case list.last(parts) {
+                            let table = case parts {
+                              [t, _] -> Some(string.trim(t))
+                              _ -> None
+                            }
+                            let name = case list.last(parts) {
                               Ok(last) -> string.trim(last)
                               Error(_) -> trimmed
                             }
+                            ExtractedColumn(name:, source_table: table)
                           }
-                          False -> trimmed
+                          False ->
+                            ExtractedColumn(name: trimmed, source_table: None)
                         }
                     }
                 }
@@ -178,15 +199,28 @@ fn extract_select_columns(ctx: AnalyzerContext, sql: String) -> List(String) {
   }
 }
 
+fn extract_table_qualifier(expr: String) -> Option(String) {
+  case string.contains(expr, ".") {
+    True -> {
+      let parts = string.split(expr, ".")
+      case parts {
+        [table, _] -> Some(string.trim(table))
+        _ -> None
+      }
+    }
+    False -> None
+  }
+}
+
 fn resolve_select_columns(
   query_name: String,
-  columns: List(String),
+  columns: List(ExtractedColumn),
   catalog: model.Catalog,
   primary_table: String,
   all_tables: List(String),
 ) -> Result(List(model.ResultColumn), AnalysisError) {
   case columns {
-    ["*"] ->
+    [ExtractedColumn(name: "*", ..)] ->
       case
         catalog.tables
         |> list.find(fn(table) { table.name == primary_table })
@@ -198,14 +232,15 @@ fn resolve_select_columns(
                 name: col.name,
                 scalar_type: col.scalar_type,
                 nullable: col.nullable,
+                source_table: Some(primary_table),
               )
             }),
           )
         Error(_) -> Error(TableNotFound(query_name:, table_name: primary_table))
       }
     _ ->
-      list.try_map(columns, fn(col_name) {
-        let trimmed = string.trim(col_name)
+      list.try_map(columns, fn(extracted) {
+        let trimmed = string.trim(extracted.name)
         case string.starts_with(trimmed, "sqlc.embed(") {
           True -> {
             let embed_name =
@@ -226,6 +261,7 @@ fn resolve_select_columns(
                       name: col.name,
                       scalar_type: col.scalar_type,
                       nullable: col.nullable,
+                      source_table: Some(embed_name),
                     )
                   }),
                 )
@@ -235,21 +271,45 @@ fn resolve_select_columns(
           }
           False -> {
             let normalized_name = string.lowercase(trimmed)
-            case find_column_in_tables(catalog, all_tables, normalized_name) {
-              Some(column) ->
-                Ok([
-                  model.ResultColumn(
-                    name: column.name,
-                    scalar_type: column.scalar_type,
-                    nullable: column.nullable,
-                  ),
-                ])
+            case extracted.source_table {
+              Some(table) ->
+                case context.find_column(catalog, table, normalized_name) {
+                  Some(column) ->
+                    Ok([
+                      model.ResultColumn(
+                        name: column.name,
+                        scalar_type: column.scalar_type,
+                        nullable: column.nullable,
+                        source_table: Some(table),
+                      ),
+                    ])
+                  None ->
+                    Error(ColumnNotFound(
+                      query_name:,
+                      table_name: table,
+                      column_name: normalized_name,
+                    ))
+                }
               None ->
-                Error(ColumnNotFound(
-                  query_name:,
-                  table_name: primary_table,
-                  column_name: normalized_name,
-                ))
+                case
+                  find_column_in_tables(catalog, all_tables, normalized_name)
+                {
+                  Some(#(found_table, column)) ->
+                    Ok([
+                      model.ResultColumn(
+                        name: column.name,
+                        scalar_type: column.scalar_type,
+                        nullable: column.nullable,
+                        source_table: Some(found_table),
+                      ),
+                    ])
+                  None ->
+                    Error(ColumnNotFound(
+                      query_name:,
+                      table_name: primary_table,
+                      column_name: normalized_name,
+                    ))
+                }
             }
           }
         }
@@ -262,10 +322,10 @@ fn find_column_in_tables(
   catalog: model.Catalog,
   table_names: List(String),
   column_name: String,
-) -> Option(model.Column) {
+) -> Option(#(String, model.Column)) {
   list.find_map(table_names, fn(name) {
     case context.find_column(catalog, name, column_name) {
-      Some(col) -> Ok(col)
+      Some(col) -> Ok(#(name, col))
       None -> Error(Nil)
     }
   })

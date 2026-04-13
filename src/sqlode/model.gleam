@@ -254,7 +254,12 @@ pub type QueryParam {
 }
 
 pub type ResultColumn {
-  ResultColumn(name: String, scalar_type: ScalarType, nullable: Bool)
+  ResultColumn(
+    name: String,
+    scalar_type: ScalarType,
+    nullable: Bool,
+    source_table: Option(String),
+  )
 }
 
 pub type AnalyzedQuery {

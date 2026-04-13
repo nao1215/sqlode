@@ -255,6 +255,72 @@ pub fn combined_type_override_and_column_rename_test() {
   cleanup()
 }
 
+// --- JOIN column rename regression test (issue #84) ---
+
+const join_rename_out = "test_output/generate_test_join_rename"
+
+fn join_rename_block(renames: List(model.ColumnRename)) -> model.SqlBlock {
+  model.SqlBlock(
+    name: option.None,
+    engine: model.PostgreSQL,
+    schema: ["test/fixtures/join_schema.sql"],
+    queries: ["test/fixtures/join_rename_query.sql"],
+    gleam: model.GleamOutput(
+      package: "db",
+      out: join_rename_out,
+      runtime: model.Raw,
+    ),
+    overrides: model.Overrides(type_overrides: [], column_renames: renames),
+  )
+}
+
+fn cleanup_join_rename() {
+  let _ = simplifile.delete(join_rename_out)
+  Nil
+}
+
+pub fn join_rename_only_renames_matching_table_column_test() {
+  cleanup_join_rename()
+  let block =
+    join_rename_block([
+      model.ColumnRename(table: "authors", column: "id", rename_to: "author_id"),
+    ])
+
+  let cfg = model.Config(version: 2, sql: [block])
+  let assert Ok(_) = generate.generate_config(cfg)
+
+  let assert Ok(models) = simplifile.read(join_rename_out <> "/models.gleam")
+
+  // authors.id should be renamed to author_id
+  string.contains(models, "author_id: Int") |> should.be_true()
+  // books.id should remain as id (not renamed)
+  string.contains(models, "id: Int") |> should.be_true()
+  // title should be unaffected
+  string.contains(models, "title: String") |> should.be_true()
+
+  cleanup_join_rename()
+}
+
+pub fn join_rename_does_not_rename_wrong_table_column_test() {
+  cleanup_join_rename()
+  let block =
+    join_rename_block([
+      model.ColumnRename(table: "books", column: "id", rename_to: "book_id"),
+    ])
+
+  let cfg = model.Config(version: 2, sql: [block])
+  let assert Ok(_) = generate.generate_config(cfg)
+
+  let assert Ok(models) = simplifile.read(join_rename_out <> "/models.gleam")
+
+  // books.id should be renamed to book_id
+  string.contains(models, "book_id: Int") |> should.be_true()
+  // authors.id should remain as id
+  string.contains(models, "id: Int") |> should.be_true()
+
+  cleanup_join_rename()
+}
+
 // --- Column-level type override tests ---
 
 pub fn column_override_changes_specific_column_test() {
