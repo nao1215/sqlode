@@ -102,7 +102,7 @@ pub fn render_pog_adapter_test() {
   string.contains(rendered, "pog.query(q.sql)") |> should.be_true()
   string.contains(rendered, "pog.parameter(pog.int(p.id))")
   |> should.be_true()
-  string.contains(rendered, "decode.into(models.GetAuthorRow)")
+  string.contains(rendered, "decode.success(models.GetAuthorRow(")
   |> should.be_true()
   string.contains(rendered, "pub fn list_authors(db: pog.Connection)")
   |> should.be_true()
@@ -143,7 +143,7 @@ pub fn render_sqlight_adapter_test() {
   string.contains(rendered, "pub fn get_author(db: sqlight.Connection")
   |> should.be_true()
   string.contains(rendered, "sqlight.query(") |> should.be_true()
-  string.contains(rendered, "decode.into(models.GetAuthorRow)")
+  string.contains(rendered, "decode.success(models.GetAuthorRow(")
   |> should.be_true()
 }
 

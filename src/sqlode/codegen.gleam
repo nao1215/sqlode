@@ -306,6 +306,9 @@ type AdapterConfig {
     decoder_function: fn(model.ScalarType) -> String,
     render_params: fn(List(model.QueryParam), String) -> String,
     render_query_call: fn(String, String, String, String) -> List(String),
+    render_one_result: fn() -> List(String),
+    render_many_result: fn() -> List(String),
+    render_exec_rows_result: fn() -> List(String),
   )
 }
 
@@ -318,6 +321,9 @@ fn pog_adapter_config() -> AdapterConfig {
     decoder_function: pog_decoder_function,
     render_params: render_pog_params,
     render_query_call: render_pog_query_call,
+    render_one_result: render_pog_one_result,
+    render_many_result: render_pog_many_result,
+    render_exec_rows_result: render_pog_exec_rows_result,
   )
 }
 
@@ -330,6 +336,9 @@ fn sqlight_adapter_config() -> AdapterConfig {
     decoder_function: sqlight_decoder_function,
     render_params: render_sqlight_params,
     render_query_call: render_sqlight_query_call,
+    render_one_result: render_sqlight_one_result,
+    render_many_result: render_sqlight_many_result,
+    render_exec_rows_result: render_sqlight_exec_rows_result,
   )
 }
 
@@ -417,6 +426,7 @@ fn render_params_arg(
 }
 
 fn render_decoder(
+  naming_ctx: naming.NamingContext,
   query: model.AnalyzedQuery,
   type_name: String,
   config: AdapterConfig,
@@ -424,26 +434,39 @@ fn render_decoder(
   case query.result_columns {
     [] -> "decode.success(Nil)"
     columns -> {
-      let field_decoders =
+      let field_lines =
         columns
         |> list.index_map(fn(col, idx) {
+          let field_name = naming.to_snake_case(naming_ctx, col.name)
           let decoder = config.decoder_function(col.scalar_type)
-          "    |> decode.field("
-          <> int.to_string(idx)
-          <> ", "
-          <> case col.nullable {
+          let full_decoder = case col.nullable {
             True -> "decode.optional(" <> decoder <> ")"
             False -> decoder
           }
+          "    use "
+          <> field_name
+          <> " <- decode.field("
+          <> int.to_string(idx)
+          <> ", "
+          <> full_decoder
           <> ")"
         })
         |> string.join("\n")
 
-      "{\n    decode.into(models."
+      let constructor_fields =
+        columns
+        |> list.map(fn(col) {
+          naming.to_snake_case(naming_ctx, col.name) <> ":"
+        })
+        |> string.join(", ")
+
+      "{\n"
+      <> field_lines
+      <> "\n    decode.success(models."
       <> type_name
-      <> ")\n"
-      <> field_decoders
-      <> "\n  }"
+      <> "("
+      <> constructor_fields
+      <> "))\n  }"
     }
   }
 }
@@ -458,7 +481,7 @@ fn render_adapter_one(
   let type_name = naming.to_pascal_case(naming_ctx, query.base.name) <> "Row"
   let params_arg = render_params_arg(naming_ctx, query, has_params)
   let params_str = config.render_params(query.params, "p")
-  let decoder = render_decoder(query, type_name, config)
+  let decoder = render_decoder(naming_ctx, query, type_name, config)
 
   string.join(
     list.flatten([
@@ -476,15 +499,8 @@ fn render_adapter_one(
         "  let q = queries." <> fn_name <> "()",
       ],
       config.render_query_call(fn_name, params_str, decoder, "q.sql"),
-      [
-        "  |> result.map(fn(returned) {",
-        "    case returned.rows {",
-        "      [row, ..] -> Some(row)",
-        "      [] -> None",
-        "    }",
-        "  })",
-        "}",
-      ],
+      config.render_one_result(),
+      ["}"],
     ]),
     "\n",
   )
@@ -500,7 +516,7 @@ fn render_adapter_many(
   let type_name = naming.to_pascal_case(naming_ctx, query.base.name) <> "Row"
   let params_arg = render_params_arg(naming_ctx, query, has_params)
   let params_str = config.render_params(query.params, "p")
-  let decoder = render_decoder(query, type_name, config)
+  let decoder = render_decoder(naming_ctx, query, type_name, config)
 
   string.join(
     list.flatten([
@@ -518,10 +534,8 @@ fn render_adapter_many(
         "  let q = queries." <> fn_name <> "()",
       ],
       config.render_query_call(fn_name, params_str, decoder, "q.sql"),
-      [
-        "  |> result.map(fn(returned) { returned.rows })",
-        "}",
-      ],
+      config.render_many_result(),
+      ["}"],
     ]),
     "\n",
   )
@@ -594,10 +608,8 @@ fn render_adapter_exec_rows(
         "decode.success(Nil)",
         "q.sql",
       ),
-      [
-        "  |> result.map(fn(returned) { returned.count })",
-        "}",
-      ],
+      config.render_exec_rows_result(),
+      ["}"],
     ]),
     "\n",
   )
@@ -682,6 +694,25 @@ fn pog_decoder_function(scalar_type: model.ScalarType) -> String {
   }
 }
 
+fn render_pog_one_result() -> List(String) {
+  [
+    "  |> result.map(fn(returned) {",
+    "    case returned.rows {",
+    "      [row, ..] -> Some(row)",
+    "      [] -> None",
+    "    }",
+    "  })",
+  ]
+}
+
+fn render_pog_many_result() -> List(String) {
+  ["  |> result.map(fn(returned) { returned.rows })"]
+}
+
+fn render_pog_exec_rows_result() -> List(String) {
+  ["  |> result.map(fn(returned) { returned.count })"]
+}
+
 // ============================================================
 // sqlight-specific rendering
 // ============================================================
@@ -761,6 +792,25 @@ fn sqlight_decoder_function(scalar_type: model.ScalarType) -> String {
     | model.JsonType
     | model.EnumType(_) -> "decode.string"
   }
+}
+
+fn render_sqlight_one_result() -> List(String) {
+  [
+    "  |> result.map(fn(rows) {",
+    "    case rows {",
+    "      [row, ..] -> Some(row)",
+    "      [] -> None",
+    "    }",
+    "  })",
+  ]
+}
+
+fn render_sqlight_many_result() -> List(String) {
+  []
+}
+
+fn render_sqlight_exec_rows_result() -> List(String) {
+  ["  |> result.map(fn(rows) { list.length(rows) })"]
 }
 
 // ============================================================
