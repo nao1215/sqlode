@@ -61,6 +61,40 @@ pub fn invalid_engine_value_test() {
   string.contains(msg, "engine") |> should.be_true()
 }
 
+// Unsupported field rejection
+
+pub fn reject_unsupported_root_field_test() {
+  let assert Error(error) =
+    config.load("test/fixtures/unsupported_root_field.yaml")
+  let msg = config.error_to_string(error)
+  string.contains(msg, "database") |> should.be_true()
+  string.contains(msg, "Unsupported") |> should.be_true()
+}
+
+pub fn reject_unsupported_sql_block_field_test() {
+  let assert Error(error) =
+    config.load("test/fixtures/unsupported_sql_field.yaml")
+  let msg = config.error_to_string(error)
+  string.contains(msg, "emit_exact_table_names") |> should.be_true()
+  string.contains(msg, "Unsupported") |> should.be_true()
+}
+
+pub fn reject_unsupported_gen_gleam_field_test() {
+  let assert Error(error) =
+    config.load("test/fixtures/unsupported_gen_field.yaml")
+  let msg = config.error_to_string(error)
+  string.contains(msg, "emit_json_tags") |> should.be_true()
+  string.contains(msg, "Unsupported") |> should.be_true()
+}
+
+pub fn reject_multiple_unsupported_root_fields_test() {
+  let assert Error(error) =
+    config.load("test/fixtures/unsupported_multiple_fields.yaml")
+  let msg = config.error_to_string(error)
+  string.contains(msg, "database") |> should.be_true()
+  string.contains(msg, "analyzer") |> should.be_true()
+}
+
 // error_to_string coverage
 
 pub fn error_to_string_file_read_error_test() {
@@ -69,6 +103,15 @@ pub fn error_to_string_file_read_error_test() {
     detail: "permission denied",
   ))
   |> string.contains("foo.yaml")
+  |> should.be_true()
+}
+
+pub fn error_to_string_unsupported_fields_test() {
+  config.error_to_string(config.UnsupportedFields(
+    fields: ["database", "analyzer"],
+    message: "not supported by sqlode",
+  ))
+  |> string.contains("database")
   |> should.be_true()
 }
 

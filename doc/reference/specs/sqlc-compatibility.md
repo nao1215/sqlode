@@ -56,7 +56,7 @@ sql:
 | `database` | Not implemented (live DB analysis) |
 | `analyzer` | Not implemented |
 
-These options are accepted in the config model but have no effect.
+These options are **rejected** with an error if present in the config file. sqlode prefers early errors over silently ignoring unsupported configuration. Remove these fields from your config to proceed.
 
 ## Query annotations
 

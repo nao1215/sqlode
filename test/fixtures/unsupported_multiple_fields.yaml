@@ -1,0 +1,13 @@
+version: "2"
+database:
+  uri: "postgresql://localhost:5432/mydb"
+analyzer:
+  plugin: "py"
+sql:
+  - schema: "test/fixtures/schema.sql"
+    queries: "test/fixtures/query.sql"
+    engine: "postgresql"
+    gen:
+      gleam:
+        package: "db"
+        out: "test_output/db"
