@@ -13,6 +13,7 @@ pub type ConfigError {
   ParseError(detail: String)
   MissingField(field: String)
   InvalidValue(field: String, detail: String)
+  UnsupportedFields(fields: List(String), message: String)
 }
 
 pub fn load(path: String) -> Result(model.Config, ConfigError) {
@@ -44,6 +45,7 @@ pub fn load(path: String) -> Result(model.Config, ConfigError) {
 
   let root = yay.document_root(doc)
 
+  use _ <- result.try(check_unknown_keys(root, ["version", "sql"], ""))
   use version <- result.try(parse_version(root))
   use sql <- result.try(parse_sql_blocks(root))
 
@@ -92,6 +94,11 @@ fn parse_sql_blocks(root: yay.Node) -> Result(List(model.SqlBlock), ConfigError)
 }
 
 fn parse_sql_block(node: yay.Node) -> Result(model.SqlBlock, ConfigError) {
+  use _ <- result.try(check_unknown_keys(
+    node,
+    ["name", "engine", "schema", "queries", "gen", "overrides"],
+    "sql.",
+  ))
   let name = optional_string(node, "name")
 
   use engine_text <- result.try(required_string(node, "engine"))
@@ -104,7 +111,14 @@ fn parse_sql_block(node: yay.Node) -> Result(model.SqlBlock, ConfigError) {
 
   use schema <- result.try(required_string_list(node, "schema"))
   use queries <- result.try(required_string_list(node, "queries"))
-  use gleam_node <- result.try(require_node(node, "gen.gleam"))
+  use gen_node <- result.try(require_node(node, "gen"))
+  use _ <- result.try(check_unknown_keys(gen_node, ["gleam"], "sql.gen."))
+  use gleam_node <- result.try(require_node(gen_node, "gleam"))
+  use _ <- result.try(check_unknown_keys(
+    gleam_node,
+    ["package", "out", "runtime"],
+    "sql.gen.gleam.",
+  ))
   use package <- result.try(required_string(gleam_node, "package"))
   use out <- result.try(required_string(gleam_node, "out"))
 
@@ -184,6 +198,37 @@ fn parse_overrides(node: yay.Node) -> model.Overrides {
   }
 }
 
+fn check_unknown_keys(
+  node: yay.Node,
+  known_keys: List(String),
+  prefix: String,
+) -> Result(Nil, ConfigError) {
+  case node {
+    yay.NodeMap(pairs) -> {
+      let unknown =
+        list.filter_map(pairs, fn(pair) {
+          case pair.0 {
+            yay.NodeStr(key) ->
+              case list.contains(known_keys, key) {
+                True -> Error(Nil)
+                False -> Ok(prefix <> key)
+              }
+            _ -> Error(Nil)
+          }
+        })
+      case unknown {
+        [] -> Ok(Nil)
+        fields ->
+          Error(UnsupportedFields(
+            fields:,
+            message: "these sqlc options are not supported by sqlode; please remove them from your config",
+          ))
+      }
+    }
+    _ -> Ok(Nil)
+  }
+}
+
 fn required_string(
   node: yay.Node,
   selector: String,
@@ -258,6 +303,11 @@ pub fn error_to_string(error: ConfigError) -> String {
     MissingField(field:) -> "Missing required config field: " <> field
     InvalidValue(field:, detail:) ->
       "Invalid value for " <> field <> ": " <> detail
+    UnsupportedFields(fields:, message:) ->
+      "Unsupported config fields: "
+      <> string.join(fields, ", ")
+      <> " — "
+      <> message
   }
 }
 
