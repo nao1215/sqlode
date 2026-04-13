@@ -21,7 +21,7 @@ pub fn mysql_positional_placeholder_test() {
   let catalog = load_catalog("test/fixtures/schema.sql")
   let queries =
     parse_queries("test/fixtures/mysql_query.sql", model.MySQL, naming_ctx)
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(model.MySQL, catalog, naming_ctx, queries)
 
   // GetAuthor :one - single ? placeholder
@@ -38,7 +38,7 @@ pub fn mysql_insert_params_test() {
   let catalog = load_catalog("test/fixtures/schema.sql")
   let queries =
     parse_queries("test/fixtures/mysql_query.sql", model.MySQL, naming_ctx)
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(model.MySQL, catalog, naming_ctx, queries)
 
   let assert Ok(create) =
@@ -58,7 +58,7 @@ pub fn mysql_update_params_test() {
   let catalog = load_catalog("test/fixtures/schema.sql")
   let queries =
     parse_queries("test/fixtures/mysql_query.sql", model.MySQL, naming_ctx)
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(model.MySQL, catalog, naming_ctx, queries)
 
   let assert Ok(update) =
@@ -72,7 +72,7 @@ pub fn mysql_no_params_test() {
   let catalog = load_catalog("test/fixtures/schema.sql")
   let queries =
     parse_queries("test/fixtures/mysql_query.sql", model.MySQL, naming_ctx)
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(model.MySQL, catalog, naming_ctx, queries)
 
   let assert Ok(list_q) =
@@ -86,7 +86,7 @@ pub fn mysql_result_columns_test() {
   let catalog = load_catalog("test/fixtures/schema.sql")
   let queries =
     parse_queries("test/fixtures/mysql_query.sql", model.MySQL, naming_ctx)
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(model.MySQL, catalog, naming_ctx, queries)
 
   let assert Ok(get) = list.find(analyzed, fn(q) { q.base.name == "GetAuthor" })
@@ -106,7 +106,7 @@ pub fn sqlite_numbered_placeholder_test() {
   let catalog = load_catalog("test/fixtures/schema.sql")
   let queries =
     parse_queries("test/fixtures/sqlite_query.sql", model.SQLite, naming_ctx)
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, queries)
 
   let assert Ok(get_by_id) =
@@ -121,7 +121,7 @@ pub fn sqlite_colon_named_placeholder_test() {
   let catalog = load_catalog("test/fixtures/schema.sql")
   let queries =
     parse_queries("test/fixtures/sqlite_query.sql", model.SQLite, naming_ctx)
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, queries)
 
   let assert Ok(get_by_name) =
@@ -136,7 +136,7 @@ pub fn sqlite_at_named_placeholder_test() {
   let catalog = load_catalog("test/fixtures/schema.sql")
   let queries =
     parse_queries("test/fixtures/sqlite_query.sql", model.SQLite, naming_ctx)
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, queries)
 
   let assert Ok(get_by_email) =
@@ -153,7 +153,7 @@ pub fn sqlite_dollar_named_placeholder_test() {
   let catalog = load_catalog("test/fixtures/schema.sql")
   let queries =
     parse_queries("test/fixtures/sqlite_query.sql", model.SQLite, naming_ctx)
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, queries)
 
   let assert Ok(get_by_slug) =
@@ -170,7 +170,7 @@ pub fn sqlite_insert_params_test() {
   let catalog = load_catalog("test/fixtures/schema.sql")
   let queries =
     parse_queries("test/fixtures/sqlite_query.sql", model.SQLite, naming_ctx)
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, queries)
 
   let assert Ok(create) =
@@ -187,7 +187,7 @@ pub fn sqlite_result_columns_test() {
   let catalog = load_catalog("test/fixtures/schema.sql")
   let queries =
     parse_queries("test/fixtures/sqlite_query.sql", model.SQLite, naming_ctx)
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, queries)
 
   let assert Ok(list_q) =
@@ -214,11 +214,11 @@ pub fn cross_engine_select_produces_same_result_columns_test() {
   let assert Ok(sl_q) =
     query_parser.parse_file("sl.sql", model.SQLite, naming_ctx, sl_sql)
 
-  let pg_analyzed =
+  let assert Ok(pg_analyzed) =
     query_analyzer.analyze_queries(model.PostgreSQL, catalog, naming_ctx, pg_q)
-  let my_analyzed =
+  let assert Ok(my_analyzed) =
     query_analyzer.analyze_queries(model.MySQL, catalog, naming_ctx, my_q)
-  let sl_analyzed =
+  let assert Ok(sl_analyzed) =
     query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, sl_q)
 
   let assert [pg] = pg_analyzed
@@ -241,7 +241,7 @@ pub fn exec_result_command_test() {
     "-- name: DeleteAuthor :execresult\nDELETE FROM authors WHERE id = $1;"
   let assert Ok(queries) =
     query_parser.parse_file("er.sql", model.PostgreSQL, naming_ctx, sql)
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
       model.PostgreSQL,
       catalog,
@@ -262,7 +262,7 @@ pub fn exec_rows_command_test() {
     "-- name: DeleteAllInactive :execrows\nDELETE FROM authors WHERE bio IS NULL;"
   let assert Ok(queries) =
     query_parser.parse_file("rows.sql", model.PostgreSQL, naming_ctx, sql)
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
       model.PostgreSQL,
       catalog,
@@ -282,7 +282,7 @@ pub fn exec_last_id_command_test() {
     "-- name: InsertAuthor :execlastid\nINSERT INTO authors (name, bio) VALUES (?, ?);"
   let assert Ok(queries) =
     query_parser.parse_file("lid.sql", model.MySQL, naming_ctx, sql)
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(model.MySQL, catalog, naming_ctx, queries)
 
   let assert [query] = analyzed

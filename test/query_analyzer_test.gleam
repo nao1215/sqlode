@@ -23,7 +23,7 @@ pub fn infer_param_type_from_where_clause_test() {
       content,
     )
 
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
       model.PostgreSQL,
       catalog,
@@ -57,7 +57,7 @@ pub fn infer_insert_param_types_from_column_order_test() {
       content,
     )
 
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
       model.PostgreSQL,
       catalog,
@@ -97,7 +97,7 @@ pub fn infer_result_columns_for_select_test() {
       content,
     )
 
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
       model.PostgreSQL,
       catalog,
@@ -139,7 +139,7 @@ pub fn infer_no_result_columns_for_exec_test() {
       content,
     )
 
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
       model.PostgreSQL,
       catalog,
@@ -158,7 +158,7 @@ pub fn infer_result_columns_with_star_test() {
   let assert Ok(queries) =
     query_parser.parse_file("star.sql", model.PostgreSQL, naming_ctx, sql)
 
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
       model.PostgreSQL,
       catalog,
@@ -191,7 +191,7 @@ pub fn infer_result_columns_with_table_prefix_test() {
   let assert Ok(queries) =
     query_parser.parse_file("prefix.sql", model.PostgreSQL, naming_ctx, sql)
 
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
       model.PostgreSQL,
       catalog,
@@ -219,7 +219,7 @@ pub fn sqlc_arg_sets_param_name_test() {
   let assert Ok(queries) =
     query_parser.parse_file("arg.sql", model.PostgreSQL, naming_ctx, sql)
 
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
       model.PostgreSQL,
       catalog,
@@ -248,7 +248,7 @@ pub fn sqlc_narg_sets_nullable_test() {
   let assert Ok(queries) =
     query_parser.parse_file("narg.sql", model.PostgreSQL, naming_ctx, sql)
 
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
       model.PostgreSQL,
       catalog,
@@ -272,7 +272,7 @@ pub fn sqlc_slice_sets_is_list_test() {
   let assert Ok(queries) =
     query_parser.parse_file("slice.sql", model.PostgreSQL, naming_ctx, sql)
 
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
       model.PostgreSQL,
       catalog,
@@ -314,7 +314,7 @@ pub fn join_result_columns_test() {
   let assert Ok(queries) =
     query_parser.parse_file("join.sql", model.PostgreSQL, naming_ctx, sql)
 
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
       model.PostgreSQL,
       catalog,
@@ -346,7 +346,7 @@ pub fn sqlc_embed_expands_table_columns_test() {
   let assert Ok(queries) =
     query_parser.parse_file("embed.sql", model.PostgreSQL, naming_ctx, sql)
 
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
       model.PostgreSQL,
       catalog,
@@ -372,7 +372,7 @@ pub fn returning_clause_result_columns_test() {
   let assert Ok(queries) =
     query_parser.parse_file("ret.sql", model.PostgreSQL, naming_ctx, sql)
 
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
       model.PostgreSQL,
       catalog,
@@ -400,7 +400,7 @@ pub fn cte_select_from_real_table_test() {
   let assert Ok(queries) =
     query_parser.parse_file("cte.sql", model.PostgreSQL, naming_ctx, sql)
 
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
       model.PostgreSQL,
       catalog,

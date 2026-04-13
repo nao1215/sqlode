@@ -109,7 +109,7 @@ pub fn all_types_result_columns_star_test() {
       model.PostgreSQL,
       naming_ctx,
     )
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
       model.PostgreSQL,
       catalog,
@@ -138,7 +138,7 @@ pub fn all_types_insert_params_test() {
       model.PostgreSQL,
       naming_ctx,
     )
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
       model.PostgreSQL,
       catalog,
@@ -212,7 +212,7 @@ pub fn complex_query_basic_crud_test() {
       model.PostgreSQL,
       naming_ctx,
     )
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
       model.PostgreSQL,
       catalog,
@@ -254,7 +254,7 @@ pub fn complex_query_single_join_test() {
       model.PostgreSQL,
       naming_ctx,
     )
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
       model.PostgreSQL,
       catalog,
@@ -282,7 +282,7 @@ pub fn complex_query_multi_join_test() {
       model.PostgreSQL,
       naming_ctx,
     )
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
       model.PostgreSQL,
       catalog,
@@ -309,7 +309,7 @@ pub fn complex_query_returning_clause_test() {
       model.PostgreSQL,
       naming_ctx,
     )
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
       model.PostgreSQL,
       catalog,
@@ -352,7 +352,7 @@ pub fn complex_query_update_params_test() {
       model.PostgreSQL,
       naming_ctx,
     )
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
       model.PostgreSQL,
       catalog,
@@ -395,7 +395,7 @@ pub fn macro_mixed_arg_narg_test() {
       model.PostgreSQL,
       naming_ctx,
     )
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
       model.PostgreSQL,
       catalog,
@@ -421,7 +421,7 @@ pub fn macro_slice_test() {
       model.PostgreSQL,
       naming_ctx,
     )
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
       model.PostgreSQL,
       catalog,
@@ -445,7 +445,7 @@ pub fn macro_update_with_multiple_macros_test() {
       model.PostgreSQL,
       naming_ctx,
     )
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
       model.PostgreSQL,
       catalog,

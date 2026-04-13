@@ -3,9 +3,34 @@ import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/regexp
+import gleam/result
 import gleam/string
 import sqlode/model
 import sqlode/naming
+
+pub type AnalysisError {
+  TableNotFound(query_name: String, table_name: String)
+  ColumnNotFound(query_name: String, table_name: String, column_name: String)
+}
+
+pub fn analysis_error_to_string(error: AnalysisError) -> String {
+  case error {
+    TableNotFound(query_name:, table_name:) ->
+      "Query \""
+      <> query_name
+      <> "\": table \""
+      <> table_name
+      <> "\" not found in schema"
+    ColumnNotFound(query_name:, table_name:, column_name:) ->
+      "Query \""
+      <> query_name
+      <> "\": column \""
+      <> column_name
+      <> "\" not found in table \""
+      <> table_name
+      <> "\""
+  }
+}
 
 type PlaceholderOccurrence {
   PlaceholderOccurrence(index: Int, token: String, default_name: String)
@@ -88,9 +113,9 @@ pub fn analyze_queries(
   catalog: model.Catalog,
   naming_ctx: naming.NamingContext,
   queries: List(model.ParsedQuery),
-) -> List(model.AnalyzedQuery) {
+) -> Result(List(model.AnalyzedQuery), AnalysisError) {
   let ctx = new_analyzer_context(naming_ctx)
-  list.map(queries, analyze_query(ctx, engine, catalog, _))
+  list.try_map(queries, analyze_query(ctx, engine, catalog, _))
 }
 
 fn analyze_query(
@@ -98,12 +123,12 @@ fn analyze_query(
   engine: model.Engine,
   catalog: model.Catalog,
   query: model.ParsedQuery,
-) -> model.AnalyzedQuery {
+) -> Result(model.AnalyzedQuery, AnalysisError) {
   let occurrences = extract_placeholder_occurrences(ctx, engine, query.sql)
   let params = build_params(ctx, engine, query, catalog, occurrences)
-  let result_columns = infer_result_columns(ctx, query, catalog)
+  use result_columns <- result.try(infer_result_columns(ctx, query, catalog))
 
-  model.AnalyzedQuery(base: query, params:, result_columns:)
+  Ok(model.AnalyzedQuery(base: query, params:, result_columns:))
 }
 
 fn build_params(
@@ -594,9 +619,9 @@ fn infer_result_columns(
   ctx: AnalyzerContext,
   query: model.ParsedQuery,
   catalog: model.Catalog,
-) -> List(model.ResultColumn) {
+) -> Result(List(model.ResultColumn), AnalysisError) {
   case query.command {
-    model.Exec | model.ExecResult | model.ExecRows | model.ExecLastId -> []
+    model.Exec | model.ExecResult | model.ExecRows | model.ExecLastId -> Ok([])
     model.One | model.Many -> {
       let normalized = normalize_sql(ctx, query.sql)
 
@@ -604,15 +629,13 @@ fn infer_result_columns(
         Some(returning_cols) -> {
           let table_names = extract_table_names(ctx, normalized)
           case table_names {
-            [] -> []
-            _ ->
+            [] -> Ok([])
+            [primary, ..] ->
               resolve_select_columns(
+                query.name,
                 returning_cols,
                 catalog,
-                case table_names {
-                  [first, ..] -> first
-                  [] -> ""
-                },
+                primary,
                 table_names,
               )
           }
@@ -622,10 +645,11 @@ fn infer_result_columns(
           let table_names = extract_table_names(ctx, main_sql)
 
           case table_names {
-            [] -> []
+            [] -> Ok([])
             [primary, ..] -> {
               let select_columns = extract_select_columns(ctx, main_sql)
               resolve_select_columns(
+                query.name,
                 select_columns,
                 catalog,
                 primary,
@@ -744,11 +768,12 @@ fn extract_select_columns(ctx: AnalyzerContext, sql: String) -> List(String) {
 }
 
 fn resolve_select_columns(
+  query_name: String,
   columns: List(String),
   catalog: model.Catalog,
   primary_table: String,
   all_tables: List(String),
-) -> List(model.ResultColumn) {
+) -> Result(List(model.ResultColumn), AnalysisError) {
   case columns {
     ["*"] ->
       case
@@ -756,18 +781,19 @@ fn resolve_select_columns(
         |> list.find(fn(table) { table.name == primary_table })
       {
         Ok(table) ->
-          list.map(table.columns, fn(col) {
-            model.ResultColumn(
-              name: col.name,
-              scalar_type: col.scalar_type,
-              nullable: col.nullable,
-            )
-          })
-        Error(_) -> []
+          Ok(
+            list.map(table.columns, fn(col) {
+              model.ResultColumn(
+                name: col.name,
+                scalar_type: col.scalar_type,
+                nullable: col.nullable,
+              )
+            }),
+          )
+        Error(_) -> Error(TableNotFound(query_name:, table_name: primary_table))
       }
     _ ->
-      columns
-      |> list.flat_map(fn(col_name) {
+      list.try_map(columns, fn(col_name) {
         let trimmed = string.trim(col_name)
         case string.starts_with(trimmed, "sqlc.embed(") {
           True -> {
@@ -783,37 +809,41 @@ fn resolve_select_columns(
               |> list.find(fn(table) { table.name == embed_name })
             {
               Ok(table) ->
-                list.map(table.columns, fn(col) {
-                  model.ResultColumn(
-                    name: col.name,
-                    scalar_type: col.scalar_type,
-                    nullable: col.nullable,
-                  )
-                })
-              Error(_) -> []
+                Ok(
+                  list.map(table.columns, fn(col) {
+                    model.ResultColumn(
+                      name: col.name,
+                      scalar_type: col.scalar_type,
+                      nullable: col.nullable,
+                    )
+                  }),
+                )
+              Error(_) ->
+                Error(TableNotFound(query_name:, table_name: embed_name))
             }
           }
           False -> {
             let normalized_name = string.lowercase(trimmed)
             case find_column_in_tables(catalog, all_tables, normalized_name) {
-              Some(column) -> [
-                model.ResultColumn(
-                  name: column.name,
-                  scalar_type: column.scalar_type,
-                  nullable: column.nullable,
-                ),
-              ]
-              None -> [
-                model.ResultColumn(
-                  name: normalized_name,
-                  scalar_type: model.StringType,
-                  nullable: False,
-                ),
-              ]
+              Some(column) ->
+                Ok([
+                  model.ResultColumn(
+                    name: column.name,
+                    scalar_type: column.scalar_type,
+                    nullable: column.nullable,
+                  ),
+                ])
+              None ->
+                Error(ColumnNotFound(
+                  query_name:,
+                  table_name: primary_table,
+                  column_name: normalized_name,
+                ))
             }
           }
         }
       })
+      |> result.map(list.flatten)
   }
 }
 

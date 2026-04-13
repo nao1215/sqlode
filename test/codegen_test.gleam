@@ -135,7 +135,7 @@ pub fn render_sqlight_adapter_test() {
       naming_ctx,
       content,
     )
-  let analyzed =
+  let assert Ok(analyzed) =
     query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, queries)
   let rendered = codegen.render_adapter_module(naming_ctx, block, analyzed)
 
@@ -186,7 +186,14 @@ fn analyzed_queries(path: String) -> List(model.AnalyzedQuery) {
   let assert Ok(queries) =
     query_parser.parse_file(path, model.PostgreSQL, naming_ctx, content)
 
-  query_analyzer.analyze_queries(model.PostgreSQL, catalog, naming_ctx, queries)
+  let assert Ok(result) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  result
 }
 
 fn analyzed_star_queries() -> List(model.AnalyzedQuery) {
@@ -199,5 +206,12 @@ fn analyzed_star_queries() -> List(model.AnalyzedQuery) {
   let assert Ok(queries) =
     query_parser.parse_file("star.sql", model.PostgreSQL, naming_ctx, sql)
 
-  query_analyzer.analyze_queries(model.PostgreSQL, catalog, naming_ctx, queries)
+  let assert Ok(result) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  result
 }
