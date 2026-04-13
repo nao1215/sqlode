@@ -59,7 +59,11 @@ fn parse_content(
   use tables <- result.try(
     statements
     |> list.try_fold([], fn(tables, statement) {
-      use maybe_table <- result.try(parse_statement(statement, all_enums))
+      use maybe_table <- result.try(parse_statement(
+        statement,
+        all_enums,
+        list.reverse(tables),
+      ))
       Ok(case maybe_table {
         Some(table) -> [table, ..tables]
         None -> tables
@@ -101,13 +105,126 @@ fn parse_create_enum(statement: String) -> Result(model.EnumDef, Nil) {
 fn parse_statement(
   statement: String,
   enums: List(model.EnumDef),
+  tables: List(model.Table),
 ) -> Result(Option(model.Table), ParseError) {
   let lowered = string.lowercase(statement)
 
   case string.starts_with(lowered, "create table") {
-    False -> Ok(None)
     True -> parse_create_table(statement, enums)
+    False ->
+      case
+        string.starts_with(lowered, "create view")
+        || string.starts_with(lowered, "create or replace view")
+      {
+        True -> Ok(parse_create_view(statement, tables))
+        False -> Ok(None)
+      }
   }
+}
+
+fn parse_create_view(
+  statement: String,
+  tables: List(model.Table),
+) -> Option(model.Table) {
+  let lowered =
+    statement
+    |> string.lowercase
+    |> string.replace("\n", " ")
+    |> string.replace("\r", " ")
+    |> string.replace("\t", " ")
+
+  // Extract view name: CREATE [OR REPLACE] VIEW <name> AS ...
+  case string.split_once(lowered, " as ") {
+    Error(_) -> None
+    Ok(#(header, select_part)) -> {
+      let view_name =
+        header
+        |> string.replace("create or replace view", "")
+        |> string.replace("create view", "")
+        |> string.trim
+        |> naming.normalize_identifier
+
+      // Extract column names from the SELECT clause
+      case string.split_once(select_part, " from ") {
+        Error(_) -> None
+        Ok(#(select_cols_text, from_part)) -> {
+          let select_cols =
+            select_cols_text
+            |> string.replace("select", "")
+            |> string.trim
+
+          // Extract the first table name from FROM clause
+          let source_table =
+            from_part
+            |> string.split(" ")
+            |> list.map(string.trim)
+            |> list.filter(fn(t) { t != "" })
+            |> list.first
+            |> result.map(naming.normalize_identifier)
+
+          case select_cols, source_table {
+            "*", Ok(table_name) ->
+              case list.find(tables, fn(t) { t.name == table_name }) {
+                Ok(table) ->
+                  Some(model.Table(name: view_name, columns: table.columns))
+                Error(_) -> None
+              }
+            _, Ok(_) -> {
+              let col_names =
+                select_cols
+                |> string.split(",")
+                |> list.map(fn(c) {
+                  let trimmed = string.trim(c)
+                  // Handle aliases: "col AS alias" → use alias
+                  case string.split_once(trimmed, " as ") {
+                    Ok(#(_, alias)) -> string.trim(alias)
+                    Error(_) ->
+                      // Handle table.column → use column
+                      case string.split_once(trimmed, ".") {
+                        Ok(#(_, col)) -> string.trim(col)
+                        Error(_) -> trimmed
+                      }
+                  }
+                })
+
+              let columns =
+                list.filter_map(col_names, fn(col_name) {
+                  let normalized = naming.normalize_identifier(col_name)
+                  case find_column_in_tables(tables, normalized) {
+                    Some(col) -> Ok(model.Column(..col, name: normalized))
+                    None ->
+                      Ok(model.Column(
+                        name: normalized,
+                        scalar_type: model.StringType,
+                        nullable: True,
+                      ))
+                  }
+                })
+
+              case columns {
+                [] -> None
+                _ -> Some(model.Table(name: view_name, columns:))
+              }
+            }
+            _, _ -> None
+          }
+        }
+      }
+    }
+  }
+}
+
+fn find_column_in_tables(
+  tables: List(model.Table),
+  column_name: String,
+) -> Option(model.Column) {
+  list.find_map(tables, fn(table) {
+    list.find(table.columns, fn(col) {
+      string.lowercase(col.name) == string.lowercase(column_name)
+    })
+    |> result.map_error(fn(_) { Nil })
+  })
+  |> option.from_result
 }
 
 fn parse_create_table(

@@ -280,3 +280,13 @@ pub fn intersect_infers_columns_test() {
 pub fn except_infers_columns_test() {
   generate_test.except_infers_columns_test()
 }
+
+// --- VIEW tests ---
+
+pub fn view_select_columns_inferred_test() {
+  generate_test.view_select_columns_inferred_test()
+}
+
+pub fn view_select_star_inferred_test() {
+  generate_test.view_select_star_inferred_test()
+}

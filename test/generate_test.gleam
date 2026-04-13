@@ -710,3 +710,52 @@ pub fn except_infers_columns_test() {
 
   cleanup_compound()
 }
+
+// --- VIEW tests ---
+
+const view_out = "test_output/generate_test_view"
+
+fn view_block() -> model.SqlBlock {
+  model.SqlBlock(
+    name: option.None,
+    engine: model.SQLite,
+    schema: ["test/fixtures/view_schema.sql"],
+    queries: ["test/fixtures/view_query.sql"],
+    gleam: model.GleamOutput(package: "db", out: view_out, runtime: model.Raw),
+    overrides: model.empty_overrides(),
+  )
+}
+
+fn cleanup_view() {
+  let _ = simplifile.delete(view_out)
+  Nil
+}
+
+pub fn view_select_columns_inferred_test() {
+  cleanup_view()
+  let cfg = model.Config(version: 2, sql: [view_block()])
+  let assert Ok(_) = generate.generate_config(cfg)
+
+  let assert Ok(models) = simplifile.read(view_out <> "/models.gleam")
+
+  // Query referencing active_authors view should have typed columns
+  string.contains(models, "GetActiveAuthorRow") |> should.be_true()
+  string.contains(models, "id: Int") |> should.be_true()
+  string.contains(models, "name: String") |> should.be_true()
+
+  cleanup_view()
+}
+
+pub fn view_select_star_inferred_test() {
+  cleanup_view()
+  let cfg = model.Config(version: 2, sql: [view_block()])
+  let assert Ok(_) = generate.generate_config(cfg)
+
+  let assert Ok(models) = simplifile.read(view_out <> "/models.gleam")
+
+  // Query referencing full_authors view (SELECT *) should have all columns
+  string.contains(models, "ListFullAuthorsRow") |> should.be_true()
+  string.contains(models, "bio: Option(String)") |> should.be_true()
+
+  cleanup_view()
+}
