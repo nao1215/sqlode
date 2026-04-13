@@ -2,6 +2,7 @@ import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
+import gleam/string
 import simplifile
 import sqlode/model
 import yay
@@ -137,13 +138,23 @@ fn parse_overrides(node: yay.Node) -> model.Overrides {
       {
         Ok(yay.NodeSeq(items)) ->
           list.filter_map(items, fn(item) {
-            case
-              optional_string(item, "db_type"),
-              optional_string(item, "gleam_type")
-            {
-              Some(db_type), Some(gleam_type) ->
-                Ok(model.TypeOverride(db_type:, gleam_type:))
-              _, _ -> Error(Nil)
+            let gleam_type = optional_string(item, "gleam_type")
+            let db_type = optional_string(item, "db_type")
+            let column = optional_string(item, "column")
+            case column, db_type, gleam_type {
+              Some(col), _, Some(gt) ->
+                case string.split(col, ".") {
+                  [table, col_name] ->
+                    Ok(model.ColumnOverride(
+                      table:,
+                      column: col_name,
+                      gleam_type: gt,
+                    ))
+                  _ -> Error(Nil)
+                }
+              _, Some(dt), Some(gt) ->
+                Ok(model.DbTypeOverride(db_type: dt, gleam_type: gt))
+              _, _, _ -> Error(Nil)
             }
           })
         _ -> []

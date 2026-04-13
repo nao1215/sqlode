@@ -372,11 +372,20 @@ sql:
       types:
         - db_type: "uuid"
           gleam_type: "String"
+        - column: "users.id"
+          gleam_type: "String"
       renames:
         - table: "authors"
           column: "bio"
           rename_to: "biography"
 ```
+
+Type overrides support two targeting modes:
+
+- **`db_type`**: Overrides all columns of a given database type (e.g., all `uuid` columns become `String`)
+- **`column`**: Overrides a specific column using `table.column` format (e.g., only `users.id` becomes `String`)
+
+Column-level overrides take precedence over `db_type` overrides.
 
 ## CLI
 

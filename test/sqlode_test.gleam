@@ -175,6 +175,18 @@ pub fn combined_type_override_and_column_rename_test() {
   generate_test.combined_type_override_and_column_rename_test()
 }
 
+pub fn column_override_changes_specific_column_test() {
+  generate_test.column_override_changes_specific_column_test()
+}
+
+pub fn column_override_takes_precedence_over_db_type_test() {
+  generate_test.column_override_takes_precedence_over_db_type_test()
+}
+
+pub fn column_override_does_not_affect_other_tables_test() {
+  generate_test.column_override_does_not_affect_other_tables_test()
+}
+
 pub fn all_commands_generate_queries_test() {
   generate_test.all_commands_generate_queries_test()
 }

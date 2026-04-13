@@ -193,13 +193,21 @@ fn apply_type_overrides(
         list.map(catalog.tables, fn(table) {
           let columns =
             list.map(table.columns, fn(col) {
-              case find_type_override(col.scalar_type, overrides) {
+              case find_column_override(table.name, col.name, overrides) {
                 Ok(gleam_type) ->
                   model.Column(
                     ..col,
                     scalar_type: gleam_type_to_scalar(gleam_type),
                   )
-                Error(_) -> col
+                Error(_) ->
+                  case find_db_type_override(col.scalar_type, overrides) {
+                    Ok(gleam_type) ->
+                      model.Column(
+                        ..col,
+                        scalar_type: gleam_type_to_scalar(gleam_type),
+                      )
+                    Error(_) -> col
+                  }
               }
             })
           model.Table(..table, columns:)
@@ -209,16 +217,40 @@ fn apply_type_overrides(
   }
 }
 
-fn find_type_override(
+fn find_column_override(
+  table_name: String,
+  column_name: String,
+  overrides: List(model.TypeOverride),
+) -> Result(String, Nil) {
+  list.find_map(overrides, fn(ovr) {
+    case ovr {
+      model.ColumnOverride(table:, column:, gleam_type:) ->
+        case
+          string.lowercase(table) == string.lowercase(table_name)
+          && string.lowercase(column) == string.lowercase(column_name)
+        {
+          True -> Ok(gleam_type)
+          False -> Error(Nil)
+        }
+      model.DbTypeOverride(..) -> Error(Nil)
+    }
+  })
+}
+
+fn find_db_type_override(
   scalar_type: model.ScalarType,
   overrides: List(model.TypeOverride),
 ) -> Result(String, Nil) {
   let type_name = model.scalar_type_to_db_name(scalar_type)
 
   list.find_map(overrides, fn(ovr) {
-    case string.lowercase(ovr.db_type) == type_name {
-      True -> Ok(ovr.gleam_type)
-      False -> Error(Nil)
+    case ovr {
+      model.DbTypeOverride(db_type:, gleam_type:) ->
+        case string.lowercase(db_type) == type_name {
+          True -> Ok(gleam_type)
+          False -> Error(Nil)
+        }
+      model.ColumnOverride(..) -> Error(Nil)
     }
   })
 }
