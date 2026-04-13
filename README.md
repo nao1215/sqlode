@@ -416,6 +416,26 @@ Type overrides support two targeting modes:
 
 Column-level overrides take precedence over `db_type` overrides.
 
+### Custom type aliases
+
+When you specify a non-primitive `gleam_type` (e.g., `UserId` instead of `Int`), sqlode preserves the type name in generated record fields but uses the underlying primitive type for encoding and decoding.
+
+This means your custom type **must be a transparent type alias**, not an opaque type:
+
+```gleam
+// ✅ Works — transparent type alias
+pub type UserId = Int
+
+// ❌ Does NOT work — opaque type
+pub opaque type UserId {
+  UserId(Int)
+}
+```
+
+Opaque types are not supported because sqlode generates encoder/decoder calls that operate on the underlying primitive type (e.g., `runtime.int(params.id)`). If `UserId` is opaque, this will produce a compile error because `UserId` and `Int` are not interchangeable.
+
+sqlode validates that `gleam_type` values start with an uppercase letter (valid Gleam type name) and emits a warning during generation when custom types are used.
+
 ## CLI
 
 ```

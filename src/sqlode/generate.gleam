@@ -1,4 +1,5 @@
 import gleam/int
+import gleam/io
 import gleam/list
 import gleam/option
 import gleam/result
@@ -287,7 +288,23 @@ fn gleam_type_to_scalar(
     "bool" -> model.BoolType
     "string" -> model.StringType
     "bitarray" -> model.BytesType
-    _ -> model.CustomType(name: gleam_type, underlying:)
+    _ -> {
+      let underlying_name = model.scalar_type_to_gleam_type(underlying)
+      io.println_error(
+        "Warning: custom gleam_type \""
+        <> gleam_type
+        <> "\" will use the encoder/decoder for the underlying \""
+        <> underlying_name
+        <> "\" type. Ensure \""
+        <> gleam_type
+        <> "\" is defined as a transparent type alias (e.g., pub type "
+        <> gleam_type
+        <> " = "
+        <> underlying_name
+        <> "). Opaque types are not supported.",
+      )
+      model.CustomType(name: gleam_type, underlying:)
+    }
   }
 }
 

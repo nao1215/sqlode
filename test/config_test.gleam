@@ -104,6 +104,23 @@ pub fn reject_mysql_native_runtime_test() {
   string.contains(msg, "raw") |> should.be_true()
 }
 
+// gleam_type validation
+
+pub fn reject_lowercase_gleam_type_test() {
+  let assert Error(error) =
+    config.load("test/fixtures/invalid_gleam_type_lowercase.yaml")
+  let msg = config.error_to_string(error)
+  string.contains(msg, "uppercase") |> should.be_true()
+  string.contains(msg, "userId") |> should.be_true()
+}
+
+pub fn reject_empty_gleam_type_test() {
+  let assert Error(error) =
+    config.load("test/fixtures/invalid_gleam_type_empty.yaml")
+  let msg = config.error_to_string(error)
+  string.contains(msg, "empty") |> should.be_true()
+}
+
 // error_to_string coverage
 
 pub fn error_to_string_file_read_error_test() {

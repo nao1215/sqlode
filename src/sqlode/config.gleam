@@ -140,7 +140,7 @@ fn parse_sql_block(node: yay.Node) -> Result(model.SqlBlock, ConfigError) {
     _, _ -> Ok(Nil)
   })
 
-  let overrides = parse_overrides(node)
+  use overrides <- result.try(parse_overrides(node))
 
   Ok(model.SqlBlock(
     name:,
@@ -152,37 +152,55 @@ fn parse_sql_block(node: yay.Node) -> Result(model.SqlBlock, ConfigError) {
   ))
 }
 
-fn parse_overrides(node: yay.Node) -> model.Overrides {
+fn parse_overrides(node: yay.Node) -> Result(model.Overrides, ConfigError) {
   case yay.select_sugar(from: node, selector: "overrides") {
-    Error(_) -> model.empty_overrides()
+    Error(_) -> Ok(model.empty_overrides())
     Ok(overrides_node) -> {
-      let type_overrides = case
-        yay.select_sugar(from: overrides_node, selector: "types")
-      {
-        Ok(yay.NodeSeq(items)) ->
-          list.filter_map(items, fn(item) {
-            let gleam_type = optional_string(item, "gleam_type")
-            let db_type = optional_string(item, "db_type")
-            let column = optional_string(item, "column")
-            let nullable = optional_bool(item, "nullable")
-            case column, db_type, gleam_type {
-              Some(col), _, Some(gt) ->
-                case string.split(col, ".") {
-                  [table, col_name] ->
-                    Ok(model.ColumnOverride(
-                      table:,
-                      column: col_name,
-                      gleam_type: gt,
-                    ))
-                  _ -> Error(Nil)
+      use type_overrides <- result.try(
+        case yay.select_sugar(from: overrides_node, selector: "types") {
+          Ok(yay.NodeSeq(items)) ->
+            list.try_map(items, fn(item) {
+              let gleam_type = optional_string(item, "gleam_type")
+              let db_type = optional_string(item, "db_type")
+              let column = optional_string(item, "column")
+              let nullable = optional_bool(item, "nullable")
+              case column, db_type, gleam_type {
+                Some(col), _, Some(gt) -> {
+                  use _ <- result.try(validate_gleam_type(gt))
+                  case string.split(col, ".") {
+                    [table, col_name] ->
+                      Ok(model.ColumnOverride(
+                        table:,
+                        column: col_name,
+                        gleam_type: gt,
+                      ))
+                    _ ->
+                      Error(InvalidValue(
+                        field: "overrides.types.column",
+                        detail: "must be in \"table.column\" format, got \""
+                          <> col
+                          <> "\"",
+                      ))
+                  }
                 }
-              _, Some(dt), Some(gt) ->
-                Ok(model.DbTypeOverride(db_type: dt, gleam_type: gt, nullable:))
-              _, _, _ -> Error(Nil)
-            }
-          })
-        _ -> []
-      }
+                _, Some(dt), Some(gt) -> {
+                  use _ <- result.try(validate_gleam_type(gt))
+                  Ok(model.DbTypeOverride(
+                    db_type: dt,
+                    gleam_type: gt,
+                    nullable:,
+                  ))
+                }
+                _, _, _ ->
+                  Error(InvalidValue(
+                    field: "overrides.types",
+                    detail: "each entry must have \"gleam_type\" and either \"db_type\" or \"column\"",
+                  ))
+              }
+            })
+          _ -> Ok([])
+        },
+      )
 
       let column_renames = case
         yay.select_sugar(from: overrides_node, selector: "renames")
@@ -202,8 +220,65 @@ fn parse_overrides(node: yay.Node) -> model.Overrides {
         _ -> []
       }
 
-      model.Overrides(type_overrides:, column_renames:)
+      Ok(model.Overrides(type_overrides:, column_renames:))
     }
+  }
+}
+
+fn validate_gleam_type(gleam_type: String) -> Result(Nil, ConfigError) {
+  case string.is_empty(gleam_type) {
+    True ->
+      Error(InvalidValue(
+        field: "overrides.types.gleam_type",
+        detail: "must not be empty",
+      ))
+    False -> {
+      let first =
+        string.first(gleam_type)
+        |> result.unwrap("")
+      case is_uppercase_letter(first) {
+        False ->
+          Error(InvalidValue(
+            field: "overrides.types.gleam_type",
+            detail: "must start with an uppercase letter, got \""
+              <> gleam_type
+              <> "\"",
+          ))
+        True -> Ok(Nil)
+      }
+    }
+  }
+}
+
+fn is_uppercase_letter(char: String) -> Bool {
+  case char {
+    "A"
+    | "B"
+    | "C"
+    | "D"
+    | "E"
+    | "F"
+    | "G"
+    | "H"
+    | "I"
+    | "J"
+    | "K"
+    | "L"
+    | "M"
+    | "N"
+    | "O"
+    | "P"
+    | "Q"
+    | "R"
+    | "S"
+    | "T"
+    | "U"
+    | "V"
+    | "W"
+    | "X"
+    | "Y"
+    | "Z" -> True
+    _ -> False
   }
 }
 
