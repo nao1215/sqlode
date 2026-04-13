@@ -95,6 +95,15 @@ pub fn reject_multiple_unsupported_root_fields_test() {
   string.contains(msg, "analyzer") |> should.be_true()
 }
 
+// MySQL + native runtime rejection
+
+pub fn reject_mysql_native_runtime_test() {
+  let assert Error(error) = config.load("test/fixtures/mysql_native.yaml")
+  let msg = config.error_to_string(error)
+  string.contains(msg, "MySQL") |> should.be_true()
+  string.contains(msg, "raw") |> should.be_true()
+}
+
 // error_to_string coverage
 
 pub fn error_to_string_file_read_error_test() {
