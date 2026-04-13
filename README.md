@@ -125,20 +125,21 @@ The `runtime` option controls what code sqlode generates and what dependencies y
 | Mode | Generated files | DB driver needed | Use case |
 |------|----------------|-----------------|----------|
 | `raw` | queries, params, models | No | You handle database interaction yourself |
-| `based` | queries, params, models, adapter | Yes (pog/sqlight) | Same as `native` (reserved for future use) |
 | `native` | queries, params, models, adapter | Yes (pog/sqlight) | Full adapter with parameter binding and result decoding |
 
-**Dependency note:** In all modes, sqlode must be a dependency (not just a dev-dependency) because the generated code imports `sqlode/runtime` for the `Value` type and `QueryCommand` type. The adapter modes (`based`, `native`) additionally require a database driver package:
+> **Note:** `runtime: "based"` is reserved for future use and is currently rejected. Use `"raw"` or `"native"` instead.
+
+**Dependency note:** In all modes, sqlode must be a dependency (not just a dev-dependency) because the generated code imports `sqlode/runtime` for the `Value` type and `QueryCommand` type. The `native` adapter mode additionally requires a database driver package:
 
 ```console
 gleam add sqlode
-gleam add pog       # for PostgreSQL with native/based runtime
-gleam add sqlight   # for SQLite with native/based runtime
+gleam add pog       # for PostgreSQL with native runtime
+gleam add sqlight   # for SQLite with native runtime
 ```
 
 ## Adapter generation
 
-When `runtime` is set to `native` or `based`, sqlode generates adapter modules that wrap [pog](https://hexdocs.pm/pog/) (PostgreSQL) or [sqlight](https://hexdocs.pm/sqlight/) (SQLite).
+When `runtime` is set to `native`, sqlode generates adapter modules that wrap [pog](https://hexdocs.pm/pog/) (PostgreSQL) or [sqlight](https://hexdocs.pm/sqlight/) (SQLite).
 
 **Note:** MySQL adapter generation is not yet available. MySQL schema parsing and query/params generation work, but `runtime: "native"` will produce a stub adapter. Use `runtime: "raw"` with MySQL and handle database interaction manually.
 

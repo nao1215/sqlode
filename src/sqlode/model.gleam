@@ -25,23 +25,22 @@ pub fn engine_to_string(engine: Engine) -> String {
 
 pub type Runtime {
   Raw
-  Based
   Native
 }
 
 pub fn parse_runtime(value: String) -> Result(Runtime, String) {
   case value {
     "raw" -> Ok(Raw)
-    "based" -> Ok(Based)
+    "based" ->
+      Error("\"based\" is not yet supported; use \"raw\" or \"native\" instead")
     "native" -> Ok(Native)
-    _ -> Error("must be one of: raw, based, native")
+    _ -> Error("must be one of: raw, native")
   }
 }
 
 pub fn runtime_to_string(runtime: Runtime) -> String {
   case runtime {
     Raw -> "raw"
-    Based -> "based"
     Native -> "native"
   }
 }

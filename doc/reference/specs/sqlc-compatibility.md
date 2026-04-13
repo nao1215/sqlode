@@ -42,7 +42,7 @@ sql:
 |--------|--------|-------|
 | `package` | Implemented | Package name for imports |
 | `out` | Implemented | Output directory |
-| `runtime` | Implemented | `raw`, `based`, `native` |
+| `runtime` | Implemented | `raw`, `native` (`based` is reserved, not yet supported) |
 | `overrides.types` | Implemented | Map DB types to Gleam types |
 | `overrides.renames` | Implemented | Rename columns in result types |
 

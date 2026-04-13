@@ -30,8 +30,8 @@ pub fn parse_runtime_raw_test() {
   model.parse_runtime("raw") |> should.equal(Ok(model.Raw))
 }
 
-pub fn parse_runtime_based_test() {
-  model.parse_runtime("based") |> should.equal(Ok(model.Based))
+pub fn parse_runtime_based_rejected_test() {
+  model.parse_runtime("based") |> should.be_error()
 }
 
 pub fn parse_runtime_native_test() {
@@ -86,7 +86,6 @@ pub fn engine_to_string_roundtrip_test() {
 
 pub fn runtime_to_string_roundtrip_test() {
   model.runtime_to_string(model.Raw) |> should.equal("raw")
-  model.runtime_to_string(model.Based) |> should.equal("based")
   model.runtime_to_string(model.Native) |> should.equal("native")
 }
 
