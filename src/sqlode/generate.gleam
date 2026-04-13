@@ -115,7 +115,7 @@ fn generate_sql_block(
 
       let files = case gleam.runtime {
         model.Raw -> files
-        _ ->
+        model.Native ->
           list.append(files, [
             writer.GeneratedFile(
               directory: out,
