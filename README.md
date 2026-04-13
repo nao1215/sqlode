@@ -10,15 +10,39 @@ Supported engines: PostgreSQL, MySQL (parsing only), SQLite.
 
 ### Install
 
-Add sqlode as a dependency (required at runtime for generated code):
+There are two ways to install sqlode:
+
+#### Option A: Standalone CLI (escript)
+
+Download the pre-built escript from [GitHub Releases](https://github.com/nao1215/sqlode/releases) and place it on your PATH. Requires Erlang/OTP runtime on the host machine.
+
+```console
+chmod +x sqlode
+./sqlode generate --config=sqlode.yaml
+```
+
+You still need sqlode as a project dependency because generated code imports `sqlode/runtime`:
 
 ```console
 gleam add sqlode
 ```
 
+#### Option B: Run via Gleam
+
+Add sqlode as a dependency and invoke the CLI through `gleam run`:
+
+```console
+gleam add sqlode
+gleam run -m sqlode -- generate
+```
+
 ### Initialize config
 
 ```console
+# standalone CLI
+sqlode init
+
+# or via Gleam
 gleam run -m sqlode -- init
 ```
 
@@ -71,6 +95,10 @@ VALUES (sqlc.arg(author_name), sqlc.narg(bio));
 ### Generate
 
 ```console
+# standalone CLI
+sqlode generate
+
+# or via Gleam
 gleam run -m sqlode -- generate
 ```
 
@@ -391,9 +419,54 @@ Column-level overrides take precedence over `db_type` overrides.
 ## CLI
 
 ```
+# Standalone escript
+sqlode generate [--config=./sqlode.yaml]
+sqlode init [--output=./sqlode.yaml]
+
+# Via Gleam
 gleam run -m sqlode -- generate [--config=./sqlode.yaml]
 gleam run -m sqlode -- init [--output=./sqlode.yaml]
 ```
+
+## Migrating from sqlc
+
+sqlode follows sqlc conventions, so most SQL files work without changes. Key differences:
+
+| | sqlc | sqlode |
+|---|---|---|
+| Install | Standalone binary (`brew install sqlc`) | Escript or `gleam add sqlode` |
+| Config | `sqlc.yaml` / `sqlc.json` | `sqlode.yaml` (v2 format only) |
+| Generate | `sqlc generate` | `sqlode generate` |
+| Init | `sqlc init` | `sqlode init` |
+| Vet/Verify | `sqlc vet`, `sqlc verify` | Not supported |
+| Target language | Go, Python, Kotlin, etc. | Gleam |
+| Runtime | Generated code is self-contained | Generated code imports `sqlode/runtime` |
+
+### Migration steps
+
+1. Install sqlode (see [Install](#install) above).
+2. Copy your `sqlc.yaml` to `sqlode.yaml`. Keep `version: "2"` and the `sql` blocks. Replace the `gen` section:
+
+   ```yaml
+   gen:
+     gleam:
+       package: "db"
+       out: "src/db"
+       runtime: "raw"   # or "native" for full adapter generation
+   ```
+
+3. Your existing `.sql` schema and query files should work as-is. sqlode supports `sqlc.arg()`, `sqlc.narg()`, `sqlc.slice()`, `sqlc.embed()`, and `@name` shorthand.
+
+4. Run `sqlode generate` (or `gleam run -m sqlode -- generate`).
+
+### Unsupported sqlc features
+
+- `sqlc.yaml` v1 format
+- `vet` and `verify` commands
+- `emit_*` options (`emit_exact_table_names`, `emit_json_tags`, etc.)
+- Batch annotations (`:batchexec`, `:batchmany`, `:batchone`)
+- `:copyfrom` annotation
+- MySQL adapter generation (`runtime: "raw"` works for MySQL)
 
 ## License
 
