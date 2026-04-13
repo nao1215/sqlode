@@ -42,7 +42,7 @@ pub fn type_override_changes_scalar_type_test() {
     base_block(
       model.Overrides(
         type_overrides: [
-          model.TypeOverride(db_type: "string", gleam_type: "Int"),
+          model.DbTypeOverride(db_type: "string", gleam_type: "Int"),
         ],
         column_renames: [],
       ),
@@ -63,7 +63,7 @@ pub fn type_override_case_insensitive_db_type_test() {
     base_block(
       model.Overrides(
         type_overrides: [
-          model.TypeOverride(db_type: "STRING", gleam_type: "Float"),
+          model.DbTypeOverride(db_type: "STRING", gleam_type: "Float"),
         ],
         column_renames: [],
       ),
@@ -83,7 +83,7 @@ pub fn type_override_preserves_unmatched_columns_test() {
     base_block(
       model.Overrides(
         type_overrides: [
-          model.TypeOverride(db_type: "bool", gleam_type: "String"),
+          model.DbTypeOverride(db_type: "bool", gleam_type: "String"),
         ],
         column_renames: [],
       ),
@@ -105,8 +105,8 @@ pub fn type_override_multiple_overrides_test() {
     base_block(
       model.Overrides(
         type_overrides: [
-          model.TypeOverride(db_type: "int", gleam_type: "String"),
-          model.TypeOverride(db_type: "string", gleam_type: "BitArray"),
+          model.DbTypeOverride(db_type: "int", gleam_type: "String"),
+          model.DbTypeOverride(db_type: "string", gleam_type: "BitArray"),
         ],
         column_renames: [],
       ),
@@ -210,7 +210,7 @@ pub fn combined_type_override_and_column_rename_test() {
     base_block(
       model.Overrides(
         type_overrides: [
-          model.TypeOverride(db_type: "string", gleam_type: "BitArray"),
+          model.DbTypeOverride(db_type: "string", gleam_type: "BitArray"),
         ],
         column_renames: [
           model.ColumnRename(
@@ -227,6 +227,84 @@ pub fn combined_type_override_and_column_rename_test() {
 
   // Both override and rename should apply
   string.contains(models, "display_name: BitArray") |> should.be_true()
+
+  cleanup()
+}
+
+// --- Column-level type override tests ---
+
+pub fn column_override_changes_specific_column_test() {
+  cleanup()
+  let block =
+    base_block(
+      model.Overrides(
+        type_overrides: [
+          model.ColumnOverride(
+            table: "authors",
+            column: "id",
+            gleam_type: "String",
+          ),
+        ],
+        column_renames: [],
+      ),
+    )
+
+  run_generate(block)
+  let models = read_generated("models.gleam")
+
+  // id column should be overridden to String
+  string.contains(models, "id: String") |> should.be_true()
+
+  cleanup()
+}
+
+pub fn column_override_takes_precedence_over_db_type_test() {
+  cleanup()
+  let block =
+    base_block(
+      model.Overrides(
+        type_overrides: [
+          model.DbTypeOverride(db_type: "int", gleam_type: "Float"),
+          model.ColumnOverride(
+            table: "authors",
+            column: "id",
+            gleam_type: "String",
+          ),
+        ],
+        column_renames: [],
+      ),
+    )
+
+  run_generate(block)
+  let models = read_generated("models.gleam")
+
+  // Column override (String) should win over db_type override (Float)
+  string.contains(models, "id: String") |> should.be_true()
+
+  cleanup()
+}
+
+pub fn column_override_does_not_affect_other_tables_test() {
+  cleanup()
+  let block =
+    base_block(
+      model.Overrides(
+        type_overrides: [
+          model.ColumnOverride(
+            table: "posts",
+            column: "id",
+            gleam_type: "String",
+          ),
+        ],
+        column_renames: [],
+      ),
+    )
+
+  run_generate(block)
+  let models = read_generated("models.gleam")
+
+  // Override for posts.id should not affect authors.id
+  string.contains(models, "id: Int") |> should.be_true()
 
   cleanup()
 }
