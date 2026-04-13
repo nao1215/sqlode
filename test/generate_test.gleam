@@ -142,6 +142,56 @@ pub fn type_override_multiple_overrides_test() {
   cleanup()
 }
 
+pub fn custom_type_override_preserves_type_name_test() {
+  cleanup()
+  let block =
+    base_block(
+      model.Overrides(
+        type_overrides: [
+          model.DbTypeOverride(
+            db_type: "int",
+            gleam_type: "UserId",
+            nullable: option.None,
+          ),
+        ],
+        column_renames: [],
+      ),
+    )
+
+  run_generate(block)
+  let models = read_generated("models.gleam")
+
+  // id column is BIGSERIAL (IntType), override to UserId — should NOT become String
+  string.contains(models, "id: UserId") |> should.be_true()
+
+  cleanup()
+}
+
+pub fn custom_column_override_preserves_type_name_test() {
+  cleanup()
+  let block =
+    base_block(
+      model.Overrides(
+        type_overrides: [
+          model.ColumnOverride(
+            table: "authors",
+            column: "name",
+            gleam_type: "AuthorName",
+          ),
+        ],
+        column_renames: [],
+      ),
+    )
+
+  run_generate(block)
+  let models = read_generated("models.gleam")
+
+  // name column should use the custom type name
+  string.contains(models, "name: AuthorName") |> should.be_true()
+
+  cleanup()
+}
+
 pub fn no_overrides_leaves_types_unchanged_test() {
   cleanup()
   let block = base_block(model.empty_overrides())

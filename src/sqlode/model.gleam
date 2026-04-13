@@ -150,6 +150,7 @@ pub type ScalarType {
   UuidType
   JsonType
   EnumType(name: String)
+  CustomType(name: String, underlying: ScalarType)
 }
 
 pub type EnumDef {
@@ -165,6 +166,7 @@ pub fn scalar_type_to_gleam_type(scalar_type: ScalarType) -> String {
     BytesType -> "BitArray"
     DateTimeType | DateType | TimeType | UuidType | JsonType -> "String"
     EnumType(_) -> "String"
+    CustomType(name, _) -> name
   }
 }
 
@@ -177,6 +179,7 @@ pub fn scalar_type_to_runtime_function(scalar_type: ScalarType) -> String {
     BytesType -> "runtime.bytes"
     DateTimeType | DateType | TimeType | UuidType | JsonType -> "runtime.string"
     EnumType(_) -> "runtime.string"
+    CustomType(_, underlying) -> scalar_type_to_runtime_function(underlying)
   }
 }
 
@@ -193,6 +196,7 @@ pub fn scalar_type_to_db_name(scalar_type: ScalarType) -> String {
     UuidType -> "uuid"
     JsonType -> "json"
     EnumType(name) -> name
+    CustomType(_, underlying) -> scalar_type_to_db_name(underlying)
   }
 }
 
@@ -212,6 +216,8 @@ pub fn scalar_type_to_value_function(
       }
     DateTimeType | DateType | TimeType | UuidType | JsonType | EnumType(_) ->
       "text"
+    CustomType(_, underlying) ->
+      scalar_type_to_value_function(engine, underlying)
   }
 }
 
@@ -228,6 +234,7 @@ pub fn scalar_type_to_decoder(engine: Engine, scalar_type: ScalarType) -> String
     BytesType -> "decode.bit_array"
     DateTimeType | DateType | TimeType | UuidType | JsonType | EnumType(_) ->
       "decode.string"
+    CustomType(_, underlying) -> scalar_type_to_decoder(engine, underlying)
   }
 }
 
