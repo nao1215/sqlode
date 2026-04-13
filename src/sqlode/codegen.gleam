@@ -317,8 +317,8 @@ fn pog_adapter_config() -> AdapterConfig {
     library_import: "import pog",
     connection_type: "pog.Connection",
     error_type: "pog.QueryError",
-    value_function: pog_value_function,
-    decoder_function: pog_decoder_function,
+    value_function: model.scalar_type_to_value_function(model.PostgreSQL, _),
+    decoder_function: model.scalar_type_to_decoder(model.PostgreSQL, _),
     render_params: render_pog_params,
     render_query_call: render_pog_query_call,
     render_one_result: render_pog_one_result,
@@ -332,8 +332,8 @@ fn sqlight_adapter_config() -> AdapterConfig {
     library_import: "import sqlight",
     connection_type: "sqlight.Connection",
     error_type: "sqlight.Error",
-    value_function: sqlight_value_function,
-    decoder_function: sqlight_decoder_function,
+    value_function: model.scalar_type_to_value_function(model.SQLite, _),
+    decoder_function: model.scalar_type_to_decoder(model.SQLite, _),
     render_params: render_sqlight_params,
     render_query_call: render_sqlight_query_call,
     render_one_result: render_sqlight_one_result,
@@ -643,7 +643,8 @@ fn render_pog_query_call(
 fn render_pog_params(params: List(model.QueryParam), _prefix: String) -> String {
   params
   |> list.map(fn(param) {
-    let value_fn = pog_value_function(param.scalar_type)
+    let value_fn =
+      model.scalar_type_to_value_function(model.PostgreSQL, param.scalar_type)
     case param.nullable {
       False ->
         "  |> pog.parameter(pog."
@@ -660,38 +661,6 @@ fn render_pog_params(params: List(model.QueryParam), _prefix: String) -> String 
     }
   })
   |> string.join("\n")
-}
-
-fn pog_value_function(scalar_type: model.ScalarType) -> String {
-  case scalar_type {
-    model.IntType -> "int"
-    model.FloatType -> "float"
-    model.BoolType -> "bool"
-    model.StringType -> "text"
-    model.BytesType -> "bytea"
-    model.DateTimeType
-    | model.DateType
-    | model.TimeType
-    | model.UuidType
-    | model.JsonType
-    | model.EnumType(_) -> "text"
-  }
-}
-
-fn pog_decoder_function(scalar_type: model.ScalarType) -> String {
-  case scalar_type {
-    model.IntType -> "decode.int"
-    model.FloatType -> "decode.float"
-    model.BoolType -> "decode.bool"
-    model.StringType -> "decode.string"
-    model.BytesType -> "decode.bit_array"
-    model.DateTimeType
-    | model.DateType
-    | model.TimeType
-    | model.UuidType
-    | model.JsonType
-    | model.EnumType(_) -> "decode.string"
-  }
 }
 
 fn render_pog_one_result() -> List(String) {
@@ -744,7 +713,8 @@ fn render_sqlight_params(
       <> {
         params
         |> list.map(fn(param) {
-          let value_fn = sqlight_value_function(param.scalar_type)
+          let value_fn =
+            model.scalar_type_to_value_function(model.SQLite, param.scalar_type)
           case param.nullable {
             False -> "sqlight." <> value_fn <> "(p." <> param.field_name <> ")"
             True ->
@@ -758,39 +728,6 @@ fn render_sqlight_params(
         |> string.join(", ")
       }
       <> "]"
-  }
-}
-
-fn sqlight_value_function(scalar_type: model.ScalarType) -> String {
-  case scalar_type {
-    model.IntType -> "int"
-    model.FloatType -> "float"
-    model.BoolType -> "bool"
-    model.StringType -> "text"
-    model.BytesType -> "blob"
-    model.DateTimeType
-    | model.DateType
-    | model.TimeType
-    | model.UuidType
-    | model.JsonType
-    | model.EnumType(_) -> "text"
-  }
-}
-
-fn sqlight_decoder_function(scalar_type: model.ScalarType) -> String {
-  case scalar_type {
-    model.IntType -> "decode.int"
-    model.FloatType -> "decode.float"
-    model.BoolType ->
-      "decode.then(decode.int, fn(v) { decode.success(v != 0) })"
-    model.StringType -> "decode.string"
-    model.BytesType -> "decode.bit_array"
-    model.DateTimeType
-    | model.DateType
-    | model.TimeType
-    | model.UuidType
-    | model.JsonType
-    | model.EnumType(_) -> "decode.string"
   }
 }
 
