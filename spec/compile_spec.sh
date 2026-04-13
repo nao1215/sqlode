@@ -63,6 +63,35 @@ sql:
 YAML
   }
 
+  setup_pog_project() {
+    rm -rf "$INTEGRATION_DIR"
+    mkdir -p "$INTEGRATION_DIR/src/db"
+
+    cat > "$INTEGRATION_DIR/gleam.toml" << TOML
+name = "integration_test"
+version = "0.1.0"
+target = "erlang"
+
+[dependencies]
+gleam_stdlib = ">= 0.44.0 and < 2.0.0"
+pog = ">= 4.0.0 and < 5.0.0"
+sqlode = { path = "$PROJECT_ROOT" }
+TOML
+
+    cat > "$INTEGRATION_DIR/sqlode.yaml" << YAML
+version: "2"
+sql:
+  - schema: "$PROJECT_ROOT/test/fixtures/schema.sql"
+    queries: "$PROJECT_ROOT/test/fixtures/query.sql"
+    engine: "postgresql"
+    gen:
+      gleam:
+        package: "db"
+        out: "$INTEGRATION_DIR/src/db"
+        runtime: "native"
+YAML
+  }
+
   cleanup_project() {
     rm -rf "$INTEGRATION_DIR"
   }
@@ -77,6 +106,18 @@ YAML
     After 'cleanup_project'
 
     It 'generates and builds raw mode code'
+      When call generate_and_build
+      The status should be success
+      The output should include 'Successfully generated'
+      The output should include 'Compiled in'
+    End
+  End
+
+  Describe 'PostgreSQL native mode (with pog adapter)'
+    Before 'setup_pog_project'
+    After 'cleanup_project'
+
+    It 'generates and builds PostgreSQL native mode code'
       When call generate_and_build
       The status should be success
       The output should include 'Successfully generated'
