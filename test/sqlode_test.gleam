@@ -143,6 +143,34 @@ pub fn render_sqlight_adapter_test() {
   codegen_test.render_sqlight_adapter_test()
 }
 
+pub fn render_params_module_slice_test() {
+  codegen_test.render_params_module_slice_test()
+}
+
+pub fn render_pog_adapter_slice_test() {
+  codegen_test.render_pog_adapter_slice_test()
+}
+
+pub fn render_sqlight_adapter_slice_test() {
+  codegen_test.render_sqlight_adapter_slice_test()
+}
+
+pub fn expand_slice_placeholders_single_test() {
+  codegen_test.expand_slice_placeholders_single_test()
+}
+
+pub fn expand_slice_placeholders_with_renumbering_test() {
+  codegen_test.expand_slice_placeholders_with_renumbering_test()
+}
+
+pub fn expand_slice_placeholders_sqlite_test() {
+  codegen_test.expand_slice_placeholders_sqlite_test()
+}
+
+pub fn expand_slice_placeholders_no_slices_test() {
+  codegen_test.expand_slice_placeholders_no_slices_test()
+}
+
 pub fn type_override_changes_scalar_type_test() {
   generate_test.type_override_changes_scalar_type_test()
 }

@@ -7,12 +7,31 @@ pub fn render(
   naming_ctx: naming.NamingContext,
   queries: List(model.AnalyzedQuery),
 ) -> String {
+  let has_slices =
+    list.any(queries, fn(query) {
+      list.any(query.params, fn(param) { param.is_list })
+    })
+
   let imports = case needs_option_import(queries) {
-    True -> [
-      "import gleam/option.{type Option, None, Some}",
-      "import sqlode/runtime.{type Value}",
-    ]
-    False -> ["import sqlode/runtime.{type Value}"]
+    True ->
+      list.flatten([
+        case has_slices {
+          True -> ["import gleam/list"]
+          False -> []
+        },
+        [
+          "import gleam/option.{type Option, None, Some}",
+          "import sqlode/runtime.{type Value}",
+        ],
+      ])
+    False ->
+      list.flatten([
+        case has_slices {
+          True -> ["import gleam/list"]
+          False -> []
+        },
+        ["import sqlode/runtime.{type Value}"],
+      ])
   }
 
   let declarations =
@@ -61,7 +80,15 @@ fn render_params_declaration(
         ],
         "\n",
       )
-    params ->
+    params -> {
+      let has_slices = list.any(params, fn(p) { p.is_list })
+      let values_body = case has_slices {
+        True ->
+          "  list.flatten(["
+          <> string.join(param_accessors_flattened(params), ", ")
+          <> "])"
+        False -> "  [" <> string.join(param_accessors(params), ", ") <> "]"
+      }
       string.join(
         [
           "pub type " <> type_name <> " {",
@@ -77,11 +104,12 @@ fn render_params_declaration(
             <> "(params: "
             <> type_name
             <> ") -> List(Value) {",
-          "  [" <> string.join(param_accessors(params), ", ") <> "]",
+          values_body,
           "}",
         ],
         "\n",
       )
+    }
   }
 }
 
@@ -119,4 +147,28 @@ fn render_param_value(param: model.QueryParam) -> String {
       <> "(value) None -> runtime.null() }"
     False -> runtime_fn <> "(" <> value_expr <> ")"
   }
+}
+
+/// Render param values for queries with slice params.
+/// Scalars are wrapped in singleton lists, slices are mapped.
+fn param_accessors_flattened(params: List(model.QueryParam)) -> List(String) {
+  params
+  |> list.map(fn(param) {
+    let value_expr = "params." <> param.field_name
+    let runtime_fn = model.scalar_type_to_runtime_function(param.scalar_type)
+
+    case param.is_list {
+      True -> "list.map(" <> value_expr <> ", " <> runtime_fn <> ")"
+      False ->
+        case param.nullable {
+          True ->
+            "[case "
+            <> value_expr
+            <> " { Some(value) -> "
+            <> runtime_fn
+            <> "(value) None -> runtime.null() }]"
+          False -> "[" <> runtime_fn <> "(" <> value_expr <> ")]"
+        }
+    }
+  })
 }

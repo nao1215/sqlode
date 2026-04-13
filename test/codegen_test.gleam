@@ -9,6 +9,7 @@ import sqlode/model
 import sqlode/naming
 import sqlode/query_analyzer
 import sqlode/query_parser
+import sqlode/runtime
 import sqlode/schema_parser
 
 pub fn main() {
@@ -145,6 +146,127 @@ pub fn render_sqlight_adapter_test() {
   string.contains(rendered, "sqlight.query(") |> should.be_true()
   string.contains(rendered, "decode.success(models.GetAuthorRow(")
   |> should.be_true()
+}
+
+pub fn render_params_module_slice_test() {
+  let naming_ctx = naming.new()
+  let analyzed = analyzed_slice_queries(model.PostgreSQL)
+  let rendered = codegen.render_params_module(naming_ctx, analyzed)
+
+  // The type should use List(...) for slice params
+  string.contains(rendered, "ids: List(")
+  |> should.be_true()
+  // Should use list.flatten for values function
+  string.contains(rendered, "list.flatten(")
+  |> should.be_true()
+  string.contains(rendered, "list.map(params.ids, runtime.")
+  |> should.be_true()
+  // Should import gleam/list
+  string.contains(rendered, "import gleam/list")
+  |> should.be_true()
+}
+
+pub fn render_pog_adapter_slice_test() {
+  let naming_ctx = naming.new()
+  let block =
+    model.SqlBlock(
+      name: None,
+      engine: model.PostgreSQL,
+      schema: ["test/fixtures/schema.sql"],
+      queries: ["test/fixtures/macro_edge_cases.sql"],
+      gleam: model.GleamOutput(
+        package: "db",
+        out: "test_output/db",
+        runtime: model.Native,
+      ),
+      overrides: model.empty_overrides(),
+    )
+  let analyzed = analyzed_slice_queries(model.PostgreSQL)
+  let rendered = codegen.render_adapter_module(naming_ctx, block, analyzed)
+
+  // Should import runtime for slice expansion
+  string.contains(rendered, "import sqlode/runtime")
+  |> should.be_true()
+  // Should call expand_slice_placeholders
+  string.contains(rendered, "runtime.expand_slice_placeholders(")
+  |> should.be_true()
+  // Should use list.fold for slice param binding
+  string.contains(rendered, "list.fold(p.ids")
+  |> should.be_true()
+  // Should use let query = style
+  string.contains(rendered, "let query = pog.query(sql)")
+  |> should.be_true()
+}
+
+pub fn render_sqlight_adapter_slice_test() {
+  let naming_ctx = naming.new()
+  let block =
+    model.SqlBlock(
+      name: None,
+      engine: model.SQLite,
+      schema: ["test/fixtures/schema.sql"],
+      queries: ["test/fixtures/macro_edge_cases.sql"],
+      gleam: model.GleamOutput(
+        package: "db",
+        out: "test_output/db",
+        runtime: model.Native,
+      ),
+      overrides: model.empty_overrides(),
+    )
+  let analyzed = analyzed_slice_queries(model.SQLite)
+  let rendered = codegen.render_adapter_module(naming_ctx, block, analyzed)
+
+  // Should call expand_slice_placeholders with "?" prefix
+  string.contains(rendered, "runtime.expand_slice_placeholders(")
+  |> should.be_true()
+  // Should use list.flatten for sqlight params
+  string.contains(rendered, "list.flatten(")
+  |> should.be_true()
+  string.contains(rendered, "list.map(p.ids, sqlight.")
+  |> should.be_true()
+}
+
+pub fn expand_slice_placeholders_single_test() {
+  let sql = "SELECT id, name FROM authors WHERE id IN ($1)"
+  let result = runtime.expand_slice_placeholders(sql, [#(1, 3)], 1, "$")
+  result
+  |> should.equal("SELECT id, name FROM authors WHERE id IN ($1, $2, $3)")
+}
+
+pub fn expand_slice_placeholders_with_renumbering_test() {
+  let sql = "SELECT * FROM users WHERE name = $1 AND id IN ($2) AND status = $3"
+  let result = runtime.expand_slice_placeholders(sql, [#(2, 3)], 3, "$")
+  result
+  |> should.equal(
+    "SELECT * FROM users WHERE name = $1 AND id IN ($2, $3, $4) AND status = $5",
+  )
+}
+
+pub fn expand_slice_placeholders_sqlite_test() {
+  let sql = "SELECT id, name FROM authors WHERE id IN (?1)"
+  let result = runtime.expand_slice_placeholders(sql, [#(1, 2)], 1, "?")
+  result
+  |> should.equal("SELECT id, name FROM authors WHERE id IN (?1, ?2)")
+}
+
+pub fn expand_slice_placeholders_no_slices_test() {
+  let sql = "SELECT * FROM users WHERE id = $1"
+  let result = runtime.expand_slice_placeholders(sql, [], 1, "$")
+  result |> should.equal("SELECT * FROM users WHERE id = $1")
+}
+
+fn analyzed_slice_queries(engine: model.Engine) -> List(model.AnalyzedQuery) {
+  let naming_ctx = naming.new()
+  let assert Ok(schema_content) = simplifile.read("test/fixtures/schema.sql")
+  let assert Ok(catalog) =
+    schema_parser.parse_files([#("test/fixtures/schema.sql", schema_content)])
+  let sql =
+    "-- name: GetByIds :many\nSELECT id, name FROM authors WHERE id IN (sqlc.slice(ids));"
+  let assert Ok(queries) =
+    query_parser.parse_file("slice.sql", engine, naming_ctx, sql)
+  let assert Ok(result) =
+    query_analyzer.analyze_queries(engine, catalog, naming_ctx, queries)
+  result
 }
 
 fn test_block() -> model.SqlBlock {

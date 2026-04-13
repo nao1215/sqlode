@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  verify:
+  build:
     name: Build and verify
     runs-on: ubuntu-latest
     steps:
@@ -48,15 +48,127 @@ jobs:
       - name: ShellSpec tests
         run: shellspec
 
+      - name: Integration tests
+        run: bash integration_test/run.sh
+
+      - name: Build escript binary
+        run: gleam run -m gleescript
+
+      - name: Smoke-test built escript
+        run: bash scripts/smoke_escript.sh ./sqlode
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sqlode
+          path: sqlode
+
+  publish:
+    name: Publish to Hex
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          gleam-version: "1.15"
+
+      - name: Install rebar3
+        run: |
+          wget -q https://s3.amazonaws.com/rebar3/rebar3 -O /usr/local/bin/rebar3
+          chmod +x /usr/local/bin/rebar3
+
+      - name: Download dependencies
+        run: gleam deps download
+
+      - name: Build package
+        run: gleam build
+
+      - name: Publish to Hex
+        run: gleam publish -y
+        env:
+          HEXPM_API_KEY: ${{ secrets.HEXPM_API_KEY }}
+
   release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: verify
+    needs: build
     steps:
-      - name: Create Release
-        uses: softprops/action-gh-release@v3
+      - name: Checkout code
+        uses: actions/checkout@v6
         with:
-          generate_release_notes: true
+          fetch-depth: 0
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sqlode
+          path: .
+
+      - name: Make binary executable
+        run: chmod +x sqlode
+
+      - name: Extract tag name
+        id: tag
+        run: echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          TAG="${{ steps.tag.outputs.TAG_NAME }}"
+          TAG_WITHOUT_V="${TAG#v}"
+          CHANGELOG_FILE="changelog_content.md"
+
+          awk -v ver="$TAG_WITHOUT_V" '
+            BEGIN { found = 0; }
+            $0 ~ "^#{2,3} \\[?" ver "\\]?" { found = 1; next; }
+            /^#{2,3} \[?[0-9]+\.[0-9]+\.[0-9]+\]?/ { if (found) exit; }
+            found { print; }
+          ' CHANGELOG.md > "$CHANGELOG_FILE"
+
+          if [ ! -s "$CHANGELOG_FILE" ]; then
+            awk -v ver="$TAG" '
+              BEGIN { found = 0; }
+              $0 ~ "^#{2,3} \\[?" ver "\\]?" { found = 1; next; }
+              /^#{2,3} \[?v?[0-9]+\.[0-9]+\.[0-9]+\]?/ { if (found) exit; }
+              found { print; }
+            ' CHANGELOG.md > "$CHANGELOG_FILE"
+          fi
+
+          if [ ! -s "$CHANGELOG_FILE" ]; then
+            echo "No changelog entry found for version $TAG" > "$CHANGELOG_FILE"
+            echo "" >> "$CHANGELOG_FILE"
+            echo "Please check CHANGELOG.md for updates." >> "$CHANGELOG_FILE"
+          fi
+
+          {
+            echo 'CHANGELOG_CONTENT<<EOF'
+            cat "$CHANGELOG_FILE"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.TAG_NAME }}
+          name: ${{ steps.tag.outputs.TAG_NAME }}
+          body: |
+            ${{ steps.changelog.outputs.CHANGELOG_CONTENT }}
+
+            ## Install
+
+            Download the `sqlode` escript below and place it on your PATH.
+            Requires Erlang/OTP runtime.
+
+            ```sh
+            chmod +x sqlode
+            ./sqlode generate --config=sqlode.yaml
+            ```
+          files: sqlode
           draft: false
+          prerelease: ${{ contains(steps.tag.outputs.TAG_NAME, '-alpha') || contains(steps.tag.outputs.TAG_NAME, '-beta') || contains(steps.tag.outputs.TAG_NAME, '-rc') }}
+          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
