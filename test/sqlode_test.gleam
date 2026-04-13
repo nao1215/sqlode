@@ -5,6 +5,7 @@ import gleeunit
 import query_analyzer_test
 import query_parser_test
 import schema_parser_test
+import writer_test
 
 pub fn main() {
   gleeunit.main()
@@ -188,4 +189,52 @@ pub fn all_commands_generate_models_test() {
 
 pub fn all_commands_sqlight_adapter_test() {
   generate_test.all_commands_sqlight_adapter_test()
+}
+
+// --- Writer tests ---
+
+pub fn write_all_creates_files_test() {
+  writer_test.write_all_creates_files_test()
+}
+
+pub fn write_all_creates_directory_test() {
+  writer_test.write_all_creates_directory_test()
+}
+
+pub fn write_all_multiple_files_test() {
+  writer_test.write_all_multiple_files_test()
+}
+
+pub fn write_all_empty_list_test() {
+  writer_test.write_all_empty_list_test()
+}
+
+pub fn write_all_returns_paths_in_order_test() {
+  writer_test.write_all_returns_paths_in_order_test()
+}
+
+pub fn error_to_string_directory_error_test() {
+  writer_test.error_to_string_directory_error_test()
+}
+
+pub fn error_to_string_file_error_test() {
+  writer_test.error_to_string_file_error_test()
+}
+
+// --- Generate error path tests ---
+
+pub fn run_with_missing_config_test() {
+  generate_test.run_with_missing_config_test()
+}
+
+pub fn run_with_missing_schema_file_test() {
+  generate_test.run_with_missing_schema_file_test()
+}
+
+pub fn run_with_missing_query_file_test() {
+  generate_test.run_with_missing_query_file_test()
+}
+
+pub fn run_with_no_queries_in_file_test() {
+  generate_test.run_with_no_queries_in_file_test()
 }

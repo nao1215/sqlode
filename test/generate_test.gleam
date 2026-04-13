@@ -359,3 +359,77 @@ pub fn all_commands_sqlight_adapter_test() {
 
   cleanup_commands()
 }
+
+// --- Error path tests ---
+
+pub fn run_with_missing_config_test() {
+  let result = generate.run("nonexistent_config.yaml")
+  case result {
+    Error(generate.ConfigError(_)) -> Nil
+    _ -> should.fail()
+  }
+}
+
+pub fn run_with_missing_schema_file_test() {
+  let block =
+    model.SqlBlock(
+      name: option.None,
+      engine: model.PostgreSQL,
+      schema: ["nonexistent_schema.sql"],
+      queries: ["test/fixtures/query.sql"],
+      gleam: model.GleamOutput(
+        package: "db",
+        out: "test_output/error_test",
+        runtime: model.Raw,
+      ),
+      overrides: model.empty_overrides(),
+    )
+  let cfg = model.Config(version: 2, sql: [block])
+  let result = generate.generate_config(cfg)
+  case result {
+    Error(generate.SchemaReadError(..)) -> Nil
+    _ -> should.fail()
+  }
+}
+
+pub fn run_with_missing_query_file_test() {
+  let block =
+    model.SqlBlock(
+      name: option.None,
+      engine: model.PostgreSQL,
+      schema: ["test/fixtures/schema.sql"],
+      queries: ["nonexistent_query.sql"],
+      gleam: model.GleamOutput(
+        package: "db",
+        out: "test_output/error_test",
+        runtime: model.Raw,
+      ),
+      overrides: model.empty_overrides(),
+    )
+  let cfg = model.Config(version: 2, sql: [block])
+  let result = generate.generate_config(cfg)
+  case result {
+    Error(generate.QueryReadError(..)) -> Nil
+    _ -> should.fail()
+  }
+}
+
+pub fn run_with_no_queries_in_file_test() {
+  cleanup()
+  let block =
+    model.SqlBlock(
+      name: option.None,
+      engine: model.PostgreSQL,
+      schema: ["test/fixtures/schema.sql"],
+      queries: ["test/fixtures/schema.sql"],
+      gleam: model.GleamOutput(package: "db", out: test_out, runtime: model.Raw),
+      overrides: model.empty_overrides(),
+    )
+  let cfg = model.Config(version: 2, sql: [block])
+  let result = generate.generate_config(cfg)
+  case result {
+    Error(generate.NoQueriesGenerated(..)) -> Nil
+    _ -> should.fail()
+  }
+  cleanup()
+}
