@@ -158,6 +158,88 @@ pub fn get_author(db: pog.Connection, p: params.GetAuthorParams)
   -> Result(Option(models.GetAuthorRow), pog.QueryError)
 ```
 
+### Using the generated adapter
+
+#### SQLite example
+
+```gleam
+import db/params
+import db/sqlight_adapter
+import gleam/io
+import gleam/option
+import sqlight
+
+pub fn main() {
+  let assert Ok(db) = sqlight.open(":memory:")
+
+  // Create table
+  let assert Ok(_) = sqlight.exec(
+    "CREATE TABLE authors (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      bio TEXT
+    );",
+    db,
+  )
+
+  // :exec — returns Result(Nil, sqlight.Error)
+  let assert Ok(_) = sqlight_adapter.create_author(
+    db,
+    params.CreateAuthorParams(
+      author_name: "Alice",
+      bio: option.Some("Author bio"),
+    ),
+  )
+
+  // :one — returns Result(Option(Row), sqlight.Error)
+  let assert Ok(option.Some(author)) = sqlight_adapter.get_author(
+    db,
+    params.GetAuthorParams(id: 1),
+  )
+  io.debug(author.name)  // "Alice"
+
+  // :many — returns Result(List(Row), sqlight.Error)
+  let assert Ok(authors) = sqlight_adapter.list_authors(db)
+  io.debug(authors)  // [ListAuthorsRow(id: 1, name: "Alice")]
+}
+```
+
+#### PostgreSQL example
+
+```gleam
+import db/params
+import db/pog_adapter
+import gleam/io
+import gleam/option
+import pog
+
+pub fn main() {
+  let db = pog.default_config()
+    |> pog.host("localhost")
+    |> pog.database("mydb")
+    |> pog.connect()
+
+  // :one — returns Result(Option(Row), pog.QueryError)
+  let assert Ok(option.Some(author)) = pog_adapter.get_author(
+    db,
+    params.GetAuthorParams(id: 1),
+  )
+  io.debug(author.name)
+
+  // :many — returns Result(List(Row), pog.QueryError)
+  let assert Ok(authors) = pog_adapter.list_authors(db)
+  io.debug(authors)
+}
+```
+
+#### Return types by annotation
+
+| Annotation | sqlight return type | pog return type |
+|---|---|---|
+| `:one` | `Result(Option(Row), sqlight.Error)` | `Result(Option(Row), pog.QueryError)` |
+| `:many` | `Result(List(Row), sqlight.Error)` | `Result(List(Row), pog.QueryError)` |
+| `:exec` | `Result(Nil, sqlight.Error)` | `Result(Nil, pog.QueryError)` |
+
 ## Query annotations
 
 | Annotation | Description |
