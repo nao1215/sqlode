@@ -141,7 +141,7 @@ gleam add sqlight   # for SQLite with native runtime
 
 When `runtime` is set to `native`, sqlode generates adapter modules that wrap [pog](https://hexdocs.pm/pog/) (PostgreSQL) or [sqlight](https://hexdocs.pm/sqlight/) (SQLite).
 
-**Note:** MySQL adapter generation is not yet available. MySQL schema parsing and query/params generation work, but `runtime: "native"` will produce a stub adapter. Use `runtime: "raw"` with MySQL and handle database interaction manually.
+**Note:** MySQL adapter generation is not yet available. MySQL schema parsing and query/params generation work with `runtime: "raw"`. Configuring MySQL with `runtime: "native"` is rejected at config validation time — use `runtime: "raw"` and handle database interaction manually.
 
 ```yaml
 gen:
