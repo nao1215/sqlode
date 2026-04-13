@@ -16,6 +16,7 @@ type AdapterConfig {
     render_one_result: fn() -> List(String),
     render_many_result: fn() -> List(String),
     render_exec_rows_result: fn() -> List(String),
+    render_exec_last_id: fn(String, String, String) -> List(String),
   )
 }
 
@@ -49,6 +50,7 @@ fn pog_adapter_config() -> AdapterConfig {
     render_one_result: render_pog_one_result,
     render_many_result: render_pog_many_result,
     render_exec_rows_result: render_pog_exec_rows_result,
+    render_exec_last_id: render_pog_exec_last_id,
   )
 }
 
@@ -64,6 +66,7 @@ fn sqlight_adapter_config() -> AdapterConfig {
     render_one_result: render_sqlight_one_result,
     render_many_result: render_sqlight_many_result,
     render_exec_rows_result: render_sqlight_exec_rows_result,
+    render_exec_last_id: render_sqlight_exec_last_id,
   )
 }
 
@@ -89,7 +92,10 @@ fn render_adapter(
     })
 
   let has_exec_rows =
-    list.any(queries, fn(query) { query.base.command == model.ExecRows })
+    list.any(queries, fn(query) {
+      query.base.command == model.ExecRows
+      || query.base.command == model.ExecResult
+    })
 
   let imports =
     list.flatten([
@@ -136,10 +142,18 @@ fn render_adapter_function(
       render_adapter_one(naming_ctx, query, fn_name, has_params, config)
     model.Many ->
       render_adapter_many(naming_ctx, query, fn_name, has_params, config)
-    model.Exec | model.ExecResult | model.ExecLastId ->
+    model.Exec ->
       render_adapter_exec(naming_ctx, query, fn_name, has_params, config)
-    model.ExecRows ->
+    model.ExecResult | model.ExecRows ->
       render_adapter_exec_rows(naming_ctx, query, fn_name, has_params, config)
+    model.ExecLastId ->
+      render_adapter_exec_last_id(
+        naming_ctx,
+        query,
+        fn_name,
+        has_params,
+        config,
+      )
   }
 }
 
@@ -347,6 +361,36 @@ fn render_adapter_exec_rows(
   )
 }
 
+fn render_adapter_exec_last_id(
+  naming_ctx: naming.NamingContext,
+  query: model.AnalyzedQuery,
+  fn_name: String,
+  has_params: Bool,
+  config: AdapterConfig,
+) -> String {
+  let params_arg = render_params_arg(naming_ctx, query, has_params)
+  let params_str = config.render_params(query.params, "p")
+
+  string.join(
+    list.flatten([
+      [
+        "pub fn "
+          <> fn_name
+          <> "(db: "
+          <> config.connection_type
+          <> params_arg
+          <> ") -> Result(Int, "
+          <> config.error_type
+          <> ") {",
+        "  let q = queries." <> fn_name <> "()",
+      ],
+      config.render_exec_last_id(fn_name, params_str, "q.sql"),
+      ["}"],
+    ]),
+    "\n",
+  )
+}
+
 // ============================================================
 // pog-specific rendering
 // ============================================================
@@ -412,6 +456,35 @@ fn render_pog_many_result() -> List(String) {
 
 fn render_pog_exec_rows_result() -> List(String) {
   ["  |> result.map(fn(returned) { returned.count })"]
+}
+
+fn render_pog_exec_last_id(
+  _fn_name: String,
+  params_str: String,
+  _sql_expr: String,
+) -> List(String) {
+  let param_lines = case params_str {
+    "" -> []
+    _ ->
+      params_str
+      |> string.split("\n")
+      |> list.filter(fn(l) { l != "" })
+  }
+
+  list.flatten([
+    ["  pog.query(q.sql)"],
+    param_lines,
+    [
+      "  |> pog.returning(decode.int)",
+      "  |> pog.execute(db)",
+      "  |> result.map(fn(returned) {",
+      "    case returned.rows {",
+      "      [id, ..] -> id",
+      "      [] -> 0",
+      "    }",
+      "  })",
+    ],
+  ])
 }
 
 // ============================================================
@@ -480,6 +553,35 @@ fn render_sqlight_many_result() -> List(String) {
 
 fn render_sqlight_exec_rows_result() -> List(String) {
   ["  |> result.map(fn(rows) { list.length(rows) })"]
+}
+
+fn render_sqlight_exec_last_id(
+  _fn_name: String,
+  params_str: String,
+  _sql_expr: String,
+) -> List(String) {
+  [
+    "  sqlight.query(",
+    "    q.sql,",
+    "    on: db,",
+    "    with: " <> params_str <> ",",
+    "    expecting: decode.success(Nil),",
+    "  )",
+    "  |> result.try(fn(_) {",
+    "    sqlight.query(",
+    "      \"SELECT last_insert_rowid()\",",
+    "      on: db,",
+    "      with: [],",
+    "      expecting: decode.at([0], decode.int),",
+    "    )",
+    "  })",
+    "  |> result.map(fn(rows) {",
+    "    case rows {",
+    "      [id, ..] -> id",
+    "      [] -> 0",
+    "    }",
+    "  })",
+  ]
 }
 
 // ============================================================
