@@ -67,11 +67,8 @@ YAML
     rm -rf "$INTEGRATION_DIR"
   }
 
-  generate_code() {
+  generate_and_build() {
     cd "$PROJECT_ROOT" && gleam run -- generate --config="$INTEGRATION_DIR/sqlode.yaml" 2>&1
-  }
-
-  build_project() {
     cd "$INTEGRATION_DIR" && gleam build 2>&1
   }
 
@@ -79,15 +76,10 @@ YAML
     Before 'setup_raw_project'
     After 'cleanup_project'
 
-    It 'generates and compiles raw mode code'
-      When call generate_code
+    It 'generates and builds raw mode code'
+      When call generate_and_build
       The status should be success
       The output should include 'Successfully generated'
-    End
-
-    It 'builds without errors'
-      When call build_project
-      The status should be success
       The output should include 'Compiled in'
     End
   End
@@ -96,15 +88,10 @@ YAML
     Before 'setup_sqlight_project'
     After 'cleanup_project'
 
-    It 'generates and compiles SQLite native mode code'
-      When call generate_code
+    It 'generates and builds SQLite native mode code'
+      When call generate_and_build
       The status should be success
       The output should include 'Successfully generated'
-    End
-
-    It 'builds without errors'
-      When call build_project
-      The status should be success
       The output should include 'Compiled in'
     End
   End
