@@ -122,6 +122,72 @@ pub fn expand_sqlc_arg_mysql_test() {
   string.contains(query.sql, "?") |> should.be_true()
 }
 
+// Quoted macro name tests
+
+pub fn expand_sqlc_arg_single_quoted_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetByName :one\n"
+    <> "SELECT id FROM authors WHERE name = sqlc.arg('author_name');"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("arg.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+
+  query.param_count |> should.equal(1)
+  query.macros
+  |> should.equal([model.SqlcArg(index: 1, name: "author_name")])
+  string.contains(query.sql, "sqlc.arg") |> should.be_false()
+  string.contains(query.sql, "$1") |> should.be_true()
+}
+
+pub fn expand_sqlc_arg_double_quoted_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetByName :one\n"
+    <> "SELECT id FROM authors WHERE name = sqlc.arg(\"author_name\");"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("arg.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+
+  query.param_count |> should.equal(1)
+  query.macros
+  |> should.equal([model.SqlcArg(index: 1, name: "author_name")])
+}
+
+pub fn expand_sqlc_narg_single_quoted_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: UpdateBio :exec\n"
+    <> "UPDATE authors SET bio = sqlc.narg('new_bio') WHERE id = sqlc.arg(author_id);"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("narg.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+
+  query.param_count |> should.equal(2)
+  query.macros
+  |> should.equal([
+    model.SqlcNarg(index: 1, name: "new_bio"),
+    model.SqlcArg(index: 2, name: "author_id"),
+  ])
+}
+
+pub fn expand_sqlc_slice_double_quoted_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetByIds :many\n"
+    <> "SELECT id, name FROM authors WHERE id IN (sqlc.slice(\"ids\"));"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("slice.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+
+  query.macros
+  |> should.equal([model.SqlcSlice(index: 1, name: "ids")])
+}
+
 // Error and boundary tests
 
 pub fn invalid_annotation_format_test() {

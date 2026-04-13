@@ -38,7 +38,9 @@ fn new_parser_context(naming_ctx: naming.NamingContext) -> ParserContext {
       "(\\?[0-9]+|\\?|:[A-Za-z_][A-Za-z0-9_]*|@[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*)",
     )
   let assert Ok(sqlc_macro_re) =
-    regexp.from_string("sqlc\\.(arg|narg|slice)\\(([a-zA-Z_][a-zA-Z0-9_]*)\\)")
+    regexp.from_string(
+      "sqlc\\.(arg|narg|slice)\\(('[^']*'|\"[^\"]*\"|[a-zA-Z_][a-zA-Z0-9_]*)\\)",
+    )
 
   ParserContext(
     naming: naming_ctx,
@@ -292,7 +294,8 @@ fn expand_sqlc_macros(
           let #(current_sql, macro_acc, idx) = acc
 
           case match.submatches {
-            [Some(kind), Some(name)] -> {
+            [Some(kind), Some(raw_name)] -> {
+              let name = strip_quotes(raw_name)
               let placeholder = engine_placeholder(engine, idx)
               let new_sql =
                 replace_first(current_sql, match.content, placeholder)
@@ -309,6 +312,13 @@ fn expand_sqlc_macros(
 
       #(expanded, list.reverse(macros))
     }
+  }
+}
+
+fn strip_quotes(name: String) -> String {
+  case string.first(name) {
+    Ok("'") | Ok("\"") -> string.slice(name, 1, string.length(name) - 2)
+    _ -> name
   }
 }
 
