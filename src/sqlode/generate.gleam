@@ -18,6 +18,7 @@ pub type GenerateError {
   SchemaParseError(detail: String)
   QueryReadError(path: String, detail: String)
   QueryParseError(path: String, detail: String)
+  QueryAnalysisError(detail: String)
   NoQueriesGenerated(
     output: String,
     parsed_query_count: Int,
@@ -57,9 +58,13 @@ fn generate_sql_block(
   let catalog =
     apply_type_overrides(raw_catalog, block.overrides.type_overrides)
   use queries <- result.try(load_queries(naming_ctx, block))
-  let analyzed =
+  use analyzed <- result.try(
     query_analyzer.analyze_queries(block.engine, catalog, naming_ctx, queries)
-    |> apply_column_renames(block.overrides.column_renames)
+    |> result.map_error(fn(error) {
+      QueryAnalysisError(detail: query_analyzer.analysis_error_to_string(error))
+    }),
+  )
+  let analyzed = apply_column_renames(analyzed, block.overrides.column_renames)
 
   let model.SqlBlock(gleam:, ..) = block
   let model.GleamOutput(out:, ..) = gleam
@@ -296,6 +301,7 @@ pub fn error_to_string(error: GenerateError) -> String {
     SchemaParseError(detail:) -> detail
     QueryReadError(path:, detail:) -> path <> ": " <> detail
     QueryParseError(detail:, ..) -> detail
+    QueryAnalysisError(detail:) -> detail
     NoQueriesGenerated(
       output:,
       parsed_query_count:,
