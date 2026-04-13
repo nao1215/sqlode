@@ -1,5 +1,6 @@
 import gleam/int
 import gleam/list
+import gleam/option
 import gleam/result
 import gleam/string
 import simplifile
@@ -200,7 +201,13 @@ fn apply_type_overrides(
                     scalar_type: gleam_type_to_scalar(gleam_type),
                   )
                 Error(_) ->
-                  case find_db_type_override(col.scalar_type, overrides) {
+                  case
+                    find_db_type_override(
+                      col.scalar_type,
+                      col.nullable,
+                      overrides,
+                    )
+                  {
                     Ok(gleam_type) ->
                       model.Column(
                         ..col,
@@ -239,15 +246,24 @@ fn find_column_override(
 
 fn find_db_type_override(
   scalar_type: model.ScalarType,
+  is_nullable: Bool,
   overrides: List(model.TypeOverride),
 ) -> Result(String, Nil) {
   let type_name = model.scalar_type_to_db_name(scalar_type)
 
   list.find_map(overrides, fn(ovr) {
     case ovr {
-      model.DbTypeOverride(db_type:, gleam_type:) ->
+      model.DbTypeOverride(db_type:, gleam_type:, nullable:) ->
         case string.lowercase(db_type) == type_name {
-          True -> Ok(gleam_type)
+          True ->
+            case nullable {
+              option.None -> Ok(gleam_type)
+              option.Some(n) ->
+                case n == is_nullable {
+                  True -> Ok(gleam_type)
+                  False -> Error(Nil)
+                }
+            }
           False -> Error(Nil)
         }
       model.ColumnOverride(..) -> Error(Nil)

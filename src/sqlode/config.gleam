@@ -141,6 +141,7 @@ fn parse_overrides(node: yay.Node) -> model.Overrides {
             let gleam_type = optional_string(item, "gleam_type")
             let db_type = optional_string(item, "db_type")
             let column = optional_string(item, "column")
+            let nullable = optional_bool(item, "nullable")
             case column, db_type, gleam_type {
               Some(col), _, Some(gt) ->
                 case string.split(col, ".") {
@@ -153,7 +154,7 @@ fn parse_overrides(node: yay.Node) -> model.Overrides {
                   _ -> Error(Nil)
                 }
               _, Some(dt), Some(gt) ->
-                Ok(model.DbTypeOverride(db_type: dt, gleam_type: gt))
+                Ok(model.DbTypeOverride(db_type: dt, gleam_type: gt, nullable:))
               _, _, _ -> Error(Nil)
             }
           })
@@ -225,6 +226,15 @@ fn required_string_list(
 fn optional_string(node: yay.Node, selector: String) -> Option(String) {
   case yay.select_sugar(from: node, selector:) {
     Ok(yay.NodeStr(text)) -> Some(text)
+    _ -> None
+  }
+}
+
+fn optional_bool(node: yay.Node, selector: String) -> Option(Bool) {
+  case yay.select_sugar(from: node, selector:) {
+    Ok(yay.NodeStr("true")) -> Some(True)
+    Ok(yay.NodeStr("false")) -> Some(False)
+    Ok(yay.NodeBool(value)) -> Some(value)
     _ -> None
   }
 }
