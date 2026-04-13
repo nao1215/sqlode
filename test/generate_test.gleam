@@ -633,3 +633,80 @@ pub fn run_with_no_queries_in_file_test() {
   }
   cleanup()
 }
+
+// --- UNION/INTERSECT/EXCEPT tests ---
+
+const compound_out = "test_output/generate_test_compound"
+
+fn compound_block() -> model.SqlBlock {
+  model.SqlBlock(
+    name: option.None,
+    engine: model.SQLite,
+    schema: ["test/fixtures/compound_schema.sql"],
+    queries: ["test/fixtures/compound_query.sql"],
+    gleam: model.GleamOutput(
+      package: "db",
+      out: compound_out,
+      runtime: model.Raw,
+    ),
+    overrides: model.empty_overrides(),
+  )
+}
+
+fn cleanup_compound() {
+  let _ = simplifile.delete(compound_out)
+  Nil
+}
+
+pub fn union_all_infers_columns_from_first_select_test() {
+  cleanup_compound()
+  let cfg = model.Config(version: 2, sql: [compound_block()])
+  let assert Ok(_) = generate.generate_config(cfg)
+
+  let assert Ok(models) = simplifile.read(compound_out <> "/models.gleam")
+
+  // GetAllItems should have columns from the first SELECT (products table)
+  string.contains(models, "GetAllItemsRow") |> should.be_true()
+  string.contains(models, "id: Int") |> should.be_true()
+  string.contains(models, "name: String") |> should.be_true()
+  string.contains(models, "price: Float") |> should.be_true()
+
+  cleanup_compound()
+}
+
+pub fn union_infers_columns_test() {
+  cleanup_compound()
+  let cfg = model.Config(version: 2, sql: [compound_block()])
+  let assert Ok(_) = generate.generate_config(cfg)
+
+  let assert Ok(models) = simplifile.read(compound_out <> "/models.gleam")
+
+  // GetUniqueNames should have the single column from first SELECT
+  string.contains(models, "GetUniqueNamesRow") |> should.be_true()
+
+  cleanup_compound()
+}
+
+pub fn intersect_infers_columns_test() {
+  cleanup_compound()
+  let cfg = model.Config(version: 2, sql: [compound_block()])
+  let assert Ok(_) = generate.generate_config(cfg)
+
+  let assert Ok(models) = simplifile.read(compound_out <> "/models.gleam")
+
+  string.contains(models, "GetProductOnlyRow") |> should.be_true()
+
+  cleanup_compound()
+}
+
+pub fn except_infers_columns_test() {
+  cleanup_compound()
+  let cfg = model.Config(version: 2, sql: [compound_block()])
+  let assert Ok(_) = generate.generate_config(cfg)
+
+  let assert Ok(models) = simplifile.read(compound_out <> "/models.gleam")
+
+  string.contains(models, "GetExclusiveProductsRow") |> should.be_true()
+
+  cleanup_compound()
+}

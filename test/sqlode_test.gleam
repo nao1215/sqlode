@@ -262,3 +262,21 @@ pub fn run_with_missing_query_file_test() {
 pub fn run_with_no_queries_in_file_test() {
   generate_test.run_with_no_queries_in_file_test()
 }
+
+// --- UNION/INTERSECT/EXCEPT tests ---
+
+pub fn union_all_infers_columns_from_first_select_test() {
+  generate_test.union_all_infers_columns_from_first_select_test()
+}
+
+pub fn union_infers_columns_test() {
+  generate_test.union_infers_columns_test()
+}
+
+pub fn intersect_infers_columns_test() {
+  generate_test.intersect_infers_columns_test()
+}
+
+pub fn except_infers_columns_test() {
+  generate_test.except_infers_columns_test()
+}
