@@ -777,6 +777,8 @@ pub fn all_commands_generate_queries_test() {
   string.contains(queries, "runtime.QueryBatchOne") |> should.be_true()
   string.contains(queries, "runtime.QueryBatchMany") |> should.be_true()
   string.contains(queries, "runtime.QueryBatchExec") |> should.be_true()
+  string.contains(queries, "pub fn bulk_insert_posts()") |> should.be_true()
+  string.contains(queries, "runtime.QueryCopyFrom") |> should.be_true()
 
   cleanup_commands()
 }
@@ -803,6 +805,8 @@ pub fn all_commands_generate_params_test() {
   string.contains(params, "GetPostBatchParams") |> should.be_true()
   string.contains(params, "ListPostsBatchParams") |> should.be_true()
   string.contains(params, "CreatePostBatchParams") |> should.be_true()
+  // :copyfrom with params
+  string.contains(params, "BulkInsertPostsParams") |> should.be_true()
 
   cleanup_commands()
 }
@@ -829,6 +833,8 @@ pub fn all_commands_generate_models_test() {
   string.contains(models, "ListPostsBatchRow") |> should.be_true()
   // :batchexec should NOT generate row types
   string.contains(models, "CreatePostBatchRow") |> should.be_false()
+  // :copyfrom should NOT generate row types
+  string.contains(models, "BulkInsertPostsRow") |> should.be_false()
 
   cleanup_commands()
 }
@@ -862,6 +868,8 @@ pub fn all_commands_sqlight_adapter_test() {
   string.contains(adapter, "fn get_post_batch(") |> should.be_true()
   string.contains(adapter, "fn list_posts_batch(") |> should.be_true()
   string.contains(adapter, "fn create_post_batch(") |> should.be_true()
+  // :copyfrom generates adapter function
+  string.contains(adapter, "fn bulk_insert_posts(") |> should.be_true()
 
   cleanup_commands()
 }

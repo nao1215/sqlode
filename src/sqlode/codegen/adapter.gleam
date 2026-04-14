@@ -193,7 +193,7 @@ fn render_adapter_function(
         table_matches,
         config,
       )
-    model.Exec | model.BatchExec ->
+    model.Exec | model.BatchExec | model.CopyFrom ->
       render_adapter_exec(naming_ctx, query, fn_name, has_params, config)
     model.ExecResult | model.ExecRows ->
       render_adapter_exec_rows(naming_ctx, query, fn_name, has_params, config)

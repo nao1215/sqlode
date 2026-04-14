@@ -12,6 +12,7 @@ pub type QueryCommand {
   QueryBatchOne
   QueryBatchMany
   QueryBatchExec
+  QueryCopyFrom
 }
 
 pub type Value {
