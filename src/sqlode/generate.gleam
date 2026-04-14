@@ -181,9 +181,48 @@ fn generate_sql_block(
   }
 }
 
+fn expand_sql_paths(
+  paths: List(String),
+  error_fn: fn(String, String) -> GenerateError,
+) -> Result(List(String), GenerateError) {
+  paths
+  |> list.try_map(fn(path) {
+    case simplifile.is_directory(path) {
+      Ok(True) ->
+        case simplifile.get_files(in: path) {
+          Ok(files) -> {
+            let sql_files =
+              files
+              |> list.filter(fn(f) { string.ends_with(f, ".sql") })
+              |> list.sort(string.compare)
+            case sql_files {
+              [] -> Error(error_fn(path, "Directory contains no .sql files"))
+              _ -> Ok(sql_files)
+            }
+          }
+          Error(error) ->
+            Error(error_fn(
+              path,
+              "Failed to read directory: " <> simplifile.describe_error(error),
+            ))
+        }
+      Ok(False) -> Ok([path])
+      Error(error) ->
+        Error(error_fn(
+          path,
+          "Failed to access path: " <> simplifile.describe_error(error),
+        ))
+    }
+  })
+  |> result.map(list.flatten)
+}
+
 fn load_catalog(paths: List(String)) -> Result(model.Catalog, GenerateError) {
+  use expanded <- result.try(
+    expand_sql_paths(paths, fn(path, detail) { SchemaReadError(path:, detail:) }),
+  )
   use entries <- result.try(
-    paths
+    expanded
     |> list.try_map(fn(path) {
       simplifile.read(path)
       |> result.map(fn(content) { #(path, content) })
@@ -209,7 +248,13 @@ fn load_queries(
 ) -> Result(List(model.ParsedQuery), GenerateError) {
   let model.SqlBlock(engine:, queries:, ..) = block
 
-  queries
+  use expanded <- result.try(
+    expand_sql_paths(queries, fn(path, detail) {
+      QueryReadError(path:, detail:)
+    }),
+  )
+
+  expanded
   |> list.try_map(fn(path) {
     use content <- result.try(
       simplifile.read(path)

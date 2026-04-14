@@ -330,3 +330,11 @@ pub fn run_resolves_paths_relative_to_config_dir_test() {
 pub fn out_to_module_path_strips_src_prefix_test() {
   codegen_test.out_to_module_path_strips_src_prefix_test()
 }
+
+pub fn accept_directory_for_schema_and_queries_test() {
+  generate_test.accept_directory_for_schema_and_queries_test()
+}
+
+pub fn mixed_file_and_directory_inputs_test() {
+  generate_test.mixed_file_and_directory_inputs_test()
+}
