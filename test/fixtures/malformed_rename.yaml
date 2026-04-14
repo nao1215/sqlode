@@ -1,0 +1,14 @@
+version: "2"
+sql:
+  - schema: "schema.sql"
+    queries: "query.sql"
+    engine: "postgresql"
+    gen:
+      gleam:
+        package: "db"
+        out: "../../test_output/db"
+        runtime: "raw"
+    overrides:
+      renames:
+        - table: users
+          column: name

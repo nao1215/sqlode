@@ -213,23 +213,27 @@ fn parse_overrides(node: yay.Node) -> Result(model.Overrides, ConfigError) {
         },
       )
 
-      let column_renames = case
-        yay.select_sugar(from: overrides_node, selector: "renames")
-      {
-        Ok(yay.NodeSeq(items)) ->
-          list.filter_map(items, fn(item) {
-            case
-              optional_string(item, "table"),
-              optional_string(item, "column"),
-              optional_string(item, "rename_to")
-            {
-              Some(table), Some(column), Some(rename_to) ->
-                Ok(model.ColumnRename(table:, column:, rename_to:))
-              _, _, _ -> Error(Nil)
-            }
-          })
-        _ -> []
-      }
+      use column_renames <- result.try(
+        case yay.select_sugar(from: overrides_node, selector: "renames") {
+          Ok(yay.NodeSeq(items)) ->
+            list.try_map(items, fn(item) {
+              case
+                optional_string(item, "table"),
+                optional_string(item, "column"),
+                optional_string(item, "rename_to")
+              {
+                Some(table), Some(column), Some(rename_to) ->
+                  Ok(model.ColumnRename(table:, column:, rename_to:))
+                _, _, _ ->
+                  Error(InvalidValue(
+                    field: "overrides.renames",
+                    detail: "each rename entry must have 'table', 'column', and 'rename_to' fields",
+                  ))
+              }
+            })
+          _ -> Ok([])
+        },
+      )
 
       Ok(model.Overrides(type_overrides:, column_renames:))
     }
