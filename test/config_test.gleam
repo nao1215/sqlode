@@ -135,6 +135,15 @@ pub fn reject_empty_gleam_type_test() {
   string.contains(msg, "empty") |> should.be_true()
 }
 
+// malformed rename entries
+
+pub fn reject_malformed_rename_entry_test() {
+  let assert Error(error) = config.load("test/fixtures/malformed_rename.yaml")
+  let msg = config.error_to_string(error)
+  string.contains(msg, "renames") |> should.be_true()
+  string.contains(msg, "rename_to") |> should.be_true()
+}
+
 // error_to_string coverage
 
 pub fn error_to_string_file_read_error_test() {
