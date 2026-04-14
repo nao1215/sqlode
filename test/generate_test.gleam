@@ -1,3 +1,4 @@
+import gleam/list
 import gleam/option
 import gleam/string
 import gleeunit/should
@@ -1085,4 +1086,28 @@ pub fn view_select_star_inferred_test() {
   string.contains(models, "bio: Option(String)") |> should.be_true()
 
   cleanup_view()
+}
+
+// --- Config path resolution tests ---
+
+const resolve_out = "/tmp/sqlode_resolve_paths_test"
+
+fn cleanup_resolve() {
+  let _ = simplifile.delete(resolve_out)
+  Nil
+}
+
+pub fn run_resolves_paths_relative_to_config_dir_test() {
+  cleanup_resolve()
+  let assert Ok(files) =
+    generate.run("test/fixtures/subdir/sqlode_relative.yaml")
+
+  // schema and queries are resolved relative to config dir (test/fixtures/subdir/)
+  // so ../schema.sql and ../query.sql resolve to test/fixtures/schema.sql etc.
+  list.length(files) |> should.equal(3)
+
+  let assert Ok(models) = simplifile.read(resolve_out <> "/models.gleam")
+  string.contains(models, "Authors") |> should.be_true()
+
+  cleanup_resolve()
 }

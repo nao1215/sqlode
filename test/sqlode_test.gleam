@@ -322,3 +322,7 @@ pub fn view_select_columns_inferred_test() {
 pub fn view_select_star_inferred_test() {
   generate_test.view_select_star_inferred_test()
 }
+
+pub fn run_resolves_paths_relative_to_config_dir_test() {
+  generate_test.run_resolves_paths_relative_to_config_dir_test()
+}
