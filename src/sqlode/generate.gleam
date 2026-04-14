@@ -500,7 +500,10 @@ fn compute_table_matches(
                           True ->
                             Ok(#(
                               query.base.function_name,
-                              naming.to_pascal_case(naming_ctx, table_name),
+                              naming.to_pascal_case(
+                                naming_ctx,
+                                naming.singularize(table_name),
+                              ),
                             ))
                         }
                     }

@@ -184,7 +184,8 @@ fn render_table_type(
   table: model.Table,
   type_mapping: model.TypeMapping,
 ) -> String {
-  let type_name = naming.to_pascal_case(naming_ctx, table.name)
+  let type_name =
+    naming.to_pascal_case(naming_ctx, naming.singularize(table.name))
 
   let fields =
     table.columns
@@ -254,7 +255,10 @@ fn render_row_type(
             model.EmbeddedColumn(name:, table_name:, ..) ->
               naming.to_snake_case(naming_ctx, name)
               <> ": "
-              <> naming.to_pascal_case(naming_ctx, table_name)
+              <> naming.to_pascal_case(
+                naming_ctx,
+                naming.singularize(table_name),
+              )
           }
         })
         |> string.join(", ")

@@ -2,6 +2,7 @@ import codegen_test
 import config_test
 import generate_test
 import gleeunit
+import naming_test
 import query_analyzer_test
 import query_parser_test
 import schema_parser_test
@@ -357,4 +358,12 @@ pub fn ignore_at_name_in_string_literal_test() {
 
 pub fn ignore_question_mark_in_string_mysql_test() {
   query_parser_test.ignore_question_mark_in_string_mysql_test()
+}
+
+pub fn singularize_regular_plural_test() {
+  naming_test.singularize_regular_plural_test()
+}
+
+pub fn singularize_compound_table_names_test() {
+  naming_test.singularize_compound_table_names_test()
 }
