@@ -28,7 +28,6 @@ sql:
     engine: "postgresql"
     gen:
       gleam:
-        package: "db"
         out: "$INTEGRATION_DIR/src/db"
         runtime: "raw"
 YAML
@@ -57,7 +56,6 @@ sql:
     engine: "sqlite"
     gen:
       gleam:
-        package: "db"
         out: "$INTEGRATION_DIR/src/db"
         runtime: "native"
 YAML
@@ -86,7 +84,6 @@ sql:
     engine: "postgresql"
     gen:
       gleam:
-        package: "db"
         out: "$INTEGRATION_DIR/src/db"
         runtime: "native"
 YAML
@@ -124,7 +121,6 @@ sql:
     engine: "sqlite"
     gen:
       gleam:
-        package: "db"
         out: "$INTEGRATION_DIR/src/db"
         runtime: "native"
 YAML

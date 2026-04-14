@@ -7,5 +7,4 @@ sql:
     engine: "postgresql"
     gen:
       gleam:
-        package: "db"
         out: "test_output/db"

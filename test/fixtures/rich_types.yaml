@@ -5,6 +5,5 @@ sql:
     engine: "postgresql"
     gen:
       gleam:
-        package: "db"
         out: "test_output/rich_types"
         type_mapping: "rich"

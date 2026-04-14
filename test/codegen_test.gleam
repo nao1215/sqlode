@@ -169,7 +169,6 @@ pub fn render_sqlight_adapter_test() {
       schema: ["test/fixtures/schema.sql"],
       queries: ["test/fixtures/query.sql"],
       gleam: model.GleamOutput(
-        package: "db",
         out: "test_output/db",
         runtime: model.Native,
         type_mapping: model.StringMapping,
@@ -234,7 +233,6 @@ pub fn render_pog_adapter_slice_test() {
       schema: ["test/fixtures/schema.sql"],
       queries: ["test/fixtures/macro_edge_cases.sql"],
       gleam: model.GleamOutput(
-        package: "db",
         out: "test_output/db",
         runtime: model.Native,
         type_mapping: model.StringMapping,
@@ -268,7 +266,6 @@ pub fn render_sqlight_adapter_slice_test() {
       schema: ["test/fixtures/schema.sql"],
       queries: ["test/fixtures/macro_edge_cases.sql"],
       gleam: model.GleamOutput(
-        package: "db",
         out: "test_output/db",
         runtime: model.Native,
         type_mapping: model.StringMapping,
@@ -378,7 +375,6 @@ pub fn render_adapter_uses_table_constructor_for_match_test() {
       schema: ["test/fixtures/schema.sql"],
       queries: ["test/fixtures/query.sql"],
       gleam: model.GleamOutput(
-        package: "db",
         out: "test_output/db",
         runtime: model.Native,
         type_mapping: model.StringMapping,
@@ -421,7 +417,6 @@ fn test_block() -> model.SqlBlock {
     schema: ["test/fixtures/schema.sql"],
     queries: ["test/fixtures/query.sql"],
     gleam: model.GleamOutput(
-      package: "db",
       out: "src/db",
       runtime: model.Raw,
       type_mapping: model.StringMapping,
@@ -437,7 +432,6 @@ fn test_block_native() -> model.SqlBlock {
     schema: ["test/fixtures/schema.sql"],
     queries: ["test/fixtures/query.sql"],
     gleam: model.GleamOutput(
-      package: "db",
       out: "src/db",
       runtime: model.Native,
       type_mapping: model.StringMapping,

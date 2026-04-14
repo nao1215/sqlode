@@ -116,10 +116,9 @@ fn parse_sql_block(node: yay.Node) -> Result(model.SqlBlock, ConfigError) {
   use gleam_node <- result.try(require_node(gen_node, "gleam"))
   use _ <- result.try(check_unknown_keys(
     gleam_node,
-    ["package", "out", "runtime", "type_mapping"],
+    ["out", "runtime", "type_mapping"],
     "sql.gen.gleam.",
   ))
-  use package <- result.try(required_string(gleam_node, "package"))
   use out <- result.try(required_string(gleam_node, "out"))
 
   use runtime <- result.try(case optional_string(gleam_node, "runtime") {
@@ -158,7 +157,7 @@ fn parse_sql_block(node: yay.Node) -> Result(model.SqlBlock, ConfigError) {
     engine:,
     schema:,
     queries:,
-    gleam: model.GleamOutput(package:, out:, runtime:, type_mapping:),
+    gleam: model.GleamOutput(out:, runtime:, type_mapping:),
     overrides:,
   ))
 }

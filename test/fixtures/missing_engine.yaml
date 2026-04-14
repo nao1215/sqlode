@@ -4,5 +4,4 @@ sql:
     queries: "test/fixtures/query.sql"
     gen:
       gleam:
-        package: "db"
         out: "test_output/db"
