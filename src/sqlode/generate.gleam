@@ -479,63 +479,64 @@ fn compute_table_matches(
 ) -> Dict(String, String) {
   queries
   |> list.filter_map(fn(query) {
-    case query.base.command {
-      model.One | model.Many | model.BatchOne | model.BatchMany -> {
-        // Queries with embedded columns never match a single table
-        let has_embed =
-          list.any(query.result_columns, fn(col) {
-            case col {
-              model.EmbeddedColumn(..) -> True
-              _ -> False
-            }
-          })
-        case has_embed {
-          True -> Error(Nil)
-          False ->
-            case query.result_columns {
-              [] -> Error(Nil)
-              [
-                model.ResultColumn(source_table: option.Some(table_name), ..),
-                ..
-              ] -> {
-                let all_same_table =
-                  list.all(query.result_columns, fn(col) {
-                    case col {
-                      model.ResultColumn(source_table: src, ..) ->
-                        src == option.Some(table_name)
-                      model.EmbeddedColumn(..) -> False
-                    }
-                  })
-                case all_same_table {
-                  False -> Error(Nil)
-                  True ->
-                    case find_table(catalog, table_name) {
-                      Error(_) -> Error(Nil)
-                      Ok(table) ->
-                        case
-                          columns_match(query.result_columns, table.columns)
-                        {
-                          False -> Error(Nil)
-                          True ->
-                            Ok(#(
-                              query.base.function_name,
-                              naming.to_pascal_case(
-                                naming_ctx,
-                                naming.singularize(table_name),
-                              ),
-                            ))
-                        }
-                    }
-                }
-              }
-              _ -> Error(Nil)
-            }
-        }
-      }
-      _ -> Error(Nil)
-    }
+    try_match_query_to_table(naming_ctx, catalog, query)
   })
   |> dict.from_list
+}
+
+fn try_match_query_to_table(
+  naming_ctx: naming.NamingContext,
+  catalog: model.Catalog,
+  query: model.AnalyzedQuery,
+) -> Result(#(String, String), Nil) {
+  // Only result-returning commands can match a table
+  use <- guard_result(case query.base.command {
+    model.One | model.Many | model.BatchOne | model.BatchMany -> True
+    _ -> False
+  })
+
+  // Queries with embedded columns never match a single table
+  let has_embed =
+    list.any(query.result_columns, fn(col) {
+      case col {
+        model.EmbeddedColumn(..) -> True
+        _ -> False
+      }
+    })
+  use <- guard_result(!has_embed)
+
+  // Extract the source table from the first result column
+  use table_name <- result.try(case query.result_columns {
+    [model.ResultColumn(source_table: option.Some(name), ..), ..] -> Ok(name)
+    _ -> Error(Nil)
+  })
+
+  // All result columns must come from the same table
+  let all_same_table =
+    list.all(query.result_columns, fn(col) {
+      case col {
+        model.ResultColumn(source_table: src, ..) ->
+          src == option.Some(table_name)
+        model.EmbeddedColumn(..) -> False
+      }
+    })
+  use <- guard_result(all_same_table)
+
+  // The table must exist and columns must match exactly
+  use table <- result.try(find_table(catalog, table_name))
+  use <- guard_result(columns_match(query.result_columns, table.columns))
+
+  Ok(#(
+    query.base.function_name,
+    naming.to_pascal_case(naming_ctx, naming.singularize(table_name)),
+  ))
+}
+
+fn guard_result(condition: Bool, next: fn() -> Result(a, Nil)) -> Result(a, Nil) {
+  case condition {
+    True -> next()
+    False -> Error(Nil)
+  }
 }
 
 fn find_table(
