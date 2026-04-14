@@ -134,7 +134,7 @@ fn parse_create_view(
     |> string.replace("\t", " ")
 
   // Extract view name: CREATE [OR REPLACE] VIEW <name> AS ...
-  case string.split_once(lowered, " as ") {
+  case split_once_outside_parens(lowered, " as ") {
     Error(_) -> None
     Ok(#(header, select_part)) -> {
       let view_name =
@@ -176,7 +176,7 @@ fn parse_create_view(
                 |> list.map(fn(c) {
                   let trimmed = string.trim(c)
                   // Handle aliases: "col AS alias" → use alias
-                  case string.split_once(trimmed, " as ") {
+                  case split_once_outside_parens(trimmed, " as ") {
                     Ok(#(_, alias)) -> string.trim(alias)
                     Error(_) ->
                       // Handle table.column → use column
@@ -488,6 +488,51 @@ fn find_enum(type_text: String, enums: List(model.EnumDef)) -> Option(String) {
   case list.find(enums, fn(e) { e.name == lowered }) {
     Ok(e) -> Some(e.name)
     Error(_) -> None
+  }
+}
+
+/// Split a string on the first occurrence of `delimiter` that is not inside
+/// parentheses.  Returns the same shape as `string.split_once`.
+fn split_once_outside_parens(
+  input: String,
+  delimiter: String,
+) -> Result(#(String, String), Nil) {
+  let graphemes = string.to_graphemes(input)
+  let delim_len = string.length(delimiter)
+  do_split_outside_parens(graphemes, delimiter, delim_len, 0, "")
+}
+
+fn do_split_outside_parens(
+  remaining: List(String),
+  delimiter: String,
+  delim_len: Int,
+  depth: Int,
+  acc: String,
+) -> Result(#(String, String), Nil) {
+  case remaining {
+    [] -> Error(Nil)
+    ["(", ..rest] ->
+      do_split_outside_parens(rest, delimiter, delim_len, depth + 1, acc <> "(")
+    [")", ..rest] -> {
+      let new_depth = case depth > 0 {
+        True -> depth - 1
+        False -> 0
+      }
+      do_split_outside_parens(rest, delimiter, delim_len, new_depth, acc <> ")")
+    }
+    [char, ..rest] -> {
+      let new_acc = acc <> char
+      case depth == 0 && string.ends_with(new_acc, delimiter) {
+        True -> {
+          let before =
+            string.slice(new_acc, 0, string.length(new_acc) - delim_len)
+          let after = string.concat(rest)
+          Ok(#(before, after))
+        }
+        False ->
+          do_split_outside_parens(rest, delimiter, delim_len, depth, new_acc)
+      }
+    }
   }
 }
 
