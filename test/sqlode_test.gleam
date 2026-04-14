@@ -338,3 +338,23 @@ pub fn accept_directory_for_schema_and_queries_test() {
 pub fn mixed_file_and_directory_inputs_test() {
   generate_test.mixed_file_and_directory_inputs_test()
 }
+
+pub fn ignore_placeholder_in_single_quoted_string_test() {
+  query_parser_test.ignore_placeholder_in_single_quoted_string_test()
+}
+
+pub fn ignore_placeholder_in_line_comment_test() {
+  query_parser_test.ignore_placeholder_in_line_comment_test()
+}
+
+pub fn ignore_placeholder_in_block_comment_test() {
+  query_parser_test.ignore_placeholder_in_block_comment_test()
+}
+
+pub fn ignore_at_name_in_string_literal_test() {
+  query_parser_test.ignore_at_name_in_string_literal_test()
+}
+
+pub fn ignore_question_mark_in_string_mysql_test() {
+  query_parser_test.ignore_question_mark_in_string_mysql_test()
+}

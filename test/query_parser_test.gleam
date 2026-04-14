@@ -374,6 +374,86 @@ pub fn multiline_sql_body_test() {
   string.contains(query.sql, "SELECT id,") |> should.be_true()
 }
 
+// --- Placeholder inside string literal / comment tests (#118) ---
+
+pub fn ignore_placeholder_in_single_quoted_string_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthorWithLiteral :one\n"
+    <> "SELECT id, name\n"
+    <> "FROM authors\n"
+    <> "WHERE note = '$2' OR id = $1;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("lit.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+
+  // $2 inside string should be ignored, only $1 counts
+  query.param_count |> should.equal(1)
+}
+
+pub fn ignore_placeholder_in_line_comment_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetById :one\n"
+    <> "SELECT id, name\n"
+    <> "FROM authors\n"
+    <> "WHERE id = $1; -- $2 is not used"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("cmt.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+
+  query.param_count |> should.equal(1)
+}
+
+pub fn ignore_placeholder_in_block_comment_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetById :one\n"
+    <> "SELECT id, name\n"
+    <> "FROM authors\n"
+    <> "/* WHERE bio = $2 */\n"
+    <> "WHERE id = $1;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("cmt.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+
+  query.param_count |> should.equal(1)
+}
+
+pub fn ignore_at_name_in_string_literal_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetByNote :one\n"
+    <> "SELECT id FROM authors\n"
+    <> "WHERE note = '@skip_me' AND id = @real_id;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("at.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+
+  // @skip_me inside string should not be expanded
+  query.param_count |> should.equal(1)
+  query.macros |> should.equal([model.SqlcArg(index: 1, name: "real_id")])
+  string.contains(query.sql, "'@skip_me'") |> should.be_true()
+}
+
+pub fn ignore_question_mark_in_string_mysql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetByNote :one\n"
+    <> "SELECT id FROM authors\n"
+    <> "WHERE note = 'is this a ?' AND id = ?;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("q.sql", model.MySQL, naming_ctx, content)
+  let assert [query] = queries
+
+  query.param_count |> should.equal(1)
+}
+
 pub fn error_to_string_coverage_test() {
   query_parser.error_to_string(query_parser.InvalidAnnotation(
     path: "test.sql",
