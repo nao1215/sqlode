@@ -12,6 +12,13 @@ type ExtractedColumn {
   ExtractedColumn(name: String, source_table: Option(String))
 }
 
+type JoinKind {
+  LeftJoin
+  RightJoin
+  FullJoin
+  OtherJoin
+}
+
 pub fn infer_result_columns(
   ctx: AnalyzerContext,
   query: model.ParsedQuery,
@@ -30,6 +37,7 @@ pub fn infer_result_columns(
       case extract_returning_columns(ctx, normalized) {
         Some(returning_cols) -> {
           let table_names = extract_table_names(ctx, normalized)
+          let nullable_tables = extract_nullable_tables(ctx, normalized)
           case table_names {
             [] -> Ok([])
             [primary, ..] ->
@@ -39,6 +47,7 @@ pub fn infer_result_columns(
                 catalog,
                 primary,
                 table_names,
+                nullable_tables,
               )
           }
         }
@@ -47,6 +56,7 @@ pub fn infer_result_columns(
             strip_cte(ctx, normalized)
             |> strip_compound
           let table_names = extract_table_names(ctx, main_sql)
+          let nullable_tables = extract_nullable_tables(ctx, main_sql)
 
           case table_names {
             [] -> Ok([])
@@ -58,6 +68,7 @@ pub fn infer_result_columns(
                 catalog,
                 primary,
                 table_names,
+                nullable_tables,
               )
             }
           }
@@ -139,13 +150,56 @@ fn extract_table_names(ctx: AnalyzerContext, sql: String) -> List(String) {
 }
 
 fn extract_join_tables(ctx: AnalyzerContext, sql: String) -> List(String) {
+  extract_join_info(ctx, sql)
+  |> list.map(fn(info) { info.0 })
+}
+
+fn extract_join_info(
+  ctx: AnalyzerContext,
+  sql: String,
+) -> List(#(String, JoinKind)) {
   regexp.scan(ctx.join_re, sql)
   |> list.filter_map(fn(match) {
     case match.submatches {
-      [Some(name)] -> Ok(name)
+      [Some(join_type), Some(name)] -> {
+        let kind = case string.lowercase(join_type) {
+          "left" -> LeftJoin
+          "right" -> RightJoin
+          "full" -> FullJoin
+          _ -> OtherJoin
+        }
+        Ok(#(name, kind))
+      }
+      [None, Some(name)] -> Ok(#(name, OtherJoin))
       _ -> Error(Nil)
     }
   })
+}
+
+fn extract_nullable_tables(ctx: AnalyzerContext, sql: String) -> List(String) {
+  let primary = context.primary_table_name(ctx, sql)
+  let joins = extract_join_info(ctx, sql)
+
+  let nullable_joined =
+    list.filter_map(joins, fn(j) {
+      case j.1 {
+        LeftJoin | FullJoin -> Ok(j.0)
+        _ -> Error(Nil)
+      }
+    })
+
+  let primary_nullable =
+    list.any(joins, fn(j) {
+      case j.1 {
+        RightJoin | FullJoin -> True
+        _ -> False
+      }
+    })
+
+  case primary_nullable, primary {
+    True, Some(name) -> [name, ..nullable_joined]
+    _, _ -> nullable_joined
+  }
 }
 
 fn extract_select_columns(
@@ -223,6 +277,7 @@ fn resolve_select_columns(
   catalog: model.Catalog,
   primary_table: String,
   all_tables: List(String),
+  nullable_tables: List(String),
 ) -> Result(List(model.ResultColumn), AnalysisError) {
   case columns {
     [ExtractedColumn(name: "*", ..)] ->
@@ -236,7 +291,8 @@ fn resolve_select_columns(
               model.ResultColumn(
                 name: col.name,
                 scalar_type: col.scalar_type,
-                nullable: col.nullable,
+                nullable: col.nullable
+                  || list.contains(nullable_tables, primary_table),
                 source_table: Some(primary_table),
               )
             }),
@@ -281,7 +337,8 @@ fn resolve_select_columns(
                       model.ResultColumn(
                         name: column.name,
                         scalar_type: column.scalar_type,
-                        nullable: column.nullable,
+                        nullable: column.nullable
+                          || list.contains(nullable_tables, table),
                         source_table: Some(table),
                       ),
                     ])
@@ -301,7 +358,8 @@ fn resolve_select_columns(
                       model.ResultColumn(
                         name: column.name,
                         scalar_type: column.scalar_type,
-                        nullable: column.nullable,
+                        nullable: column.nullable
+                          || list.contains(nullable_tables, found_table),
                         source_table: Some(found_table),
                       ),
                     ])

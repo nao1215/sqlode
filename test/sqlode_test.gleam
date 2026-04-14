@@ -109,6 +109,18 @@ pub fn join_result_columns_test() {
   query_analyzer_test.join_result_columns_test()
 }
 
+pub fn left_join_makes_right_table_nullable_test() {
+  query_analyzer_test.left_join_makes_right_table_nullable_test()
+}
+
+pub fn right_join_makes_left_table_nullable_test() {
+  query_analyzer_test.right_join_makes_left_table_nullable_test()
+}
+
+pub fn full_join_makes_both_tables_nullable_test() {
+  query_analyzer_test.full_join_makes_both_tables_nullable_test()
+}
+
 pub fn sqlc_embed_expands_table_columns_test() {
   query_analyzer_test.sqlc_embed_expands_table_columns_test()
 }
