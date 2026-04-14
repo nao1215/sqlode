@@ -33,7 +33,13 @@ fn analyze_query(
   query: model.ParsedQuery,
 ) -> Result(model.AnalyzedQuery, AnalysisError) {
   let occurrences = placeholder.extract(ctx, engine, query.sql)
-  let params = build_params(ctx, engine, query, catalog, occurrences)
+  use params <- result.try(build_params(
+    ctx,
+    engine,
+    query,
+    catalog,
+    occurrences,
+  ))
   use result_columns <- result.try(column_inferencer.infer_result_columns(
     ctx,
     query,
@@ -49,7 +55,7 @@ fn build_params(
   query: model.ParsedQuery,
   catalog: model.Catalog,
   occurrences: List(placeholder.PlaceholderOccurrence),
-) -> List(model.QueryParam) {
+) -> Result(List(model.QueryParam), context.AnalysisError) {
   let inferences =
     list.append(
       param_inferencer.infer_insert_params(ctx, engine, query, catalog),
@@ -57,26 +63,40 @@ fn build_params(
     )
     |> list.append(param_inferencer.infer_in_params(ctx, engine, query, catalog))
 
-  let cast_dict = param_inferencer.extract_type_casts(ctx, engine, query.sql)
+  use cast_dict <- result.try(
+    param_inferencer.extract_type_casts(ctx, engine, query.sql)
+    |> result.map_error(fn(err) {
+      let #(index, cast_type) = err
+      context.UnrecognizedCastType(
+        query_name: query.name,
+        param_index: index,
+        cast_type:,
+      )
+    }),
+  )
   let macro_dict = build_macro_dict(query.macros)
   let inference_dict = build_inference_dict(inferences)
 
   placeholder.unique(occurrences)
-  |> list.map(fn(occurrence) {
+  |> list.try_map(fn(occurrence) {
     let macro_info =
       dict.get(macro_dict, occurrence.index) |> option.from_result
     let inferred =
       dict.get(inference_dict, occurrence.index) |> option.from_result
 
     let cast_type = dict.get(cast_dict, occurrence.index) |> option.from_result
-    let inferred_type = case inferred {
-      Some(column) -> column.scalar_type
+    use inferred_type <- result.try(case inferred {
+      Some(column) -> Ok(column.scalar_type)
       None ->
         case cast_type {
-          Some(st) -> st
-          None -> model.StringType
+          Some(st) -> Ok(st)
+          None ->
+            Error(context.ParameterTypeNotInferred(
+              query_name: query.name,
+              param_index: occurrence.index,
+            ))
         }
-    }
+    })
 
     let #(field_name, scalar_type, nullable, is_list) = case macro_info {
       Some(model.SqlcArg(name:, ..)) -> {
@@ -106,25 +126,17 @@ fn build_params(
             column.nullable,
             False,
           )
-          None -> #(
-            occurrence.default_name,
-            case cast_type {
-              Some(st) -> st
-              None -> model.StringType
-            },
-            False,
-            False,
-          )
+          None -> #(occurrence.default_name, inferred_type, False, False)
         }
     }
 
-    model.QueryParam(
+    Ok(model.QueryParam(
       index: occurrence.index,
       field_name:,
       scalar_type:,
       nullable:,
       is_list:,
-    )
+    ))
   })
 }
 

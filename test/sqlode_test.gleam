@@ -501,6 +501,26 @@ pub fn analysis_error_to_string_column_not_found_test() {
   query_analyzer_test.analysis_error_to_string_column_not_found_test()
 }
 
+pub fn parameter_type_not_inferred_error_test() {
+  query_analyzer_test.parameter_type_not_inferred_error_test()
+}
+
+pub fn unrecognized_cast_type_error_test() {
+  query_analyzer_test.unrecognized_cast_type_error_test()
+}
+
+pub fn analysis_error_to_string_parameter_not_inferred_test() {
+  query_analyzer_test.analysis_error_to_string_parameter_not_inferred_test()
+}
+
+pub fn analysis_error_to_string_unrecognized_cast_test() {
+  query_analyzer_test.analysis_error_to_string_unrecognized_cast_test()
+}
+
+pub fn unrecognized_sql_type_returns_error_test() {
+  schema_parser_test.unrecognized_sql_type_returns_error_test()
+}
+
 pub fn singularize_regular_plural_test() {
   naming_test.singularize_regular_plural_test()
 }

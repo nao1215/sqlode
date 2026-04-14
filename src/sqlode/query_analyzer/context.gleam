@@ -1,3 +1,4 @@
+import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/regexp
@@ -8,6 +9,8 @@ import sqlode/naming
 pub type AnalysisError {
   TableNotFound(query_name: String, table_name: String)
   ColumnNotFound(query_name: String, table_name: String, column_name: String)
+  ParameterTypeNotInferred(query_name: String, param_index: Int)
+  UnrecognizedCastType(query_name: String, param_index: Int, cast_type: String)
 }
 
 pub fn analysis_error_to_string(error: AnalysisError) -> String {
@@ -26,6 +29,21 @@ pub fn analysis_error_to_string(error: AnalysisError) -> String {
       <> "\" not found in table \""
       <> table_name
       <> "\""
+    ParameterTypeNotInferred(query_name:, param_index:) ->
+      "Query \""
+      <> query_name
+      <> "\": could not infer type for parameter $"
+      <> int.to_string(param_index)
+      <> ". Use a type cast (e.g. $"
+      <> int.to_string(param_index)
+      <> "::int) to specify the type"
+    UnrecognizedCastType(query_name:, param_index:, cast_type:) ->
+      "Query \""
+      <> query_name
+      <> "\": unrecognized cast type \""
+      <> cast_type
+      <> "\" for parameter $"
+      <> int.to_string(param_index)
   }
 }
 
@@ -58,7 +76,7 @@ pub fn new(naming_ctx: naming.NamingContext) -> AnalyzerContext {
     )
   let assert Ok(equality_re) =
     regexp.from_string(
-      "([a-zA-Z_][a-zA-Z0-9_.]*)\\s*=\\s*(\\$[0-9]+|\\?|:[A-Za-z_][A-Za-z0-9_]*|@[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*)",
+      "([a-zA-Z_][a-zA-Z0-9_.]*)\\s*(?:<=|>=|!=|<>|=|<|>|\\blike\\b|\\bilike\\b)\\s*(\\$[0-9]+|\\?|:[A-Za-z_][A-Za-z0-9_]*|@[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*)",
     )
   let assert Ok(postgresql_placeholder_re) = regexp.from_string("(\\$[0-9]+)")
   let assert Ok(mysql_placeholder_re) = regexp.from_string("(\\?)")

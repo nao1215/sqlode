@@ -539,6 +539,61 @@ pub fn analysis_error_to_string_column_not_found_test() {
   string.contains(msg, "users") |> should.be_true()
 }
 
+pub fn parameter_type_not_inferred_error_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql = "-- name: Bare :many\nSELECT $1;"
+  let assert Ok(queries) =
+    query_parser.parse_file("bare.sql", model.PostgreSQL, naming_ctx, sql)
+
+  let result =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  result |> should.be_error()
+}
+
+pub fn unrecognized_cast_type_error_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: BadCast :many\nSELECT id, name FROM authors WHERE id = $1::geometry;"
+  let assert Ok(queries) =
+    query_parser.parse_file("badcast.sql", model.PostgreSQL, naming_ctx, sql)
+
+  let result =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  result |> should.be_error()
+}
+
+pub fn analysis_error_to_string_parameter_not_inferred_test() {
+  let error =
+    context.ParameterTypeNotInferred(query_name: "Bare", param_index: 1)
+  let msg = query_analyzer.analysis_error_to_string(error)
+  string.contains(msg, "Bare") |> should.be_true()
+  string.contains(msg, "$1") |> should.be_true()
+}
+
+pub fn analysis_error_to_string_unrecognized_cast_test() {
+  let error =
+    context.UnrecognizedCastType(
+      query_name: "BadCast",
+      param_index: 1,
+      cast_type: "geometry",
+    )
+  let msg = query_analyzer.analysis_error_to_string(error)
+  string.contains(msg, "BadCast") |> should.be_true()
+  string.contains(msg, "geometry") |> should.be_true()
+}
+
 fn join_catalog() -> model.Catalog {
   let assert Ok(content) = simplifile.read("test/fixtures/join_schema.sql")
   let assert Ok(catalog) =

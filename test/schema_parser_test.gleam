@@ -237,3 +237,15 @@ pub fn error_to_string_invalid_column_test() {
   |> string.contains("users")
   |> should.be_true()
 }
+
+pub fn unrecognized_sql_type_returns_error_test() {
+  let content =
+    "CREATE TABLE geo (\n"
+    <> "  id BIGSERIAL PRIMARY KEY,\n"
+    <> "  shape GEOMETRY NOT NULL\n"
+    <> ");"
+  let assert Error(error) = schema_parser.parse_files([#("geo.sql", content)])
+  let msg = schema_parser.error_to_string(error)
+  string.contains(msg, "geo") |> should.be_true()
+  string.contains(msg, "GEOMETRY") |> should.be_true()
+}
