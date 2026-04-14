@@ -464,6 +464,110 @@ fn analyzed_queries(path: String) -> List(model.AnalyzedQuery) {
   result
 }
 
+// --- Enum type tests ---
+
+pub fn render_enum_from_string_returns_result_test() {
+  let naming_ctx = naming.new()
+  let catalog = enum_test_catalog()
+  let analyzed = enum_analyzed_queries()
+  let rendered =
+    codegen.render_models_module(
+      naming_ctx,
+      catalog,
+      analyzed,
+      dict.new(),
+      model.StringMapping,
+    )
+
+  // from_string should return Result
+  string.contains(
+    rendered,
+    "pub fn status_from_string(value: String) -> Result(Status, String) {",
+  )
+  |> should.be_true()
+
+  // Valid values should return Ok
+  string.contains(rendered, "\"active\" -> Ok(Active)")
+  |> should.be_true()
+  string.contains(rendered, "\"inactive\" -> Ok(Inactive)")
+  |> should.be_true()
+  string.contains(rendered, "\"banned\" -> Ok(Banned)")
+  |> should.be_true()
+
+  // Unknown values should return Error
+  string.contains(rendered, "_ -> Error(\"Unknown status value: \" <> value)")
+  |> should.be_true()
+}
+
+pub fn render_enum_decoder_uses_decode_then_test() {
+  let naming_ctx = naming.new()
+  let analyzed = enum_analyzed_queries()
+
+  let block =
+    model.SqlBlock(
+      name: None,
+      engine: model.PostgreSQL,
+      schema: ["test/fixtures/enum_schema.sql"],
+      queries: ["test/fixtures/enum_query.sql"],
+      gleam: model.GleamOutput(
+        out: "src/db",
+        runtime: model.Native,
+        type_mapping: model.StringMapping,
+      ),
+      overrides: model.empty_overrides(),
+    )
+  let rendered =
+    codegen.render_adapter_module(naming_ctx, block, analyzed, dict.new())
+
+  // Should use decode.then, not decode.map for enums
+  string.contains(rendered, "decode.then(decode.string")
+  |> should.be_true()
+  string.contains(rendered, "status_from_string")
+  |> should.be_true()
+  string.contains(rendered, "decode.success(v)")
+  |> should.be_true()
+  string.contains(rendered, "decode.failure(s")
+  |> should.be_true()
+
+  // Should NOT use decode.map for enum decoding
+  string.contains(
+    rendered,
+    "decode.map(decode.string, models.status_from_string",
+  )
+  |> should.be_false()
+}
+
+fn enum_test_catalog() -> model.Catalog {
+  let assert Ok(schema_content) =
+    simplifile.read("test/fixtures/enum_schema.sql")
+  let assert Ok(catalog) =
+    schema_parser.parse_files([
+      #("test/fixtures/enum_schema.sql", schema_content),
+    ])
+  catalog
+}
+
+fn enum_analyzed_queries() -> List(model.AnalyzedQuery) {
+  let naming_ctx = naming.new()
+  let catalog = enum_test_catalog()
+  let assert Ok(content) = simplifile.read("test/fixtures/enum_query.sql")
+  let assert Ok(queries) =
+    query_parser.parse_file(
+      "test/fixtures/enum_query.sql",
+      model.PostgreSQL,
+      naming_ctx,
+      content,
+    )
+  let assert Ok(result) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  result
+}
+
 pub fn out_to_module_path_strips_src_prefix_test() {
   common.out_to_module_path("src/db") |> should.equal("db")
   common.out_to_module_path("src/generated/db") |> should.equal("generated/db")

@@ -372,6 +372,14 @@ pub fn execresult_allowed_on_raw_runtime_test() {
   generate_test.execresult_allowed_on_raw_runtime_test()
 }
 
+pub fn render_enum_from_string_returns_result_test() {
+  codegen_test.render_enum_from_string_returns_result_test()
+}
+
+pub fn render_enum_decoder_uses_decode_then_test() {
+  codegen_test.render_enum_decoder_uses_decode_then_test()
+}
+
 pub fn singularize_regular_plural_test() {
   naming_test.singularize_regular_plural_test()
 }

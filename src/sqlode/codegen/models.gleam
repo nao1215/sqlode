@@ -101,13 +101,10 @@ fn render_enum_type(enum_def: model.EnumDef) -> String {
 
   let from_string_cases =
     enum_def.values
-    |> list.map(fn(v) { "    \"" <> v <> "\" -> " <> model.enum_value_name(v) })
+    |> list.map(fn(v) {
+      "    \"" <> v <> "\" -> Ok(" <> model.enum_value_name(v) <> ")"
+    })
     |> string.join("\n")
-
-  let default_value = case enum_def.values {
-    [first, ..] -> model.enum_value_name(first)
-    [] -> type_name
-  }
 
   string.join(
     [
@@ -121,10 +118,14 @@ fn render_enum_type(enum_def: model.EnumDef) -> String {
       "  }",
       "}",
       "",
-      "pub fn " <> from_string_fn <> "(value: String) -> " <> type_name <> " {",
+      "pub fn "
+        <> from_string_fn
+        <> "(value: String) -> Result("
+        <> type_name
+        <> ", String) {",
       "  case value {",
       from_string_cases,
-      "    _ -> " <> default_value,
+      "    _ -> Error(\"Unknown " <> enum_def.name <> " value: \" <> value)",
       "  }",
       "}",
     ],
