@@ -477,6 +477,10 @@ pub fn out_to_module_path_strips_src_prefix_test() {
   common.out_to_module_path("/abs/src/generated/db")
   |> should.equal("generated/db")
   common.out_to_module_path("test_output/db") |> should.equal("test_output/db")
+  // Multiple /src/ segments — take the part after the last /src/
+  common.out_to_module_path("/home/src/project/src/db") |> should.equal("db")
+  common.out_to_module_path("/home/src/project/src/generated/db")
+  |> should.equal("generated/db")
 }
 
 fn analyzed_star_queries() -> List(model.AnalyzedQuery) {
