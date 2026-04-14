@@ -200,7 +200,9 @@ fn render_adapter_function(
       )
     model.Exec | model.BatchExec | model.CopyFrom ->
       render_adapter_exec(naming_ctx, query, fn_name, has_params, config)
-    model.ExecResult | model.ExecRows ->
+    model.ExecResult ->
+      render_adapter_exec(naming_ctx, query, fn_name, has_params, config)
+    model.ExecRows ->
       render_adapter_exec_rows(naming_ctx, query, fn_name, has_params, config)
     model.ExecLastId ->
       render_adapter_exec_last_id(
@@ -833,7 +835,22 @@ fn render_sqlight_many_result() -> List(String) {
 }
 
 fn render_sqlight_exec_rows_result() -> List(String) {
-  ["  |> result.map(fn(rows) { list.length(rows) })"]
+  [
+    "  |> result.try(fn(_) {",
+    "    sqlight.query(",
+    "      \"SELECT changes()\",",
+    "      on: db,",
+    "      with: [],",
+    "      expecting: decode.at([0], decode.int),",
+    "    )",
+    "  })",
+    "  |> result.map(fn(rows) {",
+    "    case rows {",
+    "      [count, ..] -> count",
+    "      [] -> 0",
+    "    }",
+    "  })",
+  ]
 }
 
 fn render_sqlight_exec_last_id(

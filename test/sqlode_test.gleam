@@ -360,6 +360,14 @@ pub fn ignore_question_mark_in_string_mysql_test() {
   query_parser_test.ignore_question_mark_in_string_mysql_test()
 }
 
+pub fn execresult_rejected_on_native_runtime_test() {
+  generate_test.execresult_rejected_on_native_runtime_test()
+}
+
+pub fn execresult_allowed_on_raw_runtime_test() {
+  generate_test.execresult_allowed_on_raw_runtime_test()
+}
+
 pub fn singularize_regular_plural_test() {
   naming_test.singularize_regular_plural_test()
 }

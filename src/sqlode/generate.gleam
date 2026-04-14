@@ -30,6 +30,7 @@ pub type GenerateError {
     query_paths: List(String),
     schema_paths: List(String),
   )
+  UnsupportedAnnotation(query_name: String, command: String, detail: String)
   WriteError(writer.WriteError)
 }
 
@@ -159,24 +160,26 @@ fn generate_sql_block(
         False -> base_files
       }
 
-      let files = case gleam.runtime {
-        model.Raw -> files
-        model.Native ->
-          list.append(files, [
-            writer.GeneratedFile(
-              directory: out,
-              path: adapter_filename(block.engine),
-              content: codegen.render_adapter_module(
-                naming_ctx,
-                block,
-                analyzed,
-                table_matches,
+      case gleam.runtime {
+        model.Raw -> Ok(files)
+        model.Native -> {
+          use Nil <- result.try(validate_native_annotations(analyzed))
+          Ok(
+            list.append(files, [
+              writer.GeneratedFile(
+                directory: out,
+                path: adapter_filename(block.engine),
+                content: codegen.render_adapter_module(
+                  naming_ctx,
+                  block,
+                  analyzed,
+                  table_matches,
+                ),
               ),
-            ),
-          ])
+            ]),
+          )
+        }
       }
-
-      Ok(files)
     }
   }
 }
@@ -443,6 +446,20 @@ fn find_column_rename(
   })
 }
 
+fn validate_native_annotations(
+  queries: List(model.AnalyzedQuery),
+) -> Result(Nil, GenerateError) {
+  case list.find(queries, fn(q) { q.base.command == model.ExecResult }) {
+    Ok(q) ->
+      Error(UnsupportedAnnotation(
+        query_name: q.base.name,
+        command: ":execresult",
+        detail: ":execresult is not supported with native runtime. Use :exec, :execrows, or :execlastid instead",
+      ))
+    Error(_) -> Ok(Nil)
+  }
+}
+
 fn adapter_filename(engine: model.Engine) -> String {
   case engine {
     model.PostgreSQL -> "pog_adapter.gleam"
@@ -587,6 +604,8 @@ pub fn error_to_string(error: GenerateError) -> String {
               "\n  Hint: Queries were parsed but none produced output. Check that your schema defines the tables referenced in your queries"
           }
       }
+    UnsupportedAnnotation(query_name:, command:, detail:) ->
+      "Query " <> query_name <> " uses " <> command <> ": " <> detail
     WriteError(inner) -> writer.error_to_string(inner)
   }
 }
