@@ -127,14 +127,14 @@ pub type CreateAuthorParams {
 sqlode generates reusable record types for each table in the schema, plus per-query row types for queries that return results. When a query's result columns exactly match a table (same columns, types, nullability, and order), a type alias is emitted instead of a duplicate record type.
 
 ```gleam
-// Table record type — reusable across queries
-pub type Authors {
-  Authors(id: Int, name: String, bio: Option(String), created_at: String)
+// Table record type (singularized) — reusable across queries
+pub type Author {
+  Author(id: Int, name: String, bio: Option(String), created_at: String)
 }
 
 // Exact table match — alias instead of duplicate
 pub type GetAuthorRow =
-  Authors
+  Author
 
 // Partial match — separate row type
 pub type ListAuthorsRow {
@@ -177,9 +177,7 @@ The `runtime` option controls what code sqlode generates and what dependencies y
 | `raw` | queries, params, models | No | You handle database interaction yourself |
 | `native` | queries, params, models, adapter | Yes (pog/sqlight) | Full adapter with parameter binding and result decoding |
 
-> **Note:** `runtime: "based"` is reserved for future use and is currently rejected. Use `"raw"` or `"native"` instead.
-
-**Dependency note:** In all modes, sqlode must be a dependency (not just a dev-dependency) because the generated code imports `sqlode/runtime` for the `Value` type, `QueryCommand` type, and `RawQuery` type. The `native` adapter mode additionally requires a database driver package:
+In all modes, sqlode must be a dependency (not just a dev-dependency) because the generated code imports `sqlode/runtime`. The `native` mode additionally requires a database driver package:
 
 ```console
 gleam add sqlode
@@ -191,7 +189,7 @@ gleam add sqlight   # for SQLite with native runtime
 
 When `runtime` is set to `native`, sqlode generates adapter modules that wrap [pog](https://hexdocs.pm/pog/) (PostgreSQL) or [sqlight](https://hexdocs.pm/sqlight/) (SQLite).
 
-**Note:** MySQL adapter generation is not yet available. MySQL schema parsing and query/params generation work with `runtime: "raw"`. Configuring MySQL with `runtime: "native"` is rejected at config validation time — use `runtime: "raw"` and handle database interaction manually.
+MySQL adapter generation is not available. MySQL works with `runtime: "raw"` only; `runtime: "native"` is rejected at config validation.
 
 ```yaml
 gen:
@@ -290,6 +288,14 @@ pub fn main() {
 | `:one` | `Result(Option(Row), sqlight.Error)` | `Result(Option(Row), pog.QueryError)` |
 | `:many` | `Result(List(Row), sqlight.Error)` | `Result(List(Row), pog.QueryError)` |
 | `:exec` | `Result(Nil, sqlight.Error)` | `Result(Nil, pog.QueryError)` |
+| `:execrows` | `Result(Int, sqlight.Error)` | `Result(Int, pog.QueryError)` |
+| `:execlastid` | `Result(Int, sqlight.Error)` | `Result(Int, pog.QueryError)` |
+| `:batchone` | `Result(Option(Row), sqlight.Error)` | `Result(Option(Row), pog.QueryError)` |
+| `:batchmany` | `Result(List(Row), sqlight.Error)` | `Result(List(Row), pog.QueryError)` |
+| `:batchexec` | `Result(Nil, sqlight.Error)` | `Result(Nil, pog.QueryError)` |
+| `:copyfrom` | `Result(Nil, sqlight.Error)` | `Result(Nil, pog.QueryError)` |
+
+`:execresult` is available with `raw` runtime only. It is rejected with `native` runtime because its semantics are not distinct from `:execrows`.
 
 ## Query annotations
 
@@ -298,9 +304,13 @@ pub fn main() {
 | `:one` | Returns at most one row |
 | `:many` | Returns zero or more rows |
 | `:exec` | Returns nothing |
-| `:execresult` | Returns the execution result |
+| `:execresult` | Returns the execution result (raw runtime only) |
 | `:execrows` | Returns the number of affected rows |
 | `:execlastid` | Returns the last inserted ID |
+| `:batchone` | Batch variant of `:one` |
+| `:batchmany` | Batch variant of `:many` |
+| `:batchexec` | Batch variant of `:exec` |
+| `:copyfrom` | Bulk insert |
 
 ## sqlc macros
 
@@ -402,7 +412,7 @@ JOIN filtered ON authors.id = filtered.id;
 | TIME, TIMETZ | String |
 | UUID | String |
 | JSON, JSONB | String |
-| PostgreSQL ENUM | String |
+| PostgreSQL ENUM | Generated custom type (with to_string/from_string helpers) |
 
 Nullable columns (without `NOT NULL`) are wrapped in `Option(T)`.
 
@@ -530,8 +540,6 @@ sqlode follows sqlc conventions, so most SQL files work without changes. Key dif
 - `sqlc.yaml` v1 format
 - `vet` and `verify` commands
 - `emit_*` options (`emit_exact_table_names`, `emit_json_tags`, etc.)
-- Batch annotations (`:batchexec`, `:batchmany`, `:batchone`)
-- `:copyfrom` annotation
 - MySQL adapter generation (`runtime: "raw"` works for MySQL)
 
 ## License
