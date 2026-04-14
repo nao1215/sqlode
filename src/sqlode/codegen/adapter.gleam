@@ -242,9 +242,11 @@ fn render_decoder(
               let field_name = naming.to_snake_case(naming_ctx, name)
               let base_decoder = case scalar_type {
                 model.EnumType(enum_name) ->
-                  "decode.map(decode.string, models."
+                  "decode.then(decode.string, fn(s) { case models."
                   <> model.enum_from_string_fn(enum_name)
-                  <> ")"
+                  <> "(s) { Ok(v) -> decode.success(v) Error(_) -> decode.failure(s, \"valid "
+                  <> enum_name
+                  <> " value\") } })"
                 _ -> config.decoder_function(scalar_type)
               }
               let full_decoder = case nullable {
