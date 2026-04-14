@@ -48,7 +48,7 @@ pub fn placeholder_index_for_token(
       token
       |> string.replace("$", "")
       |> int.parse
-      |> int_result_to_option
+      |> option.from_result
     model.MySQL -> Some(occurrence)
     model.SQLite ->
       case string.starts_with(token, "?") && token != "?" {
@@ -56,7 +56,7 @@ pub fn placeholder_index_for_token(
           token
           |> string.replace("?", "")
           |> int.parse
-          |> int_result_to_option
+          |> option.from_result
         False -> Some(occurrence)
       }
   }
@@ -166,12 +166,5 @@ fn all_digits(value: String) -> Bool {
           all_digits(rest)
         _ -> False
       }
-  }
-}
-
-fn int_result_to_option(result: Result(Int, a)) -> Option(Int) {
-  case result {
-    Ok(value) -> Some(value)
-    Error(_) -> None
   }
 }

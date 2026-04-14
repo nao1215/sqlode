@@ -151,16 +151,7 @@ pub fn find_column(
       |> list.find(fn(column) {
         column.name == naming.normalize_identifier(column_name)
       })
-      |> column_result_to_option
-    Error(_) -> None
-  }
-}
-
-fn column_result_to_option(
-  result: Result(model.Column, a),
-) -> Option(model.Column) {
-  case result {
-    Ok(value) -> Some(value)
+      |> option.from_result
     Error(_) -> None
   }
 }
