@@ -47,6 +47,7 @@ pub type AnalyzerContext {
     join_re: regexp.Regexp,
     select_columns_re: regexp.Regexp,
     type_cast_re: regexp.Regexp,
+    in_clause_re: regexp.Regexp,
   )
 }
 
@@ -84,6 +85,10 @@ pub fn new(naming_ctx: naming.NamingContext) -> AnalyzerContext {
     regexp.from_string("select\\s+(.+?)\\s+from\\s")
   let assert Ok(type_cast_re) =
     regexp.from_string("(\\$[0-9]+)::[a-zA-Z_][a-zA-Z0-9_]*")
+  let assert Ok(in_clause_re) =
+    regexp.from_string(
+      "([a-zA-Z_][a-zA-Z0-9_.]*)\\s+in\\s*\\(\\s*(\\$[0-9]+|\\?[0-9]*|:[A-Za-z_][A-Za-z0-9_]*|@[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*)\\s*\\)",
+    )
 
   AnalyzerContext(
     naming: naming_ctx,
@@ -102,6 +107,7 @@ pub fn new(naming_ctx: naming.NamingContext) -> AnalyzerContext {
     join_re:,
     select_columns_re:,
     type_cast_re:,
+    in_clause_re:,
   )
 }
 

@@ -55,6 +55,7 @@ fn build_params(
       param_inferencer.infer_insert_params(ctx, engine, query, catalog),
       param_inferencer.infer_equality_params(ctx, engine, query, catalog),
     )
+    |> list.append(param_inferencer.infer_in_params(ctx, engine, query, catalog))
 
   let cast_dict = param_inferencer.extract_type_casts(ctx, engine, query.sql)
   let macro_dict = build_macro_dict(query.macros)
