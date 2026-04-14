@@ -594,6 +594,108 @@ pub fn analysis_error_to_string_unrecognized_cast_test() {
   string.contains(msg, "geometry") |> should.be_true()
 }
 
+pub fn left_join_makes_right_table_nullable_test() {
+  let naming_ctx = naming.new()
+  let catalog = join_catalog()
+  let sql =
+    "-- name: GetBookWithAuthor :one\nSELECT books.title, authors.name FROM books LEFT JOIN authors ON books.author_id = authors.id WHERE books.id = $1;"
+  let assert Ok(queries) =
+    query_parser.parse_file("lj.sql", model.PostgreSQL, naming_ctx, sql)
+
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+
+  query.result_columns
+  |> should.equal([
+    model.ResultColumn(
+      name: "title",
+      scalar_type: model.StringType,
+      nullable: False,
+      source_table: Some("books"),
+    ),
+    model.ResultColumn(
+      name: "name",
+      scalar_type: model.StringType,
+      nullable: True,
+      source_table: Some("authors"),
+    ),
+  ])
+}
+
+pub fn right_join_makes_left_table_nullable_test() {
+  let naming_ctx = naming.new()
+  let catalog = join_catalog()
+  let sql =
+    "-- name: GetBookWithAuthor :one\nSELECT books.title, authors.name FROM books RIGHT JOIN authors ON books.author_id = authors.id;"
+  let assert Ok(queries) =
+    query_parser.parse_file("rj.sql", model.PostgreSQL, naming_ctx, sql)
+
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+
+  query.result_columns
+  |> should.equal([
+    model.ResultColumn(
+      name: "title",
+      scalar_type: model.StringType,
+      nullable: True,
+      source_table: Some("books"),
+    ),
+    model.ResultColumn(
+      name: "name",
+      scalar_type: model.StringType,
+      nullable: False,
+      source_table: Some("authors"),
+    ),
+  ])
+}
+
+pub fn full_join_makes_both_tables_nullable_test() {
+  let naming_ctx = naming.new()
+  let catalog = join_catalog()
+  let sql =
+    "-- name: GetBookWithAuthor :one\nSELECT books.title, authors.name FROM books FULL JOIN authors ON books.author_id = authors.id;"
+  let assert Ok(queries) =
+    query_parser.parse_file("fj.sql", model.PostgreSQL, naming_ctx, sql)
+
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+
+  query.result_columns
+  |> should.equal([
+    model.ResultColumn(
+      name: "title",
+      scalar_type: model.StringType,
+      nullable: True,
+      source_table: Some("books"),
+    ),
+    model.ResultColumn(
+      name: "name",
+      scalar_type: model.StringType,
+      nullable: True,
+      source_table: Some("authors"),
+    ),
+  ])
+}
+
 fn join_catalog() -> model.Catalog {
   let assert Ok(content) = simplifile.read("test/fixtures/join_schema.sql")
   let assert Ok(catalog) =

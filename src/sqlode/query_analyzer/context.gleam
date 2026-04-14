@@ -98,7 +98,9 @@ pub fn new(naming_ctx: naming.NamingContext) -> AnalyzerContext {
   let assert Ok(returning_re) =
     regexp.from_string("returning\\s+(.+?)\\s*;?\\s*$")
   let assert Ok(join_re) =
-    regexp.from_string("join\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s")
+    regexp.from_string(
+      "(?:(left|right|full|inner|cross)\\s+(?:outer\\s+)?)?join\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s",
+    )
   let assert Ok(select_columns_re) =
     regexp.from_string("select\\s+(.+?)\\s+from\\s")
   let assert Ok(type_cast_re) =
