@@ -98,6 +98,7 @@ fn generate_sql_block(
       QueryAnalysisError(detail: query_analyzer.analysis_error_to_string(error))
     }),
   )
+  use Nil <- result.try(validate_unsupported_annotations(analyzed))
   let analyzed = apply_column_renames(analyzed, block.overrides.column_renames)
 
   let table_matches = compute_table_matches(naming_ctx, catalog, analyzed)
@@ -443,6 +444,38 @@ fn find_column_rename(
       False -> Error(Nil)
     }
   })
+}
+
+fn validate_unsupported_annotations(
+  queries: List(model.AnalyzedQuery),
+) -> Result(Nil, GenerateError) {
+  let unsupported = fn(command: model.QueryCommand) -> Bool {
+    case command {
+      model.BatchOne | model.BatchMany | model.BatchExec | model.CopyFrom ->
+        True
+      _ -> False
+    }
+  }
+  case list.find(queries, fn(q) { unsupported(q.base.command) }) {
+    Ok(q) -> {
+      let #(command, alternative) = case q.base.command {
+        model.BatchOne -> #(":batchone", ":one")
+        model.BatchMany -> #(":batchmany", ":many")
+        model.BatchExec -> #(":batchexec", ":exec")
+        model.CopyFrom -> #(":copyfrom", ":exec")
+        _ -> #("", ":exec")
+      }
+      Error(UnsupportedAnnotation(
+        query_name: q.base.name,
+        command: command,
+        detail: command
+          <> " is not yet supported. Use "
+          <> alternative
+          <> " instead",
+      ))
+    }
+    Error(_) -> Ok(Nil)
+  }
 }
 
 fn validate_native_annotations(
