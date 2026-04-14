@@ -9,6 +9,9 @@ pub type QueryCommand {
   QueryExecResult
   QueryExecRows
   QueryExecLastId
+  QueryBatchOne
+  QueryBatchMany
+  QueryBatchExec
 }
 
 pub type Value {

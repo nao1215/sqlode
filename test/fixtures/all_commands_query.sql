@@ -15,3 +15,12 @@ SELECT id FROM posts;
 
 -- name: InsertPost :execlastid
 INSERT INTO posts (title, body) VALUES (?1, ?2);
+
+-- name: GetPostBatch :batchone
+SELECT id, title, body FROM posts WHERE id = ?1;
+
+-- name: ListPostsBatch :batchmany
+SELECT id, title FROM posts WHERE id = ?1;
+
+-- name: CreatePostBatch :batchexec
+INSERT INTO posts (title, body) VALUES (?1, ?2);

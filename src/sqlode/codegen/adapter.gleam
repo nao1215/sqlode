@@ -112,7 +112,8 @@ fn render_adapter(
   let has_results =
     list.any(queries, fn(query) {
       case query.base.command {
-        model.One | model.Many -> !list.is_empty(query.result_columns)
+        model.One | model.Many | model.BatchOne | model.BatchMany ->
+          !list.is_empty(query.result_columns)
         _ -> False
       }
     })
@@ -174,7 +175,7 @@ fn render_adapter_function(
   let has_params = !list.is_empty(query.params)
 
   case query.base.command {
-    model.One ->
+    model.One | model.BatchOne ->
       render_adapter_one(
         naming_ctx,
         query,
@@ -183,7 +184,7 @@ fn render_adapter_function(
         table_matches,
         config,
       )
-    model.Many ->
+    model.Many | model.BatchMany ->
       render_adapter_many(
         naming_ctx,
         query,
@@ -192,7 +193,7 @@ fn render_adapter_function(
         table_matches,
         config,
       )
-    model.Exec ->
+    model.Exec | model.BatchExec ->
       render_adapter_exec(naming_ctx, query, fn_name, has_params, config)
     model.ExecResult | model.ExecRows ->
       render_adapter_exec_rows(naming_ctx, query, fn_name, has_params, config)
@@ -929,7 +930,8 @@ fn needs_option_import_for_adapter(queries: List(model.AnalyzedQuery)) -> Bool {
           _ -> False
         }
       })
-    let has_one_command = query.base.command == model.One
+    let has_one_command =
+      query.base.command == model.One || query.base.command == model.BatchOne
 
     has_nullable_params || has_nullable_results || has_one_command
   })

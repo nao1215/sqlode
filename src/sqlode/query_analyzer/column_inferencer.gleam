@@ -18,8 +18,12 @@ pub fn infer_result_columns(
   catalog: model.Catalog,
 ) -> Result(List(model.ResultColumn), AnalysisError) {
   case query.command {
-    model.Exec | model.ExecResult | model.ExecRows | model.ExecLastId -> Ok([])
-    model.One | model.Many -> {
+    model.Exec
+    | model.ExecResult
+    | model.ExecRows
+    | model.ExecLastId
+    | model.BatchExec -> Ok([])
+    model.One | model.Many | model.BatchOne | model.BatchMany -> {
       let normalized = context.normalize_sql(ctx, query.sql)
 
       case extract_returning_columns(ctx, normalized) {

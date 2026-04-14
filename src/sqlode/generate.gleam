@@ -87,7 +87,8 @@ fn generate_sql_block(
       let has_row_types =
         list.any(analyzed, fn(query) {
           case query.base.command {
-            model.One | model.Many -> !list.is_empty(query.result_columns)
+            model.One | model.Many | model.BatchOne | model.BatchMany ->
+              !list.is_empty(query.result_columns)
             _ -> False
           }
         })
@@ -386,7 +387,7 @@ fn compute_table_matches(
   queries
   |> list.filter_map(fn(query) {
     case query.base.command {
-      model.One | model.Many -> {
+      model.One | model.Many | model.BatchOne | model.BatchMany -> {
         // Queries with embedded columns never match a single table
         let has_embed =
           list.any(query.result_columns, fn(col) {
