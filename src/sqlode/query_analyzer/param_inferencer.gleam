@@ -229,20 +229,5 @@ pub fn extract_type_casts(
 }
 
 fn cast_type_to_scalar(type_name: String) -> Result(model.ScalarType, Nil) {
-  let lowered = string.lowercase(string.trim(type_name))
-  case lowered {
-    "int" | "integer" | "bigint" | "smallint" | "serial" | "bigserial" ->
-      Ok(model.IntType)
-    "float" | "double" | "real" | "numeric" | "decimal" -> Ok(model.FloatType)
-    "bool" | "boolean" -> Ok(model.BoolType)
-    "bytea" | "blob" | "binary" -> Ok(model.BytesType)
-    "uuid" -> Ok(model.UuidType)
-    "json" | "jsonb" -> Ok(model.JsonType)
-    "timestamp" | "datetime" -> Ok(model.DateTimeType)
-    "date" -> Ok(model.DateType)
-    "time" | "timetz" -> Ok(model.TimeType)
-    "text" | "varchar" | "char" | "character" | "string" | "clob" | "name" ->
-      Ok(model.StringType)
-    _ -> Error(Nil)
-  }
+  model.parse_sql_type(string.trim(type_name))
 }

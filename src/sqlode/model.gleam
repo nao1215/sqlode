@@ -197,6 +197,43 @@ pub type EnumDef {
   EnumDef(name: String, values: List(String))
 }
 
+/// Parse a SQL type name into a ScalarType using substring matching.
+/// Used by both schema parsing (CREATE TABLE column types) and
+/// query analysis (PostgreSQL type casts like `$1::int`).
+/// Returns Error(Nil) for unrecognized types.
+pub fn parse_sql_type(type_text: String) -> Result(ScalarType, Nil) {
+  let lowered = string.lowercase(type_text)
+  // Order matters: check more specific patterns before general ones
+  // (e.g. "timestamp"/"datetime" before "time"/"date", "jsonb" before "json")
+  let type_rules = [
+    #(["int", "serial"], IntType),
+    #(["double", "real", "float", "numeric", "decimal"], FloatType),
+    #(["bool"], BoolType),
+    #(["bytea", "blob", "binary"], BytesType),
+    #(["uuid"], UuidType),
+    #(["jsonb", "json"], JsonType),
+    #(["timestamp", "datetime"], DateTimeType),
+    #(["date"], DateType),
+    #(["timetz", "time"], TimeType),
+    #(["text", "char", "clob", "name", "string"], StringType),
+  ]
+  find_matching_type(lowered, type_rules)
+}
+
+fn find_matching_type(
+  lowered: String,
+  rules: List(#(List(String), ScalarType)),
+) -> Result(ScalarType, Nil) {
+  case rules {
+    [] -> Error(Nil)
+    [#(patterns, scalar_type), ..rest] ->
+      case list.any(patterns, fn(p) { string.contains(lowered, p) }) {
+        True -> Ok(scalar_type)
+        False -> find_matching_type(lowered, rest)
+      }
+  }
+}
+
 pub fn scalar_type_to_gleam_type(
   scalar_type: ScalarType,
   type_mapping: TypeMapping,

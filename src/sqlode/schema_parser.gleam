@@ -428,39 +428,8 @@ fn take_type_tokens(tokens: List(String), acc: List(String)) -> List(String) {
 }
 
 fn infer_scalar_type(type_text: String) -> Result(model.ScalarType, String) {
-  let lowered = string.lowercase(type_text)
-
-  // Order matters: check more specific patterns before general ones
-  // (e.g. "timestamp"/"datetime" before "time"/"date", "jsonb" before "json")
-  let type_rules = [
-    #(["int", "serial"], model.IntType),
-    #(["double", "real", "float", "numeric", "decimal"], model.FloatType),
-    #(["bool"], model.BoolType),
-    #(["bytea", "blob", "binary"], model.BytesType),
-    #(["uuid"], model.UuidType),
-    #(["jsonb", "json"], model.JsonType),
-    #(["timestamp", "datetime"], model.DateTimeType),
-    #(["date"], model.DateType),
-    #(["timetz", "time"], model.TimeType),
-    #(["text", "char", "clob", "name", "string"], model.StringType),
-  ]
-
-  find_matching_type(lowered, type_rules)
+  model.parse_sql_type(type_text)
   |> result.replace_error("unrecognized SQL type \"" <> type_text <> "\"")
-}
-
-fn find_matching_type(
-  lowered: String,
-  rules: List(#(List(String), model.ScalarType)),
-) -> Result(model.ScalarType, Nil) {
-  case rules {
-    [] -> Error(Nil)
-    [#(patterns, scalar_type), ..rest] ->
-      case list.any(patterns, fn(p) { string.contains(lowered, p) }) {
-        True -> Ok(scalar_type)
-        False -> find_matching_type(lowered, rest)
-      }
-  }
 }
 
 fn is_table_constraint(token: String) -> Bool {
