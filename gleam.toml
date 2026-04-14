@@ -1,7 +1,7 @@
 name = "sqlode"
 version = "0.1.0"
 target = "erlang"
-description = "sqlc for Gleam"
+description = "Generate type-safe Gleam code from SQL schemas and queries"
 licences = ["MIT"]
 repository = { type = "github", user = "nao1215", repo = "sqlode" }
 
