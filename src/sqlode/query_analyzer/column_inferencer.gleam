@@ -255,16 +255,13 @@ fn resolve_select_columns(
               |> list.find(fn(table) { table.name == embed_name })
             {
               Ok(table) ->
-                Ok(
-                  list.map(table.columns, fn(col) {
-                    model.ResultColumn(
-                      name: col.name,
-                      scalar_type: col.scalar_type,
-                      nullable: col.nullable,
-                      source_table: Some(embed_name),
-                    )
-                  }),
-                )
+                Ok([
+                  model.EmbeddedColumn(
+                    name: embed_name,
+                    table_name: embed_name,
+                    columns: table.columns,
+                  ),
+                ])
               Error(_) ->
                 Error(TableNotFound(query_name:, table_name: embed_name))
             }

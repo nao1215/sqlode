@@ -113,13 +113,17 @@ fn collect_rich_types(
     queries
     |> list.flat_map(fn(query) {
       list.filter_map(query.result_columns, fn(col) {
-        case model.is_rich_type(col.scalar_type) {
-          True ->
-            Ok(model.scalar_type_to_gleam_type(
-              col.scalar_type,
-              model.RichMapping,
-            ))
-          False -> Error(Nil)
+        case col {
+          model.ResultColumn(scalar_type:, ..) ->
+            case model.is_rich_type(scalar_type) {
+              True ->
+                Ok(model.scalar_type_to_gleam_type(
+                  scalar_type,
+                  model.RichMapping,
+                ))
+              False -> Error(Nil)
+            }
+          model.EmbeddedColumn(..) -> Error(Nil)
         }
       })
     })
@@ -133,7 +137,14 @@ fn needs_option_import_for_results(queries: List(model.AnalyzedQuery)) -> Bool {
   list.any(queries, fn(query) {
     case query.base.command {
       model.One | model.Many ->
-        list.any(query.result_columns, fn(col) { col.nullable })
+        list.any(query.result_columns, fn(col) {
+          case col {
+            model.ResultColumn(nullable: True, ..) -> True
+            model.EmbeddedColumn(columns:, ..) ->
+              list.any(columns, fn(c) { c.nullable })
+            _ -> False
+          }
+        })
       _ -> False
     }
   })
@@ -150,8 +161,15 @@ fn has_custom_types_in_results(queries: List(model.AnalyzedQuery)) -> Bool {
     case query.base.command {
       model.One | model.Many ->
         list.any(query.result_columns, fn(col) {
-          case col.scalar_type {
-            model.CustomType(..) -> True
+          case col {
+            model.ResultColumn(scalar_type: model.CustomType(..), ..) -> True
+            model.EmbeddedColumn(columns:, ..) ->
+              list.any(columns, fn(c) {
+                case c.scalar_type {
+                  model.CustomType(..) -> True
+                  _ -> False
+                }
+              })
             _ -> False
           }
         })
@@ -220,15 +238,23 @@ fn render_row_type(
       let fields =
         columns
         |> list.map(fn(col) {
-          let gleam_type = case col.nullable {
-            True ->
-              "Option("
-              <> model.scalar_type_to_gleam_type(col.scalar_type, type_mapping)
-              <> ")"
-            False ->
-              model.scalar_type_to_gleam_type(col.scalar_type, type_mapping)
+          case col {
+            model.ResultColumn(name:, scalar_type:, nullable:, ..) -> {
+              let gleam_type = case nullable {
+                True ->
+                  "Option("
+                  <> model.scalar_type_to_gleam_type(scalar_type, type_mapping)
+                  <> ")"
+                False ->
+                  model.scalar_type_to_gleam_type(scalar_type, type_mapping)
+              }
+              naming.to_snake_case(naming_ctx, name) <> ": " <> gleam_type
+            }
+            model.EmbeddedColumn(name:, table_name:, ..) ->
+              naming.to_snake_case(naming_ctx, name)
+              <> ": "
+              <> naming.to_pascal_case(naming_ctx, table_name)
           }
-          naming.to_snake_case(naming_ctx, col.name) <> ": " <> gleam_type
         })
         |> string.join(", ")
 

@@ -335,9 +335,13 @@ fn apply_column_renames(
       list.map(queries, fn(query) {
         let result_columns =
           list.map(query.result_columns, fn(col) {
-            case find_column_rename(col.name, col.source_table, renames) {
-              Ok(new_name) -> model.ResultColumn(..col, name: new_name)
-              Error(_) -> col
+            case col {
+              model.ResultColumn(name:, source_table:, ..) ->
+                case find_column_rename(name, source_table, renames) {
+                  Ok(new_name) -> model.ResultColumn(..col, name: new_name)
+                  Error(_) -> col
+                }
+              model.EmbeddedColumn(..) -> col
             }
           })
         model.AnalyzedQuery(..query, result_columns:)
@@ -382,17 +386,31 @@ fn compute_table_matches(
   queries
   |> list.filter_map(fn(query) {
     case query.base.command {
-      model.One | model.Many ->
-        case query.result_columns {
-          [] -> Error(Nil)
-          [first, ..] ->
-            case first.source_table {
-              option.None -> Error(Nil)
-              option.Some(table_name) -> {
-                // All result columns must reference the same table
+      model.One | model.Many -> {
+        // Queries with embedded columns never match a single table
+        let has_embed =
+          list.any(query.result_columns, fn(col) {
+            case col {
+              model.EmbeddedColumn(..) -> True
+              _ -> False
+            }
+          })
+        case has_embed {
+          True -> Error(Nil)
+          False ->
+            case query.result_columns {
+              [] -> Error(Nil)
+              [
+                model.ResultColumn(source_table: option.Some(table_name), ..),
+                ..
+              ] -> {
                 let all_same_table =
                   list.all(query.result_columns, fn(col) {
-                    col.source_table == option.Some(table_name)
+                    case col {
+                      model.ResultColumn(source_table: src, ..) ->
+                        src == option.Some(table_name)
+                      model.EmbeddedColumn(..) -> False
+                    }
                   })
                 case all_same_table {
                   False -> Error(Nil)
@@ -413,8 +431,10 @@ fn compute_table_matches(
                     }
                 }
               }
+              _ -> Error(Nil)
             }
         }
+      }
       _ -> Error(Nil)
     }
   })
@@ -440,9 +460,13 @@ fn columns_match(
       list.zip(result_columns, table_columns)
       |> list.all(fn(pair) {
         let #(rc, tc) = pair
-        string.lowercase(rc.name) == string.lowercase(tc.name)
-        && rc.scalar_type == tc.scalar_type
-        && rc.nullable == tc.nullable
+        case rc {
+          model.ResultColumn(name:, scalar_type:, nullable:, ..) ->
+            string.lowercase(name) == string.lowercase(tc.name)
+            && scalar_type == tc.scalar_type
+            && nullable == tc.nullable
+          model.EmbeddedColumn(..) -> False
+        }
       })
   }
 }
