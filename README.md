@@ -144,14 +144,28 @@ pub type ListAuthorsRow {
 
 ### queries.gleam
 
+Each query function returns a typed `RawQuery(p)` descriptor that bundles the SQL text, command metadata, and a parameter encoder. The type parameter ties each query to its expected parameter type at compile time, preventing accidental misuse.
+
+`QueryInfo` and `all()` provide an untyped escape hatch for introspection (e.g. listing every query in a package).
+
 ```gleam
-pub type Query {
-  Query(name: String, sql: String, command: runtime.QueryCommand, param_count: Int)
+pub type QueryInfo {
+  QueryInfo(name: String, sql: String, command: runtime.QueryCommand, param_count: Int)
 }
 
-pub fn get_author() -> Query { ... }
-pub fn list_authors() -> Query { ... }
-pub fn create_author() -> Query { ... }
+pub fn all() -> List(QueryInfo) { ... }
+
+pub fn get_author() -> runtime.RawQuery(params.GetAuthorParams) { ... }
+pub fn list_authors() -> runtime.RawQuery(params.ListAuthorsParams) { ... }
+pub fn create_author() -> runtime.RawQuery(params.CreateAuthorParams) { ... }
+```
+
+Usage example — the compiler ensures you pass the right params to the right query:
+
+```gleam
+let q = queries.get_author()
+let values = q.encode(params.GetAuthorParams(id: 1))
+// q.sql, q.command, and values are now tied together
 ```
 
 ## Runtime modes
@@ -165,7 +179,7 @@ The `runtime` option controls what code sqlode generates and what dependencies y
 
 > **Note:** `runtime: "based"` is reserved for future use and is currently rejected. Use `"raw"` or `"native"` instead.
 
-**Dependency note:** In all modes, sqlode must be a dependency (not just a dev-dependency) because the generated code imports `sqlode/runtime` for the `Value` type and `QueryCommand` type. The `native` adapter mode additionally requires a database driver package:
+**Dependency note:** In all modes, sqlode must be a dependency (not just a dev-dependency) because the generated code imports `sqlode/runtime` for the `Value` type, `QueryCommand` type, and `RawQuery` type. The `native` adapter mode additionally requires a database driver package:
 
 ```console
 gleam add sqlode
