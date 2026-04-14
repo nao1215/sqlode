@@ -6,5 +6,4 @@ sql:
     emit_exact_table_names: true
     gen:
       gleam:
-        package: "db"
         out: "test_output/db"

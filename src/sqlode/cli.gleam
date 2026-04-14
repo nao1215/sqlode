@@ -92,7 +92,6 @@ fn run_init(path: String) -> Nil {
     <> "    engine: \"postgresql\"\n"
     <> "    gen:\n"
     <> "      gleam:\n"
-    <> "        package: \"db\"\n"
     <> "        out: \"src/db\"\n"
     <> "        runtime: \"raw\"\n"
 

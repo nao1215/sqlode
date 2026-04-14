@@ -88,12 +88,7 @@ pub fn empty_overrides() -> Overrides {
 }
 
 pub type GleamOutput {
-  GleamOutput(
-    package: String,
-    out: String,
-    runtime: Runtime,
-    type_mapping: TypeMapping,
-  )
+  GleamOutput(out: String, runtime: Runtime, type_mapping: TypeMapping)
 }
 
 pub type SqlBlock {

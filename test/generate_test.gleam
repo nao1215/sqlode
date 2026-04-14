@@ -20,7 +20,6 @@ fn base_block(overrides: model.Overrides) -> model.SqlBlock {
     schema: ["test/fixtures/schema.sql"],
     queries: ["test/fixtures/query.sql"],
     gleam: model.GleamOutput(
-      package: "db",
       out: test_out,
       runtime: model.Raw,
       type_mapping: model.StringMapping,
@@ -261,7 +260,6 @@ pub fn rich_type_mapping_emits_semantic_aliases_test() {
       schema: ["test/fixtures/all_types_schema.sql"],
       queries: ["test/fixtures/all_types_query.sql"],
       gleam: model.GleamOutput(
-        package: "db",
         out: test_out,
         runtime: model.Raw,
         type_mapping: model.RichMapping,
@@ -330,7 +328,6 @@ pub fn exact_table_match_produces_alias_test() {
       schema: ["test/fixtures/schema.sql"],
       queries: ["test/fixtures/star_query.sql"],
       gleam: model.GleamOutput(
-        package: "db",
         out: test_out,
         runtime: model.Raw,
         type_mapping: model.StringMapping,
@@ -479,7 +476,6 @@ fn join_rename_block(renames: List(model.ColumnRename)) -> model.SqlBlock {
     schema: ["test/fixtures/join_schema.sql"],
     queries: ["test/fixtures/join_rename_query.sql"],
     gleam: model.GleamOutput(
-      package: "db",
       out: join_rename_out,
       runtime: model.Raw,
       type_mapping: model.StringMapping,
@@ -626,7 +622,6 @@ fn nullable_block(overrides: model.Overrides) -> model.SqlBlock {
     schema: ["test/fixtures/sqlite_schema.sql"],
     queries: ["test/fixtures/sqlite_crud_query.sql"],
     gleam: model.GleamOutput(
-      package: "db",
       out: test_out,
       runtime: model.Raw,
       type_mapping: model.StringMapping,
@@ -730,7 +725,6 @@ fn all_commands_block(
     schema: ["test/fixtures/all_commands_schema.sql"],
     queries: ["test/fixtures/all_commands_query.sql"],
     gleam: model.GleamOutput(
-      package: "db",
       out: all_commands_out,
       runtime: runtime,
       type_mapping: model.StringMapping,
@@ -891,7 +885,6 @@ pub fn run_with_missing_schema_file_test() {
       schema: ["nonexistent_schema.sql"],
       queries: ["test/fixtures/query.sql"],
       gleam: model.GleamOutput(
-        package: "db",
         out: "test_output/error_test",
         runtime: model.Raw,
         type_mapping: model.StringMapping,
@@ -914,7 +907,6 @@ pub fn run_with_missing_query_file_test() {
       schema: ["test/fixtures/schema.sql"],
       queries: ["nonexistent_query.sql"],
       gleam: model.GleamOutput(
-        package: "db",
         out: "test_output/error_test",
         runtime: model.Raw,
         type_mapping: model.StringMapping,
@@ -938,7 +930,6 @@ pub fn run_with_no_queries_in_file_test() {
       schema: ["test/fixtures/schema.sql"],
       queries: ["test/fixtures/schema.sql"],
       gleam: model.GleamOutput(
-        package: "db",
         out: test_out,
         runtime: model.Raw,
         type_mapping: model.StringMapping,
@@ -962,7 +953,6 @@ pub fn execresult_rejected_on_native_runtime_test() {
       schema: ["test/fixtures/all_commands_schema.sql"],
       queries: ["test/fixtures/execresult_query.sql"],
       gleam: model.GleamOutput(
-        package: "db",
         out: "test_output/execresult_reject",
         runtime: model.Native,
         type_mapping: model.StringMapping,
@@ -985,7 +975,6 @@ pub fn execresult_allowed_on_raw_runtime_test() {
       schema: ["test/fixtures/all_commands_schema.sql"],
       queries: ["test/fixtures/execresult_query.sql"],
       gleam: model.GleamOutput(
-        package: "db",
         out: "test_output/execresult_raw",
         runtime: model.Raw,
         type_mapping: model.StringMapping,
@@ -1009,7 +998,6 @@ fn compound_block() -> model.SqlBlock {
     schema: ["test/fixtures/compound_schema.sql"],
     queries: ["test/fixtures/compound_query.sql"],
     gleam: model.GleamOutput(
-      package: "db",
       out: compound_out,
       runtime: model.Raw,
       type_mapping: model.StringMapping,
@@ -1087,7 +1075,6 @@ fn view_block() -> model.SqlBlock {
     schema: ["test/fixtures/view_schema.sql"],
     queries: ["test/fixtures/view_query.sql"],
     gleam: model.GleamOutput(
-      package: "db",
       out: view_out,
       runtime: model.Raw,
       type_mapping: model.StringMapping,
@@ -1172,7 +1159,6 @@ pub fn accept_directory_for_schema_and_queries_test() {
       schema: ["test/fixtures/schema_dir"],
       queries: ["test/fixtures/query_dir"],
       gleam: model.GleamOutput(
-        package: "db",
         out: dir_out,
         runtime: model.Raw,
         type_mapping: model.StringMapping,
@@ -1200,7 +1186,6 @@ pub fn mixed_file_and_directory_inputs_test() {
       schema: ["test/fixtures/schema.sql"],
       queries: ["test/fixtures/query_dir"],
       gleam: model.GleamOutput(
-        package: "db",
         out: dir_out,
         runtime: model.Raw,
         type_mapping: model.StringMapping,

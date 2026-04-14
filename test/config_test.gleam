@@ -17,7 +17,6 @@ pub fn load_sqlc_style_config_test() {
   block.engine |> should.equal(model.PostgreSQL)
   block.schema |> should.equal(["schema.sql"])
   block.queries |> should.equal(["query.sql"])
-  block.gleam.package |> should.equal("db")
   block.gleam.out |> should.equal("../../test_output/db")
   block.gleam.runtime |> should.equal(model.Raw)
 }
