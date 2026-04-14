@@ -1,11 +1,13 @@
 import gleam/list
 import gleam/option.{Some}
+import gleam/string
 import gleeunit
 import gleeunit/should
 import simplifile
 import sqlode/model
 import sqlode/naming
 import sqlode/query_analyzer
+import sqlode/query_analyzer/context
 import sqlode/query_parser
 import sqlode/schema_parser
 
@@ -494,6 +496,47 @@ fn typecast_catalog() -> model.Catalog {
     schema_parser.parse_files([#("test/fixtures/typecast_schema.sql", content)])
 
   catalog
+}
+
+// Error path tests
+
+pub fn table_not_found_error_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: GetMissing :many\nSELECT * FROM nonexistent WHERE id = $1;"
+  let assert Ok(queries) =
+    query_parser.parse_file("missing.sql", model.PostgreSQL, naming_ctx, sql)
+
+  let result =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  result |> should.be_error()
+}
+
+pub fn analysis_error_to_string_table_not_found_test() {
+  let error = context.TableNotFound(query_name: "GetUsers", table_name: "users")
+  let msg = query_analyzer.analysis_error_to_string(error)
+  string.contains(msg, "GetUsers") |> should.be_true()
+  string.contains(msg, "users") |> should.be_true()
+  string.contains(msg, "not found") |> should.be_true()
+}
+
+pub fn analysis_error_to_string_column_not_found_test() {
+  let error =
+    context.ColumnNotFound(
+      query_name: "GetUser",
+      table_name: "users",
+      column_name: "email",
+    )
+  let msg = query_analyzer.analysis_error_to_string(error)
+  string.contains(msg, "GetUser") |> should.be_true()
+  string.contains(msg, "email") |> should.be_true()
+  string.contains(msg, "users") |> should.be_true()
 }
 
 fn join_catalog() -> model.Catalog {

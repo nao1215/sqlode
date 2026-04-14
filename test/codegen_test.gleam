@@ -665,3 +665,26 @@ fn analyzed_star_queries() -> List(model.AnalyzedQuery) {
     )
   result
 }
+
+// --- escape_string tests ---
+
+pub fn escape_string_backslash_test() {
+  common.escape_string("a\\b") |> should.equal("a\\\\b")
+}
+
+pub fn escape_string_double_quote_test() {
+  common.escape_string("say \"hello\"") |> should.equal("say \\\"hello\\\"")
+}
+
+pub fn escape_string_newline_and_tab_test() {
+  common.escape_string("line1\nline2\ttab")
+  |> should.equal("line1\\nline2\\ttab")
+}
+
+pub fn escape_string_carriage_return_test() {
+  common.escape_string("a\rb") |> should.equal("a\\rb")
+}
+
+pub fn escape_string_no_special_chars_test() {
+  common.escape_string("hello world") |> should.equal("hello world")
+}

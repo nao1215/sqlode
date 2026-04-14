@@ -167,6 +167,68 @@ pub fn view_with_cast_expression_test() {
   col_names |> should.equal(["col_a", "col_b"])
 }
 
+pub fn view_basic_select_test() {
+  let content =
+    "CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT);\n"
+    <> "CREATE VIEW active_users AS SELECT id, name FROM users;"
+  let assert Ok(catalog) = schema_parser.parse_files([#("view.sql", content)])
+
+  let assert Ok(view) =
+    list.find(catalog.tables, fn(tbl) { tbl.name == "active_users" })
+  list.length(view.columns) |> should.equal(2)
+  let col_names = list.map(view.columns, fn(c) { c.name })
+  col_names |> should.equal(["id", "name"])
+}
+
+pub fn view_with_alias_test() {
+  let content =
+    "CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);\n"
+    <> "CREATE VIEW user_names AS SELECT id, name AS display_name FROM users;"
+  let assert Ok(catalog) =
+    schema_parser.parse_files([#("view_alias.sql", content)])
+
+  let assert Ok(view) =
+    list.find(catalog.tables, fn(tbl) { tbl.name == "user_names" })
+  let col_names = list.map(view.columns, fn(c) { c.name })
+  col_names |> should.equal(["id", "display_name"])
+}
+
+pub fn view_star_test() {
+  let content =
+    "CREATE TABLE items (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);\n"
+    <> "CREATE VIEW all_items AS SELECT * FROM items;"
+  let assert Ok(catalog) =
+    schema_parser.parse_files([#("view_star.sql", content)])
+
+  let assert Ok(view) =
+    list.find(catalog.tables, fn(tbl) { tbl.name == "all_items" })
+  list.length(view.columns) |> should.equal(2)
+}
+
+pub fn view_or_replace_test() {
+  let content =
+    "CREATE TABLE t (id BIGSERIAL PRIMARY KEY, val TEXT NOT NULL);\n"
+    <> "CREATE OR REPLACE VIEW v AS SELECT id FROM t;"
+  let assert Ok(catalog) =
+    schema_parser.parse_files([#("or_replace.sql", content)])
+
+  let assert Ok(view) = list.find(catalog.tables, fn(tbl) { tbl.name == "v" })
+  list.length(view.columns) |> should.equal(1)
+}
+
+pub fn view_nonexistent_table_test() {
+  let content = "CREATE VIEW v AS SELECT id FROM nonexistent;"
+  let assert Ok(catalog) =
+    schema_parser.parse_files([#("noexist.sql", content)])
+
+  // View referencing nonexistent table still creates view with fallback types
+  let assert Ok(view) = list.find(catalog.tables, fn(tbl) { tbl.name == "v" })
+  let assert [col] = view.columns
+  col.name |> should.equal("id")
+  col.scalar_type |> should.equal(model.StringType)
+  col.nullable |> should.equal(True)
+}
+
 pub fn error_to_string_invalid_column_test() {
   schema_parser.error_to_string(schema_parser.InvalidColumn(
     table: "users",
