@@ -34,8 +34,8 @@ Describe 'sqlode generate'
       The path "$TEST_OUTPUT_DIR/db/models.gleam" should be file
       The contents of file "$TEST_OUTPUT_DIR/db/params.gleam" should include 'GetAuthorParams(id: Int)'
       The contents of file "$TEST_OUTPUT_DIR/db/params.gleam" should include 'runtime.int(params.id)'
-      The contents of file "$TEST_OUTPUT_DIR/db/queries.gleam" should include 'pub fn get_author() -> Query {'
-      The contents of file "$TEST_OUTPUT_DIR/db/queries.gleam" should include 'pub fn list_authors() -> Query {'
+      The contents of file "$TEST_OUTPUT_DIR/db/queries.gleam" should include 'pub fn get_author() -> runtime.RawQuery(params.GetAuthorParams) {'
+      The contents of file "$TEST_OUTPUT_DIR/db/queries.gleam" should include 'pub fn list_authors() -> runtime.RawQuery(params.ListAuthorsParams) {'
       The contents of file "$TEST_OUTPUT_DIR/db/models.gleam" should include 'pub type GetAuthorRow {'
       The contents of file "$TEST_OUTPUT_DIR/db/models.gleam" should include 'pub type ListAuthorsRow {'
     End
