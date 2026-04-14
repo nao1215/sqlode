@@ -42,7 +42,7 @@ sql:
 |--------|--------|-------|
 | `package` | Implemented | Package name for imports |
 | `out` | Implemented | Output directory |
-| `runtime` | Implemented | `raw`, `native` (`based` is reserved, not yet supported) |
+| `runtime` | Implemented | `raw`, `native` (`based` is rejected) |
 | `overrides.types` | Implemented | Map DB types to Gleam types (custom types must be transparent aliases, not opaque) |
 | `overrides.renames` | Implemented | Rename columns in result types |
 
@@ -78,14 +78,14 @@ All core sqlc annotations are implemented:
 - `:execrows` — returns affected row count
 - `:execlastid` — returns last inserted ID
 
-### Not implemented annotations
+Batch annotations and `:copyfrom` are also implemented:
 
-Batch annotations are not yet supported:
+- `:batchone` — batch variant of `:one`
+- `:batchmany` — batch variant of `:many`
+- `:batchexec` — batch variant of `:exec`
+- `:copyfrom` — bulk insert
 
-- `:batchexec`
-- `:batchmany`
-- `:batchone`
-- `:copyfrom`
+`:execresult` is available with `raw` runtime only. It is rejected with `native` runtime.
 
 ## Macros and parameter naming
 
@@ -107,7 +107,7 @@ Batch annotations are not yet supported:
   result type. **Note:** This differs from sqlc's Go behavior which
   produces nested structs. Gleam does not have implicit struct embedding.
 - `sqlc.slice` generates a `List(T)` parameter type.
-- `@name` shorthand is **not yet implemented**.
+- `@name` shorthand is supported on PostgreSQL and SQLite (not MySQL).
 
 ## Type mapping
 
@@ -125,7 +125,7 @@ Batch annotations are not yet supported:
 | TIME, TIMETZ | String |
 | UUID | String |
 | JSON, JSONB | String |
-| PostgreSQL ENUM | String |
+| PostgreSQL ENUM | Generated custom type |
 
 Nullable columns (without `NOT NULL`) are wrapped in `Option(T)`.
 

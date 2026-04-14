@@ -126,8 +126,9 @@ A single flat `runtime.gleam` module exports:
 ### `gen.gleam.runtime` values
 
 - `raw` — generates only params, queries, models (no adapter)
-- `based` — same as native (reserved for future common abstraction)
 - `native` — generates adapter module for pog (PostgreSQL) or sqlight (SQLite)
+
+`based` is rejected at config validation.
 
 ## Implementation status
 
@@ -145,7 +146,6 @@ A single flat `runtime.gleam` module exports:
 
 ### Not yet implemented
 
-- `@name` shorthand for named parameters
 - `database` / `analyzer` config fields for live DB analysis
 - `emit_exact_table_names`, `emit_sql_as_comment`, `query_parameter_limit`
 - Batch annotations (`:batchexec`, `:batchmany`, `:batchone`, `:copyfrom`)
