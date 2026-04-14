@@ -56,6 +56,10 @@ pub fn parse_extended_types_test() {
   schema_parser_test.parse_extended_types_test()
 }
 
+pub fn view_with_cast_expression_test() {
+  schema_parser_test.view_with_cast_expression_test()
+}
+
 pub fn infer_param_type_from_where_clause_test() {
   query_analyzer_test.infer_param_type_from_where_clause_test()
 }

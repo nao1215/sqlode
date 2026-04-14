@@ -155,6 +155,18 @@ pub fn schema_enum_type_test() {
   mood_col.scalar_type |> should.equal(model.EnumType("mood"))
 }
 
+pub fn view_with_cast_expression_test() {
+  let content =
+    "CREATE TABLE t (x TEXT NOT NULL, y TEXT NOT NULL);\n"
+    <> "CREATE VIEW v AS SELECT CAST(x AS TEXT) AS col_a, y AS col_b FROM t;"
+  let assert Ok(catalog) =
+    schema_parser.parse_files([#("cast_view.sql", content)])
+
+  let assert Ok(view) = list.find(catalog.tables, fn(tbl) { tbl.name == "v" })
+  let col_names = list.map(view.columns, fn(c) { c.name })
+  col_names |> should.equal(["col_a", "col_b"])
+}
+
 pub fn error_to_string_invalid_column_test() {
   schema_parser.error_to_string(schema_parser.InvalidColumn(
     table: "users",
