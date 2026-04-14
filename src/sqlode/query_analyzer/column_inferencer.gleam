@@ -22,7 +22,8 @@ pub fn infer_result_columns(
     | model.ExecResult
     | model.ExecRows
     | model.ExecLastId
-    | model.BatchExec -> Ok([])
+    | model.BatchExec
+    | model.CopyFrom -> Ok([])
     model.One | model.Many | model.BatchOne | model.BatchMany -> {
       let normalized = context.normalize_sql(ctx, query.sql)
 

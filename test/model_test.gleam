@@ -82,6 +82,10 @@ pub fn parse_query_command_batchexec_test() {
   model.parse_query_command(":batchexec") |> should.equal(Ok(model.BatchExec))
 }
 
+pub fn parse_query_command_copyfrom_test() {
+  model.parse_query_command(":copyfrom") |> should.equal(Ok(model.CopyFrom))
+}
+
 pub fn parse_query_command_invalid_test() {
   model.parse_query_command(":select") |> should.be_error()
 }

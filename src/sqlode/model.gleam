@@ -119,6 +119,7 @@ pub type QueryCommand {
   BatchOne
   BatchMany
   BatchExec
+  CopyFrom
 }
 
 pub fn parse_query_command(value: String) -> Result(QueryCommand, String) {
@@ -132,9 +133,10 @@ pub fn parse_query_command(value: String) -> Result(QueryCommand, String) {
     ":batchone" -> Ok(BatchOne)
     ":batchmany" -> Ok(BatchMany)
     ":batchexec" -> Ok(BatchExec)
+    ":copyfrom" -> Ok(CopyFrom)
     _ ->
       Error(
-        "must be one of: :one, :many, :exec, :execresult, :execrows, :execlastid, :batchone, :batchmany, :batchexec",
+        "must be one of: :one, :many, :exec, :execresult, :execrows, :execlastid, :batchone, :batchmany, :batchexec, :copyfrom",
       )
   }
 }
@@ -150,6 +152,7 @@ pub fn query_command_to_variant(command: QueryCommand) -> String {
     BatchOne -> "QueryBatchOne"
     BatchMany -> "QueryBatchMany"
     BatchExec -> "QueryBatchExec"
+    CopyFrom -> "QueryCopyFrom"
   }
 }
 

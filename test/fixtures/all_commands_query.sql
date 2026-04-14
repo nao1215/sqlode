@@ -24,3 +24,6 @@ SELECT id, title FROM posts WHERE id = ?1;
 
 -- name: CreatePostBatch :batchexec
 INSERT INTO posts (title, body) VALUES (?1, ?2);
+
+-- name: BulkInsertPosts :copyfrom
+INSERT INTO posts (title, body) VALUES (?1, ?2);
