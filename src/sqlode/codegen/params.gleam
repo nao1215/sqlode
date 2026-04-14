@@ -6,6 +6,7 @@ import sqlode/naming
 pub fn render(
   naming_ctx: naming.NamingContext,
   queries: List(model.AnalyzedQuery),
+  type_mapping: model.TypeMapping,
 ) -> String {
   let has_slices =
     list.any(queries, fn(query) {
@@ -36,7 +37,7 @@ pub fn render(
 
   let declarations =
     queries
-    |> list.map(render_params_declaration(naming_ctx, _))
+    |> list.map(render_params_declaration(naming_ctx, _, type_mapping))
     |> string.join("\n\n")
 
   let lines =
@@ -58,6 +59,7 @@ fn needs_option_import(queries: List(model.AnalyzedQuery)) -> Bool {
 fn render_params_declaration(
   naming_ctx: naming.NamingContext,
   query: model.AnalyzedQuery,
+  type_mapping: model.TypeMapping,
 ) -> String {
   let type_name = naming.to_pascal_case(naming_ctx, query.base.name) <> "Params"
   let function_name = query.base.function_name <> "_values"
@@ -95,7 +97,7 @@ fn render_params_declaration(
           "  "
             <> type_name
             <> "("
-            <> string.join(param_fields(params), ", ")
+            <> string.join(param_fields(params, type_mapping), ", ")
             <> ")",
           "}",
           "",
@@ -113,10 +115,14 @@ fn render_params_declaration(
   }
 }
 
-fn param_fields(params: List(model.QueryParam)) -> List(String) {
+fn param_fields(
+  params: List(model.QueryParam),
+  type_mapping: model.TypeMapping,
+) -> List(String) {
   params
   |> list.map(fn(param) {
-    let base_type = model.scalar_type_to_gleam_type(param.scalar_type)
+    let base_type =
+      model.scalar_type_to_gleam_type(param.scalar_type, type_mapping)
     let typed = case param.is_list {
       True -> "List(" <> base_type <> ")"
       False ->

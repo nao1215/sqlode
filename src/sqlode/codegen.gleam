@@ -16,8 +16,9 @@ pub fn render_queries_module(
 pub fn render_params_module(
   naming_ctx: naming.NamingContext,
   analyzed: List(model.AnalyzedQuery),
+  type_mapping: model.TypeMapping,
 ) -> String {
-  params.render(naming_ctx, analyzed)
+  params.render(naming_ctx, analyzed, type_mapping)
 }
 
 pub fn render_models_module(
@@ -25,8 +26,9 @@ pub fn render_models_module(
   catalog: model.Catalog,
   analyzed: List(model.AnalyzedQuery),
   table_matches: Dict(String, String),
+  type_mapping: model.TypeMapping,
 ) -> String {
-  models.render(naming_ctx, catalog, analyzed, table_matches)
+  models.render(naming_ctx, catalog, analyzed, table_matches, type_mapping)
 }
 
 pub fn render_adapter_module(

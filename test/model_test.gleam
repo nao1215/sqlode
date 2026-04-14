@@ -105,21 +105,43 @@ pub fn query_command_to_variant_test() {
 
 // scalar_type_to_gleam_type tests
 
-pub fn scalar_type_to_gleam_type_test() {
-  model.scalar_type_to_gleam_type(model.IntType) |> should.equal("Int")
-  model.scalar_type_to_gleam_type(model.FloatType) |> should.equal("Float")
-  model.scalar_type_to_gleam_type(model.BoolType) |> should.equal("Bool")
-  model.scalar_type_to_gleam_type(model.StringType) |> should.equal("String")
-  model.scalar_type_to_gleam_type(model.BytesType) |> should.equal("BitArray")
-  model.scalar_type_to_gleam_type(model.DateTimeType) |> should.equal("String")
-  model.scalar_type_to_gleam_type(model.DateType) |> should.equal("String")
-  model.scalar_type_to_gleam_type(model.TimeType) |> should.equal("String")
-  model.scalar_type_to_gleam_type(model.UuidType) |> should.equal("String")
-  model.scalar_type_to_gleam_type(model.JsonType) |> should.equal("String")
-  model.scalar_type_to_gleam_type(model.EnumType("status"))
+pub fn scalar_type_to_gleam_type_string_mapping_test() {
+  let m = model.StringMapping
+  model.scalar_type_to_gleam_type(model.IntType, m) |> should.equal("Int")
+  model.scalar_type_to_gleam_type(model.FloatType, m) |> should.equal("Float")
+  model.scalar_type_to_gleam_type(model.BoolType, m) |> should.equal("Bool")
+  model.scalar_type_to_gleam_type(model.StringType, m) |> should.equal("String")
+  model.scalar_type_to_gleam_type(model.BytesType, m)
+  |> should.equal("BitArray")
+  model.scalar_type_to_gleam_type(model.DateTimeType, m)
   |> should.equal("String")
-  model.scalar_type_to_gleam_type(model.CustomType("UserId", model.IntType))
+  model.scalar_type_to_gleam_type(model.DateType, m) |> should.equal("String")
+  model.scalar_type_to_gleam_type(model.TimeType, m) |> should.equal("String")
+  model.scalar_type_to_gleam_type(model.UuidType, m) |> should.equal("String")
+  model.scalar_type_to_gleam_type(model.JsonType, m) |> should.equal("String")
+  model.scalar_type_to_gleam_type(model.EnumType("status"), m)
+  |> should.equal("String")
+  model.scalar_type_to_gleam_type(model.CustomType("UserId", model.IntType), m)
   |> should.equal("UserId")
+}
+
+pub fn scalar_type_to_gleam_type_rich_mapping_test() {
+  let m = model.RichMapping
+  model.scalar_type_to_gleam_type(model.IntType, m) |> should.equal("Int")
+  model.scalar_type_to_gleam_type(model.FloatType, m) |> should.equal("Float")
+  model.scalar_type_to_gleam_type(model.StringType, m) |> should.equal("String")
+  model.scalar_type_to_gleam_type(model.DateTimeType, m)
+  |> should.equal("SqlTimestamp")
+  model.scalar_type_to_gleam_type(model.DateType, m)
+  |> should.equal("SqlDate")
+  model.scalar_type_to_gleam_type(model.TimeType, m)
+  |> should.equal("SqlTime")
+  model.scalar_type_to_gleam_type(model.UuidType, m)
+  |> should.equal("SqlUuid")
+  model.scalar_type_to_gleam_type(model.JsonType, m)
+  |> should.equal("SqlJson")
+  model.scalar_type_to_gleam_type(model.EnumType("status"), m)
+  |> should.equal("String")
 }
 
 pub fn custom_type_delegates_to_underlying_test() {

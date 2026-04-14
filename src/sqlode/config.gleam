@@ -116,7 +116,7 @@ fn parse_sql_block(node: yay.Node) -> Result(model.SqlBlock, ConfigError) {
   use gleam_node <- result.try(require_node(gen_node, "gleam"))
   use _ <- result.try(check_unknown_keys(
     gleam_node,
-    ["package", "out", "runtime"],
+    ["package", "out", "runtime", "type_mapping"],
     "sql.gen.gleam.",
   ))
   use package <- result.try(required_string(gleam_node, "package"))
@@ -140,6 +140,17 @@ fn parse_sql_block(node: yay.Node) -> Result(model.SqlBlock, ConfigError) {
     _, _ -> Ok(Nil)
   })
 
+  use type_mapping <- result.try(
+    case optional_string(gleam_node, "type_mapping") {
+      Some(value) ->
+        model.parse_type_mapping(value)
+        |> result.map_error(fn(detail) {
+          InvalidValue(field: "sql.gen.gleam.type_mapping", detail:)
+        })
+      None -> Ok(model.StringMapping)
+    },
+  )
+
   use overrides <- result.try(parse_overrides(node))
 
   Ok(model.SqlBlock(
@@ -147,7 +158,7 @@ fn parse_sql_block(node: yay.Node) -> Result(model.SqlBlock, ConfigError) {
     engine:,
     schema:,
     queries:,
-    gleam: model.GleamOutput(package:, out:, runtime:),
+    gleam: model.GleamOutput(package:, out:, runtime:, type_mapping:),
     overrides:,
   ))
 }
