@@ -6,6 +6,7 @@ import gleeunit
 import gleeunit/should
 import simplifile
 import sqlode/codegen
+import sqlode/codegen/common
 import sqlode/model
 import sqlode/naming
 import sqlode/query_analyzer
@@ -411,7 +412,7 @@ fn test_block() -> model.SqlBlock {
     queries: ["test/fixtures/query.sql"],
     gleam: model.GleamOutput(
       package: "db",
-      out: "test_output/db",
+      out: "src/db",
       runtime: model.Raw,
       type_mapping: model.StringMapping,
     ),
@@ -427,7 +428,7 @@ fn test_block_native() -> model.SqlBlock {
     queries: ["test/fixtures/query.sql"],
     gleam: model.GleamOutput(
       package: "db",
-      out: "test_output/db",
+      out: "src/db",
       runtime: model.Native,
       type_mapping: model.StringMapping,
     ),
@@ -457,6 +458,15 @@ fn analyzed_queries(path: String) -> List(model.AnalyzedQuery) {
       queries,
     )
   result
+}
+
+pub fn out_to_module_path_strips_src_prefix_test() {
+  common.out_to_module_path("src/db") |> should.equal("db")
+  common.out_to_module_path("src/generated/db") |> should.equal("generated/db")
+  common.out_to_module_path("/absolute/path/src/db") |> should.equal("db")
+  common.out_to_module_path("/abs/src/generated/db")
+  |> should.equal("generated/db")
+  common.out_to_module_path("test_output/db") |> should.equal("test_output/db")
 }
 
 fn analyzed_star_queries() -> List(model.AnalyzedQuery) {

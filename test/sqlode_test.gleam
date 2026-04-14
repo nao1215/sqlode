@@ -326,3 +326,7 @@ pub fn view_select_star_inferred_test() {
 pub fn run_resolves_paths_relative_to_config_dir_test() {
   generate_test.run_resolves_paths_relative_to_config_dir_test()
 }
+
+pub fn out_to_module_path_strips_src_prefix_test() {
+  codegen_test.out_to_module_path_strips_src_prefix_test()
+}
