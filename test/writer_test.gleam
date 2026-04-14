@@ -95,6 +95,28 @@ pub fn write_all_returns_paths_in_order_test() {
   cleanup()
 }
 
+pub fn write_all_trailing_slash_directory_test() {
+  cleanup()
+  let dir_with_slash = test_dir <> "/"
+  let files = [
+    writer.GeneratedFile(
+      directory: dir_with_slash,
+      path: "trailing.gleam",
+      content: "// trailing slash test",
+    ),
+  ]
+
+  let assert Ok(written) = writer.write_all(files)
+
+  // filepath.join normalizes the path — no double slash
+  written |> should.equal([test_dir <> "/trailing.gleam"])
+
+  let assert Ok(content) = simplifile.read(test_dir <> "/trailing.gleam")
+  content |> should.equal("// trailing slash test")
+
+  cleanup()
+}
+
 pub fn error_to_string_directory_error_test() {
   let error =
     writer.DirectoryCreateError(path: "/bad/path", detail: "Permission denied")
