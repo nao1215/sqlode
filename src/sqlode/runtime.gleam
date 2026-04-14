@@ -20,6 +20,19 @@ pub type Value {
   SqlBytes(BitArray)
 }
 
+/// A typed raw query descriptor that bundles SQL metadata with its parameter
+/// encoder.  The type parameter `p` represents the parameter type for this
+/// query, which ties the query to its expected parameters at the type level.
+pub type RawQuery(p) {
+  RawQuery(
+    name: String,
+    sql: String,
+    command: QueryCommand,
+    param_count: Int,
+    encode: fn(p) -> List(Value),
+  )
+}
+
 pub fn null() -> Value {
   SqlNull
 }

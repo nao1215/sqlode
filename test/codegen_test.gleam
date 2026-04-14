@@ -18,17 +18,25 @@ pub fn main() {
 }
 
 pub fn render_queries_module_test() {
+  let naming_ctx = naming.new()
   let block = test_block()
   let analyzed = analyzed_queries("test/fixtures/query.sql")
-  let rendered = codegen.render_queries_module(block, analyzed)
+  let rendered = codegen.render_queries_module(naming_ctx, block, analyzed)
 
-  string.contains(rendered, "pub fn get_author() -> Query {")
+  string.contains(
+    rendered,
+    "pub fn get_author() -> runtime.RawQuery(params.GetAuthorParams) {",
+  )
   |> should.be_true()
   string.contains(rendered, "import sqlode/runtime")
   |> should.be_true()
+  string.contains(rendered, "import db/params")
+  |> should.be_true()
   string.contains(rendered, "command: runtime.QueryOne")
   |> should.be_true()
-  string.contains(rendered, "pub fn all() -> List(Query) {")
+  string.contains(rendered, "encode: params.get_author_values,")
+  |> should.be_true()
+  string.contains(rendered, "pub fn all() -> List(QueryInfo) {")
   |> should.be_true()
   list.length(analyzed) |> should.equal(2)
 }

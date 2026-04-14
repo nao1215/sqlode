@@ -7,10 +7,11 @@ import sqlode/model
 import sqlode/naming
 
 pub fn render_queries_module(
+  naming_ctx: naming.NamingContext,
   block: model.SqlBlock,
   analyzed: List(model.AnalyzedQuery),
 ) -> String {
-  queries.render(block, analyzed)
+  queries.render(naming_ctx, block, analyzed)
 }
 
 pub fn render_params_module(

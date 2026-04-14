@@ -107,7 +107,7 @@ fn generate_sql_block(
         writer.GeneratedFile(
           directory: out,
           path: "queries.gleam",
-          content: codegen.render_queries_module(block, analyzed),
+          content: codegen.render_queries_module(naming_ctx, block, analyzed),
         ),
       ]
 

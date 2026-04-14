@@ -3,8 +3,10 @@ import gleam/list
 import gleam/string
 import sqlode/codegen/common
 import sqlode/model
+import sqlode/naming
 
 pub fn render(
+  naming_ctx: naming.NamingContext,
   block: model.SqlBlock,
   queries: List(model.AnalyzedQuery),
 ) -> String {
@@ -13,14 +15,14 @@ pub fn render(
 
   let query_functions =
     queries
-    |> list.map(fn(query) { render_query_function(query.base) })
+    |> list.map(render_query_function(naming_ctx, _))
     |> string.join("\n\n")
 
-  let all_queries = case queries {
+  let all_items = case queries {
     [] -> "[]"
     _ ->
       queries
-      |> list.map(fn(query) { query.base.function_name <> "()" })
+      |> list.map(fn(query) { render_query_info_literal(query.base) })
       |> string.join(", ")
       |> fn(items) { "[" <> items <> "]" }
   }
@@ -33,9 +35,10 @@ pub fn render(
       "// runtime: " <> model.runtime_to_string(runtime),
       "",
       "import sqlode/runtime",
+      "import " <> package <> "/params",
       "",
-      "pub type Query {",
-      "  Query(",
+      "pub type QueryInfo {",
+      "  QueryInfo(",
       "    name: String,",
       "    sql: String,",
       "    command: runtime.QueryCommand,",
@@ -43,8 +46,8 @@ pub fn render(
       "  )",
       "}",
       "",
-      "pub fn all() -> List(Query) {",
-      "  " <> all_queries,
+      "pub fn all() -> List(QueryInfo) {",
+      "  " <> all_items,
       "}",
       "",
       query_functions,
@@ -53,20 +56,44 @@ pub fn render(
   )
 }
 
-fn render_query_function(query: model.ParsedQuery) -> String {
+fn render_query_function(
+  naming_ctx: naming.NamingContext,
+  query: model.AnalyzedQuery,
+) -> String {
+  let params_type =
+    naming.to_pascal_case(naming_ctx, query.base.name) <> "Params"
+  let values_fn = query.base.function_name <> "_values"
+
   string.join(
     [
-      "pub fn " <> query.function_name <> "() -> Query {",
-      "  Query(",
-      "    name: \"" <> common.escape_string(query.name) <> "\",",
-      "    sql: \"" <> common.escape_string(query.sql) <> "\",",
+      "pub fn "
+        <> query.base.function_name
+        <> "() -> runtime.RawQuery(params."
+        <> params_type
+        <> ") {",
+      "  runtime.RawQuery(",
+      "    name: \"" <> common.escape_string(query.base.name) <> "\",",
+      "    sql: \"" <> common.escape_string(query.base.sql) <> "\",",
       "    command: runtime."
-        <> model.query_command_to_variant(query.command)
+        <> model.query_command_to_variant(query.base.command)
         <> ",",
-      "    param_count: " <> int.to_string(query.param_count) <> ",",
+      "    param_count: " <> int.to_string(query.base.param_count) <> ",",
+      "    encode: params." <> values_fn <> ",",
       "  )",
       "}",
     ],
     "\n",
   )
+}
+
+fn render_query_info_literal(query: model.ParsedQuery) -> String {
+  "QueryInfo(name: \""
+  <> common.escape_string(query.name)
+  <> "\", sql: \""
+  <> common.escape_string(query.sql)
+  <> "\", command: runtime."
+  <> model.query_command_to_variant(query.command)
+  <> ", param_count: "
+  <> int.to_string(query.param_count)
+  <> ")"
 }
