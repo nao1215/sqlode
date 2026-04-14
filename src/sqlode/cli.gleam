@@ -1,3 +1,4 @@
+import filepath
 import gleam/int
 import gleam/io
 import gleam/list
@@ -95,7 +96,7 @@ fn run_init(path: String) -> Nil {
       case simplifile.write(path, template) {
         Ok(_) -> {
           io.println("Created " <> path)
-          create_stub_files()
+          create_stub_files(filepath.directory_name(path))
         }
         Error(_) -> {
           io.println("Error: failed to write " <> path)
@@ -106,7 +107,7 @@ fn run_init(path: String) -> Nil {
   }
 }
 
-fn create_stub_files() -> Nil {
+fn create_stub_files(base_dir: String) -> Nil {
   let schema_content =
     "CREATE TABLE authors (\n"
     <> "  id BIGSERIAL PRIMARY KEY,\n"
@@ -125,23 +126,27 @@ fn create_stub_files() -> Nil {
     <> "FROM authors\n"
     <> "ORDER BY name;\n"
 
-  let _ = simplifile.create_directory_all("db")
+  let db_dir = filepath.join(base_dir, "db")
+  let schema_path = filepath.join(db_dir, "schema.sql")
+  let query_path = filepath.join(db_dir, "query.sql")
 
-  case simplifile.is_file("db/schema.sql") {
-    Ok(True) -> io.println("  Skipped db/schema.sql (already exists)")
+  let _ = simplifile.create_directory_all(db_dir)
+
+  case simplifile.is_file(schema_path) {
+    Ok(True) -> io.println("  Skipped " <> schema_path <> " (already exists)")
     _ ->
-      case simplifile.write("db/schema.sql", schema_content) {
-        Ok(_) -> io.println("  Created db/schema.sql")
-        Error(_) -> io.println("  Warning: failed to create db/schema.sql")
+      case simplifile.write(schema_path, schema_content) {
+        Ok(_) -> io.println("  Created " <> schema_path)
+        Error(_) -> io.println("  Warning: failed to create " <> schema_path)
       }
   }
 
-  case simplifile.is_file("db/query.sql") {
-    Ok(True) -> io.println("  Skipped db/query.sql (already exists)")
+  case simplifile.is_file(query_path) {
+    Ok(True) -> io.println("  Skipped " <> query_path <> " (already exists)")
     _ ->
-      case simplifile.write("db/query.sql", query_content) {
-        Ok(_) -> io.println("  Created db/query.sql")
-        Error(_) -> io.println("  Warning: failed to create db/query.sql")
+      case simplifile.write(query_path, query_content) {
+        Ok(_) -> io.println("  Created " <> query_path)
+        Error(_) -> io.println("  Warning: failed to create " <> query_path)
       }
   }
 }
