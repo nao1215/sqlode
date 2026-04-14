@@ -1,3 +1,5 @@
+import gleam/list
+import gleam/result
 import gleam/string
 
 pub fn escape_string(input: String) -> String {
@@ -16,9 +18,8 @@ pub fn out_to_module_path(out: String) -> String {
   case string.starts_with(out, "src/") {
     True -> string.drop_start(out, 4)
     False ->
-      case string.split(out, "/src/") {
-        [_, after] -> after
-        _ -> out
-      }
+      string.split(out, "/src/")
+      |> list.last
+      |> result.unwrap(out)
   }
 }
