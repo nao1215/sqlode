@@ -1,3 +1,4 @@
+import filepath
 import gleam/list
 import gleam/result
 import simplifile
@@ -23,7 +24,7 @@ pub fn write_all(files: List(GeneratedFile)) -> Result(List(String), WriteError)
       }),
     )
 
-    let full_path = file.directory <> "/" <> file.path
+    let full_path = filepath.join(file.directory, file.path)
 
     use _ <- result.try(
       simplifile.write(full_path, file.content)
