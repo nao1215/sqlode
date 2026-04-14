@@ -70,6 +70,18 @@ pub fn parse_query_command_execlastid_test() {
   |> should.equal(Ok(model.ExecLastId))
 }
 
+pub fn parse_query_command_batchone_test() {
+  model.parse_query_command(":batchone") |> should.equal(Ok(model.BatchOne))
+}
+
+pub fn parse_query_command_batchmany_test() {
+  model.parse_query_command(":batchmany") |> should.equal(Ok(model.BatchMany))
+}
+
+pub fn parse_query_command_batchexec_test() {
+  model.parse_query_command(":batchexec") |> should.equal(Ok(model.BatchExec))
+}
+
 pub fn parse_query_command_invalid_test() {
   model.parse_query_command(":select") |> should.be_error()
 }

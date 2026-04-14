@@ -116,6 +116,9 @@ pub type QueryCommand {
   ExecResult
   ExecRows
   ExecLastId
+  BatchOne
+  BatchMany
+  BatchExec
 }
 
 pub fn parse_query_command(value: String) -> Result(QueryCommand, String) {
@@ -126,9 +129,12 @@ pub fn parse_query_command(value: String) -> Result(QueryCommand, String) {
     ":execresult" -> Ok(ExecResult)
     ":execrows" -> Ok(ExecRows)
     ":execlastid" -> Ok(ExecLastId)
+    ":batchone" -> Ok(BatchOne)
+    ":batchmany" -> Ok(BatchMany)
+    ":batchexec" -> Ok(BatchExec)
     _ ->
       Error(
-        "must be one of: :one, :many, :exec, :execresult, :execrows, :execlastid",
+        "must be one of: :one, :many, :exec, :execresult, :execrows, :execlastid, :batchone, :batchmany, :batchexec",
       )
   }
 }
@@ -141,6 +147,9 @@ pub fn query_command_to_variant(command: QueryCommand) -> String {
     ExecResult -> "QueryExecResult"
     ExecRows -> "QueryExecRows"
     ExecLastId -> "QueryExecLastId"
+    BatchOne -> "QueryBatchOne"
+    BatchMany -> "QueryBatchMany"
+    BatchExec -> "QueryBatchExec"
   }
 }
 

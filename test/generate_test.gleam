@@ -756,13 +756,16 @@ pub fn all_commands_generate_queries_test() {
 
   let queries = read_commands_file("queries.gleam")
 
-  // All 6 query functions should exist
+  // All 9 query functions should exist
   string.contains(queries, "pub fn get_post()") |> should.be_true()
   string.contains(queries, "pub fn list_posts()") |> should.be_true()
   string.contains(queries, "pub fn create_post()") |> should.be_true()
   string.contains(queries, "pub fn update_post()") |> should.be_true()
   string.contains(queries, "pub fn count_posts()") |> should.be_true()
   string.contains(queries, "pub fn insert_post()") |> should.be_true()
+  string.contains(queries, "pub fn get_post_batch()") |> should.be_true()
+  string.contains(queries, "pub fn list_posts_batch()") |> should.be_true()
+  string.contains(queries, "pub fn create_post_batch()") |> should.be_true()
 
   // Verify command types
   string.contains(queries, "runtime.QueryOne") |> should.be_true()
@@ -771,6 +774,9 @@ pub fn all_commands_generate_queries_test() {
   string.contains(queries, "runtime.QueryExecResult") |> should.be_true()
   string.contains(queries, "runtime.QueryExecRows") |> should.be_true()
   string.contains(queries, "runtime.QueryExecLastId") |> should.be_true()
+  string.contains(queries, "runtime.QueryBatchOne") |> should.be_true()
+  string.contains(queries, "runtime.QueryBatchMany") |> should.be_true()
+  string.contains(queries, "runtime.QueryBatchExec") |> should.be_true()
 
   cleanup_commands()
 }
@@ -793,6 +799,10 @@ pub fn all_commands_generate_params_test() {
   string.contains(params, "InsertPostParams") |> should.be_true()
   // :many without params should still have type
   string.contains(params, "ListPostsParams") |> should.be_true()
+  // batch variants with params
+  string.contains(params, "GetPostBatchParams") |> should.be_true()
+  string.contains(params, "ListPostsBatchParams") |> should.be_true()
+  string.contains(params, "CreatePostBatchParams") |> should.be_true()
 
   cleanup_commands()
 }
@@ -813,6 +823,12 @@ pub fn all_commands_generate_models_test() {
   string.contains(models, "CreatePostRow") |> should.be_false()
   string.contains(models, "UpdatePostRow") |> should.be_false()
   string.contains(models, "InsertPostRow") |> should.be_false()
+
+  // :batchone and :batchmany generate row types
+  string.contains(models, "GetPostBatchRow") |> should.be_true()
+  string.contains(models, "ListPostsBatchRow") |> should.be_true()
+  // :batchexec should NOT generate row types
+  string.contains(models, "CreatePostBatchRow") |> should.be_false()
 
   cleanup_commands()
 }
@@ -841,6 +857,11 @@ pub fn all_commands_sqlight_adapter_test() {
   string.contains(adapter, "Result(Int, sqlight.Error)") |> should.be_true()
   // :execlastid returns Nil (same as exec for sqlight)
   string.contains(adapter, "fn insert_post(") |> should.be_true()
+
+  // batch variants generate adapter functions
+  string.contains(adapter, "fn get_post_batch(") |> should.be_true()
+  string.contains(adapter, "fn list_posts_batch(") |> should.be_true()
+  string.contains(adapter, "fn create_post_batch(") |> should.be_true()
 
   cleanup_commands()
 }
