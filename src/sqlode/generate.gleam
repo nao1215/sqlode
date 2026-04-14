@@ -117,11 +117,8 @@ fn generate_sql_block(
     _ -> {
       let has_row_types =
         list.any(analyzed, fn(query) {
-          case query.base.command {
-            model.One | model.Many | model.BatchOne | model.BatchMany ->
-              !list.is_empty(query.result_columns)
-            _ -> False
-          }
+          model.is_result_command(query.base.command)
+          && !list.is_empty(query.result_columns)
         })
 
       let has_models = has_row_types || !list.is_empty(catalog.tables)
@@ -490,10 +487,7 @@ fn try_match_query_to_table(
   query: model.AnalyzedQuery,
 ) -> Result(#(String, String), Nil) {
   // Only result-returning commands can match a table
-  use <- guard_result(case query.base.command {
-    model.One | model.Many | model.BatchOne | model.BatchMany -> True
-    _ -> False
-  })
+  use <- guard_result(model.is_result_command(query.base.command))
 
   // Queries with embedded columns never match a single table
   let has_embed =

@@ -113,11 +113,8 @@ fn render_adapter(
 
   let has_results =
     list.any(queries, fn(query) {
-      case query.base.command {
-        model.One | model.Many | model.BatchOne | model.BatchMany ->
-          !list.is_empty(query.result_columns)
-        _ -> False
-      }
+      model.is_result_command(query.base.command)
+      && !list.is_empty(query.result_columns)
     })
 
   let has_exec_rows =
@@ -126,26 +123,9 @@ fn render_adapter(
       || query.base.command == model.ExecResult
     })
 
-  let has_slices =
-    list.any(queries, fn(query) {
-      list.any(query.params, fn(param) { param.is_list })
-    })
+  let has_slices = common.queries_have_slices(queries)
 
-  let has_enums =
-    list.any(queries, fn(query) {
-      list.any(query.params, fn(param) {
-        case param.scalar_type {
-          model.EnumType(_) -> True
-          _ -> False
-        }
-      })
-      || list.any(query.result_columns, fn(col) {
-        case col {
-          model.ResultColumn(scalar_type: model.EnumType(_), ..) -> True
-          _ -> False
-        }
-      })
-    })
+  let has_enums = common.queries_have_enums(queries)
 
   let imports =
     list.flatten([
@@ -565,7 +545,7 @@ fn render_pog_query_call(
   _sql_expr: String,
   params: List(model.QueryParam),
 ) -> List(String) {
-  let has_slices = list.any(params, fn(p) { p.is_list })
+  let has_slices = common.has_slices(params)
 
   let param_lines = case params_str {
     "" -> []
@@ -598,7 +578,7 @@ fn render_pog_query_call(
 }
 
 fn render_pog_params(params: List(model.QueryParam), _prefix: String) -> String {
-  let has_slices = list.any(params, fn(p) { p.is_list })
+  let has_slices = common.has_slices(params)
   case has_slices {
     True -> render_pog_params_with_slices(params)
     False -> render_pog_params_simple(params)
@@ -701,7 +681,7 @@ fn render_pog_exec_last_id(
   _sql_expr: String,
   params: List(model.QueryParam),
 ) -> List(String) {
-  let has_slices = list.any(params, fn(p) { p.is_list })
+  let has_slices = common.has_slices(params)
 
   let param_lines = case params_str {
     "" -> []
@@ -759,7 +739,7 @@ fn render_sqlight_query_call(
   _sql_expr: String,
   params: List(model.QueryParam),
 ) -> List(String) {
-  let has_slices = list.any(params, fn(p) { p.is_list })
+  let has_slices = common.has_slices(params)
   case has_slices {
     True -> {
       let slice_expansion = render_slice_expansion_line(params, "?")
@@ -788,7 +768,7 @@ fn render_sqlight_params(
   params: List(model.QueryParam),
   _prefix: String,
 ) -> String {
-  let has_slices = list.any(params, fn(p) { p.is_list })
+  let has_slices = common.has_slices(params)
   case has_slices {
     True -> render_sqlight_params_with_slices(params)
     False -> render_sqlight_params_simple(params)
@@ -917,7 +897,7 @@ fn render_sqlight_exec_last_id(
   _sql_expr: String,
   params: List(model.QueryParam),
 ) -> List(String) {
-  let has_slices = list.any(params, fn(p) { p.is_list })
+  let has_slices = common.has_slices(params)
   let sql_var = case has_slices {
     True -> "sql"
     False -> "q.sql"

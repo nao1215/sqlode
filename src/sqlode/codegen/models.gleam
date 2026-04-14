@@ -24,11 +24,8 @@ pub fn render(
   let row_types =
     queries
     |> list.filter(fn(query) {
-      case query.base.command {
-        model.One | model.Many | model.BatchOne | model.BatchMany ->
-          !list.is_empty(query.result_columns)
-        _ -> False
-      }
+      model.is_result_command(query.base.command)
+      && !list.is_empty(query.result_columns)
     })
     |> list.map(render_row_type_or_alias(
       naming_ctx,
@@ -191,8 +188,8 @@ fn collect_rich_types(
 
 fn needs_option_import_for_results(queries: List(model.AnalyzedQuery)) -> Bool {
   list.any(queries, fn(query) {
-    case query.base.command {
-      model.One | model.Many | model.BatchOne | model.BatchMany ->
+    case model.is_result_command(query.base.command) {
+      True ->
         list.any(query.result_columns, fn(col) {
           case col {
             model.ResultColumn(nullable: True, ..) -> True
@@ -201,7 +198,7 @@ fn needs_option_import_for_results(queries: List(model.AnalyzedQuery)) -> Bool {
             _ -> False
           }
         })
-      _ -> False
+      False -> False
     }
   })
 }
@@ -214,8 +211,8 @@ fn needs_option_import_for_tables(catalog: model.Catalog) -> Bool {
 
 fn has_custom_types_in_results(queries: List(model.AnalyzedQuery)) -> Bool {
   list.any(queries, fn(query) {
-    case query.base.command {
-      model.One | model.Many | model.BatchOne | model.BatchMany ->
+    case model.is_result_command(query.base.command) {
+      True ->
         list.any(query.result_columns, fn(col) {
           case col {
             model.ResultColumn(scalar_type: model.CustomType(..), ..) -> True
@@ -229,7 +226,7 @@ fn has_custom_types_in_results(queries: List(model.AnalyzedQuery)) -> Bool {
             _ -> False
           }
         })
-      _ -> False
+      False -> False
     }
   })
 }
