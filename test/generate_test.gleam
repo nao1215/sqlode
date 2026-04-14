@@ -23,6 +23,8 @@ fn base_block(overrides: model.Overrides) -> model.SqlBlock {
       out: test_out,
       runtime: model.Raw,
       type_mapping: model.StringMapping,
+      emit_sql_as_comment: False,
+      emit_exact_table_names: False,
     ),
     overrides: overrides,
   )
@@ -263,6 +265,8 @@ pub fn rich_type_mapping_emits_semantic_aliases_test() {
         out: test_out,
         runtime: model.Raw,
         type_mapping: model.RichMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -331,6 +335,8 @@ pub fn exact_table_match_produces_alias_test() {
         out: test_out,
         runtime: model.Raw,
         type_mapping: model.StringMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -479,6 +485,8 @@ fn join_rename_block(renames: List(model.ColumnRename)) -> model.SqlBlock {
       out: join_rename_out,
       runtime: model.Raw,
       type_mapping: model.StringMapping,
+      emit_sql_as_comment: False,
+      emit_exact_table_names: False,
     ),
     overrides: model.Overrides(type_overrides: [], column_renames: renames),
   )
@@ -625,6 +633,8 @@ fn nullable_block(overrides: model.Overrides) -> model.SqlBlock {
       out: test_out,
       runtime: model.Raw,
       type_mapping: model.StringMapping,
+      emit_sql_as_comment: False,
+      emit_exact_table_names: False,
     ),
     overrides: overrides,
   )
@@ -728,6 +738,8 @@ fn all_commands_block(
       out: all_commands_out,
       runtime: runtime,
       type_mapping: model.StringMapping,
+      emit_sql_as_comment: False,
+      emit_exact_table_names: False,
     ),
     overrides: model.empty_overrides(),
   )
@@ -859,6 +871,8 @@ pub fn run_with_missing_schema_file_test() {
         out: "test_output/error_test",
         runtime: model.Raw,
         type_mapping: model.StringMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -881,6 +895,8 @@ pub fn run_with_missing_query_file_test() {
         out: "test_output/error_test",
         runtime: model.Raw,
         type_mapping: model.StringMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -904,6 +920,8 @@ pub fn run_with_no_queries_in_file_test() {
         out: test_out,
         runtime: model.Raw,
         type_mapping: model.StringMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -927,6 +945,8 @@ pub fn execresult_rejected_on_native_runtime_test() {
         out: "test_output/execresult_reject",
         runtime: model.Native,
         type_mapping: model.StringMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -949,6 +969,8 @@ pub fn execresult_allowed_on_raw_runtime_test() {
         out: "test_output/execresult_raw",
         runtime: model.Raw,
         type_mapping: model.StringMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -970,6 +992,8 @@ fn unsupported_annotation_block(query_file: String) -> model.SqlBlock {
       out: "test_output/unsupported_reject",
       runtime: model.Raw,
       type_mapping: model.StringMapping,
+      emit_sql_as_comment: False,
+      emit_exact_table_names: False,
     ),
     overrides: model.empty_overrides(),
   )
@@ -1029,6 +1053,8 @@ fn compound_block() -> model.SqlBlock {
       out: compound_out,
       runtime: model.Raw,
       type_mapping: model.StringMapping,
+      emit_sql_as_comment: False,
+      emit_exact_table_names: False,
     ),
     overrides: model.empty_overrides(),
   )
@@ -1106,6 +1132,8 @@ fn view_block() -> model.SqlBlock {
       out: view_out,
       runtime: model.Raw,
       type_mapping: model.StringMapping,
+      emit_sql_as_comment: False,
+      emit_exact_table_names: False,
     ),
     overrides: model.empty_overrides(),
   )
@@ -1190,6 +1218,8 @@ pub fn accept_directory_for_schema_and_queries_test() {
         out: dir_out,
         runtime: model.Raw,
         type_mapping: model.StringMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1217,6 +1247,8 @@ pub fn mixed_file_and_directory_inputs_test() {
         out: dir_out,
         runtime: model.Raw,
         type_mapping: model.StringMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: False,
       ),
       overrides: model.empty_overrides(),
     )

@@ -112,6 +112,17 @@ fn last_dot_segment(identifier: String) -> String {
   }
 }
 
+pub fn table_type_name(
+  naming_ctx: NamingContext,
+  table_name: String,
+  emit_exact_table_names: Bool,
+) -> String {
+  case emit_exact_table_names {
+    True -> to_pascal_case(naming_ctx, table_name)
+    False -> to_pascal_case(naming_ctx, singularize(table_name))
+  }
+}
+
 pub fn singularize(word: String) -> String {
   let lower = string.lowercase(word)
   case lower {

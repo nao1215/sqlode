@@ -116,7 +116,10 @@ fn parse_sql_block(node: yay.Node) -> Result(model.SqlBlock, ConfigError) {
   use gleam_node <- result.try(require_node(gen_node, "gleam"))
   use _ <- result.try(check_unknown_keys(
     gleam_node,
-    ["out", "runtime", "type_mapping"],
+    [
+      "out", "runtime", "type_mapping", "emit_sql_as_comment",
+      "emit_exact_table_names",
+    ],
     "sql.gen.gleam.",
   ))
   use out <- result.try(required_string(gleam_node, "out"))
@@ -150,6 +153,13 @@ fn parse_sql_block(node: yay.Node) -> Result(model.SqlBlock, ConfigError) {
     },
   )
 
+  let emit_sql_as_comment =
+    optional_bool(gleam_node, "emit_sql_as_comment")
+    |> option.unwrap(False)
+  let emit_exact_table_names =
+    optional_bool(gleam_node, "emit_exact_table_names")
+    |> option.unwrap(False)
+
   use overrides <- result.try(parse_overrides(node))
 
   Ok(model.SqlBlock(
@@ -157,7 +167,13 @@ fn parse_sql_block(node: yay.Node) -> Result(model.SqlBlock, ConfigError) {
     engine:,
     schema:,
     queries:,
-    gleam: model.GleamOutput(out:, runtime:, type_mapping:),
+    gleam: model.GleamOutput(
+      out:,
+      runtime:,
+      type_mapping:,
+      emit_sql_as_comment:,
+      emit_exact_table_names:,
+    ),
     overrides:,
   ))
 }

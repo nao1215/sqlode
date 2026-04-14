@@ -14,9 +14,11 @@ pub fn render(
   let model.GleamOutput(runtime:, out:, ..) = gleam
   let module_path = common.out_to_module_path(out)
 
+  let emit_sql_as_comment = gleam.emit_sql_as_comment
+
   let query_functions =
     queries
-    |> list.map(render_query_function(naming_ctx, _))
+    |> list.map(render_query_function(naming_ctx, _, emit_sql_as_comment))
     |> string.join("\n\n")
 
   let all_items = case queries {
@@ -59,29 +61,38 @@ pub fn render(
 fn render_query_function(
   naming_ctx: naming.NamingContext,
   query: model.AnalyzedQuery,
+  emit_sql_as_comment: Bool,
 ) -> String {
   let params_type =
     naming.to_pascal_case(naming_ctx, query.base.name) <> "Params"
   let values_fn = query.base.function_name <> "_values"
 
+  let comment = case emit_sql_as_comment {
+    True -> ["// SQL: " <> query.base.sql]
+    False -> []
+  }
+
   string.join(
-    [
-      "pub fn "
-        <> query.base.function_name
-        <> "() -> runtime.RawQuery(params."
-        <> params_type
-        <> ") {",
-      "  runtime.RawQuery(",
-      "    name: \"" <> common.escape_string(query.base.name) <> "\",",
-      "    sql: \"" <> common.escape_string(query.base.sql) <> "\",",
-      "    command: runtime."
-        <> model.query_command_to_variant(query.base.command)
-        <> ",",
-      "    param_count: " <> int.to_string(query.base.param_count) <> ",",
-      "    encode: params." <> values_fn <> ",",
-      "  )",
-      "}",
-    ],
+    list.flatten([
+      comment,
+      [
+        "pub fn "
+          <> query.base.function_name
+          <> "() -> runtime.RawQuery(params."
+          <> params_type
+          <> ") {",
+        "  runtime.RawQuery(",
+        "    name: \"" <> common.escape_string(query.base.name) <> "\",",
+        "    sql: \"" <> common.escape_string(query.base.sql) <> "\",",
+        "    command: runtime."
+          <> model.query_command_to_variant(query.base.command)
+          <> ",",
+        "    param_count: " <> int.to_string(query.base.param_count) <> ",",
+        "    encode: params." <> values_fn <> ",",
+        "  )",
+        "}",
+      ],
+    ]),
     "\n",
   )
 }

@@ -88,7 +88,13 @@ pub fn empty_overrides() -> Overrides {
 }
 
 pub type GleamOutput {
-  GleamOutput(out: String, runtime: Runtime, type_mapping: TypeMapping)
+  GleamOutput(
+    out: String,
+    runtime: Runtime,
+    type_mapping: TypeMapping,
+    emit_sql_as_comment: Bool,
+    emit_exact_table_names: Bool,
+  )
 }
 
 pub type SqlBlock {
