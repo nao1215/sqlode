@@ -1,3 +1,4 @@
+import gleam/string
 import gleeunit
 import gleeunit/should
 import sqlode/model
@@ -186,4 +187,85 @@ pub fn scalar_type_to_runtime_function_test() {
   |> should.equal("runtime.bytes")
   model.scalar_type_to_runtime_function(model.EnumType("status"))
   |> should.equal("runtime.string")
+}
+
+// parse_type_mapping tests
+
+pub fn parse_type_mapping_string_test() {
+  model.parse_type_mapping("string") |> should.equal(Ok(model.StringMapping))
+}
+
+pub fn parse_type_mapping_rich_test() {
+  model.parse_type_mapping("rich") |> should.equal(Ok(model.RichMapping))
+}
+
+pub fn parse_type_mapping_invalid_test() {
+  let assert Error(msg) = model.parse_type_mapping("unknown")
+  string.contains(msg, "string") |> should.be_true()
+  string.contains(msg, "rich") |> should.be_true()
+}
+
+// is_rich_type tests
+
+pub fn is_rich_type_datetime_test() {
+  model.is_rich_type(model.DateTimeType) |> should.be_true()
+  model.is_rich_type(model.DateType) |> should.be_true()
+  model.is_rich_type(model.TimeType) |> should.be_true()
+  model.is_rich_type(model.UuidType) |> should.be_true()
+  model.is_rich_type(model.JsonType) |> should.be_true()
+}
+
+pub fn is_rich_type_non_rich_test() {
+  model.is_rich_type(model.IntType) |> should.be_false()
+  model.is_rich_type(model.FloatType) |> should.be_false()
+  model.is_rich_type(model.BoolType) |> should.be_false()
+  model.is_rich_type(model.StringType) |> should.be_false()
+  model.is_rich_type(model.BytesType) |> should.be_false()
+  model.is_rich_type(model.EnumType("status")) |> should.be_false()
+}
+
+// scalar_type_to_decoder tests
+
+pub fn scalar_type_to_decoder_sqlite_bool_test() {
+  model.scalar_type_to_decoder(model.SQLite, model.BoolType)
+  |> string.contains("decode.then")
+  |> should.be_true()
+}
+
+pub fn scalar_type_to_decoder_postgresql_bool_test() {
+  model.scalar_type_to_decoder(model.PostgreSQL, model.BoolType)
+  |> should.equal("decode.bool")
+}
+
+// scalar_type_to_value_function tests
+
+pub fn scalar_type_to_value_function_bytes_postgresql_test() {
+  model.scalar_type_to_value_function(model.PostgreSQL, model.BytesType)
+  |> should.equal("bytea")
+}
+
+pub fn scalar_type_to_value_function_bytes_sqlite_test() {
+  model.scalar_type_to_value_function(model.SQLite, model.BytesType)
+  |> should.equal("blob")
+}
+
+// enum helper function tests
+
+pub fn enum_type_name_test() {
+  model.enum_type_name("status") |> should.equal("Status")
+  model.enum_type_name("user_role") |> should.equal("UserRole")
+}
+
+pub fn enum_value_name_test() {
+  model.enum_value_name("active") |> should.equal("Active")
+  model.enum_value_name("in_progress") |> should.equal("InProgress")
+}
+
+pub fn enum_to_string_fn_test() {
+  model.enum_to_string_fn("status") |> should.equal("status_to_string")
+  model.enum_to_string_fn("UserRole") |> should.equal("userrole_to_string")
+}
+
+pub fn enum_from_string_fn_test() {
+  model.enum_from_string_fn("status") |> should.equal("status_from_string")
 }

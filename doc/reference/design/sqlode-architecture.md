@@ -72,7 +72,7 @@ Generates Gleam source files from analyzed queries:
 - `queries.gleam` — query metadata (name, SQL, command, param count)
 - `models.gleam` — result row types (only when queries return rows)
 - `<engine>_adapter.gleam` — database adapter functions (when runtime
-  is `native` or `based`)
+  is `native`)
 
 ### Adapter generation
 
@@ -90,18 +90,29 @@ patterns.
 
 ```text
 src/sqlode/
-  cli.gleam            — CLI commands (generate, init)
+  cli.gleam            — CLI commands (generate, init, version)
   config.gleam         — YAML config parsing
   generate.gleam       — orchestrates the pipeline
   model.gleam          — shared types (Engine, Config, Query, ScalarType, etc.)
   naming.gleam         — NamingContext, identifier normalization, case conversion
-  query_analyzer.gleam — query analysis with AnalyzerContext
   query_parser.gleam   — query annotation parsing with ParserContext
   schema_parser.gleam  — DDL schema parsing
-  codegen.gleam        — Gleam source code generation with AdapterConfig
   runtime.gleam        — runtime types (Value, QueryCommand)
   version.gleam        — version constant
   writer.gleam         — file output
+
+  query_analyzer/
+    column_inferencer.gleam — result column inference
+    context.gleam           — AnalyzerContext with pre-compiled regexes
+    param_inferencer.gleam  — parameter type inference
+    placeholder.gleam       — placeholder extraction and indexing
+
+  codegen/
+    adapter.gleam  — database adapter generation (pog, sqlight)
+    common.gleam   — shared codegen utilities
+    models.gleam   — result row type generation
+    params.gleam   — parameter type generation
+    queries.gleam  — query metadata generation
 ```
 
 ## IR types (`model.gleam`)
@@ -113,7 +124,8 @@ The IR consumed by codegen:
 - `ParsedQuery`, `QueryCommand`, `SqlcMacro`
 - `AnalyzedQuery`, `QueryParam`, `ResultColumn`
 - `ScalarType` — IntType, FloatType, BoolType, StringType, BytesType,
-  DateTimeType, DateType, TimeType, UuidType, JsonType, EnumType
+  DateTimeType, DateType, TimeType, UuidType, JsonType, EnumType,
+  CustomType(name, underlying)
 
 ## Runtime strategy
 
@@ -135,7 +147,7 @@ A single flat `runtime.gleam` module exports:
 ### Completed
 
 - Config parsing with overrides and column renames
-- All 6 query annotations (`:one`, `:many`, `:exec`, `:execresult`, `:execrows`, `:execlastid`)
+- All 10 query annotations (`:one`, `:many`, `:exec`, `:execresult`, `:execrows`, `:execlastid`, `:batchone`, `:batchmany`, `:batchexec`, `:copyfrom`)
 - All sqlc macros (`sqlc.arg`, `sqlc.narg`, `sqlc.slice`, `sqlc.embed`)
 - Comprehensive type mapping (integers, floats, booleans, strings, bytes,
   date/time/timestamp, UUID, JSON/JSONB, PostgreSQL enums)
@@ -147,8 +159,7 @@ A single flat `runtime.gleam` module exports:
 ### Not yet implemented
 
 - `database` / `analyzer` config fields for live DB analysis
-- `emit_exact_table_names`, `emit_sql_as_comment`, `query_parameter_limit`
-- Batch annotations (`:batchexec`, `:batchmany`, `:batchone`, `:copyfrom`)
+- `query_parameter_limit`
 - MySQL native adapter (no Gleam MySQL driver exists)
 - PostgreSQL arrays
 - Golden-file / snapshot testing for codegen output

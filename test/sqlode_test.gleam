@@ -2,6 +2,7 @@ import codegen_test
 import config_test
 import generate_test
 import gleeunit
+import model_test
 import naming_test
 import query_analyzer_test
 import query_parser_test
@@ -386,6 +387,118 @@ pub fn render_pog_adapter_enum_slice_converts_to_string_test() {
 
 pub fn render_sqlight_adapter_enum_slice_converts_to_string_test() {
   codegen_test.render_sqlight_adapter_enum_slice_converts_to_string_test()
+}
+
+// escape_string tests
+
+pub fn escape_string_backslash_test() {
+  codegen_test.escape_string_backslash_test()
+}
+
+pub fn escape_string_double_quote_test() {
+  codegen_test.escape_string_double_quote_test()
+}
+
+pub fn escape_string_newline_and_tab_test() {
+  codegen_test.escape_string_newline_and_tab_test()
+}
+
+pub fn escape_string_carriage_return_test() {
+  codegen_test.escape_string_carriage_return_test()
+}
+
+pub fn escape_string_no_special_chars_test() {
+  codegen_test.escape_string_no_special_chars_test()
+}
+
+// model tests
+
+pub fn parse_type_mapping_string_test() {
+  model_test.parse_type_mapping_string_test()
+}
+
+pub fn parse_type_mapping_rich_test() {
+  model_test.parse_type_mapping_rich_test()
+}
+
+pub fn parse_type_mapping_invalid_test() {
+  model_test.parse_type_mapping_invalid_test()
+}
+
+pub fn is_rich_type_datetime_test() {
+  model_test.is_rich_type_datetime_test()
+}
+
+pub fn is_rich_type_non_rich_test() {
+  model_test.is_rich_type_non_rich_test()
+}
+
+pub fn scalar_type_to_decoder_sqlite_bool_test() {
+  model_test.scalar_type_to_decoder_sqlite_bool_test()
+}
+
+pub fn scalar_type_to_decoder_postgresql_bool_test() {
+  model_test.scalar_type_to_decoder_postgresql_bool_test()
+}
+
+pub fn scalar_type_to_value_function_bytes_postgresql_test() {
+  model_test.scalar_type_to_value_function_bytes_postgresql_test()
+}
+
+pub fn scalar_type_to_value_function_bytes_sqlite_test() {
+  model_test.scalar_type_to_value_function_bytes_sqlite_test()
+}
+
+pub fn enum_type_name_test() {
+  model_test.enum_type_name_test()
+}
+
+pub fn enum_value_name_test() {
+  model_test.enum_value_name_test()
+}
+
+pub fn enum_to_string_fn_test() {
+  model_test.enum_to_string_fn_test()
+}
+
+pub fn enum_from_string_fn_test() {
+  model_test.enum_from_string_fn_test()
+}
+
+// schema_parser view tests
+
+pub fn view_basic_select_test() {
+  schema_parser_test.view_basic_select_test()
+}
+
+pub fn view_with_alias_test() {
+  schema_parser_test.view_with_alias_test()
+}
+
+pub fn view_star_test() {
+  schema_parser_test.view_star_test()
+}
+
+pub fn view_or_replace_test() {
+  schema_parser_test.view_or_replace_test()
+}
+
+pub fn view_nonexistent_table_test() {
+  schema_parser_test.view_nonexistent_table_test()
+}
+
+// query_analyzer error tests
+
+pub fn table_not_found_error_test() {
+  query_analyzer_test.table_not_found_error_test()
+}
+
+pub fn analysis_error_to_string_table_not_found_test() {
+  query_analyzer_test.analysis_error_to_string_table_not_found_test()
+}
+
+pub fn analysis_error_to_string_column_not_found_test() {
+  query_analyzer_test.analysis_error_to_string_column_not_found_test()
 }
 
 pub fn singularize_regular_plural_test() {
