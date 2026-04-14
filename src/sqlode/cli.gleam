@@ -17,6 +17,7 @@ pub fn app() -> glint.Glint(Nil) {
   |> glint.pretty_help(glint.default_pretty_help())
   |> glint.add(at: ["generate"], do: generate_command())
   |> glint.add(at: ["init"], do: init_command())
+  |> glint.add(at: ["version"], do: version_command())
 }
 
 fn generate_command() -> glint.Command(Nil) {
@@ -51,6 +52,14 @@ fn init_command() -> glint.Command(Nil) {
       })
     })
   }
+}
+
+fn version_command() -> glint.Command(Nil) {
+  glint.command_help("Print the sqlode version", fn() {
+    glint.command(fn(_named_args, _args, _flags) {
+      io.println("sqlode v" <> version.version)
+    })
+  })
 }
 
 fn run_generate(config_path: String) -> Nil {
