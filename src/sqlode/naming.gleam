@@ -112,6 +112,106 @@ fn last_dot_segment(identifier: String) -> String {
   }
 }
 
+pub fn singularize(word: String) -> String {
+  let lower = string.lowercase(word)
+  case lower {
+    // Irregular plurals
+    "people" -> apply_case(word, "person")
+    "children" -> apply_case(word, "child")
+    "men" -> apply_case(word, "man")
+    "women" -> apply_case(word, "woman")
+    "mice" -> apply_case(word, "mouse")
+    "geese" -> apply_case(word, "goose")
+    "teeth" -> apply_case(word, "tooth")
+    "feet" -> apply_case(word, "foot")
+    "data" -> apply_case(word, "datum")
+    "media" -> apply_case(word, "medium")
+    "criteria" -> apply_case(word, "criterion")
+    // Uncountable / already singular
+    "news"
+    | "series"
+    | "species"
+    | "status"
+    | "bus"
+    | "alias"
+    | "address"
+    | "campus"
+    | "bonus"
+    | "process"
+    | "analysis"
+    | "basis"
+    | "crisis"
+    | "diagnosis"
+    | "thesis"
+    | "virus"
+    | "focus"
+    | "consensus"
+    | "corpus" -> word
+    _ -> singularize_regular(word, lower)
+  }
+}
+
+fn singularize_regular(word: String, lower: String) -> String {
+  case string.length(word) <= 2 {
+    True -> word
+    False -> singularize_by_suffix(word, lower)
+  }
+}
+
+fn singularize_by_suffix(word: String, lower: String) -> String {
+  case string.ends_with(lower, "ies") {
+    True -> string.drop_end(word, 3) <> apply_suffix_case(word, "y")
+    False ->
+      case string.ends_with(lower, "ves") {
+        True -> string.drop_end(word, 3) <> apply_suffix_case(word, "f")
+        False ->
+          case
+            string.ends_with(lower, "sses")
+            || string.ends_with(lower, "shes")
+            || string.ends_with(lower, "ches")
+            || string.ends_with(lower, "xes")
+            || string.ends_with(lower, "zes")
+          {
+            True -> string.drop_end(word, 2)
+            False ->
+              case string.ends_with(lower, "ss") {
+                True -> word
+                False ->
+                  case string.ends_with(lower, "s") {
+                    True -> string.drop_end(word, 1)
+                    False -> word
+                  }
+              }
+          }
+      }
+  }
+}
+
+fn apply_case(original: String, replacement: String) -> String {
+  case string.uppercase(original) == original {
+    True -> string.uppercase(replacement)
+    False ->
+      case
+        string.first(original)
+        |> result.map(fn(c) { string.uppercase(c) == c })
+        |> result.unwrap(False)
+      {
+        True -> capitalize(replacement)
+        False -> replacement
+      }
+  }
+}
+
+fn apply_suffix_case(word: String, suffix: String) -> String {
+  let last_char =
+    string.slice(word, string.length(word) - 1, 1)
+    |> string.lowercase
+  case last_char == string.uppercase(last_char) {
+    True -> string.uppercase(suffix)
+    False -> suffix
+  }
+}
+
 fn escape_keyword(name: String) -> String {
   case name {
     "as"

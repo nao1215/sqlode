@@ -265,7 +265,10 @@ fn render_decoder(
               let embed_field_name =
                 naming.to_snake_case(naming_ctx, embed_name)
               let embed_type_name =
-                naming.to_pascal_case(naming_ctx, table_name)
+                naming.to_pascal_case(
+                  naming_ctx,
+                  naming.singularize(table_name),
+                )
               let embed_lines =
                 list.index_map(embed_cols, fn(embed_col, embed_idx) {
                   let field_name =

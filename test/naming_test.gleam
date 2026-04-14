@@ -116,3 +116,52 @@ pub fn normalize_dot_then_quotes_test() {
   naming.normalize_identifier("public.\"Authors\"")
   |> should.equal("authors")
 }
+
+// singularize tests
+
+pub fn singularize_regular_plural_test() {
+  naming.singularize("authors") |> should.equal("author")
+  naming.singularize("users") |> should.equal("user")
+  naming.singularize("posts") |> should.equal("post")
+}
+
+pub fn singularize_ies_test() {
+  naming.singularize("categories") |> should.equal("category")
+  naming.singularize("companies") |> should.equal("company")
+}
+
+pub fn singularize_es_test() {
+  naming.singularize("boxes") |> should.equal("box")
+  naming.singularize("watches") |> should.equal("watch")
+  naming.singularize("classes") |> should.equal("class")
+  naming.singularize("dishes") |> should.equal("dish")
+  naming.singularize("buzzes") |> should.equal("buzz")
+}
+
+pub fn singularize_ves_test() {
+  naming.singularize("wolves") |> should.equal("wolf")
+}
+
+pub fn singularize_already_singular_test() {
+  naming.singularize("author") |> should.equal("author")
+  naming.singularize("status") |> should.equal("status")
+  naming.singularize("address") |> should.equal("address")
+}
+
+pub fn singularize_ss_unchanged_test() {
+  naming.singularize("boss") |> should.equal("boss")
+}
+
+pub fn singularize_irregular_test() {
+  naming.singularize("people") |> should.equal("person")
+  naming.singularize("children") |> should.equal("child")
+}
+
+pub fn singularize_compound_table_names_test() {
+  let ctx = naming.new()
+  // blog_posts → singularize("blog_posts") → "blog_post" → PascalCase → "BlogPost"
+  naming.to_pascal_case(ctx, naming.singularize("blog_posts"))
+  |> should.equal("BlogPost")
+  naming.to_pascal_case(ctx, naming.singularize("user_roles"))
+  |> should.equal("UserRole")
+}
