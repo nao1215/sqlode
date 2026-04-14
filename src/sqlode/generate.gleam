@@ -1,3 +1,4 @@
+import filepath
 import gleam/dict.{type Dict}
 import gleam/int
 import gleam/io
@@ -38,7 +39,35 @@ pub fn run(config_path: String) -> Result(List(String), GenerateError) {
     |> result.map_error(ConfigError),
   )
 
-  generate_config(cfg)
+  let config_dir = filepath.directory_name(config_path)
+  let resolved = resolve_config_paths(cfg, config_dir)
+  generate_config(resolved)
+}
+
+fn resolve_config_paths(cfg: model.Config, base_dir: String) -> model.Config {
+  let sql =
+    list.map(cfg.sql, fn(block) {
+      let schema = list.map(block.schema, resolve_path(base_dir, _))
+      let queries = list.map(block.queries, resolve_path(base_dir, _))
+      let gleam =
+        model.GleamOutput(
+          ..block.gleam,
+          out: resolve_path(base_dir, block.gleam.out),
+        )
+      model.SqlBlock(..block, schema:, queries:, gleam:)
+    })
+  model.Config(..cfg, sql:)
+}
+
+fn resolve_path(base_dir: String, path: String) -> String {
+  case filepath.is_absolute(path) {
+    True -> path
+    False ->
+      case filepath.expand(filepath.join(base_dir, path)) {
+        Ok(expanded) -> expanded
+        Error(_) -> filepath.join(base_dir, path)
+      }
+  }
 }
 
 pub fn generate_config(cfg: model.Config) -> Result(List(String), GenerateError) {
