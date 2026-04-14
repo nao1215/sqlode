@@ -2,6 +2,7 @@ import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
 import gleam/string
+import sqlode/codegen/common
 import sqlode/model
 import sqlode/naming
 
@@ -107,7 +108,8 @@ fn render_adapter(
   config: AdapterConfig,
 ) -> String {
   let model.SqlBlock(gleam:, ..) = block
-  let model.GleamOutput(package:, ..) = gleam
+  let model.GleamOutput(out:, ..) = gleam
+  let module_path = common.out_to_module_path(out)
 
   let has_results =
     list.any(queries, fn(query) {
@@ -151,10 +153,13 @@ fn render_adapter(
         False -> []
       },
       case has_results {
-        True -> ["import " <> package <> "/models"]
+        True -> ["import " <> module_path <> "/models"]
         False -> []
       },
-      ["import " <> package <> "/params", "import " <> package <> "/queries"],
+      [
+        "import " <> module_path <> "/params",
+        "import " <> module_path <> "/queries",
+      ],
     ])
 
   let functions =

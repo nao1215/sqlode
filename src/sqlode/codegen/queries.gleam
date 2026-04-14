@@ -11,7 +11,8 @@ pub fn render(
   queries: List(model.AnalyzedQuery),
 ) -> String {
   let model.SqlBlock(engine:, gleam:, ..) = block
-  let model.GleamOutput(package:, runtime:, ..) = gleam
+  let model.GleamOutput(package:, runtime:, out:, ..) = gleam
+  let module_path = common.out_to_module_path(out)
 
   let query_functions =
     queries
@@ -35,7 +36,7 @@ pub fn render(
       "// runtime: " <> model.runtime_to_string(runtime),
       "",
       "import sqlode/runtime",
-      "import " <> package <> "/params",
+      "import " <> module_path <> "/params",
       "",
       "pub type QueryInfo {",
       "  QueryInfo(",
