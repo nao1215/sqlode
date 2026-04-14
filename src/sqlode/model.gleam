@@ -326,6 +326,7 @@ pub type ResultColumn {
     nullable: Bool,
     source_table: Option(String),
   )
+  EmbeddedColumn(name: String, table_name: String, columns: List(Column))
 }
 
 pub type AnalyzedQuery {

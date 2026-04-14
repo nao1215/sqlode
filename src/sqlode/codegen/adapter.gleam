@@ -230,34 +230,86 @@ fn render_decoder(
   case query.result_columns {
     [] -> "decode.success(Nil)"
     columns -> {
-      let field_lines =
-        columns
-        |> list.index_map(fn(col, idx) {
-          let field_name = naming.to_snake_case(naming_ctx, col.name)
-          let decoder = config.decoder_function(col.scalar_type)
-          let full_decoder = case col.nullable {
-            True -> "decode.optional(" <> decoder <> ")"
-            False -> decoder
+      let #(_, field_lines) =
+        list.fold(columns, #(0, []), fn(acc, col) {
+          let #(idx, lines) = acc
+          case col {
+            model.ResultColumn(name:, scalar_type:, nullable:, ..) -> {
+              let field_name = naming.to_snake_case(naming_ctx, name)
+              let decoder = config.decoder_function(scalar_type)
+              let full_decoder = case nullable {
+                True -> "decode.optional(" <> decoder <> ")"
+                False -> decoder
+              }
+              let line =
+                "    use "
+                <> field_name
+                <> " <- decode.field("
+                <> int.to_string(idx)
+                <> ", "
+                <> full_decoder
+                <> ")"
+              #(idx + 1, list.append(lines, [line]))
+            }
+            model.EmbeddedColumn(
+              name: embed_name,
+              table_name:,
+              columns: embed_cols,
+            ) -> {
+              let embed_field_name =
+                naming.to_snake_case(naming_ctx, embed_name)
+              let embed_type_name =
+                naming.to_pascal_case(naming_ctx, table_name)
+              let embed_lines =
+                list.index_map(embed_cols, fn(embed_col, embed_idx) {
+                  let field_name =
+                    naming.to_snake_case(naming_ctx, embed_col.name)
+                  let decoder = config.decoder_function(embed_col.scalar_type)
+                  let full_decoder = case embed_col.nullable {
+                    True -> "decode.optional(" <> decoder <> ")"
+                    False -> decoder
+                  }
+                  "    use "
+                  <> field_name
+                  <> " <- decode.field("
+                  <> int.to_string(idx + embed_idx)
+                  <> ", "
+                  <> full_decoder
+                  <> ")"
+                })
+              let embed_constructor_fields =
+                list.map(embed_cols, fn(c) {
+                  naming.to_snake_case(naming_ctx, c.name) <> ":"
+                })
+                |> string.join(", ")
+              let constructor_line =
+                "    let "
+                <> embed_field_name
+                <> " = models."
+                <> embed_type_name
+                <> "("
+                <> embed_constructor_fields
+                <> ")"
+              let all_lines = list.append(embed_lines, [constructor_line])
+              #(idx + list.length(embed_cols), list.append(lines, all_lines))
+            }
           }
-          "    use "
-          <> field_name
-          <> " <- decode.field("
-          <> int.to_string(idx)
-          <> ", "
-          <> full_decoder
-          <> ")"
         })
-        |> string.join("\n")
 
       let constructor_fields =
         columns
         |> list.map(fn(col) {
-          naming.to_snake_case(naming_ctx, col.name) <> ":"
+          case col {
+            model.ResultColumn(name:, ..) ->
+              naming.to_snake_case(naming_ctx, name) <> ":"
+            model.EmbeddedColumn(name:, ..) ->
+              naming.to_snake_case(naming_ctx, name) <> ":"
+          }
         })
         |> string.join(", ")
 
       "{\n"
-      <> field_lines
+      <> string.join(field_lines, "\n")
       <> "\n    decode.success(models."
       <> type_name
       <> "("
@@ -869,7 +921,14 @@ fn needs_option_import_for_adapter(queries: List(model.AnalyzedQuery)) -> Bool {
     let has_nullable_params =
       list.any(query.params, fn(param) { param.nullable })
     let has_nullable_results =
-      list.any(query.result_columns, fn(col) { col.nullable })
+      list.any(query.result_columns, fn(col) {
+        case col {
+          model.ResultColumn(nullable: True, ..) -> True
+          model.EmbeddedColumn(columns:, ..) ->
+            list.any(columns, fn(c) { c.nullable })
+          _ -> False
+        }
+      })
     let has_one_command = query.base.command == model.One
 
     has_nullable_params || has_nullable_results || has_one_command

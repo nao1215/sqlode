@@ -1,3 +1,4 @@
+import gleam/list
 import gleam/option.{Some}
 import gleeunit
 import gleeunit/should
@@ -383,12 +384,12 @@ pub fn sqlc_embed_expands_table_columns_test() {
     )
   let assert [query] = analyzed
 
-  let assert [id_col, name_col, bio_col, title_col] = query.result_columns
-  id_col.name |> should.equal("id")
-  id_col.scalar_type |> should.equal(model.IntType)
-  name_col.name |> should.equal("name")
-  bio_col.name |> should.equal("bio")
-  bio_col.nullable |> should.equal(True)
+  let assert [embed_col, title_col] = query.result_columns
+  let assert model.EmbeddedColumn(name: embed_name, table_name:, columns:) =
+    embed_col
+  embed_name |> should.equal("authors")
+  table_name |> should.equal("authors")
+  list.length(columns) |> should.equal(3)
   title_col.name |> should.equal("title")
 }
 
@@ -445,7 +446,8 @@ pub fn cte_select_from_real_table_test() {
 
   let assert [id_col, name_col] = query.result_columns
   id_col.name |> should.equal("id")
-  id_col.scalar_type |> should.equal(model.IntType)
+  let assert model.ResultColumn(scalar_type: id_scalar_type, ..) = id_col
+  id_scalar_type |> should.equal(model.IntType)
   name_col.name |> should.equal("name")
 }
 

@@ -93,7 +93,8 @@ pub fn mysql_result_columns_test() {
   list.length(get.result_columns) |> should.equal(2)
   let assert [id_col, name_col] = get.result_columns
   id_col.name |> should.equal("id")
-  id_col.scalar_type |> should.equal(model.IntType)
+  let assert model.ResultColumn(scalar_type: id_scalar_type, ..) = id_col
+  id_scalar_type |> should.equal(model.IntType)
   name_col.name |> should.equal("name")
 }
 
