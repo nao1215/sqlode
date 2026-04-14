@@ -9,10 +9,16 @@ pub fn render(
   catalog: model.Catalog,
   queries: List(model.AnalyzedQuery),
   table_matches: Dict(String, String),
+  type_mapping: model.TypeMapping,
 ) -> String {
+  let semantic_aliases = case type_mapping {
+    model.RichMapping -> render_semantic_type_aliases(catalog, queries)
+    model.StringMapping -> ""
+  }
+
   let table_types =
     catalog.tables
-    |> list.map(render_table_type(naming_ctx, _))
+    |> list.map(render_table_type(naming_ctx, _, type_mapping))
     |> string.join("\n\n")
 
   let row_types =
@@ -23,7 +29,12 @@ pub fn render(
         _ -> False
       }
     })
-    |> list.map(render_row_type_or_alias(naming_ctx, _, table_matches))
+    |> list.map(render_row_type_or_alias(
+      naming_ctx,
+      _,
+      table_matches,
+      type_mapping,
+    ))
     |> string.join("\n\n")
 
   let imports = case
@@ -45,7 +56,7 @@ pub fn render(
   }
 
   let body_parts =
-    [table_types, row_types]
+    [semantic_aliases, table_types, row_types]
     |> list.filter(fn(s) { !string.is_empty(s) })
     |> string.join("\n\n")
 
@@ -66,6 +77,56 @@ pub fn render(
     ])
 
   string.join(lines, "\n")
+}
+
+fn render_semantic_type_aliases(
+  catalog: model.Catalog,
+  queries: List(model.AnalyzedQuery),
+) -> String {
+  let all_types = collect_rich_types(catalog, queries)
+
+  all_types
+  |> list.map(fn(alias_name) { "pub type " <> alias_name <> " =\n  String" })
+  |> string.join("\n\n")
+}
+
+fn collect_rich_types(
+  catalog: model.Catalog,
+  queries: List(model.AnalyzedQuery),
+) -> List(String) {
+  let table_types =
+    catalog.tables
+    |> list.flat_map(fn(table) {
+      list.filter_map(table.columns, fn(col) {
+        case model.is_rich_type(col.scalar_type) {
+          True ->
+            Ok(model.scalar_type_to_gleam_type(
+              col.scalar_type,
+              model.RichMapping,
+            ))
+          False -> Error(Nil)
+        }
+      })
+    })
+
+  let query_types =
+    queries
+    |> list.flat_map(fn(query) {
+      list.filter_map(query.result_columns, fn(col) {
+        case model.is_rich_type(col.scalar_type) {
+          True ->
+            Ok(model.scalar_type_to_gleam_type(
+              col.scalar_type,
+              model.RichMapping,
+            ))
+          False -> Error(Nil)
+        }
+      })
+    })
+
+  list.flatten([table_types, query_types])
+  |> list.unique
+  |> list.sort(string.compare)
 }
 
 fn needs_option_import_for_results(queries: List(model.AnalyzedQuery)) -> Bool {
@@ -102,6 +163,7 @@ fn has_custom_types_in_results(queries: List(model.AnalyzedQuery)) -> Bool {
 fn render_table_type(
   naming_ctx: naming.NamingContext,
   table: model.Table,
+  type_mapping: model.TypeMapping,
 ) -> String {
   let type_name = naming.to_pascal_case(naming_ctx, table.name)
 
@@ -110,8 +172,10 @@ fn render_table_type(
     |> list.map(fn(col) {
       let gleam_type = case col.nullable {
         True ->
-          "Option(" <> model.scalar_type_to_gleam_type(col.scalar_type) <> ")"
-        False -> model.scalar_type_to_gleam_type(col.scalar_type)
+          "Option("
+          <> model.scalar_type_to_gleam_type(col.scalar_type, type_mapping)
+          <> ")"
+        False -> model.scalar_type_to_gleam_type(col.scalar_type, type_mapping)
       }
       naming.to_snake_case(naming_ctx, col.name) <> ": " <> gleam_type
     })
@@ -131,6 +195,7 @@ fn render_row_type_or_alias(
   naming_ctx: naming.NamingContext,
   query: model.AnalyzedQuery,
   table_matches: Dict(String, String),
+  type_mapping: model.TypeMapping,
 ) -> String {
   let row_type_name =
     naming.to_pascal_case(naming_ctx, query.base.name) <> "Row"
@@ -138,13 +203,14 @@ fn render_row_type_or_alias(
   case dict.get(table_matches, query.base.function_name) {
     Ok(table_type_name) ->
       "pub type " <> row_type_name <> " =\n  " <> table_type_name
-    Error(_) -> render_row_type(naming_ctx, query)
+    Error(_) -> render_row_type(naming_ctx, query, type_mapping)
   }
 }
 
 fn render_row_type(
   naming_ctx: naming.NamingContext,
   query: model.AnalyzedQuery,
+  type_mapping: model.TypeMapping,
 ) -> String {
   let type_name = naming.to_pascal_case(naming_ctx, query.base.name) <> "Row"
 
@@ -157,9 +223,10 @@ fn render_row_type(
           let gleam_type = case col.nullable {
             True ->
               "Option("
-              <> model.scalar_type_to_gleam_type(col.scalar_type)
+              <> model.scalar_type_to_gleam_type(col.scalar_type, type_mapping)
               <> ")"
-            False -> model.scalar_type_to_gleam_type(col.scalar_type)
+            False ->
+              model.scalar_type_to_gleam_type(col.scalar_type, type_mapping)
           }
           naming.to_snake_case(naming_ctx, col.name) <> ": " <> gleam_type
         })

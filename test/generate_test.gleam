@@ -18,7 +18,12 @@ fn base_block(overrides: model.Overrides) -> model.SqlBlock {
     engine: model.PostgreSQL,
     schema: ["test/fixtures/schema.sql"],
     queries: ["test/fixtures/query.sql"],
-    gleam: model.GleamOutput(package: "db", out: test_out, runtime: model.Raw),
+    gleam: model.GleamOutput(
+      package: "db",
+      out: test_out,
+      runtime: model.Raw,
+      type_mapping: model.StringMapping,
+    ),
     overrides: overrides,
   )
 }
@@ -244,6 +249,61 @@ pub fn no_overrides_leaves_types_unchanged_test() {
   cleanup()
 }
 
+// --- Rich type mapping tests ---
+
+pub fn rich_type_mapping_emits_semantic_aliases_test() {
+  cleanup()
+  let block =
+    model.SqlBlock(
+      name: option.None,
+      engine: model.PostgreSQL,
+      schema: ["test/fixtures/all_types_schema.sql"],
+      queries: ["test/fixtures/all_types_query.sql"],
+      gleam: model.GleamOutput(
+        package: "db",
+        out: test_out,
+        runtime: model.Raw,
+        type_mapping: model.RichMapping,
+      ),
+      overrides: model.empty_overrides(),
+    )
+
+  run_generate(block)
+  let models = read_generated("models.gleam")
+
+  // Semantic type aliases should be emitted
+  string.contains(models, "pub type SqlTimestamp =") |> should.be_true()
+  string.contains(models, "pub type SqlDate =") |> should.be_true()
+  string.contains(models, "pub type SqlTime =") |> should.be_true()
+  string.contains(models, "pub type SqlUuid =") |> should.be_true()
+  string.contains(models, "pub type SqlJson =") |> should.be_true()
+
+  // Fields should use semantic types
+  string.contains(models, "col_timestamp: SqlTimestamp") |> should.be_true()
+  string.contains(models, "col_date: SqlDate") |> should.be_true()
+  string.contains(models, "col_time: SqlTime") |> should.be_true()
+  string.contains(models, "col_uuid: SqlUuid") |> should.be_true()
+
+  cleanup()
+}
+
+pub fn string_type_mapping_does_not_emit_aliases_test() {
+  cleanup()
+  let block = base_block(model.empty_overrides())
+
+  run_generate(block)
+  let models = read_generated("models.gleam")
+
+  // No semantic aliases with StringMapping
+  string.contains(models, "SqlTimestamp") |> should.be_false()
+  string.contains(models, "SqlDate") |> should.be_false()
+  string.contains(models, "SqlTime") |> should.be_false()
+  string.contains(models, "SqlUuid") |> should.be_false()
+  string.contains(models, "SqlJson") |> should.be_false()
+
+  cleanup()
+}
+
 // --- Table record type tests ---
 
 pub fn table_types_are_emitted_test() {
@@ -268,7 +328,12 @@ pub fn exact_table_match_produces_alias_test() {
       engine: model.PostgreSQL,
       schema: ["test/fixtures/schema.sql"],
       queries: ["test/fixtures/star_query.sql"],
-      gleam: model.GleamOutput(package: "db", out: test_out, runtime: model.Raw),
+      gleam: model.GleamOutput(
+        package: "db",
+        out: test_out,
+        runtime: model.Raw,
+        type_mapping: model.StringMapping,
+      ),
       overrides: model.empty_overrides(),
     )
 
@@ -416,6 +481,7 @@ fn join_rename_block(renames: List(model.ColumnRename)) -> model.SqlBlock {
       package: "db",
       out: join_rename_out,
       runtime: model.Raw,
+      type_mapping: model.StringMapping,
     ),
     overrides: model.Overrides(type_overrides: [], column_renames: renames),
   )
@@ -558,7 +624,12 @@ fn nullable_block(overrides: model.Overrides) -> model.SqlBlock {
     engine: model.SQLite,
     schema: ["test/fixtures/sqlite_schema.sql"],
     queries: ["test/fixtures/sqlite_crud_query.sql"],
-    gleam: model.GleamOutput(package: "db", out: test_out, runtime: model.Raw),
+    gleam: model.GleamOutput(
+      package: "db",
+      out: test_out,
+      runtime: model.Raw,
+      type_mapping: model.StringMapping,
+    ),
     overrides: overrides,
   )
 }
@@ -661,6 +732,7 @@ fn all_commands_block(
       package: "db",
       out: all_commands_out,
       runtime: runtime,
+      type_mapping: model.StringMapping,
     ),
     overrides: model.empty_overrides(),
   )
@@ -794,6 +866,7 @@ pub fn run_with_missing_schema_file_test() {
         package: "db",
         out: "test_output/error_test",
         runtime: model.Raw,
+        type_mapping: model.StringMapping,
       ),
       overrides: model.empty_overrides(),
     )
@@ -816,6 +889,7 @@ pub fn run_with_missing_query_file_test() {
         package: "db",
         out: "test_output/error_test",
         runtime: model.Raw,
+        type_mapping: model.StringMapping,
       ),
       overrides: model.empty_overrides(),
     )
@@ -835,7 +909,12 @@ pub fn run_with_no_queries_in_file_test() {
       engine: model.PostgreSQL,
       schema: ["test/fixtures/schema.sql"],
       queries: ["test/fixtures/schema.sql"],
-      gleam: model.GleamOutput(package: "db", out: test_out, runtime: model.Raw),
+      gleam: model.GleamOutput(
+        package: "db",
+        out: test_out,
+        runtime: model.Raw,
+        type_mapping: model.StringMapping,
+      ),
       overrides: model.empty_overrides(),
     )
   let cfg = model.Config(version: 2, sql: [block])
@@ -861,6 +940,7 @@ fn compound_block() -> model.SqlBlock {
       package: "db",
       out: compound_out,
       runtime: model.Raw,
+      type_mapping: model.StringMapping,
     ),
     overrides: model.empty_overrides(),
   )
@@ -934,7 +1014,12 @@ fn view_block() -> model.SqlBlock {
     engine: model.SQLite,
     schema: ["test/fixtures/view_schema.sql"],
     queries: ["test/fixtures/view_query.sql"],
-    gleam: model.GleamOutput(package: "db", out: view_out, runtime: model.Raw),
+    gleam: model.GleamOutput(
+      package: "db",
+      out: view_out,
+      runtime: model.Raw,
+      type_mapping: model.StringMapping,
+    ),
     overrides: model.empty_overrides(),
   )
 }

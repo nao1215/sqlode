@@ -104,6 +104,20 @@ pub fn reject_mysql_native_runtime_test() {
   string.contains(msg, "raw") |> should.be_true()
 }
 
+// type_mapping config
+
+pub fn load_rich_type_mapping_config_test() {
+  let assert Ok(cfg) = config.load("test/fixtures/rich_types.yaml")
+  let assert [block] = cfg.sql
+  block.gleam.type_mapping |> should.equal(model.RichMapping)
+}
+
+pub fn default_type_mapping_is_string_test() {
+  let assert Ok(cfg) = config.load("test/fixtures/sqlode.yaml")
+  let assert [block] = cfg.sql
+  block.gleam.type_mapping |> should.equal(model.StringMapping)
+}
+
 // gleam_type validation
 
 pub fn reject_lowercase_gleam_type_test() {

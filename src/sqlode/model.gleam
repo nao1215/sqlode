@@ -28,6 +28,26 @@ pub type Runtime {
   Native
 }
 
+pub type TypeMapping {
+  StringMapping
+  RichMapping
+}
+
+pub fn parse_type_mapping(value: String) -> Result(TypeMapping, String) {
+  case value {
+    "string" -> Ok(StringMapping)
+    "rich" -> Ok(RichMapping)
+    _ -> Error("must be one of: string, rich")
+  }
+}
+
+pub fn type_mapping_to_string(mapping: TypeMapping) -> String {
+  case mapping {
+    StringMapping -> "string"
+    RichMapping -> "rich"
+  }
+}
+
 pub fn parse_runtime(value: String) -> Result(Runtime, String) {
   case value {
     "raw" -> Ok(Raw)
@@ -66,7 +86,12 @@ pub fn empty_overrides() -> Overrides {
 }
 
 pub type GleamOutput {
-  GleamOutput(package: String, out: String, runtime: Runtime)
+  GleamOutput(
+    package: String,
+    out: String,
+    runtime: Runtime,
+    type_mapping: TypeMapping,
+  )
 }
 
 pub type SqlBlock {
@@ -156,16 +181,51 @@ pub type EnumDef {
   EnumDef(name: String, values: List(String))
 }
 
-pub fn scalar_type_to_gleam_type(scalar_type: ScalarType) -> String {
+pub fn scalar_type_to_gleam_type(
+  scalar_type: ScalarType,
+  type_mapping: TypeMapping,
+) -> String {
   case scalar_type {
     IntType -> "Int"
     FloatType -> "Float"
     BoolType -> "Bool"
     StringType -> "String"
     BytesType -> "BitArray"
-    DateTimeType | DateType | TimeType | UuidType | JsonType -> "String"
+    DateTimeType ->
+      case type_mapping {
+        RichMapping -> "SqlTimestamp"
+        StringMapping -> "String"
+      }
+    DateType ->
+      case type_mapping {
+        RichMapping -> "SqlDate"
+        StringMapping -> "String"
+      }
+    TimeType ->
+      case type_mapping {
+        RichMapping -> "SqlTime"
+        StringMapping -> "String"
+      }
+    UuidType ->
+      case type_mapping {
+        RichMapping -> "SqlUuid"
+        StringMapping -> "String"
+      }
+    JsonType ->
+      case type_mapping {
+        RichMapping -> "SqlJson"
+        StringMapping -> "String"
+      }
     EnumType(_) -> "String"
     CustomType(name, _) -> name
+  }
+}
+
+/// Returns true if the given ScalarType produces a semantic alias under RichMapping.
+pub fn is_rich_type(scalar_type: ScalarType) -> Bool {
+  case scalar_type {
+    DateTimeType | DateType | TimeType | UuidType | JsonType -> True
+    _ -> False
   }
 }
 

@@ -1,0 +1,10 @@
+version: "2"
+sql:
+  - schema: "test/fixtures/all_types_schema.sql"
+    queries: "test/fixtures/all_types_query.sql"
+    engine: "postgresql"
+    gen:
+      gleam:
+        package: "db"
+        out: "test_output/rich_types"
+        type_mapping: "rich"

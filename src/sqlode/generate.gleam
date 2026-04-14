@@ -98,7 +98,11 @@ fn generate_sql_block(
         writer.GeneratedFile(
           directory: out,
           path: "params.gleam",
-          content: codegen.render_params_module(naming_ctx, analyzed),
+          content: codegen.render_params_module(
+            naming_ctx,
+            analyzed,
+            gleam.type_mapping,
+          ),
         ),
         writer.GeneratedFile(
           directory: out,
@@ -118,6 +122,7 @@ fn generate_sql_block(
                 catalog,
                 analyzed,
                 table_matches,
+                gleam.type_mapping,
               ),
             ),
           ])
@@ -300,7 +305,8 @@ fn gleam_type_to_scalar(
     "string" -> model.StringType
     "bitarray" -> model.BytesType
     _ -> {
-      let underlying_name = model.scalar_type_to_gleam_type(underlying)
+      let underlying_name =
+        model.scalar_type_to_gleam_type(underlying, model.StringMapping)
       io.println_error(
         "Warning: custom gleam_type \""
         <> gleam_type

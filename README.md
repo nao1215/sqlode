@@ -444,6 +444,30 @@ Opaque types are not supported because sqlode generates encoder/decoder calls th
 
 sqlode validates that `gleam_type` values start with an uppercase letter (valid Gleam type name) and emits a warning during generation when custom types are used.
 
+### Semantic type mappings
+
+By default, sqlode maps UUID, JSON, DATE, TIME, and TIMESTAMP columns to `String`. You can enable semantic type aliases with the `type_mapping` option:
+
+```yaml
+gen:
+  gleam:
+    package: "db"
+    out: "src/db"
+    type_mapping: "rich"
+```
+
+When `type_mapping: "rich"` is set, sqlode generates transparent type aliases in `models.gleam` that preserve the semantic meaning of database types:
+
+| SQL type | `string` (default) | `rich` |
+|----------|-------------------|--------|
+| TIMESTAMP / DATETIME | `String` | `SqlTimestamp` |
+| DATE | `String` | `SqlDate` |
+| TIME / TIMETZ | `String` | `SqlTime` |
+| UUID | `String` | `SqlUuid` |
+| JSON / JSONB | `String` | `SqlJson` |
+
+These are transparent aliases over `String`, so encoding and decoding work unchanged. The benefit is type-level documentation: you can distinguish a `SqlUuid` field from a plain `String` in your code.
+
 ## CLI
 
 ```
