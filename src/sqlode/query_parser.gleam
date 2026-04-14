@@ -154,11 +154,13 @@ fn finalize_pending(
       case sql == "" {
         True -> Error(MissingSql(path:, line: start_line, name:))
         False -> {
-          let #(at_expanded, at_macros, next_idx) =
-            expand_at_name_shorthands(ctx, engine, sql)
+          let masked = mask_sql(sql)
+          let #(at_expanded, _at_masked, at_macros, next_idx) =
+            expand_at_name_shorthands(ctx, engine, sql, masked)
           let #(expanded_sql, sqlc_macros) =
             expand_sqlc_macros_from(ctx, engine, at_expanded, next_idx)
           let macros = list.append(at_macros, sqlc_macros)
+          let final_masked = mask_sql(expanded_sql)
           Ok([
             model.ParsedQuery(
               name:,
@@ -166,7 +168,7 @@ fn finalize_pending(
               command:,
               sql: expanded_sql,
               source_path: path,
-              param_count: count_parameters(ctx, engine, expanded_sql),
+              param_count: count_parameters(ctx, engine, final_masked),
               macros:,
             ),
             ..parsed_rev
@@ -290,24 +292,31 @@ fn expand_at_name_shorthands(
   ctx: ParserContext,
   engine: model.Engine,
   sql: String,
-) -> #(String, List(model.SqlcMacro), Int) {
+  masked: String,
+) -> #(String, String, List(model.SqlcMacro), Int) {
   case engine {
-    model.MySQL -> #(sql, [], 1)
+    model.MySQL -> #(sql, masked, [], 1)
     _ -> {
-      let matches = regexp.scan(ctx.at_name_re, sql)
+      let matches = regexp.scan(ctx.at_name_re, masked)
       case matches {
-        [] -> #(sql, [], 1)
+        [] -> #(sql, masked, [], 1)
         _ -> {
-          let #(expanded, macros, next_idx) =
-            list.fold(matches, #(sql, [], 1), fn(acc, match) {
-              let #(current_sql, macro_acc, idx) = acc
+          let #(expanded, expanded_masked, macros, next_idx) =
+            list.fold(matches, #(sql, masked, [], 1), fn(acc, match) {
+              let #(current_sql, current_masked, macro_acc, idx) = acc
               case match.submatches {
                 [Some(name)] -> {
                   let placeholder = engine_placeholder(engine, idx)
-                  let new_sql =
-                    replace_first(current_sql, match.content, placeholder)
+                  let #(new_sql, new_masked) =
+                    replace_first_in_masked(
+                      current_sql,
+                      current_masked,
+                      match.content,
+                      placeholder,
+                    )
                   #(
                     new_sql,
+                    new_masked,
                     [model.SqlcArg(index: idx, name:), ..macro_acc],
                     idx + 1,
                   )
@@ -315,7 +324,7 @@ fn expand_at_name_shorthands(
                 _ -> acc
               }
             })
-          #(expanded, list.reverse(macros), next_idx)
+          #(expanded, expanded_masked, list.reverse(macros), next_idx)
         }
       }
     }
@@ -342,7 +351,7 @@ fn expand_sqlc_macros_from(
               let name = strip_quotes(raw_name)
               let placeholder = engine_placeholder(engine, idx)
               let new_sql =
-                replace_first(current_sql, match.content, placeholder)
+                replace_first_simple(current_sql, match.content, placeholder)
               let sqlc_macro = case kind {
                 "narg" -> model.SqlcNarg(index: idx, name:)
                 "slice" -> model.SqlcSlice(index: idx, name:)
@@ -366,7 +375,7 @@ fn strip_quotes(name: String) -> String {
   }
 }
 
-fn replace_first(
+fn replace_first_simple(
   in text: String,
   each pattern: String,
   with replacement: String,
@@ -382,5 +391,87 @@ fn engine_placeholder(engine: model.Engine, index: Int) -> String {
     model.PostgreSQL -> "$" <> int.to_string(index)
     model.MySQL -> "?"
     model.SQLite -> "?" <> int.to_string(index)
+  }
+}
+
+fn replace_first_in_masked(
+  original: String,
+  masked: String,
+  pattern: String,
+  replacement: String,
+) -> #(String, String) {
+  case string.split_once(masked, pattern) {
+    Ok(#(before_masked, after_masked)) -> {
+      let pos = string.length(before_masked)
+      let before_orig = string.slice(original, 0, pos)
+      let after_orig = string.drop_start(original, pos + string.length(pattern))
+      #(
+        before_orig <> replacement <> after_orig,
+        before_masked <> replacement <> after_masked,
+      )
+    }
+    Error(_) -> #(original, masked)
+  }
+}
+
+// --- SQL masking (strip string literals and comments) ---
+
+type MaskState {
+  MaskNormal
+  MaskSingleQuote
+  MaskDoubleQuote
+  MaskLineComment
+  MaskBlockComment
+}
+
+fn mask_sql(sql: String) -> String {
+  let chars = string.to_graphemes(sql)
+  do_mask(chars, MaskNormal, [])
+  |> list.reverse
+  |> string.join("")
+}
+
+fn do_mask(
+  chars: List(String),
+  state: MaskState,
+  acc: List(String),
+) -> List(String) {
+  case state {
+    MaskNormal ->
+      case chars {
+        [] -> acc
+        ["'", ..rest] -> do_mask(rest, MaskSingleQuote, [" ", ..acc])
+        ["\"", ..rest] -> do_mask(rest, MaskDoubleQuote, [" ", ..acc])
+        ["-", "-", ..rest] -> do_mask(rest, MaskLineComment, [" ", " ", ..acc])
+        ["/", "*", ..rest] -> do_mask(rest, MaskBlockComment, [" ", " ", ..acc])
+        [c, ..rest] -> do_mask(rest, MaskNormal, [c, ..acc])
+      }
+    MaskSingleQuote ->
+      case chars {
+        [] -> acc
+        ["'", "'", ..rest] -> do_mask(rest, MaskSingleQuote, [" ", " ", ..acc])
+        ["'", ..rest] -> do_mask(rest, MaskNormal, [" ", ..acc])
+        [_, ..rest] -> do_mask(rest, MaskSingleQuote, [" ", ..acc])
+      }
+    MaskDoubleQuote ->
+      case chars {
+        [] -> acc
+        ["\"", "\"", ..rest] ->
+          do_mask(rest, MaskDoubleQuote, [" ", " ", ..acc])
+        ["\"", ..rest] -> do_mask(rest, MaskNormal, [" ", ..acc])
+        [_, ..rest] -> do_mask(rest, MaskDoubleQuote, [" ", ..acc])
+      }
+    MaskLineComment ->
+      case chars {
+        [] -> acc
+        ["\n", ..rest] -> do_mask(rest, MaskNormal, ["\n", ..acc])
+        [_, ..rest] -> do_mask(rest, MaskLineComment, [" ", ..acc])
+      }
+    MaskBlockComment ->
+      case chars {
+        [] -> acc
+        ["*", "/", ..rest] -> do_mask(rest, MaskNormal, [" ", " ", ..acc])
+        [_, ..rest] -> do_mask(rest, MaskBlockComment, [" ", ..acc])
+      }
   }
 }
