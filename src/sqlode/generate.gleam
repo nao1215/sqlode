@@ -62,7 +62,11 @@ fn resolve_config_paths(cfg: model.Config, base_dir: String) -> model.Config {
 fn resolve_path(base_dir: String, path: String) -> String {
   case filepath.is_absolute(path) {
     True -> path
-    False -> filepath.join(base_dir, path)
+    False ->
+      case filepath.expand(filepath.join(base_dir, path)) {
+        Ok(expanded) -> expanded
+        Error(_) -> filepath.join(base_dir, path)
+      }
   }
 }
 
