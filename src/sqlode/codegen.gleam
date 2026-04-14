@@ -29,8 +29,16 @@ pub fn render_models_module(
   analyzed: List(model.AnalyzedQuery),
   table_matches: Dict(String, String),
   type_mapping: model.TypeMapping,
+  emit_exact_table_names: Bool,
 ) -> String {
-  models.render(naming_ctx, catalog, analyzed, table_matches, type_mapping)
+  models.render(
+    naming_ctx,
+    catalog,
+    analyzed,
+    table_matches,
+    type_mapping,
+    emit_exact_table_names,
+  )
 }
 
 pub fn render_adapter_module(

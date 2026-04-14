@@ -101,10 +101,16 @@ fn generate_sql_block(
   use Nil <- result.try(validate_unsupported_annotations(analyzed))
   let analyzed = apply_column_renames(analyzed, block.overrides.column_renames)
 
-  let table_matches = compute_table_matches(naming_ctx, catalog, analyzed)
-
   let model.SqlBlock(gleam:, ..) = block
   let model.GleamOutput(out:, ..) = gleam
+
+  let table_matches =
+    compute_table_matches(
+      naming_ctx,
+      catalog,
+      analyzed,
+      gleam.emit_exact_table_names,
+    )
 
   case analyzed {
     [] ->
@@ -154,6 +160,7 @@ fn generate_sql_block(
                 analyzed,
                 table_matches,
                 gleam.type_mapping,
+                gleam.emit_exact_table_names,
               ),
             ),
           ])
@@ -506,10 +513,11 @@ fn compute_table_matches(
   naming_ctx: naming.NamingContext,
   catalog: model.Catalog,
   queries: List(model.AnalyzedQuery),
+  emit_exact_table_names: Bool,
 ) -> Dict(String, String) {
   queries
   |> list.filter_map(fn(query) {
-    try_match_query_to_table(naming_ctx, catalog, query)
+    try_match_query_to_table(naming_ctx, catalog, query, emit_exact_table_names)
   })
   |> dict.from_list
 }
@@ -518,6 +526,7 @@ fn try_match_query_to_table(
   naming_ctx: naming.NamingContext,
   catalog: model.Catalog,
   query: model.AnalyzedQuery,
+  emit_exact_table_names: Bool,
 ) -> Result(#(String, String), Nil) {
   // Only result-returning commands can match a table
   use <- guard_result(model.is_result_command(query.base.command))
@@ -555,7 +564,7 @@ fn try_match_query_to_table(
 
   Ok(#(
     query.base.function_name,
-    naming.to_pascal_case(naming_ctx, naming.singularize(table_name)),
+    naming.table_type_name(naming_ctx, table_name, emit_exact_table_names),
   ))
 }
 

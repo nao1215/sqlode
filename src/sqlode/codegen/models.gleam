@@ -10,6 +10,7 @@ pub fn render(
   queries: List(model.AnalyzedQuery),
   table_matches: Dict(String, String),
   type_mapping: model.TypeMapping,
+  emit_exact_table_names: Bool,
 ) -> String {
   let semantic_aliases = case type_mapping {
     model.RichMapping -> render_semantic_type_aliases(catalog, queries)
@@ -18,7 +19,12 @@ pub fn render(
 
   let table_types =
     catalog.tables
-    |> list.map(render_table_type(naming_ctx, _, type_mapping))
+    |> list.map(render_table_type(
+      naming_ctx,
+      _,
+      type_mapping,
+      emit_exact_table_names,
+    ))
     |> string.join("\n\n")
 
   let row_types =
@@ -32,6 +38,7 @@ pub fn render(
       _,
       table_matches,
       type_mapping,
+      emit_exact_table_names,
     ))
     |> string.join("\n\n")
 
@@ -236,9 +243,10 @@ fn render_table_type(
   naming_ctx: naming.NamingContext,
   table: model.Table,
   type_mapping: model.TypeMapping,
+  emit_exact_table_names: Bool,
 ) -> String {
   let type_name =
-    naming.to_pascal_case(naming_ctx, naming.singularize(table.name))
+    naming.table_type_name(naming_ctx, table.name, emit_exact_table_names)
 
   let fields =
     table.columns
@@ -269,6 +277,7 @@ fn render_row_type_or_alias(
   query: model.AnalyzedQuery,
   table_matches: Dict(String, String),
   type_mapping: model.TypeMapping,
+  emit_exact_table_names: Bool,
 ) -> String {
   let row_type_name =
     naming.to_pascal_case(naming_ctx, query.base.name) <> "Row"
@@ -276,7 +285,8 @@ fn render_row_type_or_alias(
   case dict.get(table_matches, query.base.function_name) {
     Ok(table_type_name) ->
       "pub type " <> row_type_name <> " =\n  " <> table_type_name
-    Error(_) -> render_row_type(naming_ctx, query, type_mapping)
+    Error(_) ->
+      render_row_type(naming_ctx, query, type_mapping, emit_exact_table_names)
   }
 }
 
@@ -284,6 +294,7 @@ fn render_row_type(
   naming_ctx: naming.NamingContext,
   query: model.AnalyzedQuery,
   type_mapping: model.TypeMapping,
+  emit_exact_table_names: Bool,
 ) -> String {
   let type_name = naming.to_pascal_case(naming_ctx, query.base.name) <> "Row"
 
@@ -308,9 +319,10 @@ fn render_row_type(
             model.EmbeddedColumn(name:, table_name:, ..) ->
               naming.to_snake_case(naming_ctx, name)
               <> ": "
-              <> naming.to_pascal_case(
+              <> naming.table_type_name(
                 naming_ctx,
-                naming.singularize(table_name),
+                table_name,
+                emit_exact_table_names,
               )
           }
         })
