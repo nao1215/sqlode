@@ -129,7 +129,7 @@ sqlode generates reusable record types for each table in the schema, plus per-qu
 ```gleam
 // Table record type (singularized) — reusable across queries
 pub type Author {
-  Author(id: Int, name: String, bio: Option(String), created_at: String)
+  Author(id: Int, name: String, bio: Option(String))
 }
 
 // Exact table match — alias instead of duplicate
@@ -156,7 +156,7 @@ pub type QueryInfo {
 pub fn all() -> List(QueryInfo) { ... }
 
 pub fn get_author() -> runtime.RawQuery(params.GetAuthorParams) { ... }
-pub fn list_authors() -> runtime.RawQuery(params.ListAuthorsParams) { ... }
+pub fn list_authors() -> runtime.RawQuery(Nil) { ... }
 pub fn create_author() -> runtime.RawQuery(params.CreateAuthorParams) { ... }
 ```
 
@@ -402,7 +402,7 @@ JOIN filtered ON authors.id = filtered.id;
 
 | SQL type | Gleam type |
 |---|---|
-| INT, INTEGER, BIGINT, SERIAL, BIGSERIAL | Int |
+| INT, INTEGER, SMALLINT, BIGINT, SERIAL, BIGSERIAL | Int |
 | FLOAT, DOUBLE, REAL, NUMERIC, DECIMAL | Float |
 | BOOLEAN, BOOL | Bool |
 | TEXT, VARCHAR, CHAR | String |
