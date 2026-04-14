@@ -1111,3 +1111,65 @@ pub fn run_resolves_paths_relative_to_config_dir_test() {
 
   cleanup_resolve()
 }
+
+// --- Directory input tests ---
+
+const dir_out = "test_output/generate_test_dir"
+
+fn cleanup_dir() {
+  let _ = simplifile.delete(dir_out)
+  Nil
+}
+
+pub fn accept_directory_for_schema_and_queries_test() {
+  cleanup_dir()
+  let block =
+    model.SqlBlock(
+      name: option.None,
+      engine: model.PostgreSQL,
+      schema: ["test/fixtures/schema_dir"],
+      queries: ["test/fixtures/query_dir"],
+      gleam: model.GleamOutput(
+        package: "db",
+        out: dir_out,
+        runtime: model.Raw,
+        type_mapping: model.StringMapping,
+      ),
+      overrides: model.empty_overrides(),
+    )
+
+  let cfg = model.Config(version: 2, sql: [block])
+  let assert Ok(files) = generate.generate_config(cfg)
+
+  list.length(files) |> should.equal(3)
+
+  let assert Ok(models) = simplifile.read(dir_out <> "/models.gleam")
+  string.contains(models, "Authors") |> should.be_true()
+
+  cleanup_dir()
+}
+
+pub fn mixed_file_and_directory_inputs_test() {
+  cleanup_dir()
+  let block =
+    model.SqlBlock(
+      name: option.None,
+      engine: model.PostgreSQL,
+      schema: ["test/fixtures/schema.sql"],
+      queries: ["test/fixtures/query_dir"],
+      gleam: model.GleamOutput(
+        package: "db",
+        out: dir_out,
+        runtime: model.Raw,
+        type_mapping: model.StringMapping,
+      ),
+      overrides: model.empty_overrides(),
+    )
+
+  let cfg = model.Config(version: 2, sql: [block])
+  let assert Ok(files) = generate.generate_config(cfg)
+
+  list.length(files) |> should.equal(3)
+
+  cleanup_dir()
+}
