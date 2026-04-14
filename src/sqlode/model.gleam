@@ -1,4 +1,6 @@
+import gleam/list
 import gleam/option.{type Option}
+import gleam/string
 
 pub type Engine {
   PostgreSQL
@@ -228,7 +230,7 @@ pub fn scalar_type_to_gleam_type(
         RichMapping -> "SqlJson"
         StringMapping -> "String"
       }
-    EnumType(_) -> "String"
+    EnumType(name) -> enum_type_name(name)
     CustomType(name, _) -> name
   }
 }
@@ -347,4 +349,32 @@ pub type AnalyzedQuery {
     params: List(QueryParam),
     result_columns: List(ResultColumn),
   )
+}
+
+pub fn enum_type_name(name: String) -> String {
+  simple_pascal_case(name)
+}
+
+pub fn enum_value_name(value: String) -> String {
+  simple_pascal_case(value)
+}
+
+pub fn enum_to_string_fn(name: String) -> String {
+  string.lowercase(name) <> "_to_string"
+}
+
+pub fn enum_from_string_fn(name: String) -> String {
+  string.lowercase(name) <> "_from_string"
+}
+
+fn simple_pascal_case(input: String) -> String {
+  input
+  |> string.split("_")
+  |> list.map(fn(word) {
+    case string.pop_grapheme(word) {
+      Ok(#(first, rest)) -> string.uppercase(first) <> string.lowercase(rest)
+      Error(_) -> word
+    }
+  })
+  |> string.join("")
 }

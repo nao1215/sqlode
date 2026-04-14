@@ -131,6 +131,22 @@ fn render_adapter(
       list.any(query.params, fn(param) { param.is_list })
     })
 
+  let has_enums =
+    list.any(queries, fn(query) {
+      list.any(query.params, fn(param) {
+        case param.scalar_type {
+          model.EnumType(_) -> True
+          _ -> False
+        }
+      })
+      || list.any(query.result_columns, fn(col) {
+        case col {
+          model.ResultColumn(scalar_type: model.EnumType(_), ..) -> True
+          _ -> False
+        }
+      })
+    })
+
   let imports =
     list.flatten([
       [
@@ -152,7 +168,7 @@ fn render_adapter(
         True -> ["import sqlode/runtime"]
         False -> []
       },
-      case has_results {
+      case has_results || has_enums {
         True -> ["import " <> module_path <> "/models"]
         False -> []
       },
@@ -244,10 +260,16 @@ fn render_decoder(
           case col {
             model.ResultColumn(name:, scalar_type:, nullable:, ..) -> {
               let field_name = naming.to_snake_case(naming_ctx, name)
-              let decoder = config.decoder_function(scalar_type)
+              let base_decoder = case scalar_type {
+                model.EnumType(enum_name) ->
+                  "decode.map(decode.string, models."
+                  <> model.enum_from_string_fn(enum_name)
+                  <> ")"
+                _ -> config.decoder_function(scalar_type)
+              }
               let full_decoder = case nullable {
-                True -> "decode.optional(" <> decoder <> ")"
-                False -> decoder
+                True -> "decode.optional(" <> base_decoder <> ")"
+                False -> base_decoder
               }
               let line =
                 "    use "
@@ -588,19 +610,35 @@ fn render_pog_params_simple(params: List(model.QueryParam)) -> String {
   |> list.map(fn(param) {
     let value_fn =
       model.scalar_type_to_value_function(model.PostgreSQL, param.scalar_type)
-    case param.nullable {
-      False ->
-        "  |> pog.parameter(pog."
-        <> value_fn
+    let field_expr = case param.scalar_type {
+      model.EnumType(name) ->
+        "models."
+        <> model.enum_to_string_fn(name)
         <> "(p."
         <> param.field_name
-        <> "))"
+        <> ")"
+      _ -> "p." <> param.field_name
+    }
+    case param.nullable {
+      False ->
+        "  |> pog.parameter(pog." <> value_fn <> "(" <> field_expr <> "))"
       True ->
-        "  |> pog.parameter(pog.nullable(pog."
-        <> value_fn
-        <> ", p."
-        <> param.field_name
-        <> "))"
+        case param.scalar_type {
+          model.EnumType(name) ->
+            "  |> pog.parameter(pog.nullable(fn(v) { pog."
+            <> value_fn
+            <> "(models."
+            <> model.enum_to_string_fn(name)
+            <> "(v)) }, p."
+            <> param.field_name
+            <> "))"
+          _ ->
+            "  |> pog.parameter(pog.nullable(pog."
+            <> value_fn
+            <> ", p."
+            <> param.field_name
+            <> "))"
+        }
     }
   })
   |> string.join("\n")
@@ -767,14 +805,34 @@ fn render_sqlight_params_simple(params: List(model.QueryParam)) -> String {
         |> list.map(fn(param) {
           let value_fn =
             model.scalar_type_to_value_function(model.SQLite, param.scalar_type)
-          case param.nullable {
-            False -> "sqlight." <> value_fn <> "(p." <> param.field_name <> ")"
-            True ->
-              "sqlight.nullable(sqlight."
-              <> value_fn
-              <> ", p."
+          let field_expr = case param.scalar_type {
+            model.EnumType(name) ->
+              "models."
+              <> model.enum_to_string_fn(name)
+              <> "(p."
               <> param.field_name
               <> ")"
+            _ -> "p." <> param.field_name
+          }
+          case param.nullable {
+            False -> "sqlight." <> value_fn <> "(" <> field_expr <> ")"
+            True ->
+              case param.scalar_type {
+                model.EnumType(name) ->
+                  "sqlight.nullable(fn(v) { sqlight."
+                  <> value_fn
+                  <> "(models."
+                  <> model.enum_to_string_fn(name)
+                  <> "(v)) }, p."
+                  <> param.field_name
+                  <> ")"
+                _ ->
+                  "sqlight.nullable(sqlight."
+                  <> value_fn
+                  <> ", p."
+                  <> param.field_name
+                  <> ")"
+              }
           }
         })
         |> string.join(", ")

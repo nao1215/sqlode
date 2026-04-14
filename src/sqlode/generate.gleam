@@ -8,6 +8,7 @@ import gleam/result
 import gleam/string
 import simplifile
 import sqlode/codegen
+import sqlode/codegen/common
 import sqlode/config
 import sqlode/model
 import sqlode/naming
@@ -133,6 +134,7 @@ fn generate_sql_block(
             naming_ctx,
             analyzed,
             gleam.type_mapping,
+            common.out_to_module_path(out),
           ),
         ),
         writer.GeneratedFile(

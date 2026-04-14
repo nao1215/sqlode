@@ -46,7 +46,12 @@ pub fn render_params_module_test() {
   let naming_ctx = naming.new()
   let analyzed = analyzed_queries("test/fixtures/query.sql")
   let rendered =
-    codegen.render_params_module(naming_ctx, analyzed, model.StringMapping)
+    codegen.render_params_module(
+      naming_ctx,
+      analyzed,
+      model.StringMapping,
+      "db",
+    )
 
   string.contains(rendered, "pub type GetAuthorParams {")
   |> should.be_true()
@@ -200,7 +205,12 @@ pub fn render_params_module_slice_test() {
   let naming_ctx = naming.new()
   let analyzed = analyzed_slice_queries(model.PostgreSQL)
   let rendered =
-    codegen.render_params_module(naming_ctx, analyzed, model.StringMapping)
+    codegen.render_params_module(
+      naming_ctx,
+      analyzed,
+      model.StringMapping,
+      "db",
+    )
 
   // The type should use List(...) for slice params
   string.contains(rendered, "ids: List(")

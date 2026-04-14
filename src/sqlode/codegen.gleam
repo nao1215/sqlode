@@ -18,8 +18,9 @@ pub fn render_params_module(
   naming_ctx: naming.NamingContext,
   analyzed: List(model.AnalyzedQuery),
   type_mapping: model.TypeMapping,
+  module_path: String,
 ) -> String {
-  params.render(naming_ctx, analyzed, type_mapping)
+  params.render(naming_ctx, analyzed, type_mapping, module_path)
 }
 
 pub fn render_models_module(
