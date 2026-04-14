@@ -125,6 +125,9 @@ fn create_stub_files(base_dir: String) -> Nil {
     <> "SELECT id, name\n"
     <> "FROM authors\n"
     <> "ORDER BY name;\n"
+    <> "\n"
+    <> "-- name: CreateAuthor :exec\n"
+    <> "INSERT INTO authors (name, bio) VALUES ($1, $2);\n"
 
   let db_dir = filepath.join(base_dir, "db")
   let schema_path = filepath.join(db_dir, "schema.sql")
