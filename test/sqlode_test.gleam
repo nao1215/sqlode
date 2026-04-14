@@ -380,6 +380,14 @@ pub fn render_enum_decoder_uses_decode_then_test() {
   codegen_test.render_enum_decoder_uses_decode_then_test()
 }
 
+pub fn render_pog_adapter_enum_slice_converts_to_string_test() {
+  codegen_test.render_pog_adapter_enum_slice_converts_to_string_test()
+}
+
+pub fn render_sqlight_adapter_enum_slice_converts_to_string_test() {
+  codegen_test.render_sqlight_adapter_enum_slice_converts_to_string_test()
+}
+
 pub fn singularize_regular_plural_test() {
   naming_test.singularize_regular_plural_test()
 }

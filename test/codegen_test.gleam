@@ -568,6 +568,73 @@ fn enum_analyzed_queries() -> List(model.AnalyzedQuery) {
   result
 }
 
+pub fn render_pog_adapter_enum_slice_converts_to_string_test() {
+  let naming_ctx = naming.new()
+  let analyzed = enum_analyzed_queries()
+
+  let block =
+    model.SqlBlock(
+      name: None,
+      engine: model.PostgreSQL,
+      schema: ["test/fixtures/enum_schema.sql"],
+      queries: ["test/fixtures/enum_query.sql"],
+      gleam: model.GleamOutput(
+        out: "src/db",
+        runtime: model.Native,
+        type_mapping: model.StringMapping,
+      ),
+      overrides: model.empty_overrides(),
+    )
+  let rendered =
+    codegen.render_adapter_module(naming_ctx, block, analyzed, dict.new())
+
+  // Slice enum params should call to_string before pog.text
+  string.contains(rendered, "models.status_to_string(v)")
+  |> should.be_true()
+  string.contains(rendered, "pog.text(models.status_to_string(v))")
+  |> should.be_true()
+}
+
+pub fn render_sqlight_adapter_enum_slice_converts_to_string_test() {
+  let naming_ctx = naming.new()
+  let catalog = enum_test_catalog()
+  let assert Ok(content) = simplifile.read("test/fixtures/enum_query.sql")
+  let assert Ok(queries) =
+    query_parser.parse_file(
+      "test/fixtures/enum_query.sql",
+      model.SQLite,
+      naming_ctx,
+      content,
+    )
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, queries)
+
+  let block =
+    model.SqlBlock(
+      name: None,
+      engine: model.SQLite,
+      schema: ["test/fixtures/enum_schema.sql"],
+      queries: ["test/fixtures/enum_query.sql"],
+      gleam: model.GleamOutput(
+        out: "src/db",
+        runtime: model.Native,
+        type_mapping: model.StringMapping,
+      ),
+      overrides: model.empty_overrides(),
+    )
+  let rendered =
+    codegen.render_adapter_module(naming_ctx, block, analyzed, dict.new())
+
+  // Slice enum params should call to_string before sqlight.text
+  string.contains(rendered, "models.status_to_string(v)")
+  |> should.be_true()
+  string.contains(
+    rendered,
+    "fn(v) { sqlight.text(models.status_to_string(v)) }",
+  )
+  |> should.be_true()
+}
+
 pub fn out_to_module_path_strips_src_prefix_test() {
   common.out_to_module_path("src/db") |> should.equal("db")
   common.out_to_module_path("src/generated/db") |> should.equal("generated/db")

@@ -170,6 +170,30 @@ fn scan_equality_matches(
   }
 }
 
+pub fn infer_in_params(
+  ctx: AnalyzerContext,
+  engine: model.Engine,
+  query: model.ParsedQuery,
+  catalog: model.Catalog,
+) -> List(#(Int, model.Column)) {
+  let normalized = context.normalize_sql(ctx, query.sql)
+  let table_name = context.primary_table_name(ctx, normalized)
+
+  case table_name {
+    None -> []
+    Some(name) ->
+      scan_equality_matches(
+        engine,
+        catalog,
+        name,
+        regexp.scan(ctx.in_clause_re, normalized),
+        1,
+        [],
+      )
+      |> list.reverse
+  }
+}
+
 pub fn extract_type_casts(
   ctx: AnalyzerContext,
   engine: model.Engine,

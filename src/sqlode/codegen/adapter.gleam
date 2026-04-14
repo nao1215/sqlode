@@ -632,12 +632,20 @@ fn render_pog_params_with_slices(params: List(model.QueryParam)) -> String {
     let value_fn =
       model.scalar_type_to_value_function(model.PostgreSQL, param.scalar_type)
     case param.is_list {
-      True ->
+      True -> {
+        let value_expr = case param.scalar_type {
+          model.EnumType(name) ->
+            "models." <> model.enum_to_string_fn(name) <> "(v)"
+          _ -> "v"
+        }
         "  let query = list.fold(p."
         <> param.field_name
         <> ", query, fn(acc, v) { pog.parameter(acc, pog."
         <> value_fn
-        <> "(v)) })"
+        <> "("
+        <> value_expr
+        <> ")) })"
+      }
       False ->
         case param.nullable {
           False ->
@@ -835,11 +843,22 @@ fn render_sqlight_params_with_slices(params: List(model.QueryParam)) -> String {
             model.scalar_type_to_value_function(model.SQLite, param.scalar_type)
           case param.is_list {
             True ->
-              "list.map(p."
-              <> param.field_name
-              <> ", sqlight."
-              <> value_fn
-              <> ")"
+              case param.scalar_type {
+                model.EnumType(name) ->
+                  "list.map(p."
+                  <> param.field_name
+                  <> ", fn(v) { sqlight."
+                  <> value_fn
+                  <> "(models."
+                  <> model.enum_to_string_fn(name)
+                  <> "(v)) })"
+                _ ->
+                  "list.map(p."
+                  <> param.field_name
+                  <> ", sqlight."
+                  <> value_fn
+                  <> ")"
+              }
             False ->
               case param.nullable {
                 False ->
