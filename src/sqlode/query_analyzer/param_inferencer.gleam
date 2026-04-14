@@ -198,12 +198,12 @@ pub fn extract_type_casts(
   ctx: AnalyzerContext,
   engine: model.Engine,
   sql: String,
-) -> dict.Dict(Int, model.ScalarType) {
+) -> Result(dict.Dict(Int, model.ScalarType), #(Int, String)) {
   case engine {
     model.PostgreSQL -> {
       let normalized = context.normalize_sql(ctx, sql)
       regexp.scan(ctx.type_cast_re, normalized)
-      |> list.filter_map(fn(match) {
+      |> list.try_fold(dict.new(), fn(d, match) {
         case match.submatches {
           [Some(ph)] -> {
             let cast_type = string.replace(match.content, ph <> "::", "")
@@ -212,35 +212,37 @@ pub fn extract_type_casts(
               |> string.replace("$", "")
               |> int.parse
             {
-              Ok(index) -> Ok(#(index, cast_type_to_scalar(cast_type)))
-              Error(_) -> Error(Nil)
+              Ok(index) ->
+                case cast_type_to_scalar(cast_type) {
+                  Ok(scalar_type) -> Ok(dict.insert(d, index, scalar_type))
+                  Error(Nil) -> Error(#(index, string.trim(cast_type)))
+                }
+              Error(_) -> Ok(d)
             }
           }
-          _ -> Error(Nil)
+          _ -> Ok(d)
         }
       })
-      |> list.fold(dict.new(), fn(d, entry) {
-        let #(index, scalar_type) = entry
-        dict.insert(d, index, scalar_type)
-      })
     }
-    _ -> dict.new()
+    _ -> Ok(dict.new())
   }
 }
 
-fn cast_type_to_scalar(type_name: String) -> model.ScalarType {
+fn cast_type_to_scalar(type_name: String) -> Result(model.ScalarType, Nil) {
   let lowered = string.lowercase(string.trim(type_name))
   case lowered {
     "int" | "integer" | "bigint" | "smallint" | "serial" | "bigserial" ->
-      model.IntType
-    "float" | "double" | "real" | "numeric" | "decimal" -> model.FloatType
-    "bool" | "boolean" -> model.BoolType
-    "bytea" | "blob" | "binary" -> model.BytesType
-    "uuid" -> model.UuidType
-    "json" | "jsonb" -> model.JsonType
-    "timestamp" | "datetime" -> model.DateTimeType
-    "date" -> model.DateType
-    "time" | "timetz" -> model.TimeType
-    _ -> model.StringType
+      Ok(model.IntType)
+    "float" | "double" | "real" | "numeric" | "decimal" -> Ok(model.FloatType)
+    "bool" | "boolean" -> Ok(model.BoolType)
+    "bytea" | "blob" | "binary" -> Ok(model.BytesType)
+    "uuid" -> Ok(model.UuidType)
+    "json" | "jsonb" -> Ok(model.JsonType)
+    "timestamp" | "datetime" -> Ok(model.DateTimeType)
+    "date" -> Ok(model.DateType)
+    "time" | "timetz" -> Ok(model.TimeType)
+    "text" | "varchar" | "char" | "character" | "string" | "clob" | "name" ->
+      Ok(model.StringType)
+    _ -> Error(Nil)
   }
 }

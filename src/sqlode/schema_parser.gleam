@@ -1,3 +1,4 @@
+import gleam/io
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
@@ -192,12 +193,19 @@ fn parse_create_view(
                   let normalized = naming.normalize_identifier(col_name)
                   case find_column_in_tables(tables, normalized) {
                     Some(col) -> Ok(model.Column(..col, name: normalized))
-                    None ->
+                    None -> {
+                      io.println_error(
+                        "Warning: view column \""
+                        <> normalized
+                        <> "\" could not be resolved from source tables"
+                        <> " — defaulting to String (nullable).",
+                      )
                       Ok(model.Column(
                         name: normalized,
                         scalar_type: model.StringType,
                         nullable: True,
                       ))
+                    }
                   }
                 })
 
@@ -323,10 +331,14 @@ fn parse_column(
                 False -> True
               }
 
-              let scalar_type = case find_enum(type_text, enums) {
-                Some(enum_name) -> model.EnumType(enum_name)
-                None -> infer_scalar_type(type_text)
-              }
+              use scalar_type <- result.try(case find_enum(type_text, enums) {
+                Some(enum_name) -> Ok(model.EnumType(enum_name))
+                None ->
+                  infer_scalar_type(type_text)
+                  |> result.map_error(fn(detail) {
+                    InvalidColumn(table: table_name, detail:)
+                  })
+              })
 
               Ok(Some(model.Column(name:, scalar_type:, nullable:)))
             }
@@ -415,7 +427,7 @@ fn take_type_tokens(tokens: List(String), acc: List(String)) -> List(String) {
   }
 }
 
-fn infer_scalar_type(type_text: String) -> model.ScalarType {
+fn infer_scalar_type(type_text: String) -> Result(model.ScalarType, String) {
   let lowered = string.lowercase(type_text)
 
   // Order matters: check more specific patterns before general ones
@@ -430,20 +442,22 @@ fn infer_scalar_type(type_text: String) -> model.ScalarType {
     #(["timestamp", "datetime"], model.DateTimeType),
     #(["date"], model.DateType),
     #(["timetz", "time"], model.TimeType),
+    #(["text", "char", "clob", "name", "string"], model.StringType),
   ]
 
   find_matching_type(lowered, type_rules)
+  |> result.replace_error("unrecognized SQL type \"" <> type_text <> "\"")
 }
 
 fn find_matching_type(
   lowered: String,
   rules: List(#(List(String), model.ScalarType)),
-) -> model.ScalarType {
+) -> Result(model.ScalarType, Nil) {
   case rules {
-    [] -> model.StringType
+    [] -> Error(Nil)
     [#(patterns, scalar_type), ..rest] ->
       case list.any(patterns, fn(p) { string.contains(lowered, p) }) {
-        True -> scalar_type
+        True -> Ok(scalar_type)
         False -> find_matching_type(lowered, rest)
       }
   }
