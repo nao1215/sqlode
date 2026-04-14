@@ -56,8 +56,13 @@ pub fn render(
     False -> []
   }
 
+  let enum_types =
+    catalog.enums
+    |> list.map(render_enum_type)
+    |> string.join("\n\n")
+
   let body_parts =
-    [semantic_aliases, table_types, row_types]
+    [enum_types, semantic_aliases, table_types, row_types]
     |> list.filter(fn(s) { !string.is_empty(s) })
     |> string.join("\n\n")
 
@@ -78,6 +83,56 @@ pub fn render(
     ])
 
   string.join(lines, "\n")
+}
+
+fn render_enum_type(enum_def: model.EnumDef) -> String {
+  let type_name = model.enum_type_name(enum_def.name)
+  let to_string_fn = model.enum_to_string_fn(enum_def.name)
+  let from_string_fn = model.enum_from_string_fn(enum_def.name)
+
+  let constructors =
+    enum_def.values
+    |> list.map(fn(v) { "  " <> model.enum_value_name(v) })
+    |> string.join("\n")
+
+  let to_string_cases =
+    enum_def.values
+    |> list.map(fn(v) {
+      "    " <> model.enum_value_name(v) <> " -> \"" <> v <> "\""
+    })
+    |> string.join("\n")
+
+  let from_string_cases =
+    enum_def.values
+    |> list.map(fn(v) { "    \"" <> v <> "\" -> " <> model.enum_value_name(v) })
+    |> string.join("\n")
+
+  let default_value = case enum_def.values {
+    [first, ..] -> model.enum_value_name(first)
+    [] -> type_name
+  }
+
+  string.join(
+    [
+      "pub type " <> type_name <> " {",
+      constructors,
+      "}",
+      "",
+      "pub fn " <> to_string_fn <> "(value: " <> type_name <> ") -> String {",
+      "  case value {",
+      to_string_cases,
+      "  }",
+      "}",
+      "",
+      "pub fn " <> from_string_fn <> "(value: String) -> " <> type_name <> " {",
+      "  case value {",
+      from_string_cases,
+      "    _ -> " <> default_value,
+      "  }",
+      "}",
+    ],
+    "\n",
+  )
 }
 
 fn render_semantic_type_aliases(

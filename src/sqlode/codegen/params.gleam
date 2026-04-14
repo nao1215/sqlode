@@ -7,10 +7,21 @@ pub fn render(
   naming_ctx: naming.NamingContext,
   queries: List(model.AnalyzedQuery),
   type_mapping: model.TypeMapping,
+  module_path: String,
 ) -> String {
   let has_slices =
     list.any(queries, fn(query) {
       list.any(query.params, fn(param) { param.is_list })
+    })
+
+  let has_enums =
+    list.any(queries, fn(query) {
+      list.any(query.params, fn(param) {
+        case param.scalar_type {
+          model.EnumType(_) -> True
+          _ -> False
+        }
+      })
     })
 
   let imports = case needs_option_import(queries) {
@@ -24,6 +35,10 @@ pub fn render(
           "import gleam/option.{type Option, None, Some}",
           "import sqlode/runtime.{type Value}",
         ],
+        case has_enums {
+          True -> ["import " <> module_path <> "/models"]
+          False -> []
+        },
       ])
     False ->
       list.flatten([
@@ -32,6 +47,10 @@ pub fn render(
           False -> []
         },
         ["import sqlode/runtime.{type Value}"],
+        case has_enums {
+          True -> ["import " <> module_path <> "/models"]
+          False -> []
+        },
       ])
   }
 
@@ -144,14 +163,31 @@ fn render_param_value(param: model.QueryParam) -> String {
   let value_expr = "params." <> param.field_name
   let runtime_fn = model.scalar_type_to_runtime_function(param.scalar_type)
 
-  case param.nullable {
-    True ->
-      "case "
-      <> value_expr
-      <> " { Some(value) -> "
-      <> runtime_fn
-      <> "(value) None -> runtime.null() }"
-    False -> runtime_fn <> "(" <> value_expr <> ")"
+  case param.scalar_type {
+    model.EnumType(name) -> {
+      let to_string_fn = "models." <> model.enum_to_string_fn(name)
+      case param.nullable {
+        True ->
+          "case "
+          <> value_expr
+          <> " { Some(value) -> "
+          <> runtime_fn
+          <> "("
+          <> to_string_fn
+          <> "(value)) None -> runtime.null() }"
+        False -> runtime_fn <> "(" <> to_string_fn <> "(" <> value_expr <> "))"
+      }
+    }
+    _ ->
+      case param.nullable {
+        True ->
+          "case "
+          <> value_expr
+          <> " { Some(value) -> "
+          <> runtime_fn
+          <> "(value) None -> runtime.null() }"
+        False -> runtime_fn <> "(" <> value_expr <> ")"
+      }
   }
 }
 
@@ -164,16 +200,47 @@ fn param_accessors_flattened(params: List(model.QueryParam)) -> List(String) {
     let runtime_fn = model.scalar_type_to_runtime_function(param.scalar_type)
 
     case param.is_list {
-      True -> "list.map(" <> value_expr <> ", " <> runtime_fn <> ")"
-      False ->
-        case param.nullable {
-          True ->
-            "[case "
+      True ->
+        case param.scalar_type {
+          model.EnumType(name) -> {
+            let to_str = "models." <> model.enum_to_string_fn(name)
+            "list.map("
             <> value_expr
-            <> " { Some(value) -> "
+            <> ", fn(v) { "
             <> runtime_fn
-            <> "(value) None -> runtime.null() }]"
-          False -> "[" <> runtime_fn <> "(" <> value_expr <> ")]"
+            <> "("
+            <> to_str
+            <> "(v)) })"
+          }
+          _ -> "list.map(" <> value_expr <> ", " <> runtime_fn <> ")"
+        }
+      False ->
+        case param.scalar_type {
+          model.EnumType(name) -> {
+            let to_str = "models." <> model.enum_to_string_fn(name)
+            case param.nullable {
+              True ->
+                "[case "
+                <> value_expr
+                <> " { Some(value) -> "
+                <> runtime_fn
+                <> "("
+                <> to_str
+                <> "(value)) None -> runtime.null() }]"
+              False ->
+                "[" <> runtime_fn <> "(" <> to_str <> "(" <> value_expr <> "))]"
+            }
+          }
+          _ ->
+            case param.nullable {
+              True ->
+                "[case "
+                <> value_expr
+                <> " { Some(value) -> "
+                <> runtime_fn
+                <> "(value) None -> runtime.null() }]"
+              False -> "[" <> runtime_fn <> "(" <> value_expr <> ")]"
+            }
         }
     }
   })
