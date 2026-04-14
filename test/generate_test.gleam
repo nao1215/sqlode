@@ -772,7 +772,6 @@ pub fn all_commands_generate_queries_test() {
   string.contains(queries, "runtime.QueryOne") |> should.be_true()
   string.contains(queries, "runtime.QueryMany") |> should.be_true()
   string.contains(queries, "runtime.QueryExec") |> should.be_true()
-  string.contains(queries, "runtime.QueryExecResult") |> should.be_true()
   string.contains(queries, "runtime.QueryExecRows") |> should.be_true()
   string.contains(queries, "runtime.QueryExecLastId") |> should.be_true()
   string.contains(queries, "runtime.QueryBatchOne") |> should.be_true()
@@ -796,7 +795,6 @@ pub fn all_commands_generate_params_test() {
   string.contains(params, "GetPostParams") |> should.be_true()
   // :exec with params
   string.contains(params, "CreatePostParams") |> should.be_true()
-  // :execresult with params
   string.contains(params, "UpdatePostParams") |> should.be_true()
   // :execlastid with params
   string.contains(params, "InsertPostParams") |> should.be_true()
@@ -824,7 +822,7 @@ pub fn all_commands_generate_models_test() {
   string.contains(models, "GetPostRow") |> should.be_true()
   string.contains(models, "ListPostsRow") |> should.be_true()
 
-  // :exec, :execresult, :execlastid should NOT generate row types
+  // :exec, :execlastid should NOT generate row types
   string.contains(models, "CreatePostRow") |> should.be_false()
   string.contains(models, "UpdatePostRow") |> should.be_false()
   string.contains(models, "InsertPostRow") |> should.be_false()
@@ -857,7 +855,7 @@ pub fn all_commands_sqlight_adapter_test() {
   // :exec returns Nil
   string.contains(adapter, "fn create_post(") |> should.be_true()
   string.contains(adapter, "Result(Nil, sqlight.Error)") |> should.be_true()
-  // :execresult returns Nil (same as exec for sqlight)
+  // :exec returns Nil
   string.contains(adapter, "fn update_post(") |> should.be_true()
   // :execrows returns Int
   string.contains(adapter, "fn count_posts(") |> should.be_true()
@@ -954,6 +952,50 @@ pub fn run_with_no_queries_in_file_test() {
     _ -> should.fail()
   }
   cleanup()
+}
+
+pub fn execresult_rejected_on_native_runtime_test() {
+  let block =
+    model.SqlBlock(
+      name: option.None,
+      engine: model.SQLite,
+      schema: ["test/fixtures/all_commands_schema.sql"],
+      queries: ["test/fixtures/execresult_query.sql"],
+      gleam: model.GleamOutput(
+        package: "db",
+        out: "test_output/execresult_reject",
+        runtime: model.Native,
+        type_mapping: model.StringMapping,
+      ),
+      overrides: model.empty_overrides(),
+    )
+  let cfg = model.Config(version: 2, sql: [block])
+  let result = generate.generate_config(cfg)
+  case result {
+    Error(generate.UnsupportedAnnotation(..)) -> Nil
+    _ -> should.fail()
+  }
+}
+
+pub fn execresult_allowed_on_raw_runtime_test() {
+  let block =
+    model.SqlBlock(
+      name: option.None,
+      engine: model.SQLite,
+      schema: ["test/fixtures/all_commands_schema.sql"],
+      queries: ["test/fixtures/execresult_query.sql"],
+      gleam: model.GleamOutput(
+        package: "db",
+        out: "test_output/execresult_raw",
+        runtime: model.Raw,
+        type_mapping: model.StringMapping,
+      ),
+      overrides: model.empty_overrides(),
+    )
+  let cfg = model.Config(version: 2, sql: [block])
+  let assert Ok(_) = generate.generate_config(cfg)
+  let _ = simplifile.delete("test_output/execresult_raw")
+  Nil
 }
 
 // --- UNION/INTERSECT/EXCEPT tests ---
