@@ -1,5 +1,6 @@
 import gleam/list
 import gleam/string
+import sqlode/codegen/common
 import sqlode/model
 import sqlode/naming
 
@@ -9,20 +10,9 @@ pub fn render(
   type_mapping: model.TypeMapping,
   module_path: String,
 ) -> String {
-  let has_slices =
-    list.any(queries, fn(query) {
-      list.any(query.params, fn(param) { param.is_list })
-    })
+  let has_slices = common.queries_have_slices(queries)
 
-  let has_enums =
-    list.any(queries, fn(query) {
-      list.any(query.params, fn(param) {
-        case param.scalar_type {
-          model.EnumType(_) -> True
-          _ -> False
-        }
-      })
-    })
+  let has_enums = common.queries_have_enum_params(queries)
 
   let imports = case needs_option_import(queries) {
     True ->
@@ -102,7 +92,7 @@ fn render_params_declaration(
         "\n",
       )
     params -> {
-      let has_slices = list.any(params, fn(p) { p.is_list })
+      let has_slices = common.has_slices(params)
       let values_body = case has_slices {
         True ->
           "  list.flatten(["

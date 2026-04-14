@@ -119,6 +119,13 @@ pub type QueryCommand {
   CopyFrom
 }
 
+pub fn is_result_command(command: QueryCommand) -> Bool {
+  case command {
+    One | Many | BatchOne | BatchMany -> True
+    _ -> False
+  }
+}
+
 pub fn parse_query_command(value: String) -> Result(QueryCommand, String) {
   case value {
     ":one" -> Ok(One)
