@@ -118,25 +118,29 @@ fn resolve_select_columns(
   nullable_tables: List(String),
 ) -> Result(List(model.ResultColumn), AnalysisError) {
   case columns {
-    [ExtractedColumn(name: "*", ..)] ->
-      case
-        catalog.tables
-        |> list.find(fn(table) { table.name == primary_table })
-      {
-        Ok(table) ->
-          Ok(
-            list.map(table.columns, fn(col) {
-              model.ResultColumn(
-                name: col.name,
-                scalar_type: col.scalar_type,
-                nullable: col.nullable
-                  || list.contains(nullable_tables, primary_table),
-                source_table: Some(primary_table),
-              )
-            }),
-          )
-        Error(_) -> Error(TableNotFound(query_name:, table_name: primary_table))
+    [ExtractedColumn(name: "*", ..)] -> {
+      let result_columns =
+        all_tables
+        |> list.flat_map(fn(table_name) {
+          case list.find(catalog.tables, fn(t) { t.name == table_name }) {
+            Ok(table) ->
+              list.map(table.columns, fn(col) {
+                model.ResultColumn(
+                  name: col.name,
+                  scalar_type: col.scalar_type,
+                  nullable: col.nullable
+                    || list.contains(nullable_tables, table_name),
+                  source_table: Some(table_name),
+                )
+              })
+            Error(_) -> []
+          }
+        })
+      case result_columns {
+        [] -> Error(TableNotFound(query_name:, table_name: primary_table))
+        _ -> Ok(result_columns)
       }
+    }
     _ ->
       list.try_map(columns, fn(extracted) {
         let trimmed = string.trim(extracted.name)
