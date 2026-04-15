@@ -1,6 +1,6 @@
 import gleam/int
 import gleam/list
-import gleam/option.{type Option, None}
+import gleam/option.{type Option, None, Some}
 import gleam/regexp
 import gleam/string
 import sqlode/model
@@ -138,6 +138,22 @@ pub fn find_column(
       |> option.from_result
     Error(_) -> None
   }
+}
+
+/// Search for a column across multiple tables, returning the column and the
+/// table name where it was found.
+pub fn find_column_in_tables(
+  catalog: model.Catalog,
+  table_names: List(String),
+  column_name: String,
+) -> Option(#(String, model.Column)) {
+  list.find_map(table_names, fn(name) {
+    case find_column(catalog, name, column_name) {
+      Some(col) -> Ok(#(name, col))
+      None -> Error(Nil)
+    }
+  })
+  |> option.from_result
 }
 
 pub fn split_csv(text: String) -> List(String) {
