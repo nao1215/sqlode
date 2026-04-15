@@ -261,28 +261,14 @@ fn render_decoder(
           let #(idx, lines) = acc
           case col {
             model.ResultColumn(name:, scalar_type:, nullable:, ..) -> {
-              let field_name = naming.to_snake_case(naming_ctx, name)
-              let base_decoder = case scalar_type {
-                model.EnumType(enum_name) ->
-                  "decode.then(decode.string, fn(s) { case models."
-                  <> model.enum_from_string_fn(enum_name)
-                  <> "(s) { Ok(v) -> decode.success(v) Error(_) -> decode.failure(s, \"valid "
-                  <> enum_name
-                  <> " value\") } })"
-                _ -> config.decoder_function(scalar_type)
-              }
-              let full_decoder = case nullable {
-                True -> "decode.optional(" <> base_decoder <> ")"
-                False -> base_decoder
-              }
               let line =
-                "    use "
-                <> field_name
-                <> " <- decode.field("
-                <> int.to_string(idx)
-                <> ", "
-                <> full_decoder
-                <> ")"
+                render_field_decode_line(
+                  naming.to_snake_case(naming_ctx, name),
+                  idx,
+                  scalar_type,
+                  nullable,
+                  config,
+                )
               #(idx + 1, list.append(lines, [line]))
             }
             model.EmbeddedColumn(
@@ -290,46 +276,17 @@ fn render_decoder(
               table_name:,
               columns: embed_cols,
             ) -> {
-              let embed_field_name =
-                naming.to_snake_case(naming_ctx, embed_name)
-              let embed_type_name =
-                naming.table_type_name(
+              let #(new_idx, embed_lines) =
+                render_embedded_column_lines(
                   naming_ctx,
+                  embed_name,
                   table_name,
+                  embed_cols,
+                  idx,
+                  config,
                   emit_exact_table_names,
                 )
-              let embed_lines =
-                list.index_map(embed_cols, fn(embed_col, embed_idx) {
-                  let field_name =
-                    naming.to_snake_case(naming_ctx, embed_col.name)
-                  let decoder = config.decoder_function(embed_col.scalar_type)
-                  let full_decoder = case embed_col.nullable {
-                    True -> "decode.optional(" <> decoder <> ")"
-                    False -> decoder
-                  }
-                  "    use "
-                  <> field_name
-                  <> " <- decode.field("
-                  <> int.to_string(idx + embed_idx)
-                  <> ", "
-                  <> full_decoder
-                  <> ")"
-                })
-              let embed_constructor_fields =
-                list.map(embed_cols, fn(c) {
-                  naming.to_snake_case(naming_ctx, c.name) <> ":"
-                })
-                |> string.join(", ")
-              let constructor_line =
-                "    let "
-                <> embed_field_name
-                <> " = models."
-                <> embed_type_name
-                <> "("
-                <> embed_constructor_fields
-                <> ")"
-              let all_lines = list.append(embed_lines, [constructor_line])
-              #(idx + list.length(embed_cols), list.append(lines, all_lines))
+              #(new_idx, list.append(lines, embed_lines))
             }
           }
         })
@@ -357,6 +314,89 @@ fn render_decoder(
   }
 }
 
+fn render_base_decoder(
+  scalar_type: model.ScalarType,
+  config: AdapterConfig,
+) -> String {
+  case scalar_type {
+    model.EnumType(enum_name) ->
+      "decode.then(decode.string, fn(s) { case models."
+      <> model.enum_from_string_fn(enum_name)
+      <> "(s) { Ok(v) -> decode.success(v) Error(_) -> decode.failure(s, \"valid "
+      <> enum_name
+      <> " value\") } })"
+    _ -> config.decoder_function(scalar_type)
+  }
+}
+
+fn wrap_nullable_decoder(base_decoder: String, nullable: Bool) -> String {
+  case nullable {
+    True -> "decode.optional(" <> base_decoder <> ")"
+    False -> base_decoder
+  }
+}
+
+fn render_field_decode_line(
+  field_name: String,
+  idx: Int,
+  scalar_type: model.ScalarType,
+  nullable: Bool,
+  config: AdapterConfig,
+) -> String {
+  let full_decoder =
+    render_base_decoder(scalar_type, config)
+    |> wrap_nullable_decoder(nullable)
+  "    use "
+  <> field_name
+  <> " <- decode.field("
+  <> int.to_string(idx)
+  <> ", "
+  <> full_decoder
+  <> ")"
+}
+
+fn render_embedded_column_lines(
+  naming_ctx: naming.NamingContext,
+  embed_name: String,
+  table_name: String,
+  embed_cols: List(model.Column),
+  start_idx: Int,
+  config: AdapterConfig,
+  emit_exact_table_names: Bool,
+) -> #(Int, List(String)) {
+  let embed_field_name = naming.to_snake_case(naming_ctx, embed_name)
+  let embed_type_name =
+    naming.table_type_name(naming_ctx, table_name, emit_exact_table_names)
+  let embed_lines =
+    list.index_map(embed_cols, fn(embed_col, embed_idx) {
+      let full_decoder =
+        render_base_decoder(embed_col.scalar_type, config)
+        |> wrap_nullable_decoder(embed_col.nullable)
+      "    use "
+      <> naming.to_snake_case(naming_ctx, embed_col.name)
+      <> " <- decode.field("
+      <> int.to_string(start_idx + embed_idx)
+      <> ", "
+      <> full_decoder
+      <> ")"
+    })
+  let embed_constructor_fields =
+    list.map(embed_cols, fn(c) {
+      naming.to_snake_case(naming_ctx, c.name) <> ":"
+    })
+    |> string.join(", ")
+  let constructor_line =
+    "    let "
+    <> embed_field_name
+    <> " = models."
+    <> embed_type_name
+    <> "("
+    <> embed_constructor_fields
+    <> ")"
+  let all_lines = list.append(embed_lines, [constructor_line])
+  #(start_idx + list.length(embed_cols), all_lines)
+}
+
 fn render_adapter_one(
   naming_ctx: naming.NamingContext,
   query: model.AnalyzedQuery,
@@ -366,50 +406,16 @@ fn render_adapter_one(
   config: AdapterConfig,
   emit_exact_table_names: Bool,
 ) -> String {
-  let type_name = naming.to_pascal_case(naming_ctx, query.base.name) <> "Row"
-  let constructor_name = case
-    dict.get(table_matches, query.base.function_name)
-  {
-    Ok(table_type) -> table_type
-    Error(_) -> type_name
-  }
-  let params_arg = render_params_arg(naming_ctx, query, has_params)
-  let params_str = config.render_params(query.params, "p")
-  let decoder =
-    render_decoder(
-      naming_ctx,
-      query,
-      constructor_name,
-      config,
-      emit_exact_table_names,
-    )
-
-  string.join(
-    list.flatten([
-      [
-        "pub fn "
-          <> fn_name
-          <> "(db: "
-          <> config.connection_type
-          <> params_arg
-          <> ") -> Result(Option(models."
-          <> type_name
-          <> "), "
-          <> config.error_type
-          <> ") {",
-        "  let q = queries." <> fn_name <> "()",
-      ],
-      config.render_query_call(
-        fn_name,
-        params_str,
-        decoder,
-        "q.sql",
-        query.params,
-      ),
-      config.render_one_result(),
-      ["}"],
-    ]),
-    "\n",
+  render_adapter_query_result(
+    naming_ctx,
+    query,
+    fn_name,
+    has_params,
+    table_matches,
+    config,
+    emit_exact_table_names,
+    "Option",
+    config.render_one_result,
   )
 }
 
@@ -422,6 +428,30 @@ fn render_adapter_many(
   config: AdapterConfig,
   emit_exact_table_names: Bool,
 ) -> String {
+  render_adapter_query_result(
+    naming_ctx,
+    query,
+    fn_name,
+    has_params,
+    table_matches,
+    config,
+    emit_exact_table_names,
+    "List",
+    config.render_many_result,
+  )
+}
+
+fn render_adapter_query_result(
+  naming_ctx: naming.NamingContext,
+  query: model.AnalyzedQuery,
+  fn_name: String,
+  has_params: Bool,
+  table_matches: Dict(String, String),
+  config: AdapterConfig,
+  emit_exact_table_names: Bool,
+  return_type_wrapper: String,
+  render_result: fn() -> List(String),
+) -> String {
   let type_name = naming.to_pascal_case(naming_ctx, query.base.name) <> "Row"
   let constructor_name = case
     dict.get(table_matches, query.base.function_name)
@@ -448,7 +478,9 @@ fn render_adapter_many(
           <> "(db: "
           <> config.connection_type
           <> params_arg
-          <> ") -> Result(List(models."
+          <> ") -> Result("
+          <> return_type_wrapper
+          <> "(models."
           <> type_name
           <> "), "
           <> config.error_type
@@ -462,7 +494,7 @@ fn render_adapter_many(
         "q.sql",
         query.params,
       ),
-      config.render_many_result(),
+      render_result(),
       ["}"],
     ]),
     "\n",
@@ -631,36 +663,9 @@ fn render_pog_params_simple(params: List(model.QueryParam)) -> String {
   |> list.map(fn(param) {
     let value_fn =
       model.scalar_type_to_value_function(model.PostgreSQL, param.scalar_type)
-    let field_expr = case param.scalar_type {
-      model.EnumType(name) ->
-        "models."
-        <> model.enum_to_string_fn(name)
-        <> "(p."
-        <> param.field_name
-        <> ")"
-      _ -> "p." <> param.field_name
-    }
-    case param.nullable {
-      False ->
-        "  |> pog.parameter(pog." <> value_fn <> "(" <> field_expr <> "))"
-      True ->
-        case param.scalar_type {
-          model.EnumType(name) ->
-            "  |> pog.parameter(pog.nullable(fn(v) { pog."
-            <> value_fn
-            <> "(models."
-            <> model.enum_to_string_fn(name)
-            <> "(v)) }, p."
-            <> param.field_name
-            <> "))"
-          _ ->
-            "  |> pog.parameter(pog.nullable(pog."
-            <> value_fn
-            <> ", p."
-            <> param.field_name
-            <> "))"
-        }
-    }
+    "  |> pog.parameter("
+    <> render_param_value_expr("pog", value_fn, param)
+    <> ")"
   })
   |> string.join("\n")
 }
@@ -672,34 +677,17 @@ fn render_pog_params_with_slices(params: List(model.QueryParam)) -> String {
       model.scalar_type_to_value_function(model.PostgreSQL, param.scalar_type)
     case param.is_list {
       True -> {
-        let value_expr = case param.scalar_type {
-          model.EnumType(name) ->
-            "models." <> model.enum_to_string_fn(name) <> "(v)"
-          _ -> "v"
-        }
+        let mapper = render_list_param_value_expr("pog", value_fn, param)
         "  let query = list.fold(p."
         <> param.field_name
-        <> ", query, fn(acc, v) { pog.parameter(acc, pog."
-        <> value_fn
-        <> "("
-        <> value_expr
-        <> ")) })"
+        <> ", query, fn(acc, v) { pog.parameter(acc, "
+        <> mapper
+        <> "(v)) })"
       }
       False ->
-        case param.nullable {
-          False ->
-            "  let query = pog.parameter(query, pog."
-            <> value_fn
-            <> "(p."
-            <> param.field_name
-            <> "))"
-          True ->
-            "  let query = pog.parameter(query, pog.nullable(pog."
-            <> value_fn
-            <> ", p."
-            <> param.field_name
-            <> "))"
-        }
+        "  let query = pog.parameter(query, "
+        <> render_param_value_expr("pog", value_fn, param)
+        <> ")"
     }
   })
   |> string.join("\n")
@@ -834,35 +822,7 @@ fn render_sqlight_params_simple(params: List(model.QueryParam)) -> String {
         |> list.map(fn(param) {
           let value_fn =
             model.scalar_type_to_value_function(model.SQLite, param.scalar_type)
-          let field_expr = case param.scalar_type {
-            model.EnumType(name) ->
-              "models."
-              <> model.enum_to_string_fn(name)
-              <> "(p."
-              <> param.field_name
-              <> ")"
-            _ -> "p." <> param.field_name
-          }
-          case param.nullable {
-            False -> "sqlight." <> value_fn <> "(" <> field_expr <> ")"
-            True ->
-              case param.scalar_type {
-                model.EnumType(name) ->
-                  "sqlight.nullable(fn(v) { sqlight."
-                  <> value_fn
-                  <> "(models."
-                  <> model.enum_to_string_fn(name)
-                  <> "(v)) }, p."
-                  <> param.field_name
-                  <> ")"
-                _ ->
-                  "sqlight.nullable(sqlight."
-                  <> value_fn
-                  <> ", p."
-                  <> param.field_name
-                  <> ")"
-              }
-          }
+          render_param_value_expr("sqlight", value_fn, param)
         })
         |> string.join(", ")
       }
@@ -881,34 +841,13 @@ fn render_sqlight_params_with_slices(params: List(model.QueryParam)) -> String {
           let value_fn =
             model.scalar_type_to_value_function(model.SQLite, param.scalar_type)
           case param.is_list {
-            True ->
-              case param.scalar_type {
-                model.EnumType(name) ->
-                  "list.map(p."
-                  <> param.field_name
-                  <> ", fn(v) { sqlight."
-                  <> value_fn
-                  <> "(models."
-                  <> model.enum_to_string_fn(name)
-                  <> "(v)) })"
-                _ ->
-                  "list.map(p."
-                  <> param.field_name
-                  <> ", sqlight."
-                  <> value_fn
-                  <> ")"
-              }
+            True -> {
+              let mapper =
+                render_list_param_value_expr("sqlight", value_fn, param)
+              "list.map(p." <> param.field_name <> ", " <> mapper <> ")"
+            }
             False ->
-              case param.nullable {
-                False ->
-                  "[sqlight." <> value_fn <> "(p." <> param.field_name <> ")]"
-                True ->
-                  "[sqlight.nullable(sqlight."
-                  <> value_fn
-                  <> ", p."
-                  <> param.field_name
-                  <> ")]"
-              }
+              "[" <> render_param_value_expr("sqlight", value_fn, param) <> "]"
           }
         })
         |> string.join(", ")
@@ -1012,6 +951,69 @@ fn render_mysql_adapter() -> String {
 // ============================================================
 // Shared helpers
 // ============================================================
+
+fn render_param_value_expr(
+  lib: String,
+  value_fn: String,
+  param: model.QueryParam,
+) -> String {
+  let field_accessor = "p." <> param.field_name
+  case param.nullable {
+    False -> {
+      let field_expr = case param.scalar_type {
+        model.EnumType(name) ->
+          "models."
+          <> model.enum_to_string_fn(name)
+          <> "("
+          <> field_accessor
+          <> ")"
+        _ -> field_accessor
+      }
+      lib <> "." <> value_fn <> "(" <> field_expr <> ")"
+    }
+    True ->
+      case param.scalar_type {
+        model.EnumType(name) ->
+          lib
+          <> ".nullable(fn(v) { "
+          <> lib
+          <> "."
+          <> value_fn
+          <> "(models."
+          <> model.enum_to_string_fn(name)
+          <> "(v)) }, "
+          <> field_accessor
+          <> ")"
+        _ ->
+          lib
+          <> ".nullable("
+          <> lib
+          <> "."
+          <> value_fn
+          <> ", "
+          <> field_accessor
+          <> ")"
+      }
+  }
+}
+
+fn render_list_param_value_expr(
+  lib: String,
+  value_fn: String,
+  param: model.QueryParam,
+) -> String {
+  case param.scalar_type {
+    model.EnumType(name) ->
+      "fn(v) { "
+      <> lib
+      <> "."
+      <> value_fn
+      <> "(models."
+      <> model.enum_to_string_fn(name)
+      <> "(v)) }"
+    _ -> lib <> "." <> value_fn
+  }
+}
 
 fn render_slice_expansion_line(
   params: List(model.QueryParam),
