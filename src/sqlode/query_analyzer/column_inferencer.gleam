@@ -362,18 +362,50 @@ fn infer_aggregate_inner_type(
 
 fn extract_function_arg(func_expr: String) -> String {
   case string.split_once(func_expr, "(") {
-    Ok(#(_, rest)) ->
-      case string.split_once(rest, ")") {
-        Ok(#(arg, _)) -> {
-          // For multi-arg functions, take the first arg
-          case string.split_once(arg, ",") {
-            Ok(#(first, _)) -> string.trim(first)
-            Error(_) -> string.trim(arg)
-          }
-        }
-        Error(_) -> rest
-      }
+    Ok(#(_, rest)) -> {
+      let arg = extract_paren_content(string.to_graphemes(rest), 1, [])
+      // For multi-arg functions, take the first top-level arg
+      let first_arg = extract_first_csv_arg(string.to_graphemes(arg), 0, [])
+      string.trim(first_arg)
+    }
     Error(_) -> func_expr
+  }
+}
+
+/// Extract content between matched parentheses, tracking depth.
+fn extract_paren_content(
+  chars: List(String),
+  depth: Int,
+  acc: List(String),
+) -> String {
+  case depth <= 0 {
+    True -> acc |> list.reverse |> string.concat
+    False ->
+      case chars {
+        [] -> acc |> list.reverse |> string.concat
+        ["(", ..rest] -> extract_paren_content(rest, depth + 1, ["(", ..acc])
+        [")", ..rest] ->
+          case depth == 1 {
+            True -> acc |> list.reverse |> string.concat
+            False -> extract_paren_content(rest, depth - 1, [")", ..acc])
+          }
+        [c, ..rest] -> extract_paren_content(rest, depth, [c, ..acc])
+      }
+  }
+}
+
+/// Extract first comma-separated argument at top level (not inside parens).
+fn extract_first_csv_arg(
+  chars: List(String),
+  depth: Int,
+  acc: List(String),
+) -> String {
+  case chars {
+    [] -> acc |> list.reverse |> string.concat
+    ["(", ..rest] -> extract_first_csv_arg(rest, depth + 1, ["(", ..acc])
+    [")", ..rest] -> extract_first_csv_arg(rest, depth - 1, [")", ..acc])
+    [",", ..] if depth == 0 -> acc |> list.reverse |> string.concat
+    [c, ..rest] -> extract_first_csv_arg(rest, depth, [c, ..acc])
   }
 }
 
