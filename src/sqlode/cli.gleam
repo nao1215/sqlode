@@ -63,7 +63,6 @@ fn version_command() -> glint.Command(Nil) {
 }
 
 fn run_generate(config_path: String) -> Nil {
-  io.println("sqlode v" <> version.version)
   io.println("Loading config from: " <> config_path)
 
   case generate.run(config_path) {
