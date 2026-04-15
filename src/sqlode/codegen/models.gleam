@@ -1,5 +1,6 @@
 import gleam/dict.{type Dict}
 import gleam/list
+import gleam/option
 import gleam/string
 import sqlode/model
 import sqlode/naming
@@ -145,10 +146,14 @@ fn render_semantic_type_aliases(
   catalog: model.Catalog,
   queries: List(model.AnalyzedQuery),
 ) -> String {
-  let all_types = collect_rich_types(catalog, queries)
+  let all_types = collect_rich_scalar_types(catalog, queries)
 
   all_types
-  |> list.map(fn(alias_name) { "pub type " <> alias_name <> " =\n  String" })
+  |> list.map(fn(scalar_type) {
+    let alias_name =
+      model.scalar_type_to_gleam_type(scalar_type, model.RichMapping)
+    "pub type " <> alias_name <> " =\n  String"
+  })
   |> string.join("\n\n")
 }
 
@@ -156,11 +161,16 @@ fn render_strong_type_wrappers(
   catalog: model.Catalog,
   queries: List(model.AnalyzedQuery),
 ) -> String {
-  let all_types = collect_rich_types(catalog, queries)
+  let all_types = collect_rich_scalar_types(catalog, queries)
 
   all_types
-  |> list.map(fn(type_name) {
-    let unwrap_fn = strong_type_unwrap_fn_from_name(type_name)
+  |> list.map(fn(scalar_type) {
+    let type_name =
+      model.scalar_type_to_gleam_type(scalar_type, model.StrongMapping)
+    let unwrap_fn = case model.strong_type_unwrap_fn(scalar_type) {
+      option.Some(fn_name) -> fn_name
+      option.None -> type_name <> "_to_string"
+    }
     "pub type "
     <> type_name
     <> " {\n  "
@@ -176,31 +186,16 @@ fn render_strong_type_wrappers(
   |> string.join("\n\n")
 }
 
-fn strong_type_unwrap_fn_from_name(type_name: String) -> String {
-  case type_name {
-    "SqlTimestamp" -> "sql_timestamp_to_string"
-    "SqlDate" -> "sql_date_to_string"
-    "SqlTime" -> "sql_time_to_string"
-    "SqlUuid" -> "sql_uuid_to_string"
-    "SqlJson" -> "sql_json_to_string"
-    _ -> "unknown_to_string"
-  }
-}
-
-fn collect_rich_types(
+fn collect_rich_scalar_types(
   catalog: model.Catalog,
   queries: List(model.AnalyzedQuery),
-) -> List(String) {
+) -> List(model.ScalarType) {
   let table_types =
     catalog.tables
     |> list.flat_map(fn(table) {
       list.filter_map(table.columns, fn(col) {
         case model.is_rich_type(col.scalar_type) {
-          True ->
-            Ok(model.scalar_type_to_gleam_type(
-              col.scalar_type,
-              model.RichMapping,
-            ))
+          True -> Ok(col.scalar_type)
           False -> Error(Nil)
         }
       })
@@ -213,11 +208,7 @@ fn collect_rich_types(
         case col {
           model.ResultColumn(scalar_type:, ..) ->
             case model.is_rich_type(scalar_type) {
-              True ->
-                Ok(model.scalar_type_to_gleam_type(
-                  scalar_type,
-                  model.RichMapping,
-                ))
+              True -> Ok(scalar_type)
               False -> Error(Nil)
             }
           model.EmbeddedColumn(..) -> Error(Nil)
@@ -227,7 +218,12 @@ fn collect_rich_types(
 
   list.flatten([table_types, query_types])
   |> list.unique
-  |> list.sort(string.compare)
+  |> list.sort(fn(a, b) {
+    string.compare(
+      model.scalar_type_to_gleam_type(a, model.RichMapping),
+      model.scalar_type_to_gleam_type(b, model.RichMapping),
+    )
+  })
 }
 
 fn needs_option_import_for_results(queries: List(model.AnalyzedQuery)) -> Bool {
