@@ -9,6 +9,7 @@ import sqlode/query_analyzer/context.{
   type AnalysisError, type AnalyzerContext, ColumnNotFound,
   CompoundColumnCountMismatch, TableNotFound,
 }
+import sqlode/runtime
 
 type ExtractedColumn {
   ExtractedColumn(
@@ -25,13 +26,16 @@ pub fn infer_result_columns(
   catalog: model.Catalog,
 ) -> Result(List(model.ResultColumn), AnalysisError) {
   case query.command {
-    model.Exec
-    | model.ExecResult
-    | model.ExecRows
-    | model.ExecLastId
-    | model.BatchExec
-    | model.CopyFrom -> Ok([])
-    model.One | model.Many | model.BatchOne | model.BatchMany -> {
+    runtime.QueryExec
+    | runtime.QueryExecResult
+    | runtime.QueryExecRows
+    | runtime.QueryExecLastId
+    | runtime.QueryBatchExec
+    | runtime.QueryCopyFrom -> Ok([])
+    runtime.QueryOne
+    | runtime.QueryMany
+    | runtime.QueryBatchOne
+    | runtime.QueryBatchMany -> {
       let tokens = lexer.tokenize(query.sql, engine)
       let normalized = context.normalize_sql(ctx, query.sql)
 

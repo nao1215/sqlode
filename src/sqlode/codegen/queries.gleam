@@ -134,7 +134,7 @@ fn render_query_function(
         "    name: \"" <> common.escape_string(query.base.name) <> "\",",
         "    sql: \"" <> common.escape_string(query.base.sql) <> "\",",
         "    command: runtime."
-          <> model.query_command_to_variant(query.base.command)
+          <> model.query_command_to_string(query.base.command)
           <> ",",
         "    param_count: " <> int.to_string(query.base.param_count) <> ",",
         encode_line,
@@ -153,7 +153,7 @@ fn render_query_info_literal(query: model.ParsedQuery) -> String {
   <> "\", sql: \""
   <> common.escape_string(query.sql)
   <> "\", command: runtime."
-  <> model.query_command_to_variant(query.command)
+  <> model.query_command_to_string(query.command)
   <> ", param_count: "
   <> int.to_string(query.param_count)
   <> ")"

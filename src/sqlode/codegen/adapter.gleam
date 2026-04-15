@@ -5,6 +5,7 @@ import gleam/string
 import sqlode/codegen/common
 import sqlode/model
 import sqlode/naming
+import sqlode/runtime
 
 type AdapterConfig {
   AdapterConfig(
@@ -130,8 +131,8 @@ fn render_adapter(
 
   let has_exec_rows =
     list.any(queries, fn(query) {
-      query.base.command == model.ExecRows
-      || query.base.command == model.ExecResult
+      query.base.command == runtime.QueryExecRows
+      || query.base.command == runtime.QueryExecResult
     })
 
   let has_slices = common.queries_have_slices(queries)
@@ -202,11 +203,11 @@ fn render_adapter_function(
 
   comment
   <> case query.base.command {
-    model.One | model.BatchOne ->
+    runtime.QueryOne | runtime.QueryBatchOne ->
       render_adapter_one(ctx, query, fn_name, has_params)
-    model.Many | model.BatchMany ->
+    runtime.QueryMany | runtime.QueryBatchMany ->
       render_adapter_many(ctx, query, fn_name, has_params)
-    model.Exec | model.BatchExec | model.CopyFrom ->
+    runtime.QueryExec | runtime.QueryBatchExec | runtime.QueryCopyFrom ->
       render_adapter_exec(
         ctx.naming_ctx,
         query,
@@ -214,7 +215,7 @@ fn render_adapter_function(
         has_params,
         ctx.config,
       )
-    model.ExecResult ->
+    runtime.QueryExecResult ->
       render_adapter_exec(
         ctx.naming_ctx,
         query,
@@ -222,7 +223,7 @@ fn render_adapter_function(
         has_params,
         ctx.config,
       )
-    model.ExecRows ->
+    runtime.QueryExecRows ->
       render_adapter_exec_rows(
         ctx.naming_ctx,
         query,
@@ -230,7 +231,7 @@ fn render_adapter_function(
         has_params,
         ctx.config,
       )
-    model.ExecLastId ->
+    runtime.QueryExecLastId ->
       render_adapter_exec_last_id(
         ctx.naming_ctx,
         query,
@@ -1059,7 +1060,8 @@ fn needs_option_import_for_adapter(queries: List(model.AnalyzedQuery)) -> Bool {
         }
       })
     let has_one_command =
-      query.base.command == model.One || query.base.command == model.BatchOne
+      query.base.command == runtime.QueryOne
+      || query.base.command == runtime.QueryBatchOne
 
     has_nullable_params || has_nullable_results || has_one_command
   })

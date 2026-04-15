@@ -6,6 +6,7 @@ import simplifile
 import sqlode/model
 import sqlode/naming
 import sqlode/query_parser
+import sqlode/runtime
 
 pub fn main() {
   gleeunit.main()
@@ -27,11 +28,11 @@ pub fn parse_queries_from_sqlc_annotations_test() {
   let assert [get_author, list_authors] = queries
   get_author.name |> should.equal("GetAuthor")
   get_author.function_name |> should.equal("get_author")
-  get_author.command |> should.equal(model.One)
+  get_author.command |> should.equal(runtime.QueryOne)
   get_author.param_count |> should.equal(1)
   get_author.macros |> should.equal([])
   list_authors.function_name |> should.equal("list_authors")
-  list_authors.command |> should.equal(model.Many)
+  list_authors.command |> should.equal(runtime.QueryMany)
 }
 
 pub fn reject_query_without_sql_body_test() {
@@ -327,11 +328,11 @@ pub fn multiple_queries_test() {
 
   let assert [q1, q2, q3] = queries
   q1.name |> should.equal("Q1")
-  q1.command |> should.equal(model.One)
+  q1.command |> should.equal(runtime.QueryOne)
   q2.name |> should.equal("Q2")
-  q2.command |> should.equal(model.Many)
+  q2.command |> should.equal(runtime.QueryMany)
   q3.name |> should.equal("Q3")
-  q3.command |> should.equal(model.Exec)
+  q3.command |> should.equal(runtime.QueryExec)
 }
 
 pub fn all_command_types_test() {
@@ -349,12 +350,12 @@ pub fn all_command_types_test() {
   list.length(queries) |> should.equal(6)
 
   let assert [a, b, c, d, e, f] = queries
-  a.command |> should.equal(model.One)
-  b.command |> should.equal(model.Many)
-  c.command |> should.equal(model.Exec)
-  d.command |> should.equal(model.ExecResult)
-  e.command |> should.equal(model.ExecRows)
-  f.command |> should.equal(model.ExecLastId)
+  a.command |> should.equal(runtime.QueryOne)
+  b.command |> should.equal(runtime.QueryMany)
+  c.command |> should.equal(runtime.QueryExec)
+  d.command |> should.equal(runtime.QueryExecResult)
+  e.command |> should.equal(runtime.QueryExecRows)
+  f.command |> should.equal(runtime.QueryExecLastId)
 }
 
 pub fn multiline_sql_body_test() {
