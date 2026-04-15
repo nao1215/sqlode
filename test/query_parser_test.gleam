@@ -596,6 +596,55 @@ pub fn sqlite_dollar_not_treated_as_dollar_quoted_test() {
   query.param_count |> should.equal(1)
 }
 
+pub fn sqlc_arg_in_string_literal_ignored_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: MacroInString :one\n"
+    <> "SELECT id FROM authors WHERE note = 'sqlc.arg(fake)' AND id = sqlc.arg(real_id);"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("pg.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+
+  query.param_count |> should.equal(1)
+  query.macros
+  |> should.equal([model.SqlcArg(index: 1, name: "real_id")])
+  string.contains(query.sql, "'sqlc.arg(fake)'") |> should.be_true()
+}
+
+pub fn sqlc_narg_in_line_comment_ignored_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: MacroInComment :one\n"
+    <> "SELECT id FROM authors\n"
+    <> "-- WHERE name = sqlc.narg(ignored)\n"
+    <> "WHERE id = sqlc.arg(real_id);"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("pg.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+
+  query.param_count |> should.equal(1)
+  query.macros
+  |> should.equal([model.SqlcArg(index: 1, name: "real_id")])
+}
+
+pub fn sqlc_slice_in_block_comment_ignored_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: MacroInBlock :many\n"
+    <> "SELECT id FROM authors\n"
+    <> "WHERE /* sqlc.slice(phantom) */ id IN (sqlc.slice(real_ids));"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("pg.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+
+  query.param_count |> should.equal(1)
+  query.macros
+  |> should.equal([model.SqlcSlice(index: 1, name: "real_ids")])
+}
+
 pub fn error_to_string_coverage_test() {
   query_parser.error_to_string(query_parser.InvalidAnnotation(
     path: "test.sql",
