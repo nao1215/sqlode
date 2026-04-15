@@ -314,13 +314,9 @@ fn parse_create_view(
                         "Warning: view column \""
                         <> normalized
                         <> "\" could not be resolved from source tables"
-                        <> " — defaulting to String (nullable).",
+                        <> " — skipping column.",
                       )
-                      Ok(model.Column(
-                        name: normalized,
-                        scalar_type: model.StringType,
-                        nullable: True,
-                      ))
+                      Error(Nil)
                     }
                   }
                 })

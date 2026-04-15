@@ -162,9 +162,10 @@ pub fn view_with_cast_expression_test() {
   let assert Ok(catalog) =
     schema_parser.parse_files([#("cast_view.sql", content)])
 
-  let assert Ok(view) = list.find(catalog.tables, fn(tbl) { tbl.name == "v" })
-  let col_names = list.map(view.columns, fn(c) { c.name })
-  col_names |> should.equal(["col_a", "col_b"])
+  // Aliased expression columns (col_a, col_b) cannot be resolved from source
+  // tables, so they are skipped with a warning. The view is omitted if empty.
+  let view_found = list.find(catalog.tables, fn(tbl) { tbl.name == "v" })
+  view_found |> should.be_error()
 }
 
 pub fn view_basic_select_test() {
@@ -190,7 +191,9 @@ pub fn view_with_alias_test() {
   let assert Ok(view) =
     list.find(catalog.tables, fn(tbl) { tbl.name == "user_names" })
   let col_names = list.map(view.columns, fn(c) { c.name })
-  col_names |> should.equal(["id", "display_name"])
+  // "display_name" alias cannot be resolved from source tables, so it is
+  // skipped. Only "id" (which matches a real column) is retained.
+  col_names |> should.equal(["id"])
 }
 
 pub fn view_star_test() {
@@ -221,12 +224,10 @@ pub fn view_nonexistent_table_test() {
   let assert Ok(catalog) =
     schema_parser.parse_files([#("noexist.sql", content)])
 
-  // View referencing nonexistent table still creates view with fallback types
-  let assert Ok(view) = list.find(catalog.tables, fn(tbl) { tbl.name == "v" })
-  let assert [col] = view.columns
-  col.name |> should.equal("id")
-  col.scalar_type |> should.equal(model.StringType)
-  col.nullable |> should.equal(True)
+  // View referencing nonexistent table: all columns are unresolvable and
+  // skipped, so the view itself is omitted (no columns → no table entry).
+  let view_found = list.find(catalog.tables, fn(tbl) { tbl.name == "v" })
+  view_found |> should.be_error()
 }
 
 pub fn error_to_string_invalid_column_test() {
