@@ -1308,6 +1308,56 @@ pub fn mixed_file_and_directory_inputs_test() {
   cleanup_dir()
 }
 
+pub fn reject_empty_schema_directory_test() {
+  let block =
+    model.SqlBlock(
+      name: option.None,
+      engine: model.PostgreSQL,
+      schema: ["test/fixtures/empty_dir"],
+      queries: ["test/fixtures/query.sql"],
+      gleam: model.GleamOutput(
+        out: dir_out,
+        runtime: model.Raw,
+        type_mapping: model.StringMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: False,
+      ),
+      overrides: model.empty_overrides(),
+    )
+
+  let cfg = model.Config(version: 2, sql: [block])
+  let assert Error(error) = generate.generate_config(cfg)
+
+  generate.error_to_string(error)
+  |> string.contains("no .sql files")
+  |> should.be_true
+}
+
+pub fn reject_empty_query_directory_test() {
+  let block =
+    model.SqlBlock(
+      name: option.None,
+      engine: model.PostgreSQL,
+      schema: ["test/fixtures/schema.sql"],
+      queries: ["test/fixtures/empty_dir"],
+      gleam: model.GleamOutput(
+        out: dir_out,
+        runtime: model.Raw,
+        type_mapping: model.StringMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: False,
+      ),
+      overrides: model.empty_overrides(),
+    )
+
+  let cfg = model.Config(version: 2, sql: [block])
+  let assert Error(error) = generate.generate_config(cfg)
+
+  generate.error_to_string(error)
+  |> string.contains("no .sql files")
+  |> should.be_true
+}
+
 // --- Duplicate query name tests ---
 
 pub fn reject_duplicate_query_names_test() {
