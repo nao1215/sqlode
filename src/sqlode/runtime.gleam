@@ -23,6 +23,7 @@ pub type Value {
   SqlFloat(Float)
   SqlBool(Bool)
   SqlBytes(BitArray)
+  SqlArray(List(Value))
 }
 
 /// A typed raw query descriptor that bundles SQL metadata with its parameter
@@ -85,6 +86,10 @@ pub fn bool(value: Bool) -> Value {
 
 pub fn bytes(value: BitArray) -> Value {
   SqlBytes(value)
+}
+
+pub fn array(values: List(Value)) -> Value {
+  SqlArray(values)
 }
 
 pub fn nullable(value: option.Option(a), encode: fn(a) -> Value) -> Value {
