@@ -92,13 +92,13 @@ fn do_tokenize(
         "$" ->
           case engine {
             model.PostgreSQL ->
-              case rest {
-                ["$", ..after_dollar] -> {
+              case try_dollar_tag_lex(rest) {
+                Ok(#(tag, after_tag)) -> {
                   let #(content, remaining) =
-                    read_dollar_quoted_string(after_dollar, [])
+                    read_dollar_quoted_string(after_tag, tag, [])
                   do_tokenize(remaining, engine, [StringLit(content), ..acc])
                 }
-                _ -> {
+                Error(_) -> {
                   // Could be placeholder $1, $name
                   let #(token, remaining) =
                     read_placeholder_or_ident(["$", ..rest])
@@ -275,14 +275,76 @@ fn read_single_quoted_string(
 
 fn read_dollar_quoted_string(
   input: List(String),
+  tag: String,
   acc: List(String),
 ) -> #(String, List(String)) {
   case input {
     [] -> #(acc |> list.reverse |> string.concat, [])
-    ["$", "$", ..rest] ->
-      // End of $$...$$ string
-      #(acc |> list.reverse |> string.concat, rest)
-    [g, ..rest] -> read_dollar_quoted_string(rest, [g, ..acc])
+    ["$", ..rest] ->
+      case try_match_closing_dollar_tag_lex(rest, tag) {
+        Ok(remaining) -> #(acc |> list.reverse |> string.concat, remaining)
+        Error(_) -> read_dollar_quoted_string(rest, tag, ["$", ..acc])
+      }
+    [g, ..rest] -> read_dollar_quoted_string(rest, tag, [g, ..acc])
+  }
+}
+
+fn try_dollar_tag_lex(
+  chars: List(String),
+) -> Result(#(String, List(String)), Nil) {
+  case chars {
+    ["$", ..rest] -> Ok(#("", rest))
+    [c, ..rest] ->
+      case is_alpha_or_underscore(c) {
+        True -> read_dollar_tag_chars_lex(rest, [c])
+        False -> Error(Nil)
+      }
+    [] -> Error(Nil)
+  }
+}
+
+fn read_dollar_tag_chars_lex(
+  chars: List(String),
+  acc: List(String),
+) -> Result(#(String, List(String)), Nil) {
+  case chars {
+    [] -> Error(Nil)
+    ["$", ..rest] -> {
+      let tag = acc |> list.reverse |> string.concat
+      Ok(#(tag, rest))
+    }
+    [c, ..rest] ->
+      case is_alnum_or_underscore(c) {
+        True -> read_dollar_tag_chars_lex(rest, [c, ..acc])
+        False -> Error(Nil)
+      }
+  }
+}
+
+fn try_match_closing_dollar_tag_lex(
+  chars: List(String),
+  tag: String,
+) -> Result(List(String), Nil) {
+  let tag_chars = string.to_graphemes(tag)
+  match_tag_then_dollar_lex(chars, tag_chars)
+}
+
+fn match_tag_then_dollar_lex(
+  chars: List(String),
+  tag_chars: List(String),
+) -> Result(List(String), Nil) {
+  case tag_chars {
+    [] ->
+      case chars {
+        ["$", ..rest] -> Ok(rest)
+        _ -> Error(Nil)
+      }
+    [expected, ..tag_rest] ->
+      case chars {
+        [actual, ..chars_rest] if actual == expected ->
+          match_tag_then_dollar_lex(chars_rest, tag_rest)
+        _ -> Error(Nil)
+      }
   }
 }
 

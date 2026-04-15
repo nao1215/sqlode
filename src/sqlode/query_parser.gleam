@@ -155,13 +155,13 @@ fn finalize_pending(
       case sql == "" {
         True -> Error(MissingSql(path:, line: start_line, name:))
         False -> {
-          let masked = mask_sql(sql)
+          let masked = mask_sql(engine, sql)
           let #(at_expanded, _at_masked, at_macros, next_idx) =
             expand_at_name_shorthands(ctx, engine, sql, masked)
           let #(expanded_sql, sqlc_macros) =
             expand_sqlc_macros_from(ctx, engine, at_expanded, next_idx)
           let macros = list.append(at_macros, sqlc_macros)
-          let final_masked = mask_sql(expanded_sql)
+          let final_masked = mask_sql(engine, expanded_sql)
           Ok([
             model.ParsedQuery(
               name:,
@@ -455,16 +455,18 @@ type MaskState {
   MaskDoubleQuote
   MaskLineComment
   MaskBlockComment
+  MaskDollarQuoted(tag: String)
 }
 
-fn mask_sql(sql: String) -> String {
+fn mask_sql(engine: model.Engine, sql: String) -> String {
   let chars = string.to_graphemes(sql)
-  do_mask(chars, MaskNormal, [])
+  do_mask(engine, chars, MaskNormal, [])
   |> list.reverse
   |> string.join("")
 }
 
 fn do_mask(
+  engine: model.Engine,
   chars: List(String),
   state: MaskState,
   acc: List(String),
@@ -473,38 +475,154 @@ fn do_mask(
     MaskNormal ->
       case chars {
         [] -> acc
-        ["'", ..rest] -> do_mask(rest, MaskSingleQuote, [" ", ..acc])
-        ["\"", ..rest] -> do_mask(rest, MaskDoubleQuote, [" ", ..acc])
-        ["-", "-", ..rest] -> do_mask(rest, MaskLineComment, [" ", " ", ..acc])
-        ["/", "*", ..rest] -> do_mask(rest, MaskBlockComment, [" ", " ", ..acc])
-        [c, ..rest] -> do_mask(rest, MaskNormal, [c, ..acc])
+        ["'", ..rest] -> do_mask(engine, rest, MaskSingleQuote, [" ", ..acc])
+        ["\"", ..rest] -> do_mask(engine, rest, MaskDoubleQuote, [" ", ..acc])
+        ["-", "-", ..rest] ->
+          do_mask(engine, rest, MaskLineComment, [" ", " ", ..acc])
+        ["/", "*", ..rest] ->
+          do_mask(engine, rest, MaskBlockComment, [" ", " ", ..acc])
+        ["$", ..rest] ->
+          case engine {
+            model.PostgreSQL ->
+              case try_dollar_tag(rest) {
+                Ok(#(tag, after_tag)) -> {
+                  let spaces = list.repeat(" ", string.length(tag) + 2)
+                  do_mask(
+                    engine,
+                    after_tag,
+                    MaskDollarQuoted(tag),
+                    list.append(spaces, acc),
+                  )
+                }
+                Error(_) -> do_mask(engine, rest, MaskNormal, ["$", ..acc])
+              }
+            _ -> do_mask(engine, rest, MaskNormal, ["$", ..acc])
+          }
+        [c, ..rest] -> do_mask(engine, rest, MaskNormal, [c, ..acc])
       }
     MaskSingleQuote ->
       case chars {
         [] -> acc
-        ["'", "'", ..rest] -> do_mask(rest, MaskSingleQuote, [" ", " ", ..acc])
-        ["'", ..rest] -> do_mask(rest, MaskNormal, [" ", ..acc])
-        [_, ..rest] -> do_mask(rest, MaskSingleQuote, [" ", ..acc])
+        ["'", "'", ..rest] ->
+          do_mask(engine, rest, MaskSingleQuote, [" ", " ", ..acc])
+        ["'", ..rest] -> do_mask(engine, rest, MaskNormal, [" ", ..acc])
+        [_, ..rest] -> do_mask(engine, rest, MaskSingleQuote, [" ", ..acc])
       }
     MaskDoubleQuote ->
       case chars {
         [] -> acc
         ["\"", "\"", ..rest] ->
-          do_mask(rest, MaskDoubleQuote, [" ", " ", ..acc])
-        ["\"", ..rest] -> do_mask(rest, MaskNormal, [" ", ..acc])
-        [_, ..rest] -> do_mask(rest, MaskDoubleQuote, [" ", ..acc])
+          do_mask(engine, rest, MaskDoubleQuote, [" ", " ", ..acc])
+        ["\"", ..rest] -> do_mask(engine, rest, MaskNormal, [" ", ..acc])
+        [_, ..rest] -> do_mask(engine, rest, MaskDoubleQuote, [" ", ..acc])
       }
     MaskLineComment ->
       case chars {
         [] -> acc
-        ["\n", ..rest] -> do_mask(rest, MaskNormal, ["\n", ..acc])
-        [_, ..rest] -> do_mask(rest, MaskLineComment, [" ", ..acc])
+        ["\n", ..rest] -> do_mask(engine, rest, MaskNormal, ["\n", ..acc])
+        [_, ..rest] -> do_mask(engine, rest, MaskLineComment, [" ", ..acc])
       }
     MaskBlockComment ->
       case chars {
         [] -> acc
-        ["*", "/", ..rest] -> do_mask(rest, MaskNormal, [" ", " ", ..acc])
-        [_, ..rest] -> do_mask(rest, MaskBlockComment, [" ", ..acc])
+        ["*", "/", ..rest] ->
+          do_mask(engine, rest, MaskNormal, [" ", " ", ..acc])
+        [_, ..rest] -> do_mask(engine, rest, MaskBlockComment, [" ", ..acc])
       }
+    MaskDollarQuoted(tag) ->
+      case chars {
+        [] -> acc
+        ["$", ..rest] ->
+          case try_match_closing_dollar_tag(rest, tag) {
+            Ok(remaining) -> {
+              let spaces = list.repeat(" ", string.length(tag) + 2)
+              do_mask(engine, remaining, MaskNormal, list.append(spaces, acc))
+            }
+            Error(_) ->
+              do_mask(engine, rest, MaskDollarQuoted(tag), [" ", ..acc])
+          }
+        [_, ..rest] ->
+          do_mask(engine, rest, MaskDollarQuoted(tag), [" ", ..acc])
+      }
+  }
+}
+
+fn try_dollar_tag(chars: List(String)) -> Result(#(String, List(String)), Nil) {
+  case chars {
+    ["$", ..rest] -> Ok(#("", rest))
+    [c, ..rest] ->
+      case is_mask_alpha_or_underscore(c) {
+        True -> read_dollar_tag_chars(rest, [c])
+        False -> Error(Nil)
+      }
+    [] -> Error(Nil)
+  }
+}
+
+fn read_dollar_tag_chars(
+  chars: List(String),
+  acc: List(String),
+) -> Result(#(String, List(String)), Nil) {
+  case chars {
+    [] -> Error(Nil)
+    ["$", ..rest] -> {
+      let tag = acc |> list.reverse |> string.concat
+      Ok(#(tag, rest))
+    }
+    [c, ..rest] ->
+      case is_mask_alnum_or_underscore(c) {
+        True -> read_dollar_tag_chars(rest, [c, ..acc])
+        False -> Error(Nil)
+      }
+  }
+}
+
+fn try_match_closing_dollar_tag(
+  chars: List(String),
+  tag: String,
+) -> Result(List(String), Nil) {
+  let tag_chars = string.to_graphemes(tag)
+  match_tag_then_dollar(chars, tag_chars)
+}
+
+fn match_tag_then_dollar(
+  chars: List(String),
+  tag_chars: List(String),
+) -> Result(List(String), Nil) {
+  case tag_chars {
+    [] ->
+      case chars {
+        ["$", ..rest] -> Ok(rest)
+        _ -> Error(Nil)
+      }
+    [expected, ..tag_rest] ->
+      case chars {
+        [actual, ..chars_rest] if actual == expected ->
+          match_tag_then_dollar(chars_rest, tag_rest)
+        _ -> Error(Nil)
+      }
+  }
+}
+
+fn is_mask_alpha_or_underscore(c: String) -> Bool {
+  is_mask_alpha(c) || c == "_"
+}
+
+fn is_mask_alnum_or_underscore(c: String) -> Bool {
+  is_mask_alpha(c) || is_mask_digit(c) || c == "_"
+}
+
+fn is_mask_alpha(c: String) -> Bool {
+  let cp = case string.to_utf_codepoints(c) {
+    [cp] -> string.utf_codepoint_to_int(cp)
+    _ -> 0
+  }
+  { cp >= 65 && cp <= 90 } || { cp >= 97 && cp <= 122 }
+}
+
+fn is_mask_digit(c: String) -> Bool {
+  case c {
+    "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" -> True
+    _ -> False
   }
 }
