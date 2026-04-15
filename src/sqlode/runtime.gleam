@@ -34,7 +34,32 @@ pub type RawQuery(p) {
     command: QueryCommand,
     param_count: Int,
     encode: fn(p) -> List(Value),
+    slice_info: fn(p) -> List(#(Int, Int)),
   )
+}
+
+/// Prepare a raw query for execution by encoding parameters and expanding
+/// slice placeholders.  Returns the final SQL string and the flattened
+/// parameter values, ready to be passed to a database driver.
+///
+/// For queries without slices the SQL is returned unchanged.
+///
+/// - `prefix` – placeholder prefix: `"$"` for PostgreSQL, `"?"` for SQLite
+pub fn prepare(
+  query: RawQuery(p),
+  params: p,
+  prefix: String,
+) -> #(String, List(Value)) {
+  let values = query.encode(params)
+  let slices = query.slice_info(params)
+  case slices {
+    [] -> #(query.sql, values)
+    _ -> {
+      let sql =
+        expand_slice_placeholders(query.sql, slices, query.param_count, prefix)
+      #(sql, values)
+    }
+  }
 }
 
 pub fn null() -> Value {
