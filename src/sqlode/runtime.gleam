@@ -134,10 +134,9 @@ pub fn expand_slice_placeholders(
                 from: next_new_idx,
                 to: next_new_idx + len,
                 with: [],
-                run: fn(items, i) {
-                  list.append(items, [prefix <> int.to_string(i)])
-                },
+                run: fn(items, i) { [prefix <> int.to_string(i), ..items] },
               )
+              |> list.reverse
               |> string.join(", ")
             #(next_new_idx + len, [#(orig_idx, expanded), ..map])
           }
