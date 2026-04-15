@@ -290,6 +290,53 @@ pub fn rich_type_mapping_emits_semantic_aliases_test() {
   cleanup()
 }
 
+pub fn strong_type_mapping_emits_wrapper_types_test() {
+  cleanup()
+  let block =
+    model.SqlBlock(
+      name: option.None,
+      engine: model.PostgreSQL,
+      schema: ["test/fixtures/all_types_schema.sql"],
+      queries: ["test/fixtures/all_types_query.sql"],
+      gleam: model.GleamOutput(
+        out: test_out,
+        runtime: model.Raw,
+        type_mapping: model.StrongMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: False,
+      ),
+      overrides: model.empty_overrides(),
+    )
+
+  run_generate(block)
+  let models = read_generated("models.gleam")
+
+  // Should emit wrapper types, not aliases
+  string.contains(models, "pub type SqlUuid {\n  SqlUuid(String)\n}")
+  |> should.be_true()
+  string.contains(models, "pub type SqlTimestamp {\n  SqlTimestamp(String)\n}")
+  |> should.be_true()
+
+  // Should emit unwrap helper functions
+  string.contains(models, "pub fn sql_uuid_to_string(value: SqlUuid) -> String")
+  |> should.be_true()
+  string.contains(
+    models,
+    "pub fn sql_timestamp_to_string(value: SqlTimestamp) -> String",
+  )
+  |> should.be_true()
+
+  // Fields should use strong types
+  string.contains(models, "col_uuid: SqlUuid") |> should.be_true()
+  string.contains(models, "col_timestamp: SqlTimestamp") |> should.be_true()
+
+  // Params should unwrap strong types
+  let params = read_generated("params.gleam")
+  string.contains(params, "models.sql_uuid_to_string(") |> should.be_true()
+
+  cleanup()
+}
+
 pub fn string_type_mapping_does_not_emit_aliases_test() {
   cleanup()
   let block = base_block(model.empty_overrides())

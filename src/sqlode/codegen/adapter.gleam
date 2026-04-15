@@ -162,6 +162,8 @@ fn render_adapter(
 
   let emit_exact_table_names = gleam.emit_exact_table_names
 
+  let type_mapping = gleam.type_mapping
+
   let functions =
     queries
     |> list.map(render_adapter_function(
@@ -171,6 +173,7 @@ fn render_adapter(
       config,
       emit_sql_as_comment,
       emit_exact_table_names,
+      type_mapping,
     ))
     |> string.join("\n\n")
 
@@ -184,6 +187,7 @@ fn render_adapter_function(
   config: AdapterConfig,
   emit_sql_as_comment: Bool,
   emit_exact_table_names: Bool,
+  type_mapping: model.TypeMapping,
 ) -> String {
   let fn_name = query.base.function_name
   let has_params = !list.is_empty(query.params)
@@ -204,6 +208,7 @@ fn render_adapter_function(
         table_matches,
         config,
         emit_exact_table_names,
+        type_mapping,
       )
     model.Many | model.BatchMany ->
       render_adapter_many(
@@ -214,6 +219,7 @@ fn render_adapter_function(
         table_matches,
         config,
         emit_exact_table_names,
+        type_mapping,
       )
     model.Exec | model.BatchExec | model.CopyFrom ->
       render_adapter_exec(naming_ctx, query, fn_name, has_params, config)
@@ -252,6 +258,7 @@ fn render_decoder(
   type_name: String,
   config: AdapterConfig,
   emit_exact_table_names: Bool,
+  type_mapping: model.TypeMapping,
 ) -> String {
   case query.result_columns {
     [] -> "decode.success(Nil)"
@@ -268,6 +275,7 @@ fn render_decoder(
                   scalar_type,
                   nullable,
                   config,
+                  type_mapping,
                 )
               #(idx + 1, list.append(lines, [line]))
             }
@@ -285,6 +293,7 @@ fn render_decoder(
                   idx,
                   config,
                   emit_exact_table_names,
+                  type_mapping,
                 )
               #(new_idx, list.append(lines, embed_lines))
             }
@@ -317,6 +326,7 @@ fn render_decoder(
 fn render_base_decoder(
   scalar_type: model.ScalarType,
   config: AdapterConfig,
+  type_mapping: model.TypeMapping,
 ) -> String {
   case scalar_type {
     model.EnumType(enum_name) ->
@@ -325,7 +335,21 @@ fn render_base_decoder(
       <> "(s) { Ok(v) -> decode.success(v) Error(_) -> decode.failure(s, \"valid "
       <> enum_name
       <> " value\") } })"
-    _ -> config.decoder_function(scalar_type)
+    _ ->
+      case
+        type_mapping == model.StrongMapping && model.is_rich_type(scalar_type)
+      {
+        True -> {
+          let constructor =
+            model.scalar_type_to_gleam_type(scalar_type, model.StrongMapping)
+          "decode.map("
+          <> config.decoder_function(scalar_type)
+          <> ", models."
+          <> constructor
+          <> ")"
+        }
+        False -> config.decoder_function(scalar_type)
+      }
   }
 }
 
@@ -342,9 +366,10 @@ fn render_field_decode_line(
   scalar_type: model.ScalarType,
   nullable: Bool,
   config: AdapterConfig,
+  type_mapping: model.TypeMapping,
 ) -> String {
   let full_decoder =
-    render_base_decoder(scalar_type, config)
+    render_base_decoder(scalar_type, config, type_mapping)
     |> wrap_nullable_decoder(nullable)
   "    use "
   <> field_name
@@ -363,6 +388,7 @@ fn render_embedded_column_lines(
   start_idx: Int,
   config: AdapterConfig,
   emit_exact_table_names: Bool,
+  type_mapping: model.TypeMapping,
 ) -> #(Int, List(String)) {
   let embed_field_name = naming.to_snake_case(naming_ctx, embed_name)
   let embed_type_name =
@@ -370,7 +396,7 @@ fn render_embedded_column_lines(
   let embed_lines =
     list.index_map(embed_cols, fn(embed_col, embed_idx) {
       let full_decoder =
-        render_base_decoder(embed_col.scalar_type, config)
+        render_base_decoder(embed_col.scalar_type, config, type_mapping)
         |> wrap_nullable_decoder(embed_col.nullable)
       "    use "
       <> naming.to_snake_case(naming_ctx, embed_col.name)
@@ -405,6 +431,7 @@ fn render_adapter_one(
   table_matches: Dict(String, String),
   config: AdapterConfig,
   emit_exact_table_names: Bool,
+  type_mapping: model.TypeMapping,
 ) -> String {
   render_adapter_query_result(
     naming_ctx,
@@ -416,6 +443,7 @@ fn render_adapter_one(
     emit_exact_table_names,
     "Option",
     config.render_one_result,
+    type_mapping,
   )
 }
 
@@ -427,6 +455,7 @@ fn render_adapter_many(
   table_matches: Dict(String, String),
   config: AdapterConfig,
   emit_exact_table_names: Bool,
+  type_mapping: model.TypeMapping,
 ) -> String {
   render_adapter_query_result(
     naming_ctx,
@@ -438,6 +467,7 @@ fn render_adapter_many(
     emit_exact_table_names,
     "List",
     config.render_many_result,
+    type_mapping,
   )
 }
 
@@ -451,6 +481,7 @@ fn render_adapter_query_result(
   emit_exact_table_names: Bool,
   return_type_wrapper: String,
   render_result: fn() -> List(String),
+  type_mapping: model.TypeMapping,
 ) -> String {
   let type_name = naming.to_pascal_case(naming_ctx, query.base.name) <> "Row"
   let constructor_name = case
@@ -468,6 +499,7 @@ fn render_adapter_query_result(
       constructor_name,
       config,
       emit_exact_table_names,
+      type_mapping,
     )
 
   string.join(

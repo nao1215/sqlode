@@ -199,10 +199,29 @@ pub fn parse_type_mapping_rich_test() {
   model.parse_type_mapping("rich") |> should.equal(Ok(model.RichMapping))
 }
 
+pub fn parse_type_mapping_strong_test() {
+  model.parse_type_mapping("strong") |> should.equal(Ok(model.StrongMapping))
+}
+
 pub fn parse_type_mapping_invalid_test() {
   let assert Error(msg) = model.parse_type_mapping("unknown")
   string.contains(msg, "string") |> should.be_true()
   string.contains(msg, "rich") |> should.be_true()
+  string.contains(msg, "strong") |> should.be_true()
+}
+
+pub fn strong_type_uses_same_names_as_rich_test() {
+  model.scalar_type_to_gleam_type(model.UuidType, model.StrongMapping)
+  |> should.equal("SqlUuid")
+  model.scalar_type_to_gleam_type(model.DateTimeType, model.StrongMapping)
+  |> should.equal("SqlTimestamp")
+}
+
+pub fn strong_type_unwrap_fn_test() {
+  model.strong_type_unwrap_fn(model.UuidType)
+  |> should.equal("sql_uuid_to_string")
+  model.strong_type_unwrap_fn(model.JsonType)
+  |> should.equal("sql_json_to_string")
 }
 
 // is_rich_type tests
