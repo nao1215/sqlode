@@ -137,16 +137,21 @@ pub fn expand_slice_placeholders(
         let is_slice = list.find(slices, fn(s) { s.0 == orig_idx })
         case is_slice {
           Ok(#(_, len)) -> {
-            let expanded =
-              int.range(
-                from: next_new_idx,
-                to: next_new_idx + len,
-                with: [],
-                run: fn(items, i) { [prefix <> int.to_string(i), ..items] },
-              )
-              |> list.reverse
-              |> string.join(", ")
-            #(next_new_idx + len, [#(orig_idx, expanded), ..map])
+            case len {
+              0 -> #(next_new_idx, [#(orig_idx, "NULL"), ..map])
+              _ -> {
+                let expanded =
+                  int.range(
+                    from: next_new_idx,
+                    to: next_new_idx + len,
+                    with: [],
+                    run: fn(items, i) { [prefix <> int.to_string(i), ..items] },
+                  )
+                  |> list.reverse
+                  |> string.join(", ")
+                #(next_new_idx + len, [#(orig_idx, expanded), ..map])
+              }
+            }
           }
           Error(_) -> {
             #(next_new_idx + 1, [

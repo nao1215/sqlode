@@ -326,6 +326,27 @@ pub fn expand_slice_placeholders_no_slices_test() {
   result |> should.equal("SELECT * FROM users WHERE id = $1")
 }
 
+pub fn expand_slice_placeholders_empty_slice_test() {
+  let sql = "SELECT * FROM users WHERE id IN ($1)"
+  let result = runtime.expand_slice_placeholders(sql, [#(1, 0)], 1, "$")
+  result |> should.equal("SELECT * FROM users WHERE id IN (NULL)")
+}
+
+pub fn expand_slice_placeholders_empty_slice_with_other_params_test() {
+  let sql = "SELECT * FROM users WHERE name = $1 AND id IN ($2) AND status = $3"
+  let result = runtime.expand_slice_placeholders(sql, [#(2, 0)], 3, "$")
+  result
+  |> should.equal(
+    "SELECT * FROM users WHERE name = $1 AND id IN (NULL) AND status = $2",
+  )
+}
+
+pub fn expand_slice_placeholders_empty_slice_sqlite_test() {
+  let sql = "SELECT * FROM users WHERE id IN (?1)"
+  let result = runtime.expand_slice_placeholders(sql, [#(1, 0)], 1, "?")
+  result |> should.equal("SELECT * FROM users WHERE id IN (NULL)")
+}
+
 // --- Table type and alias tests ---
 
 pub fn render_models_table_type_alias_for_exact_match_test() {
