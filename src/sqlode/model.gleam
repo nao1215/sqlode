@@ -324,15 +324,15 @@ pub fn is_rich_type(scalar_type: ScalarType) -> Bool {
 }
 
 /// Returns the unwrap function name for strong-typed semantic types.
-/// e.g. UuidType -> "sql_uuid_to_string"
-pub fn strong_type_unwrap_fn(scalar_type: ScalarType) -> String {
+/// e.g. UuidType -> Some("sql_uuid_to_string")
+pub fn strong_type_unwrap_fn(scalar_type: ScalarType) -> option.Option(String) {
   case scalar_type {
-    DateTimeType -> "sql_timestamp_to_string"
-    DateType -> "sql_date_to_string"
-    TimeType -> "sql_time_to_string"
-    UuidType -> "sql_uuid_to_string"
-    JsonType -> "sql_json_to_string"
-    _ -> ""
+    DateTimeType -> option.Some("sql_timestamp_to_string")
+    DateType -> option.Some("sql_date_to_string")
+    TimeType -> option.Some("sql_time_to_string")
+    UuidType -> option.Some("sql_uuid_to_string")
+    JsonType -> option.Some("sql_json_to_string")
+    _ -> option.None
   }
 }
 
@@ -346,7 +346,8 @@ pub fn scalar_type_to_runtime_function(scalar_type: ScalarType) -> String {
     DateTimeType | DateType | TimeType | UuidType | JsonType -> "runtime.string"
     EnumType(_) -> "runtime.string"
     CustomType(_, underlying) -> scalar_type_to_runtime_function(underlying)
-    ArrayType(_) -> ""
+    // ArrayType uses pog.array() in native adapter, not raw runtime encoding
+    ArrayType(element) -> scalar_type_to_runtime_function(element)
   }
 }
 

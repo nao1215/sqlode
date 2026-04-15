@@ -1,4 +1,5 @@
 import gleam/list
+import gleam/option
 import gleam/string
 import sqlode/codegen/common
 import sqlode/model
@@ -188,25 +189,26 @@ fn render_param_value(
       case param.nullable {
         True ->
           case unwrap {
-            "" ->
+            option.None ->
               "case "
               <> value_expr
               <> " { Some(value) -> "
               <> runtime_fn
               <> "(value) None -> runtime.null() }"
-            _ ->
+            option.Some(fn_name) ->
               "case "
               <> value_expr
               <> " { Some(value) -> "
               <> runtime_fn
               <> "("
-              <> unwrap
+              <> fn_name
               <> "(value)) None -> runtime.null() }"
           }
         False ->
           case unwrap {
-            "" -> runtime_fn <> "(" <> value_expr <> ")"
-            _ -> runtime_fn <> "(" <> unwrap <> "(" <> value_expr <> "))"
+            option.None -> runtime_fn <> "(" <> value_expr <> ")"
+            option.Some(fn_name) ->
+              runtime_fn <> "(" <> fn_name <> "(" <> value_expr <> "))"
           }
       }
     }
@@ -216,14 +218,14 @@ fn render_param_value(
 fn strong_unwrap_expr(
   scalar_type: model.ScalarType,
   type_mapping: model.TypeMapping,
-) -> String {
+) -> option.Option(String) {
   case type_mapping {
     model.StrongMapping ->
-      case model.is_rich_type(scalar_type) {
-        True -> "models." <> model.strong_type_unwrap_fn(scalar_type)
-        False -> ""
+      case model.strong_type_unwrap_fn(scalar_type) {
+        option.Some(fn_name) -> option.Some("models." <> fn_name)
+        option.None -> option.None
       }
-    _ -> ""
+    _ -> option.None
   }
 }
 
@@ -254,14 +256,15 @@ fn param_accessors_flattened(
           }
           _ ->
             case unwrap {
-              "" -> "list.map(" <> value_expr <> ", " <> runtime_fn <> ")"
-              _ ->
+              option.None ->
+                "list.map(" <> value_expr <> ", " <> runtime_fn <> ")"
+              option.Some(fn_name) ->
                 "list.map("
                 <> value_expr
                 <> ", fn(v) { "
                 <> runtime_fn
                 <> "("
-                <> unwrap
+                <> fn_name
                 <> "(v)) })"
             }
         }
@@ -286,29 +289,29 @@ fn param_accessors_flattened(
             case param.nullable {
               True ->
                 case unwrap {
-                  "" ->
+                  option.None ->
                     "[case "
                     <> value_expr
                     <> " { Some(value) -> "
                     <> runtime_fn
                     <> "(value) None -> runtime.null() }]"
-                  _ ->
+                  option.Some(fn_name) ->
                     "[case "
                     <> value_expr
                     <> " { Some(value) -> "
                     <> runtime_fn
                     <> "("
-                    <> unwrap
+                    <> fn_name
                     <> "(value)) None -> runtime.null() }]"
                 }
               False ->
                 case unwrap {
-                  "" -> "[" <> runtime_fn <> "(" <> value_expr <> ")]"
-                  _ ->
+                  option.None -> "[" <> runtime_fn <> "(" <> value_expr <> ")]"
+                  option.Some(fn_name) ->
                     "["
                     <> runtime_fn
                     <> "("
-                    <> unwrap
+                    <> fn_name
                     <> "("
                     <> value_expr
                     <> "))]"
