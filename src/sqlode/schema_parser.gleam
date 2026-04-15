@@ -3,6 +3,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
+import sqlode/lexer
 import sqlode/model
 import sqlode/naming
 
@@ -18,10 +19,17 @@ type ParsedSchema {
 pub fn parse_files(
   entries: List(#(String, String)),
 ) -> Result(model.Catalog, ParseError) {
+  parse_files_with_engine(entries, model.PostgreSQL)
+}
+
+pub fn parse_files_with_engine(
+  entries: List(#(String, String)),
+  engine: model.Engine,
+) -> Result(model.Catalog, ParseError) {
   entries
   |> list.try_fold(ParsedSchema(tables: [], enums: []), fn(acc, entry) {
     let #(_path, content) = entry
-    use parsed <- result.try(parse_content(content, acc.enums))
+    use parsed <- result.try(parse_content(content, acc.enums, engine))
     Ok(ParsedSchema(
       tables: list.append(acc.tables, parsed.tables),
       enums: list.append(acc.enums, parsed.enums),
@@ -35,22 +43,16 @@ pub fn parse_files(
 fn parse_content(
   content: String,
   known_enums: List(model.EnumDef),
+  engine: model.Engine,
 ) -> Result(ParsedSchema, ParseError) {
-  let statements =
-    content
-    |> string.split(";")
-    |> list.map(string.trim)
-    |> list.filter(fn(statement) { statement != "" })
+  let tokens = lexer.tokenize(content, engine)
+  let statements = split_token_statements(tokens, [], [])
 
   let enums =
     statements
-    |> list.filter_map(fn(statement) {
-      let lowered = string.lowercase(statement)
-      case
-        string.contains(lowered, "create type")
-        && string.contains(lowered, "as enum")
-      {
-        True -> parse_create_enum(statement)
+    |> list.filter_map(fn(stmt_tokens) {
+      case is_create_enum_tokens(stmt_tokens) {
+        True -> parse_create_enum_from_tokens(stmt_tokens)
         False -> Error(Nil)
       }
     })
@@ -59,7 +61,8 @@ fn parse_content(
 
   use tables <- result.try(
     statements
-    |> list.try_fold([], fn(tables, statement) {
+    |> list.try_fold([], fn(tables, stmt_tokens) {
+      let statement = tokens_to_string(stmt_tokens)
       use maybe_table <- result.try(parse_statement(
         statement,
         all_enums,
@@ -76,30 +79,134 @@ fn parse_content(
   Ok(ParsedSchema(tables:, enums:))
 }
 
-fn parse_create_enum(statement: String) -> Result(model.EnumDef, Nil) {
-  case string.split_once(statement, "(") {
-    Error(_) -> Error(Nil)
-    Ok(#(header, body)) -> {
-      let header_lower = string.lowercase(header)
-      let name =
-        header_lower
-        |> string.replace("create type", "")
-        |> string.replace("as enum", "")
-        |> string.trim
+// --- Lexer-based helpers ---
 
-      let values =
-        body
-        |> string.replace(")", "")
-        |> string.split(",")
-        |> list.map(fn(v) {
-          v
-          |> string.trim
-          |> string.replace("'", "")
-        })
-        |> list.filter(fn(v) { v != "" })
+/// Split token list on Semicolon tokens into a list of statements.
+fn split_token_statements(
+  tokens: List(lexer.Token),
+  current: List(lexer.Token),
+  acc: List(List(lexer.Token)),
+) -> List(List(lexer.Token)) {
+  case tokens {
+    [] ->
+      case current {
+        [] -> list.reverse(acc)
+        _ -> list.reverse([list.reverse(current), ..acc])
+      }
+    [lexer.Semicolon, ..rest] ->
+      case current {
+        [] -> split_token_statements(rest, [], acc)
+        _ -> split_token_statements(rest, [], [list.reverse(current), ..acc])
+      }
+    [token, ..rest] -> split_token_statements(rest, [token, ..current], acc)
+  }
+}
 
+/// Check if a token list represents a CREATE TYPE ... AS ENUM statement.
+fn is_create_enum_tokens(tokens: List(lexer.Token)) -> Bool {
+  case tokens {
+    [
+      lexer.Keyword("create"),
+      lexer.Keyword("type"),
+      _,
+      lexer.Keyword("as"),
+      lexer.Keyword("enum"),
+      ..
+    ] -> True
+    _ -> False
+  }
+}
+
+/// Parse a CREATE TYPE name AS ENUM (...) from tokens, handling escaped quotes correctly.
+fn parse_create_enum_from_tokens(
+  tokens: List(lexer.Token),
+) -> Result(model.EnumDef, Nil) {
+  case tokens {
+    [
+      lexer.Keyword("create"),
+      lexer.Keyword("type"),
+      name_token,
+      lexer.Keyword("as"),
+      lexer.Keyword("enum"),
+      ..rest
+    ] -> {
+      let name = case name_token {
+        lexer.Ident(n) -> string.lowercase(n)
+        lexer.QuotedIdent(n) -> string.lowercase(n)
+        _ -> ""
+      }
+      let values = extract_enum_values(rest, [])
       Ok(model.EnumDef(name:, values:))
     }
+    _ -> Error(Nil)
+  }
+}
+
+/// Extract string literal values from inside ENUM parentheses.
+fn extract_enum_values(
+  tokens: List(lexer.Token),
+  acc: List(String),
+) -> List(String) {
+  case tokens {
+    [] -> list.reverse(acc)
+    [lexer.StringLit(value), ..rest] ->
+      extract_enum_values(rest, [value, ..acc])
+    [_, ..rest] -> extract_enum_values(rest, acc)
+  }
+}
+
+/// Reconstruct a SQL string from tokens (for backward compatibility with
+/// string-based parsing functions during incremental migration).
+fn tokens_to_string(tokens: List(lexer.Token)) -> String {
+  tokens_to_string_loop(tokens, [])
+  |> list.reverse
+  |> string.concat
+}
+
+fn tokens_to_string_loop(
+  tokens: List(lexer.Token),
+  acc: List(String),
+) -> List(String) {
+  case tokens {
+    [] -> acc
+    [token, ..rest] -> {
+      let s = token_to_string(token)
+      let with_space = case acc, token {
+        // No space before these tokens
+        _, lexer.Comma | _, lexer.Semicolon | _, lexer.RParen | _, lexer.Dot -> [
+          s,
+          ..acc
+        ]
+        // No space after LParen or Dot
+        ["(", ..], _ | [".", ..], _ -> [s, ..acc]
+        // No space before/after [] (array syntax)
+        _, lexer.Operator("[") -> [s, ..acc]
+        ["]", ..], _ | ["[", ..], _ -> [s, ..acc]
+        // First token
+        [], _ -> [s]
+        // Default: add space before
+        _, _ -> [s, " ", ..acc]
+      }
+      tokens_to_string_loop(rest, with_space)
+    }
+  }
+}
+
+fn token_to_string(token: lexer.Token) -> String {
+  case token {
+    lexer.Keyword(k) -> string.uppercase(k)
+    lexer.Ident(name) -> name
+    lexer.QuotedIdent(name) -> "\"" <> name <> "\""
+    lexer.StringLit(value) -> "'" <> string.replace(value, "'", "''") <> "'"
+    lexer.NumberLit(n) -> n
+    lexer.Placeholder(p) -> p
+    lexer.Operator(op) -> op
+    lexer.LParen -> "("
+    lexer.RParen -> ")"
+    lexer.Comma -> ","
+    lexer.Semicolon -> ";"
+    lexer.Dot -> "."
+    lexer.Star -> "*"
   }
 }
 
@@ -110,7 +217,16 @@ fn parse_statement(
 ) -> Result(Option(model.Table), ParseError) {
   let lowered = string.lowercase(statement)
 
-  case string.starts_with(lowered, "create table") {
+  case
+    string.starts_with(lowered, "create table")
+    || string.starts_with(lowered, "create temporary table")
+    || string.starts_with(lowered, "create temp table")
+    || string.starts_with(lowered, "create unlogged table")
+    || string.starts_with(lowered, "create table if not exists")
+    || string.starts_with(lowered, "create temporary table if not exists")
+    || string.starts_with(lowered, "create temp table if not exists")
+    || string.starts_with(lowered, "create unlogged table if not exists")
+  {
     True -> parse_create_table(statement, enums)
     False ->
       case
