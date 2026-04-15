@@ -540,3 +540,31 @@ pub fn singularize_regular_plural_test() {
 pub fn singularize_compound_table_names_test() {
   naming_test.singularize_compound_table_names_test()
 }
+
+pub fn sqlite_repeated_colon_placeholder_dedup_test() {
+  query_parser_test.sqlite_repeated_colon_placeholder_dedup_test()
+}
+
+pub fn sqlite_repeated_dollar_placeholder_dedup_test() {
+  query_parser_test.sqlite_repeated_dollar_placeholder_dedup_test()
+}
+
+pub fn sqlite_repeated_at_placeholder_dedup_test() {
+  query_parser_test.sqlite_repeated_at_placeholder_dedup_test()
+}
+
+pub fn sqlite_distinct_named_placeholders_not_deduped_test() {
+  query_parser_test.sqlite_distinct_named_placeholders_not_deduped_test()
+}
+
+pub fn sqlite_colon_and_at_are_different_params_test() {
+  query_parser_test.sqlite_colon_and_at_are_different_params_test()
+}
+
+pub fn sqlite_bare_question_marks_not_deduped_test() {
+  query_parser_test.sqlite_bare_question_marks_not_deduped_test()
+}
+
+pub fn sqlite_repeated_numbered_placeholder_dedup_test() {
+  query_parser_test.sqlite_repeated_numbered_placeholder_dedup_test()
+}

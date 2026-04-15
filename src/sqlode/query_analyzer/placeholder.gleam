@@ -18,7 +18,7 @@ pub fn extract(
   sql: String,
 ) -> List(PlaceholderOccurrence) {
   let tokens = placeholder_tokens(ctx, engine, sql)
-  build_occurrences(ctx, engine, tokens, 1, [])
+  build_occurrences(ctx, engine, tokens, 1, dict.new(), [])
 }
 
 pub fn unique(
@@ -81,23 +81,58 @@ fn build_occurrences(
   engine: model.Engine,
   tokens: List(String),
   occurrence: Int,
+  seen: dict.Dict(String, Int),
   acc: List(PlaceholderOccurrence),
 ) -> List(PlaceholderOccurrence) {
   case tokens {
     [] -> list.reverse(acc)
-    [token, ..rest] -> {
-      let index = case placeholder_index_for_token(engine, token, occurrence) {
-        Some(value) -> value
-        None -> occurrence
+    [token, ..rest] ->
+      case engine {
+        model.SQLite if token != "?" ->
+          case dict.get(seen, token) {
+            Ok(existing_index) -> {
+              let default_name = default_param_name(ctx, token, existing_index)
+              build_occurrences(ctx, engine, rest, occurrence, seen, [
+                PlaceholderOccurrence(
+                  index: existing_index,
+                  token:,
+                  default_name:,
+                ),
+                ..acc
+              ])
+            }
+            Error(_) -> {
+              let index = case
+                placeholder_index_for_token(engine, token, occurrence)
+              {
+                Some(value) -> value
+                None -> occurrence
+              }
+              let default_name = default_param_name(ctx, token, index)
+              build_occurrences(
+                ctx,
+                engine,
+                rest,
+                occurrence + 1,
+                dict.insert(seen, token, index),
+                [PlaceholderOccurrence(index:, token:, default_name:), ..acc],
+              )
+            }
+          }
+        _ -> {
+          let index = case
+            placeholder_index_for_token(engine, token, occurrence)
+          {
+            Some(value) -> value
+            None -> occurrence
+          }
+          let default_name = default_param_name(ctx, token, index)
+          build_occurrences(ctx, engine, rest, occurrence + 1, seen, [
+            PlaceholderOccurrence(index:, token:, default_name:),
+            ..acc
+          ])
+        }
       }
-
-      let default_name = default_param_name(ctx, token, index)
-
-      build_occurrences(ctx, engine, rest, occurrence + 1, [
-        PlaceholderOccurrence(index:, token:, default_name:),
-        ..acc
-      ])
-    }
   }
 }
 
