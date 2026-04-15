@@ -172,38 +172,24 @@ fn render_param_value(
   case param.scalar_type {
     model.EnumType(name) -> {
       let to_string_fn = "models." <> model.enum_to_string_fn(name)
+      let encode_fn =
+        "fn(v) { " <> runtime_fn <> "(" <> to_string_fn <> "(v)) }"
       case param.nullable {
-        True ->
-          "case "
-          <> value_expr
-          <> " { Some(value) -> "
-          <> runtime_fn
-          <> "("
-          <> to_string_fn
-          <> "(value)) None -> runtime.null() }"
+        True -> "runtime.nullable(" <> value_expr <> ", " <> encode_fn <> ")"
         False -> runtime_fn <> "(" <> to_string_fn <> "(" <> value_expr <> "))"
       }
     }
     _ -> {
       let unwrap = strong_unwrap_expr(param.scalar_type, type_mapping)
       case param.nullable {
-        True ->
-          case unwrap {
-            option.None ->
-              "case "
-              <> value_expr
-              <> " { Some(value) -> "
-              <> runtime_fn
-              <> "(value) None -> runtime.null() }"
+        True -> {
+          let encode_fn = case unwrap {
+            option.None -> runtime_fn
             option.Some(fn_name) ->
-              "case "
-              <> value_expr
-              <> " { Some(value) -> "
-              <> runtime_fn
-              <> "("
-              <> fn_name
-              <> "(value)) None -> runtime.null() }"
+              "fn(v) { " <> runtime_fn <> "(" <> fn_name <> "(v)) }"
           }
+          "runtime.nullable(" <> value_expr <> ", " <> encode_fn <> ")"
+        }
         False ->
           case unwrap {
             option.None -> runtime_fn <> "(" <> value_expr <> ")"
@@ -273,37 +259,25 @@ fn param_accessors_flattened(
           model.EnumType(name) -> {
             let to_str = "models." <> model.enum_to_string_fn(name)
             case param.nullable {
-              True ->
-                "[case "
-                <> value_expr
-                <> " { Some(value) -> "
-                <> runtime_fn
-                <> "("
-                <> to_str
-                <> "(value)) None -> runtime.null() }]"
+              True -> {
+                let encode_fn =
+                  "fn(v) { " <> runtime_fn <> "(" <> to_str <> "(v)) }"
+                "[runtime.nullable(" <> value_expr <> ", " <> encode_fn <> ")]"
+              }
               False ->
                 "[" <> runtime_fn <> "(" <> to_str <> "(" <> value_expr <> "))]"
             }
           }
           _ ->
             case param.nullable {
-              True ->
-                case unwrap {
-                  option.None ->
-                    "[case "
-                    <> value_expr
-                    <> " { Some(value) -> "
-                    <> runtime_fn
-                    <> "(value) None -> runtime.null() }]"
+              True -> {
+                let encode_fn = case unwrap {
+                  option.None -> runtime_fn
                   option.Some(fn_name) ->
-                    "[case "
-                    <> value_expr
-                    <> " { Some(value) -> "
-                    <> runtime_fn
-                    <> "("
-                    <> fn_name
-                    <> "(value)) None -> runtime.null() }]"
+                    "fn(v) { " <> runtime_fn <> "(" <> fn_name <> "(v)) }"
                 }
+                "[runtime.nullable(" <> value_expr <> ", " <> encode_fn <> ")]"
+              }
               False ->
                 case unwrap {
                   option.None -> "[" <> runtime_fn <> "(" <> value_expr <> ")]"
