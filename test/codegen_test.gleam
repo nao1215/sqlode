@@ -438,7 +438,7 @@ fn analyzed_slice_queries(engine: model.Engine) -> List(model.AnalyzedQuery) {
   let assert Ok(catalog) =
     schema_parser.parse_files([#("test/fixtures/schema.sql", schema_content)])
   let sql =
-    "-- name: GetByIds :many\nSELECT id, name FROM authors WHERE id IN (sqlc.slice(ids));"
+    "-- name: GetByIds :many\nSELECT id, name FROM authors WHERE id IN (sqlode.slice(ids));"
   let assert Ok(queries) =
     query_parser.parse_file("slice.sql", engine, naming_ctx, sql)
   let assert Ok(result) =
@@ -714,7 +714,7 @@ pub fn readme_params_snapshot_test() {
   string.contains(rendered, "bio: Option(String)")
   |> should.be_true()
 
-  // README sqlc.slice: pub type GetAuthorsByIdsParams { GetAuthorsByIdsParams(ids: List(Int)) }
+  // README sqlode.slice: pub type GetAuthorsByIdsParams { GetAuthorsByIdsParams(ids: List(Int)) }
   string.contains(rendered, "pub type GetAuthorsByIdsParams {")
   |> should.be_true()
   string.contains(rendered, "ids: List(Int)")
@@ -754,7 +754,7 @@ pub fn readme_models_snapshot_test() {
   string.contains(rendered, "pub type ListAuthorsRow {")
   |> should.be_true()
 
-  // README sqlc.embed: pub type GetBookWithAuthorRow {
+  // README sqlode.embed: pub type GetBookWithAuthorRow {
   //   GetBookWithAuthorRow(authors: Author, title: String) }
   string.contains(rendered, "pub type GetBookWithAuthorRow {")
   |> should.be_true()

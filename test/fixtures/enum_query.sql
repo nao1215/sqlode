@@ -2,4 +2,4 @@
 SELECT id, name, status FROM users WHERE id = $1;
 
 -- name: ListUsersByStatuses :many
-SELECT id, name, status FROM users WHERE status IN (sqlc.slice(statuses));
+SELECT id, name, status FROM users WHERE status IN (sqlode.slice(statuses));

@@ -169,10 +169,10 @@ pub fn query_command_to_variant(command: QueryCommand) -> String {
   }
 }
 
-pub type SqlcMacro {
-  SqlcArg(index: Int, name: String)
-  SqlcNarg(index: Int, name: String)
-  SqlcSlice(index: Int, name: String)
+pub type Macro {
+  MacroArg(index: Int, name: String)
+  MacroNarg(index: Int, name: String)
+  MacroSlice(index: Int, name: String)
 }
 
 pub type ParsedQuery {
@@ -183,7 +183,7 @@ pub type ParsedQuery {
     sql: String,
     source_path: String,
     param_count: Int,
-    macros: List(SqlcMacro),
+    macros: List(Macro),
   )
 }
 

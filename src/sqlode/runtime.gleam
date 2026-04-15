@@ -101,7 +101,7 @@ pub fn nullable(value: option.Option(a), encode: fn(a) -> Value) -> Value {
 
 /// Expand slice placeholders in a SQL string.
 ///
-/// When a query uses `sqlc.slice(ids)`, the parser emits a single placeholder
+/// When a query uses `sqlode.slice(ids)`, the parser emits a single placeholder
 /// (e.g. `$1` or `?1`).  At runtime the placeholder must be expanded to match
 /// the actual list length, and every subsequent placeholder must be renumbered.
 ///
