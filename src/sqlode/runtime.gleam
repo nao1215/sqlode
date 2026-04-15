@@ -1,5 +1,6 @@
 import gleam/int
 import gleam/list
+import gleam/option
 import gleam/string
 
 pub type QueryCommand {
@@ -84,6 +85,13 @@ pub fn bool(value: Bool) -> Value {
 
 pub fn bytes(value: BitArray) -> Value {
   SqlBytes(value)
+}
+
+pub fn nullable(value: option.Option(a), encode: fn(a) -> Value) -> Value {
+  case value {
+    option.Some(v) -> encode(v)
+    option.None -> SqlNull
+  }
 }
 
 /// Expand slice placeholders in a SQL string.
