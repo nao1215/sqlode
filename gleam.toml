@@ -4,6 +4,11 @@ target = "erlang"
 description = "Generate type-safe Gleam code from SQL schemas and queries"
 licences = ["MIT"]
 repository = { type = "github", user = "nao1215", repo = "sqlode" }
+links = [
+  { title = "Homepage", href = "https://github.com/nao1215/sqlode" },
+  { title = "Documentation", href = "https://hexdocs.pm/sqlode" },
+  { title = "Changelog", href = "https://github.com/nao1215/sqlode/blob/main/CHANGELOG.md" },
+]
 
 [dependencies]
 gleam_stdlib = ">= 0.44.0 and < 2.0.0"
