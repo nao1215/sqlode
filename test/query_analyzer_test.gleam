@@ -703,3 +703,162 @@ fn join_catalog() -> model.Catalog {
 
   catalog
 }
+
+// --- Expression-based column tests ---
+
+pub fn count_expression_infers_int_type_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let assert Ok(content) = simplifile.read("test/fixtures/expression_query.sql")
+  let assert Ok(queries) =
+    query_parser.parse_file(
+      "test/fixtures/expression_query.sql",
+      model.PostgreSQL,
+      naming_ctx,
+      content,
+    )
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+
+  // CountAuthors: COUNT(*) AS total → Int, not nullable
+  let assert [count_query, ..] = analyzed
+  let assert [total_col] = count_query.result_columns
+  let assert model.ResultColumn(name: "total", scalar_type: model.IntType, ..) =
+    total_col
+}
+
+pub fn sum_avg_expression_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let assert Ok(content) = simplifile.read("test/fixtures/expression_query.sql")
+  let assert Ok(queries) =
+    query_parser.parse_file(
+      "test/fixtures/expression_query.sql",
+      model.PostgreSQL,
+      naming_ctx,
+      content,
+    )
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+
+  // SumAndAvg: SUM(id) AS id_sum → Int(nullable), AVG(id) AS id_avg → Float(nullable)
+  let assert [_, sum_avg_query, ..] = analyzed
+  let assert [sum_col, avg_col] = sum_avg_query.result_columns
+  let assert model.ResultColumn(
+    name: "id_sum",
+    scalar_type: model.IntType,
+    nullable: True,
+    ..,
+  ) = sum_col
+  let assert model.ResultColumn(
+    name: "id_avg",
+    scalar_type: model.FloatType,
+    nullable: True,
+    ..,
+  ) = avg_col
+}
+
+pub fn coalesce_expression_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let assert Ok(content) = simplifile.read("test/fixtures/expression_query.sql")
+  let assert Ok(queries) =
+    query_parser.parse_file(
+      "test/fixtures/expression_query.sql",
+      model.PostgreSQL,
+      naming_ctx,
+      content,
+    )
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+
+  // CoalesceNullable: COALESCE(bio, 'N/A') AS bio_text → String, not nullable
+  let assert [_, _, coalesce_query, ..] = analyzed
+  let assert [_, bio_col] = coalesce_query.result_columns
+  let assert model.ResultColumn(
+    name: "bio_text",
+    scalar_type: model.StringType,
+    nullable: False,
+    ..,
+  ) = bio_col
+}
+
+pub fn cast_expression_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let assert Ok(content) = simplifile.read("test/fixtures/expression_query.sql")
+  let assert Ok(queries) =
+    query_parser.parse_file(
+      "test/fixtures/expression_query.sql",
+      model.PostgreSQL,
+      naming_ctx,
+      content,
+    )
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+
+  // CastColumn: CAST(name AS TEXT) AS name_text → String
+  let assert [_, _, _, cast_query, ..] = analyzed
+  let assert [_, name_col] = cast_query.result_columns
+  let assert model.ResultColumn(
+    name: "name_text",
+    scalar_type: model.StringType,
+    ..,
+  ) = name_col
+}
+
+pub fn literal_expression_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let assert Ok(content) = simplifile.read("test/fixtures/expression_query.sql")
+  let assert Ok(queries) =
+    query_parser.parse_file(
+      "test/fixtures/expression_query.sql",
+      model.PostgreSQL,
+      naming_ctx,
+      content,
+    )
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+
+  // LiteralSelect: 1 AS one → Int, 'hello' AS greeting → String
+  let assert [_, _, _, _, literal_query] = analyzed
+  let assert [one_col, greeting_col] = literal_query.result_columns
+  let assert model.ResultColumn(
+    name: "one",
+    scalar_type: model.IntType,
+    nullable: False,
+    ..,
+  ) = one_col
+  let assert model.ResultColumn(
+    name: "greeting",
+    scalar_type: model.StringType,
+    nullable: False,
+    ..,
+  ) = greeting_col
+}
