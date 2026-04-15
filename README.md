@@ -56,7 +56,6 @@ sql:
     engine: "postgresql"
     gen:
       gleam:
-        package: "db"
         out: "src/db"
         runtime: "raw"
 ```
@@ -194,7 +193,6 @@ MySQL adapter generation is not available. MySQL works with `runtime: "raw"` onl
 ```yaml
 gen:
   gleam:
-    package: "db"
     out: "src/db"
     runtime: "native"
 ```
@@ -427,7 +425,6 @@ sql:
     engine: "postgresql"
     gen:
       gleam:
-        package: "db"
         out: "src/db"
     overrides:
       types:
@@ -475,7 +472,6 @@ By default, sqlode maps UUID, JSON, DATE, TIME, and TIMESTAMP columns to `String
 ```yaml
 gen:
   gleam:
-    package: "db"
     out: "src/db"
     type_mapping: "rich"
 ```
@@ -528,7 +524,6 @@ sqlode follows sqlc conventions, so most SQL files work without changes. Key dif
    ```yaml
    gen:
      gleam:
-       package: "db"
        out: "src/db"
        runtime: "raw"   # or "native" for full adapter generation
    ```
