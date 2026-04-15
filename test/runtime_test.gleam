@@ -32,6 +32,29 @@ pub fn bytes_value_test() {
   runtime.bytes(<<1, 2, 3>>) |> should.equal(runtime.SqlBytes(<<1, 2, 3>>))
 }
 
+pub fn array_value_test() {
+  runtime.array([runtime.string("a"), runtime.string("b")])
+  |> should.equal(
+    runtime.SqlArray([runtime.SqlString("a"), runtime.SqlString("b")]),
+  )
+}
+
+pub fn array_empty_test() {
+  runtime.array([])
+  |> should.equal(runtime.SqlArray([]))
+}
+
+pub fn array_nested_types_test() {
+  runtime.array([runtime.int(1), runtime.int(2), runtime.int(3)])
+  |> should.equal(
+    runtime.SqlArray([
+      runtime.SqlInt(1),
+      runtime.SqlInt(2),
+      runtime.SqlInt(3),
+    ]),
+  )
+}
+
 pub fn prepare_no_slices_test() {
   let query =
     runtime.RawQuery(

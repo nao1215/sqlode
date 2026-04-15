@@ -897,6 +897,30 @@ pub fn render_params_with_array_columns_test() {
   |> should.be_true()
 }
 
+pub fn render_params_array_encoding_raw_runtime_test() {
+  let naming_ctx = naming.new()
+  let analyzed = array_analyzed_queries()
+  let rendered =
+    codegen.render_params_module(
+      naming_ctx,
+      analyzed,
+      model.StringMapping,
+      "db",
+    )
+
+  // Raw-mode array params should encode using runtime.array + list.map
+  string.contains(rendered, "runtime.array(list.map(")
+  |> should.be_true()
+
+  // Nullable array params should use runtime.nullable wrapping runtime.array
+  string.contains(rendered, "runtime.nullable(")
+  |> should.be_true()
+
+  // Should import gleam/list for array mapping
+  string.contains(rendered, "import gleam/list")
+  |> should.be_true()
+}
+
 pub fn render_pog_adapter_with_array_columns_test() {
   let naming_ctx = naming.new()
   let block =

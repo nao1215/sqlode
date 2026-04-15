@@ -13,6 +13,8 @@ pub fn render(
 ) -> String {
   let has_slices = common.queries_have_slices(queries)
 
+  let has_arrays = queries_have_array_params(queries)
+
   let has_enums = common.queries_have_enum_params(queries)
 
   let needs_models_for_strong =
@@ -24,7 +26,7 @@ pub fn render(
   let imports = case needs_option_import(queries) {
     True ->
       list.flatten([
-        case has_slices {
+        case has_slices || has_arrays {
           True -> ["import gleam/list"]
           False -> []
         },
@@ -39,7 +41,7 @@ pub fn render(
       ])
     False ->
       list.flatten([
-        case has_slices {
+        case has_slices || has_arrays {
           True -> ["import gleam/list"]
           False -> []
         },
@@ -64,6 +66,17 @@ pub fn render(
     ])
 
   string.join(lines, "\n")
+}
+
+fn queries_have_array_params(queries: List(model.AnalyzedQuery)) -> Bool {
+  list.any(queries, fn(q) {
+    list.any(q.params, fn(p) {
+      case p.scalar_type {
+        model.ArrayType(_) -> True
+        _ -> False
+      }
+    })
+  })
 }
 
 fn needs_option_import(queries: List(model.AnalyzedQuery)) -> Bool {
@@ -179,6 +192,20 @@ fn render_param_value(
         False -> runtime_fn <> "(" <> to_string_fn <> "(" <> value_expr <> "))"
       }
     }
+    model.ArrayType(element) -> {
+      let mapper = render_array_element_mapper(element, type_mapping)
+      let array_expr =
+        "runtime.array(list.map(" <> value_expr <> ", " <> mapper <> "))"
+      case param.nullable {
+        True ->
+          "runtime.nullable("
+          <> value_expr
+          <> ", fn(v) { runtime.array(list.map(v, "
+          <> mapper
+          <> ")) })"
+        False -> array_expr
+      }
+    }
     _ -> {
       let unwrap = strong_unwrap_expr(param.scalar_type, type_mapping)
       case param.nullable {
@@ -212,6 +239,27 @@ fn strong_unwrap_expr(
         option.None -> option.None
       }
     _ -> option.None
+  }
+}
+
+fn render_array_element_mapper(
+  element: model.ScalarType,
+  type_mapping: model.TypeMapping,
+) -> String {
+  let runtime_fn = model.scalar_type_to_runtime_function(element)
+  case element {
+    model.EnumType(name) -> {
+      let to_str = "models." <> model.enum_to_string_fn(name)
+      "fn(v) { " <> runtime_fn <> "(" <> to_str <> "(v)) }"
+    }
+    _ -> {
+      let unwrap = strong_unwrap_expr(element, type_mapping)
+      case unwrap {
+        option.None -> runtime_fn
+        option.Some(fn_name) ->
+          "fn(v) { " <> runtime_fn <> "(" <> fn_name <> "(v)) }"
+      }
+    }
   }
 }
 
@@ -266,6 +314,23 @@ fn param_accessors_flattened(
               }
               False ->
                 "[" <> runtime_fn <> "(" <> to_str <> "(" <> value_expr <> "))]"
+            }
+          }
+          model.ArrayType(element) -> {
+            let mapper = render_array_element_mapper(element, type_mapping)
+            case param.nullable {
+              True ->
+                "[runtime.nullable("
+                <> value_expr
+                <> ", fn(v) { runtime.array(list.map(v, "
+                <> mapper
+                <> ")) })]"
+              False ->
+                "[runtime.array(list.map("
+                <> value_expr
+                <> ", "
+                <> mapper
+                <> "))]"
             }
           }
           _ ->
