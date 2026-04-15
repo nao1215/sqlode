@@ -273,99 +273,190 @@ fn find_matching_type(
   }
 }
 
-pub fn scalar_type_to_gleam_type(
-  scalar_type: ScalarType,
-  type_mapping: TypeMapping,
-) -> String {
+// --- ScalarType property table ---
+// All leaf type properties are defined once here. Adding a new leaf type
+// only requires adding one entry to this table instead of editing 6 functions.
+
+type ScalarTypeInfo {
+  ScalarTypeInfo(
+    gleam_type: String,
+    rich_type: option.Option(String),
+    runtime_fn: String,
+    db_name: String,
+    value_fn: String,
+    decoder: String,
+    unwrap_fn: option.Option(String),
+  )
+}
+
+fn scalar_type_info(scalar_type: ScalarType) -> option.Option(ScalarTypeInfo) {
   case scalar_type {
-    IntType -> "Int"
-    FloatType -> "Float"
-    BoolType -> "Bool"
-    StringType -> "String"
-    BytesType -> "BitArray"
+    IntType ->
+      option.Some(ScalarTypeInfo(
+        gleam_type: "Int",
+        rich_type: option.None,
+        runtime_fn: "runtime.int",
+        db_name: "int",
+        value_fn: "int",
+        decoder: "decode.int",
+        unwrap_fn: option.None,
+      ))
+    FloatType ->
+      option.Some(ScalarTypeInfo(
+        gleam_type: "Float",
+        rich_type: option.None,
+        runtime_fn: "runtime.float",
+        db_name: "float",
+        value_fn: "float",
+        decoder: "decode.float",
+        unwrap_fn: option.None,
+      ))
+    BoolType ->
+      option.Some(ScalarTypeInfo(
+        gleam_type: "Bool",
+        rich_type: option.None,
+        runtime_fn: "runtime.bool",
+        db_name: "bool",
+        value_fn: "bool",
+        decoder: "decode.bool",
+        unwrap_fn: option.None,
+      ))
+    StringType ->
+      option.Some(ScalarTypeInfo(
+        gleam_type: "String",
+        rich_type: option.None,
+        runtime_fn: "runtime.string",
+        db_name: "string",
+        value_fn: "text",
+        decoder: "decode.string",
+        unwrap_fn: option.None,
+      ))
+    BytesType ->
+      option.Some(ScalarTypeInfo(
+        gleam_type: "BitArray",
+        rich_type: option.None,
+        runtime_fn: "runtime.bytes",
+        db_name: "bytes",
+        value_fn: "bytea",
+        decoder: "decode.bit_array",
+        unwrap_fn: option.None,
+      ))
     DateTimeType ->
-      case type_mapping {
-        RichMapping | StrongMapping -> "SqlTimestamp"
-        StringMapping -> "String"
-      }
+      option.Some(ScalarTypeInfo(
+        gleam_type: "String",
+        rich_type: option.Some("SqlTimestamp"),
+        runtime_fn: "runtime.string",
+        db_name: "datetime",
+        value_fn: "text",
+        decoder: "decode.string",
+        unwrap_fn: option.Some("sql_timestamp_to_string"),
+      ))
     DateType ->
-      case type_mapping {
-        RichMapping | StrongMapping -> "SqlDate"
-        StringMapping -> "String"
-      }
+      option.Some(ScalarTypeInfo(
+        gleam_type: "String",
+        rich_type: option.Some("SqlDate"),
+        runtime_fn: "runtime.string",
+        db_name: "date",
+        value_fn: "text",
+        decoder: "decode.string",
+        unwrap_fn: option.Some("sql_date_to_string"),
+      ))
     TimeType ->
-      case type_mapping {
-        RichMapping | StrongMapping -> "SqlTime"
-        StringMapping -> "String"
-      }
+      option.Some(ScalarTypeInfo(
+        gleam_type: "String",
+        rich_type: option.Some("SqlTime"),
+        runtime_fn: "runtime.string",
+        db_name: "time",
+        value_fn: "text",
+        decoder: "decode.string",
+        unwrap_fn: option.Some("sql_time_to_string"),
+      ))
     UuidType ->
-      case type_mapping {
-        RichMapping | StrongMapping -> "SqlUuid"
-        StringMapping -> "String"
-      }
+      option.Some(ScalarTypeInfo(
+        gleam_type: "String",
+        rich_type: option.Some("SqlUuid"),
+        runtime_fn: "runtime.string",
+        db_name: "uuid",
+        value_fn: "text",
+        decoder: "decode.string",
+        unwrap_fn: option.Some("sql_uuid_to_string"),
+      ))
     JsonType ->
-      case type_mapping {
-        RichMapping | StrongMapping -> "SqlJson"
-        StringMapping -> "String"
-      }
-    EnumType(name) -> enum_type_name(name)
-    CustomType(name, _) -> name
-    ArrayType(element) ->
-      "List(" <> scalar_type_to_gleam_type(element, type_mapping) <> ")"
-  }
-}
-
-/// Returns true if the given ScalarType produces a semantic alias under RichMapping.
-pub fn is_rich_type(scalar_type: ScalarType) -> Bool {
-  case scalar_type {
-    DateTimeType | DateType | TimeType | UuidType | JsonType -> True
-    _ -> False
-  }
-}
-
-/// Returns the unwrap function name for strong-typed semantic types.
-/// e.g. UuidType -> Some("sql_uuid_to_string")
-pub fn strong_type_unwrap_fn(scalar_type: ScalarType) -> option.Option(String) {
-  case scalar_type {
-    DateTimeType -> option.Some("sql_timestamp_to_string")
-    DateType -> option.Some("sql_date_to_string")
-    TimeType -> option.Some("sql_time_to_string")
-    UuidType -> option.Some("sql_uuid_to_string")
-    JsonType -> option.Some("sql_json_to_string")
+      option.Some(ScalarTypeInfo(
+        gleam_type: "String",
+        rich_type: option.Some("SqlJson"),
+        runtime_fn: "runtime.string",
+        db_name: "json",
+        value_fn: "text",
+        decoder: "decode.string",
+        unwrap_fn: option.Some("sql_json_to_string"),
+      ))
+    // EnumType, CustomType, ArrayType need special handling
     _ -> option.None
   }
 }
 
+// --- Public API (delegates to table for leaf types) ---
+
+pub fn scalar_type_to_gleam_type(
+  scalar_type: ScalarType,
+  type_mapping: TypeMapping,
+) -> String {
+  case scalar_type_info(scalar_type) {
+    option.Some(info) ->
+      case type_mapping, info.rich_type {
+        RichMapping, option.Some(rich) | StrongMapping, option.Some(rich) ->
+          rich
+        _, _ -> info.gleam_type
+      }
+    option.None ->
+      case scalar_type {
+        EnumType(name) -> enum_type_name(name)
+        CustomType(name, _) -> name
+        ArrayType(element) ->
+          "List(" <> scalar_type_to_gleam_type(element, type_mapping) <> ")"
+        _ -> "String"
+      }
+  }
+}
+
+pub fn is_rich_type(scalar_type: ScalarType) -> Bool {
+  case scalar_type_info(scalar_type) {
+    option.Some(info) -> option.is_some(info.rich_type)
+    option.None -> False
+  }
+}
+
+pub fn strong_type_unwrap_fn(scalar_type: ScalarType) -> option.Option(String) {
+  case scalar_type_info(scalar_type) {
+    option.Some(info) -> info.unwrap_fn
+    option.None -> option.None
+  }
+}
+
 pub fn scalar_type_to_runtime_function(scalar_type: ScalarType) -> String {
-  case scalar_type {
-    IntType -> "runtime.int"
-    FloatType -> "runtime.float"
-    BoolType -> "runtime.bool"
-    StringType -> "runtime.string"
-    BytesType -> "runtime.bytes"
-    DateTimeType | DateType | TimeType | UuidType | JsonType -> "runtime.string"
-    EnumType(_) -> "runtime.string"
-    CustomType(_, underlying) -> scalar_type_to_runtime_function(underlying)
-    // ArrayType uses pog.array() in native adapter, not raw runtime encoding
-    ArrayType(element) -> scalar_type_to_runtime_function(element)
+  case scalar_type_info(scalar_type) {
+    option.Some(info) -> info.runtime_fn
+    option.None ->
+      case scalar_type {
+        EnumType(_) -> "runtime.string"
+        CustomType(_, underlying) -> scalar_type_to_runtime_function(underlying)
+        ArrayType(element) -> scalar_type_to_runtime_function(element)
+        _ -> "runtime.string"
+      }
   }
 }
 
 pub fn scalar_type_to_db_name(scalar_type: ScalarType) -> String {
-  case scalar_type {
-    IntType -> "int"
-    FloatType -> "float"
-    BoolType -> "bool"
-    StringType -> "string"
-    BytesType -> "bytes"
-    DateTimeType -> "datetime"
-    DateType -> "date"
-    TimeType -> "time"
-    UuidType -> "uuid"
-    JsonType -> "json"
-    EnumType(name) -> name
-    CustomType(_, underlying) -> scalar_type_to_db_name(underlying)
-    ArrayType(element) -> scalar_type_to_db_name(element) <> "[]"
+  case scalar_type_info(scalar_type) {
+    option.Some(info) -> info.db_name
+    option.None ->
+      case scalar_type {
+        EnumType(name) -> name
+        CustomType(_, underlying) -> scalar_type_to_db_name(underlying)
+        ArrayType(element) -> scalar_type_to_db_name(element) <> "[]"
+        _ -> "string"
+      }
   }
 }
 
@@ -373,41 +464,48 @@ pub fn scalar_type_to_value_function(
   engine: Engine,
   scalar_type: ScalarType,
 ) -> String {
-  case scalar_type {
-    IntType -> "int"
-    FloatType -> "float"
-    BoolType -> "bool"
-    StringType -> "text"
-    BytesType ->
-      case engine {
-        PostgreSQL -> "bytea"
-        SQLite | MySQL -> "blob"
+  case scalar_type_info(scalar_type) {
+    option.Some(info) ->
+      case scalar_type {
+        BytesType ->
+          case engine {
+            PostgreSQL -> "bytea"
+            SQLite | MySQL -> "blob"
+          }
+        _ -> info.value_fn
       }
-    DateTimeType | DateType | TimeType | UuidType | JsonType | EnumType(_) ->
-      "text"
-    CustomType(_, underlying) ->
-      scalar_type_to_value_function(engine, underlying)
-    ArrayType(element) ->
-      "array(pog." <> scalar_type_to_value_function(engine, element) <> ")"
+    option.None ->
+      case scalar_type {
+        EnumType(_) -> "text"
+        CustomType(_, underlying) ->
+          scalar_type_to_value_function(engine, underlying)
+        ArrayType(element) ->
+          "array(pog." <> scalar_type_to_value_function(engine, element) <> ")"
+        _ -> "text"
+      }
   }
 }
 
 pub fn scalar_type_to_decoder(engine: Engine, scalar_type: ScalarType) -> String {
-  case scalar_type {
-    IntType -> "decode.int"
-    FloatType -> "decode.float"
-    BoolType ->
-      case engine {
-        SQLite -> "decode.then(decode.int, fn(v) { decode.success(v != 0) })"
-        PostgreSQL | MySQL -> "decode.bool"
+  case scalar_type_info(scalar_type) {
+    option.Some(info) ->
+      case scalar_type {
+        BoolType ->
+          case engine {
+            SQLite ->
+              "decode.then(decode.int, fn(v) { decode.success(v != 0) })"
+            PostgreSQL | MySQL -> "decode.bool"
+          }
+        _ -> info.decoder
       }
-    StringType -> "decode.string"
-    BytesType -> "decode.bit_array"
-    DateTimeType | DateType | TimeType | UuidType | JsonType | EnumType(_) ->
-      "decode.string"
-    CustomType(_, underlying) -> scalar_type_to_decoder(engine, underlying)
-    ArrayType(element) ->
-      "decode.list(" <> scalar_type_to_decoder(engine, element) <> ")"
+    option.None ->
+      case scalar_type {
+        EnumType(_) -> "decode.string"
+        CustomType(_, underlying) -> scalar_type_to_decoder(engine, underlying)
+        ArrayType(element) ->
+          "decode.list(" <> scalar_type_to_decoder(engine, element) <> ")"
+        _ -> "decode.string"
+      }
   }
 }
 
