@@ -26,6 +26,12 @@ pub type Value {
   SqlArray(List(Value))
 }
 
+/// Lightweight metadata for a query, used by the generated `all()` function
+/// to list every query in a module without carrying encoder closures.
+pub type QueryInfo {
+  QueryInfo(name: String, sql: String, command: QueryCommand, param_count: Int)
+}
+
 /// A typed raw query descriptor that bundles SQL metadata with its parameter
 /// encoder.  The type parameter `p` represents the parameter type for this
 /// query, which ties the query to its expected parameters at the type level.

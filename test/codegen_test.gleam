@@ -39,7 +39,7 @@ pub fn render_queries_module_test() {
   |> should.be_true()
   string.contains(rendered, "slice_info: fn(_) { [] },")
   |> should.be_true()
-  string.contains(rendered, "pub fn all() -> List(QueryInfo) {")
+  string.contains(rendered, "pub fn all() -> List(runtime.QueryInfo) {")
   |> should.be_true()
   list.length(analyzed) |> should.equal(2)
   // Parameterless query should use Nil type and inline encode
@@ -792,12 +792,12 @@ pub fn readme_queries_snapshot_test() {
   )
   |> should.be_true()
 
-  // README: QueryInfo type
+  // QueryInfo is now in runtime, not generated inline
   string.contains(rendered, "pub type QueryInfo {")
-  |> should.be_true()
+  |> should.be_false()
 
-  // README: pub fn all() -> List(QueryInfo) { ... }
-  string.contains(rendered, "pub fn all() -> List(QueryInfo) {")
+  // all() uses runtime.QueryInfo
+  string.contains(rendered, "pub fn all() -> List(runtime.QueryInfo) {")
   |> should.be_true()
 }
 
