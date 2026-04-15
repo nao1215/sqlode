@@ -825,6 +825,122 @@ fn readme_analyzed_queries() -> List(model.AnalyzedQuery) {
   result
 }
 
+// --- Array type tests ---
+
+pub fn array_schema_parsing_test() {
+  let catalog = array_test_catalog()
+  let assert [table] = catalog.tables
+  let cols = table.columns
+  // tags should be ArrayType(StringType)
+  let assert [_, _, tags_col, scores_col] = cols
+  tags_col.scalar_type |> should.equal(model.ArrayType(model.StringType))
+  scores_col.scalar_type |> should.equal(model.ArrayType(model.IntType))
+}
+
+pub fn render_models_with_array_columns_test() {
+  let naming_ctx = naming.new()
+  let catalog = array_test_catalog()
+  let analyzed = array_analyzed_queries()
+  let rendered =
+    codegen.render_models_module(
+      naming_ctx,
+      catalog,
+      analyzed,
+      dict.new(),
+      model.StringMapping,
+      False,
+    )
+
+  // Table type should have List fields for array columns (nullable since no NOT NULL)
+  string.contains(rendered, "tags: Option(List(String))")
+  |> should.be_true()
+  string.contains(rendered, "scores: Option(List(Int))")
+  |> should.be_true()
+}
+
+pub fn render_params_with_array_columns_test() {
+  let naming_ctx = naming.new()
+  let analyzed = array_analyzed_queries()
+  let rendered =
+    codegen.render_params_module(
+      naming_ctx,
+      analyzed,
+      model.StringMapping,
+      "db",
+    )
+
+  // Params for CreateArticle should have array fields (nullable since no NOT NULL)
+  string.contains(rendered, "tags: Option(List(String))")
+  |> should.be_true()
+  string.contains(rendered, "scores: Option(List(Int))")
+  |> should.be_true()
+}
+
+pub fn render_pog_adapter_with_array_columns_test() {
+  let naming_ctx = naming.new()
+  let block =
+    model.SqlBlock(
+      name: None,
+      engine: model.PostgreSQL,
+      schema: ["test/fixtures/array_schema.sql"],
+      queries: ["test/fixtures/array_query.sql"],
+      gleam: model.GleamOutput(
+        out: "src/db",
+        runtime: model.Native,
+        type_mapping: model.StringMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: False,
+      ),
+      overrides: model.empty_overrides(),
+    )
+  let analyzed = array_analyzed_queries()
+  let rendered =
+    codegen.render_adapter_module(naming_ctx, block, analyzed, dict.new())
+
+  // Decoder should use decode.list for array result columns
+  string.contains(rendered, "decode.list(decode.string)")
+  |> should.be_true()
+  string.contains(rendered, "decode.list(decode.int)")
+  |> should.be_true()
+
+  // Parameter encoding should use pog.array for array params
+  string.contains(rendered, "pog.array(pog.text)")
+  |> should.be_true()
+  string.contains(rendered, "pog.array(pog.int)")
+  |> should.be_true()
+}
+
+fn array_test_catalog() -> model.Catalog {
+  let assert Ok(schema_content) =
+    simplifile.read("test/fixtures/array_schema.sql")
+  let assert Ok(catalog) =
+    schema_parser.parse_files([
+      #("test/fixtures/array_schema.sql", schema_content),
+    ])
+  catalog
+}
+
+fn array_analyzed_queries() -> List(model.AnalyzedQuery) {
+  let naming_ctx = naming.new()
+  let catalog = array_test_catalog()
+  let assert Ok(content) = simplifile.read("test/fixtures/array_query.sql")
+  let assert Ok(queries) =
+    query_parser.parse_file(
+      "test/fixtures/array_query.sql",
+      model.PostgreSQL,
+      naming_ctx,
+      content,
+    )
+  let assert Ok(result) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  result
+}
+
 pub fn out_to_module_path_strips_src_prefix_test() {
   common.out_to_module_path("src/db") |> should.equal("db")
   common.out_to_module_path("src/generated/db") |> should.equal("generated/db")

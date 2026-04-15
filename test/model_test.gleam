@@ -288,3 +288,69 @@ pub fn enum_to_string_fn_test() {
 pub fn enum_from_string_fn_test() {
   model.enum_from_string_fn("status") |> should.equal("status_from_string")
 }
+
+// array type tests
+
+pub fn parse_sql_type_array_text_test() {
+  model.parse_sql_type("TEXT[]")
+  |> should.equal(Ok(model.ArrayType(model.StringType)))
+}
+
+pub fn parse_sql_type_array_integer_test() {
+  model.parse_sql_type("INTEGER[]")
+  |> should.equal(Ok(model.ArrayType(model.IntType)))
+}
+
+pub fn parse_sql_type_array_boolean_test() {
+  model.parse_sql_type("BOOLEAN[]")
+  |> should.equal(Ok(model.ArrayType(model.BoolType)))
+}
+
+pub fn parse_sql_type_array_uuid_test() {
+  model.parse_sql_type("UUID[]")
+  |> should.equal(Ok(model.ArrayType(model.UuidType)))
+}
+
+pub fn scalar_type_to_gleam_type_array_test() {
+  model.scalar_type_to_gleam_type(
+    model.ArrayType(model.IntType),
+    model.StringMapping,
+  )
+  |> should.equal("List(Int)")
+
+  model.scalar_type_to_gleam_type(
+    model.ArrayType(model.StringType),
+    model.StringMapping,
+  )
+  |> should.equal("List(String)")
+}
+
+pub fn scalar_type_to_decoder_array_test() {
+  model.scalar_type_to_decoder(model.PostgreSQL, model.ArrayType(model.IntType))
+  |> should.equal("decode.list(decode.int)")
+
+  model.scalar_type_to_decoder(
+    model.PostgreSQL,
+    model.ArrayType(model.StringType),
+  )
+  |> should.equal("decode.list(decode.string)")
+}
+
+pub fn scalar_type_to_value_function_array_test() {
+  model.scalar_type_to_value_function(
+    model.PostgreSQL,
+    model.ArrayType(model.IntType),
+  )
+  |> should.equal("array(pog.int)")
+
+  model.scalar_type_to_value_function(
+    model.PostgreSQL,
+    model.ArrayType(model.StringType),
+  )
+  |> should.equal("array(pog.text)")
+}
+
+pub fn scalar_type_to_db_name_array_test() {
+  model.scalar_type_to_db_name(model.ArrayType(model.IntType))
+  |> should.equal("int[]")
+}
