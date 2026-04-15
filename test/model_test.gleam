@@ -354,3 +354,57 @@ pub fn scalar_type_to_db_name_array_test() {
   model.scalar_type_to_db_name(model.ArrayType(model.IntType))
   |> should.equal("int[]")
 }
+
+// PostgreSQL-specific type tests
+
+pub fn parse_sql_type_interval_test() {
+  model.parse_sql_type("INTERVAL")
+  |> should.equal(Ok(model.TimeType))
+}
+
+pub fn parse_sql_type_money_test() {
+  model.parse_sql_type("MONEY")
+  |> should.equal(Ok(model.FloatType))
+}
+
+pub fn parse_sql_type_citext_test() {
+  model.parse_sql_type("CITEXT")
+  |> should.equal(Ok(model.StringType))
+}
+
+pub fn parse_sql_type_inet_test() {
+  model.parse_sql_type("INET")
+  |> should.equal(Ok(model.StringType))
+}
+
+pub fn parse_sql_type_cidr_test() {
+  model.parse_sql_type("CIDR")
+  |> should.equal(Ok(model.StringType))
+}
+
+pub fn parse_sql_type_macaddr_test() {
+  model.parse_sql_type("MACADDR")
+  |> should.equal(Ok(model.StringType))
+}
+
+pub fn parse_sql_type_tsvector_test() {
+  model.parse_sql_type("TSVECTOR")
+  |> should.equal(Ok(model.StringType))
+}
+
+pub fn parse_sql_type_point_test() {
+  model.parse_sql_type("POINT")
+  |> should.equal(Ok(model.StringType))
+}
+
+pub fn parse_sql_type_xml_test() {
+  model.parse_sql_type("XML")
+  |> should.equal(Ok(model.StringType))
+}
+
+pub fn parse_sql_type_bit_test() {
+  model.parse_sql_type("BIT")
+  |> should.equal(Ok(model.StringType))
+  model.parse_sql_type("BIT VARYING")
+  |> should.equal(Ok(model.StringType))
+}

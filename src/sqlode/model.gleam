@@ -224,16 +224,29 @@ pub fn parse_sql_type(type_text: String) -> Result(ScalarType, Nil) {
   }
   // Order matters: check more specific patterns before general ones
   // (e.g. "timestamp"/"datetime" before "time"/"date", "jsonb" before "json")
+  // Order matters: more specific patterns must come before general ones.
+  // "interval" before "int" (interval contains "int" as substring).
+  // "point" before "int" (point contains "int" as substring).
+  // "timestamp"/"datetime" before "time"/"date".
+  // "jsonb" before "json".
   let type_rules = [
-    #(["int", "serial"], IntType),
-    #(["double", "real", "float", "numeric", "decimal"], FloatType),
+    #(["double", "real", "float", "numeric", "decimal", "money"], FloatType),
     #(["bool"], BoolType),
     #(["bytea", "blob", "binary"], BytesType),
     #(["uuid"], UuidType),
     #(["jsonb", "json"], JsonType),
     #(["timestamp", "datetime"], DateTimeType),
     #(["date"], DateType),
-    #(["timetz", "time"], TimeType),
+    #(["timetz", "interval"], TimeType),
+    #(
+      [
+        "citext", "inet", "cidr", "macaddr", "tsvector", "tsquery", "point",
+        "line", "lseg", "box", "path", "polygon", "circle", "xml", "bit",
+      ],
+      StringType,
+    ),
+    #(["int", "serial"], IntType),
+    #(["time"], TimeType),
     #(["text", "char", "clob", "name", "string"], StringType),
   ]
   case find_matching_type(base_type_text, type_rules) {
