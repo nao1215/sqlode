@@ -29,6 +29,7 @@ type ParserContext {
     postgresql_param_re: regexp.Regexp,
     sqlite_param_re: regexp.Regexp,
     sqlc_macro_re: regexp.Regexp,
+    masked_sqlc_macro_re: regexp.Regexp,
     at_name_re: regexp.Regexp,
   )
 }
@@ -43,6 +44,8 @@ fn new_parser_context(naming_ctx: naming.NamingContext) -> ParserContext {
     regexp.from_string(
       "sqlc\\.(arg|narg|slice)\\(('[^']*'|\"[^\"]*\"|[a-zA-Z_][a-zA-Z0-9_]*)\\)",
     )
+  let assert Ok(masked_sqlc_macro_re) =
+    regexp.from_string("sqlc\\.(arg|narg|slice)\\(([^)]+)\\)")
   let assert Ok(at_name_re) = regexp.from_string("@([A-Za-z_][A-Za-z0-9_]*)")
 
   ParserContext(
@@ -50,6 +53,7 @@ fn new_parser_context(naming_ctx: naming.NamingContext) -> ParserContext {
     postgresql_param_re:,
     sqlite_param_re:,
     sqlc_macro_re:,
+    masked_sqlc_macro_re:,
     at_name_re:,
   )
 }
@@ -156,10 +160,16 @@ fn finalize_pending(
         True -> Error(MissingSql(path:, line: start_line, name:))
         False -> {
           let masked = mask_sql(engine, sql)
-          let #(at_expanded, _at_masked, at_macros, next_idx) =
+          let #(at_expanded, at_masked, at_macros, next_idx) =
             expand_at_name_shorthands(ctx, engine, sql, masked)
           let #(expanded_sql, sqlc_macros) =
-            expand_sqlc_macros_from(ctx, engine, at_expanded, next_idx)
+            expand_sqlc_macros_from(
+              ctx,
+              engine,
+              at_expanded,
+              at_masked,
+              next_idx,
+            )
           let macros = list.append(at_macros, sqlc_macros)
           let final_masked = mask_sql(engine, expanded_sql)
           Ok([
@@ -368,29 +378,39 @@ fn expand_sqlc_macros_from(
   ctx: ParserContext,
   engine: model.Engine,
   sql: String,
+  masked: String,
   start_idx: Int,
 ) -> #(String, List(model.SqlcMacro)) {
-  let matches = regexp.scan(ctx.sqlc_macro_re, sql)
+  let matches = regexp.scan(ctx.masked_sqlc_macro_re, masked)
 
   case matches {
     [] -> #(sql, [])
     _ -> {
-      let #(expanded, macros, _) =
-        list.fold(matches, #(sql, [], start_idx), fn(acc, match) {
-          let #(current_sql, macro_acc, idx) = acc
+      let #(expanded, _expanded_masked, macros, _) =
+        list.fold(matches, #(sql, masked, [], start_idx), fn(acc, match) {
+          let #(current_sql, current_masked, macro_acc, idx) = acc
 
           case match.submatches {
-            [Some(kind), Some(raw_name)] -> {
-              let name = strip_quotes(raw_name)
+            [Some(kind), Some(captured_arg)] -> {
+              let name = case string.trim(captured_arg) {
+                "" ->
+                  extract_macro_arg(current_sql, current_masked, match.content)
+                trimmed -> strip_quotes(trimmed)
+              }
               let placeholder = engine_placeholder(engine, idx)
-              let new_sql =
-                replace_first_simple(current_sql, match.content, placeholder)
+              let #(new_sql, new_masked) =
+                replace_first_in_masked(
+                  current_sql,
+                  current_masked,
+                  match.content,
+                  placeholder,
+                )
               let sqlc_macro = case kind {
                 "narg" -> model.SqlcNarg(index: idx, name:)
                 "slice" -> model.SqlcSlice(index: idx, name:)
                 _ -> model.SqlcArg(index: idx, name:)
               }
-              #(new_sql, [sqlc_macro, ..macro_acc], idx + 1)
+              #(new_sql, new_masked, [sqlc_macro, ..macro_acc], idx + 1)
             }
             _ -> acc
           }
@@ -401,21 +421,31 @@ fn expand_sqlc_macros_from(
   }
 }
 
+fn extract_macro_arg(
+  sql: String,
+  masked: String,
+  masked_match: String,
+) -> String {
+  case string.split_once(masked, masked_match) {
+    Ok(#(before, _)) -> {
+      let pos = string.length(before)
+      let span = string.slice(sql, pos, string.length(masked_match))
+      case string.split_once(span, "(") {
+        Ok(#(_, after_paren)) -> {
+          let arg = string.drop_end(after_paren, 1)
+          strip_quotes(string.trim(arg))
+        }
+        Error(_) -> ""
+      }
+    }
+    Error(_) -> ""
+  }
+}
+
 fn strip_quotes(name: String) -> String {
   case string.first(name) {
     Ok("'") | Ok("\"") -> string.slice(name, 1, string.length(name) - 2)
     _ -> name
-  }
-}
-
-fn replace_first_simple(
-  in text: String,
-  each pattern: String,
-  with replacement: String,
-) -> String {
-  case string.split_once(text, pattern) {
-    Ok(#(before, after)) -> before <> replacement <> after
-    Error(_) -> text
   }
 }
 

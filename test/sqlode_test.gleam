@@ -593,3 +593,15 @@ pub fn tagged_dollar_quoted_string_postgresql_test() {
 pub fn nested_dollar_quoted_tags_postgresql_test() {
   lexer_test.nested_dollar_quoted_tags_postgresql_test()
 }
+
+pub fn sqlc_arg_in_string_literal_ignored_test() {
+  query_parser_test.sqlc_arg_in_string_literal_ignored_test()
+}
+
+pub fn sqlc_narg_in_line_comment_ignored_test() {
+  query_parser_test.sqlc_narg_in_line_comment_ignored_test()
+}
+
+pub fn sqlc_slice_in_block_comment_ignored_test() {
+  query_parser_test.sqlc_slice_in_block_comment_ignored_test()
+}
