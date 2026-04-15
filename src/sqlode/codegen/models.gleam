@@ -14,6 +14,7 @@ pub fn render(
 ) -> String {
   let semantic_aliases = case type_mapping {
     model.RichMapping -> render_semantic_type_aliases(catalog, queries)
+    model.StrongMapping -> render_strong_type_wrappers(catalog, queries)
     model.StringMapping -> ""
   }
 
@@ -149,6 +150,41 @@ fn render_semantic_type_aliases(
   all_types
   |> list.map(fn(alias_name) { "pub type " <> alias_name <> " =\n  String" })
   |> string.join("\n\n")
+}
+
+fn render_strong_type_wrappers(
+  catalog: model.Catalog,
+  queries: List(model.AnalyzedQuery),
+) -> String {
+  let all_types = collect_rich_types(catalog, queries)
+
+  all_types
+  |> list.map(fn(type_name) {
+    let unwrap_fn = strong_type_unwrap_fn_from_name(type_name)
+    "pub type "
+    <> type_name
+    <> " {\n  "
+    <> type_name
+    <> "(String)\n}\n\npub fn "
+    <> unwrap_fn
+    <> "(value: "
+    <> type_name
+    <> ") -> String {\n  let "
+    <> type_name
+    <> "(inner) = value\n  inner\n}"
+  })
+  |> string.join("\n\n")
+}
+
+fn strong_type_unwrap_fn_from_name(type_name: String) -> String {
+  case type_name {
+    "SqlTimestamp" -> "sql_timestamp_to_string"
+    "SqlDate" -> "sql_date_to_string"
+    "SqlTime" -> "sql_time_to_string"
+    "SqlUuid" -> "sql_uuid_to_string"
+    "SqlJson" -> "sql_json_to_string"
+    _ -> "unknown_to_string"
+  }
 }
 
 fn collect_rich_types(

@@ -482,15 +482,17 @@ gen:
 
 When `type_mapping: "rich"` is set, sqlode generates transparent type aliases in `models.gleam` that preserve the semantic meaning of database types:
 
-| SQL type | `string` (default) | `rich` |
-|----------|-------------------|--------|
-| TIMESTAMP / DATETIME | `String` | `SqlTimestamp` |
-| DATE | `String` | `SqlDate` |
-| TIME / TIMETZ | `String` | `SqlTime` |
-| UUID | `String` | `SqlUuid` |
-| JSON / JSONB | `String` | `SqlJson` |
+| SQL type | `string` (default) | `rich` | `strong` |
+|----------|-------------------|--------|----------|
+| TIMESTAMP / DATETIME | `String` | `SqlTimestamp` | `SqlTimestamp(String)` |
+| DATE | `String` | `SqlDate` | `SqlDate(String)` |
+| TIME / TIMETZ | `String` | `SqlTime` | `SqlTime(String)` |
+| UUID | `String` | `SqlUuid` | `SqlUuid(String)` |
+| JSON / JSONB | `String` | `SqlJson` | `SqlJson(String)` |
 
-These are transparent aliases over `String`, so encoding and decoding work unchanged. The benefit is type-level documentation: you can distinguish a `SqlUuid` field from a plain `String` in your code.
+**`rich`**: Transparent aliases over `String` — type-level documentation without compile-time enforcement.
+
+**`strong`**: Single-constructor wrapper types with unwrap helpers (e.g. `sql_uuid_to_string`). A `SqlUuid` and a plain `String` are distinct at compile time, preventing accidental misuse. Generated adapters automatically wrap decoded values and unwrap encoded values.
 
 ## CLI
 

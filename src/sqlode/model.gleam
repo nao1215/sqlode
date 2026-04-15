@@ -33,13 +33,15 @@ pub type Runtime {
 pub type TypeMapping {
   StringMapping
   RichMapping
+  StrongMapping
 }
 
 pub fn parse_type_mapping(value: String) -> Result(TypeMapping, String) {
   case value {
     "string" -> Ok(StringMapping)
     "rich" -> Ok(RichMapping)
-    _ -> Error("must be one of: string, rich")
+    "strong" -> Ok(StrongMapping)
+    _ -> Error("must be one of: string, rich, strong")
   }
 }
 
@@ -47,6 +49,7 @@ pub fn type_mapping_to_string(mapping: TypeMapping) -> String {
   case mapping {
     StringMapping -> "string"
     RichMapping -> "rich"
+    StrongMapping -> "strong"
   }
 }
 
@@ -252,27 +255,27 @@ pub fn scalar_type_to_gleam_type(
     BytesType -> "BitArray"
     DateTimeType ->
       case type_mapping {
-        RichMapping -> "SqlTimestamp"
+        RichMapping | StrongMapping -> "SqlTimestamp"
         StringMapping -> "String"
       }
     DateType ->
       case type_mapping {
-        RichMapping -> "SqlDate"
+        RichMapping | StrongMapping -> "SqlDate"
         StringMapping -> "String"
       }
     TimeType ->
       case type_mapping {
-        RichMapping -> "SqlTime"
+        RichMapping | StrongMapping -> "SqlTime"
         StringMapping -> "String"
       }
     UuidType ->
       case type_mapping {
-        RichMapping -> "SqlUuid"
+        RichMapping | StrongMapping -> "SqlUuid"
         StringMapping -> "String"
       }
     JsonType ->
       case type_mapping {
-        RichMapping -> "SqlJson"
+        RichMapping | StrongMapping -> "SqlJson"
         StringMapping -> "String"
       }
     EnumType(name) -> enum_type_name(name)
@@ -285,6 +288,19 @@ pub fn is_rich_type(scalar_type: ScalarType) -> Bool {
   case scalar_type {
     DateTimeType | DateType | TimeType | UuidType | JsonType -> True
     _ -> False
+  }
+}
+
+/// Returns the unwrap function name for strong-typed semantic types.
+/// e.g. UuidType -> "sql_uuid_to_string"
+pub fn strong_type_unwrap_fn(scalar_type: ScalarType) -> String {
+  case scalar_type {
+    DateTimeType -> "sql_timestamp_to_string"
+    DateType -> "sql_date_to_string"
+    TimeType -> "sql_time_to_string"
+    UuidType -> "sql_uuid_to_string"
+    JsonType -> "sql_json_to_string"
+    _ -> ""
   }
 }
 

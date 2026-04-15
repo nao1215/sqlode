@@ -14,6 +14,12 @@ pub fn render(
 
   let has_enums = common.queries_have_enum_params(queries)
 
+  let needs_models_for_strong =
+    type_mapping == model.StrongMapping
+    && list.any(queries, fn(q) {
+      list.any(q.params, fn(p) { model.is_rich_type(p.scalar_type) })
+    })
+
   let imports = case needs_option_import(queries) {
     True ->
       list.flatten([
@@ -25,7 +31,7 @@ pub fn render(
           "import gleam/option.{type Option, None, Some}",
           "import sqlode/runtime.{type Value}",
         ],
-        case has_enums {
+        case has_enums || needs_models_for_strong {
           True -> ["import " <> module_path <> "/models"]
           False -> []
         },
@@ -37,7 +43,7 @@ pub fn render(
           False -> []
         },
         ["import sqlode/runtime.{type Value}"],
-        case has_enums {
+        case has_enums || needs_models_for_strong {
           True -> ["import " <> module_path <> "/models"]
           False -> []
         },
@@ -96,9 +102,12 @@ fn render_params_declaration(
       let values_body = case has_slices {
         True ->
           "  list.flatten(["
-          <> string.join(param_accessors_flattened(params), ", ")
+          <> string.join(param_accessors_flattened(params, type_mapping), ", ")
           <> "])"
-        False -> "  [" <> string.join(param_accessors(params), ", ") <> "]"
+        False ->
+          "  ["
+          <> string.join(param_accessors(params, type_mapping), ", ")
+          <> "]"
       }
       string.join(
         [
@@ -144,12 +153,18 @@ fn param_fields(
   })
 }
 
-fn param_accessors(params: List(model.QueryParam)) -> List(String) {
+fn param_accessors(
+  params: List(model.QueryParam),
+  type_mapping: model.TypeMapping,
+) -> List(String) {
   params
-  |> list.map(render_param_value)
+  |> list.map(render_param_value(_, type_mapping))
 }
 
-fn render_param_value(param: model.QueryParam) -> String {
+fn render_param_value(
+  param: model.QueryParam,
+  type_mapping: model.TypeMapping,
+) -> String {
   let value_expr = "params." <> param.field_name
   let runtime_fn = model.scalar_type_to_runtime_function(param.scalar_type)
 
@@ -168,26 +183,61 @@ fn render_param_value(param: model.QueryParam) -> String {
         False -> runtime_fn <> "(" <> to_string_fn <> "(" <> value_expr <> "))"
       }
     }
-    _ ->
+    _ -> {
+      let unwrap = strong_unwrap_expr(param.scalar_type, type_mapping)
       case param.nullable {
         True ->
-          "case "
-          <> value_expr
-          <> " { Some(value) -> "
-          <> runtime_fn
-          <> "(value) None -> runtime.null() }"
-        False -> runtime_fn <> "(" <> value_expr <> ")"
+          case unwrap {
+            "" ->
+              "case "
+              <> value_expr
+              <> " { Some(value) -> "
+              <> runtime_fn
+              <> "(value) None -> runtime.null() }"
+            _ ->
+              "case "
+              <> value_expr
+              <> " { Some(value) -> "
+              <> runtime_fn
+              <> "("
+              <> unwrap
+              <> "(value)) None -> runtime.null() }"
+          }
+        False ->
+          case unwrap {
+            "" -> runtime_fn <> "(" <> value_expr <> ")"
+            _ -> runtime_fn <> "(" <> unwrap <> "(" <> value_expr <> "))"
+          }
       }
+    }
+  }
+}
+
+fn strong_unwrap_expr(
+  scalar_type: model.ScalarType,
+  type_mapping: model.TypeMapping,
+) -> String {
+  case type_mapping {
+    model.StrongMapping ->
+      case model.is_rich_type(scalar_type) {
+        True -> "models." <> model.strong_type_unwrap_fn(scalar_type)
+        False -> ""
+      }
+    _ -> ""
   }
 }
 
 /// Render param values for queries with slice params.
 /// Scalars are wrapped in singleton lists, slices are mapped.
-fn param_accessors_flattened(params: List(model.QueryParam)) -> List(String) {
+fn param_accessors_flattened(
+  params: List(model.QueryParam),
+  type_mapping: model.TypeMapping,
+) -> List(String) {
   params
   |> list.map(fn(param) {
     let value_expr = "params." <> param.field_name
     let runtime_fn = model.scalar_type_to_runtime_function(param.scalar_type)
+    let unwrap = strong_unwrap_expr(param.scalar_type, type_mapping)
 
     case param.is_list {
       True ->
@@ -202,7 +252,18 @@ fn param_accessors_flattened(params: List(model.QueryParam)) -> List(String) {
             <> to_str
             <> "(v)) })"
           }
-          _ -> "list.map(" <> value_expr <> ", " <> runtime_fn <> ")"
+          _ ->
+            case unwrap {
+              "" -> "list.map(" <> value_expr <> ", " <> runtime_fn <> ")"
+              _ ->
+                "list.map("
+                <> value_expr
+                <> ", fn(v) { "
+                <> runtime_fn
+                <> "("
+                <> unwrap
+                <> "(v)) })"
+            }
         }
       False ->
         case param.scalar_type {
@@ -224,12 +285,34 @@ fn param_accessors_flattened(params: List(model.QueryParam)) -> List(String) {
           _ ->
             case param.nullable {
               True ->
-                "[case "
-                <> value_expr
-                <> " { Some(value) -> "
-                <> runtime_fn
-                <> "(value) None -> runtime.null() }]"
-              False -> "[" <> runtime_fn <> "(" <> value_expr <> ")]"
+                case unwrap {
+                  "" ->
+                    "[case "
+                    <> value_expr
+                    <> " { Some(value) -> "
+                    <> runtime_fn
+                    <> "(value) None -> runtime.null() }]"
+                  _ ->
+                    "[case "
+                    <> value_expr
+                    <> " { Some(value) -> "
+                    <> runtime_fn
+                    <> "("
+                    <> unwrap
+                    <> "(value)) None -> runtime.null() }]"
+                }
+              False ->
+                case unwrap {
+                  "" -> "[" <> runtime_fn <> "(" <> value_expr <> ")]"
+                  _ ->
+                    "["
+                    <> runtime_fn
+                    <> "("
+                    <> unwrap
+                    <> "("
+                    <> value_expr
+                    <> "))]"
+                }
             }
         }
     }
