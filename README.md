@@ -347,11 +347,11 @@ JOIN authors ON books.author_id = authors.id
 WHERE books.id = $1;
 ```
 
-The result type includes all columns from the `authors` table followed by `title`:
+The result type nests the embedded table as a typed field, preserving logical grouping:
 
 ```gleam
 pub type GetBookWithAuthorRow {
-  GetBookWithAuthorRow(id: Int, name: String, bio: Option(String), title: String)
+  GetBookWithAuthorRow(authors: Author, title: String)
 }
 ```
 

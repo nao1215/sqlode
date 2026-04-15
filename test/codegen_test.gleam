@@ -661,6 +661,170 @@ pub fn render_sqlight_adapter_enum_slice_converts_to_string_test() {
   |> should.be_true()
 }
 
+// --- README snapshot tests ---
+// These tests verify that the README code examples match actual generated output.
+// If a test here fails, it means the README examples are stale and need updating.
+
+pub fn readme_params_snapshot_test() {
+  let naming_ctx = naming.new()
+  let analyzed = readme_analyzed_queries()
+  let rendered =
+    codegen.render_params_module(
+      naming_ctx,
+      analyzed,
+      model.StringMapping,
+      "db",
+    )
+
+  // README: pub type GetAuthorParams { GetAuthorParams(id: Int) }
+  string.contains(rendered, "pub type GetAuthorParams {")
+  |> should.be_true()
+  string.contains(rendered, "GetAuthorParams(id: Int)")
+  |> should.be_true()
+
+  // README: pub fn get_author_values(params: GetAuthorParams) -> List(Value) {
+  //           [runtime.int(params.id)]
+  string.contains(rendered, "runtime.int(params.id)")
+  |> should.be_true()
+
+  // README: pub type CreateAuthorParams { CreateAuthorParams(... bio: Option(String)) }
+  string.contains(rendered, "pub type CreateAuthorParams {")
+  |> should.be_true()
+  string.contains(rendered, "bio: Option(String)")
+  |> should.be_true()
+
+  // README sqlc.slice: pub type GetAuthorsByIdsParams { GetAuthorsByIdsParams(ids: List(Int)) }
+  string.contains(rendered, "pub type GetAuthorsByIdsParams {")
+  |> should.be_true()
+  string.contains(rendered, "ids: List(Int)")
+  |> should.be_true()
+}
+
+pub fn readme_models_snapshot_test() {
+  let naming_ctx = naming.new()
+  let catalog = readme_test_catalog()
+  let analyzed = readme_analyzed_queries()
+  let rendered =
+    codegen.render_models_module(
+      naming_ctx,
+      catalog,
+      analyzed,
+      dict.new(),
+      model.StringMapping,
+      False,
+    )
+
+  // README: pub type Author { Author(id: Int, name: String, bio: Option(String)) }
+  string.contains(rendered, "pub type Author {")
+  |> should.be_true()
+  string.contains(
+    rendered,
+    "Author(id: Int, name: String, bio: Option(String))",
+  )
+  |> should.be_true()
+
+  // README: partial match produces separate row type
+  string.contains(rendered, "pub type GetAuthorRow {")
+  |> should.be_true()
+  string.contains(rendered, "GetAuthorRow(id: Int, name: String)")
+  |> should.be_true()
+
+  // README: pub type ListAuthorsRow { ListAuthorsRow(id: Int, name: String) }
+  string.contains(rendered, "pub type ListAuthorsRow {")
+  |> should.be_true()
+
+  // README sqlc.embed: pub type GetBookWithAuthorRow {
+  //   GetBookWithAuthorRow(authors: Author, title: String) }
+  string.contains(rendered, "pub type GetBookWithAuthorRow {")
+  |> should.be_true()
+  string.contains(
+    rendered,
+    "GetBookWithAuthorRow(authors: Author, title: String)",
+  )
+  |> should.be_true()
+}
+
+pub fn readme_queries_snapshot_test() {
+  let naming_ctx = naming.new()
+  let block = readme_test_block()
+  let analyzed = readme_analyzed_queries()
+  let rendered = codegen.render_queries_module(naming_ctx, block, analyzed)
+
+  // README: pub fn get_author() -> runtime.RawQuery(params.GetAuthorParams) { ... }
+  string.contains(
+    rendered,
+    "pub fn get_author() -> runtime.RawQuery(params.GetAuthorParams) {",
+  )
+  |> should.be_true()
+
+  // README: pub fn list_authors() -> runtime.RawQuery(...)
+  string.contains(rendered, "pub fn list_authors()")
+  |> should.be_true()
+
+  // README: pub fn create_author() -> runtime.RawQuery(params.CreateAuthorParams)
+  string.contains(
+    rendered,
+    "pub fn create_author() -> runtime.RawQuery(params.CreateAuthorParams) {",
+  )
+  |> should.be_true()
+
+  // README: QueryInfo type
+  string.contains(rendered, "pub type QueryInfo {")
+  |> should.be_true()
+
+  // README: pub fn all() -> List(QueryInfo) { ... }
+  string.contains(rendered, "pub fn all() -> List(QueryInfo) {")
+  |> should.be_true()
+}
+
+fn readme_test_catalog() -> model.Catalog {
+  let assert Ok(schema_content) =
+    simplifile.read("test/fixtures/readme_schema.sql")
+  let assert Ok(catalog) =
+    schema_parser.parse_files([
+      #("test/fixtures/readme_schema.sql", schema_content),
+    ])
+  catalog
+}
+
+fn readme_test_block() -> model.SqlBlock {
+  model.SqlBlock(
+    name: None,
+    engine: model.PostgreSQL,
+    schema: ["test/fixtures/readme_schema.sql"],
+    queries: ["test/fixtures/readme_query.sql"],
+    gleam: model.GleamOutput(
+      out: "src/db",
+      runtime: model.Raw,
+      type_mapping: model.StringMapping,
+      emit_sql_as_comment: False,
+      emit_exact_table_names: False,
+    ),
+    overrides: model.empty_overrides(),
+  )
+}
+
+fn readme_analyzed_queries() -> List(model.AnalyzedQuery) {
+  let naming_ctx = naming.new()
+  let catalog = readme_test_catalog()
+  let assert Ok(content) = simplifile.read("test/fixtures/readme_query.sql")
+  let assert Ok(queries) =
+    query_parser.parse_file(
+      "test/fixtures/readme_query.sql",
+      model.PostgreSQL,
+      naming_ctx,
+      content,
+    )
+  let assert Ok(result) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  result
+}
+
 pub fn out_to_module_path_strips_src_prefix_test() {
   common.out_to_module_path("src/db") |> should.equal("db")
   common.out_to_module_path("src/generated/db") |> should.equal("generated/db")
