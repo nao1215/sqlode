@@ -6,6 +6,7 @@ import sqlode/model
 import sqlode/naming
 import sqlode/query_analyzer
 import sqlode/query_parser
+import sqlode/runtime
 import sqlode/schema_parser
 
 pub fn main() {
@@ -224,7 +225,7 @@ pub fn complex_query_basic_crud_test() {
   // GetPost :one - should have result columns
   let assert Ok(get_post) =
     list.find(analyzed, fn(q) { q.base.name == "GetPost" })
-  get_post.base.command |> should.equal(model.One)
+  get_post.base.command |> should.equal(runtime.QueryOne)
   list.length(get_post.result_columns) |> should.equal(4)
   let assert [id, title, body, published] = get_post.result_columns
   let assert model.ResultColumn(scalar_type: id_type, ..) = id
@@ -239,14 +240,14 @@ pub fn complex_query_basic_crud_test() {
   // CreatePost :exec - no result columns
   let assert Ok(create_post) =
     list.find(analyzed, fn(q) { q.base.name == "CreatePost" })
-  create_post.base.command |> should.equal(model.Exec)
+  create_post.base.command |> should.equal(runtime.QueryExec)
   create_post.result_columns |> should.equal([])
   create_post.base.param_count |> should.equal(8)
 
   // DeletePost :exec
   let assert Ok(delete_post) =
     list.find(analyzed, fn(q) { q.base.name == "DeletePost" })
-  delete_post.base.command |> should.equal(model.Exec)
+  delete_post.base.command |> should.equal(runtime.QueryExec)
   delete_post.base.param_count |> should.equal(1)
 }
 
@@ -327,7 +328,7 @@ pub fn complex_query_returning_clause_test() {
   // INSERT ... RETURNING
   let assert Ok(create_returning) =
     list.find(analyzed, fn(q) { q.base.name == "CreatePostReturning" })
-  create_returning.base.command |> should.equal(model.One)
+  create_returning.base.command |> should.equal(runtime.QueryOne)
   list.length(create_returning.result_columns) |> should.equal(2)
   let assert [id, title] = create_returning.result_columns
   id.name |> should.equal("id")
@@ -338,13 +339,13 @@ pub fn complex_query_returning_clause_test() {
   // DELETE ... RETURNING
   let assert Ok(delete_returning) =
     list.find(analyzed, fn(q) { q.base.name == "DeletePostReturning" })
-  delete_returning.base.command |> should.equal(model.One)
+  delete_returning.base.command |> should.equal(runtime.QueryOne)
   list.length(delete_returning.result_columns) |> should.equal(2)
 
   // UPDATE ... RETURNING
   let assert Ok(update_returning) =
     list.find(analyzed, fn(q) { q.base.name == "UpdatePostReturning" })
-  update_returning.base.command |> should.equal(model.One)
+  update_returning.base.command |> should.equal(runtime.QueryOne)
   list.length(update_returning.result_columns) |> should.equal(3)
   let assert [_, _, published] = update_returning.result_columns
   published.name |> should.equal("published")

@@ -1,6 +1,7 @@
 import gleam/list
 import gleam/option.{type Option}
 import gleam/string
+import sqlode/runtime
 
 pub type Engine {
   PostgreSQL
@@ -115,38 +116,30 @@ pub type Config {
   Config(version: Int, sql: List(SqlBlock))
 }
 
-pub type QueryCommand {
-  One
-  Many
-  Exec
-  ExecResult
-  ExecRows
-  ExecLastId
-  BatchOne
-  BatchMany
-  BatchExec
-  CopyFrom
-}
-
-pub fn is_result_command(command: QueryCommand) -> Bool {
+pub fn is_result_command(command: runtime.QueryCommand) -> Bool {
   case command {
-    One | Many | BatchOne | BatchMany -> True
+    runtime.QueryOne
+    | runtime.QueryMany
+    | runtime.QueryBatchOne
+    | runtime.QueryBatchMany -> True
     _ -> False
   }
 }
 
-pub fn parse_query_command(value: String) -> Result(QueryCommand, String) {
+pub fn parse_query_command(
+  value: String,
+) -> Result(runtime.QueryCommand, String) {
   case value {
-    ":one" -> Ok(One)
-    ":many" -> Ok(Many)
-    ":exec" -> Ok(Exec)
-    ":execresult" -> Ok(ExecResult)
-    ":execrows" -> Ok(ExecRows)
-    ":execlastid" -> Ok(ExecLastId)
-    ":batchone" -> Ok(BatchOne)
-    ":batchmany" -> Ok(BatchMany)
-    ":batchexec" -> Ok(BatchExec)
-    ":copyfrom" -> Ok(CopyFrom)
+    ":one" -> Ok(runtime.QueryOne)
+    ":many" -> Ok(runtime.QueryMany)
+    ":exec" -> Ok(runtime.QueryExec)
+    ":execresult" -> Ok(runtime.QueryExecResult)
+    ":execrows" -> Ok(runtime.QueryExecRows)
+    ":execlastid" -> Ok(runtime.QueryExecLastId)
+    ":batchone" -> Ok(runtime.QueryBatchOne)
+    ":batchmany" -> Ok(runtime.QueryBatchMany)
+    ":batchexec" -> Ok(runtime.QueryBatchExec)
+    ":copyfrom" -> Ok(runtime.QueryCopyFrom)
     _ ->
       Error(
         "must be one of: :one, :many, :exec, :execresult, :execrows, :execlastid, :batchone, :batchmany, :batchexec, :copyfrom",
@@ -154,18 +147,18 @@ pub fn parse_query_command(value: String) -> Result(QueryCommand, String) {
   }
 }
 
-pub fn query_command_to_variant(command: QueryCommand) -> String {
+pub fn query_command_to_string(command: runtime.QueryCommand) -> String {
   case command {
-    One -> "QueryOne"
-    Many -> "QueryMany"
-    Exec -> "QueryExec"
-    ExecResult -> "QueryExecResult"
-    ExecRows -> "QueryExecRows"
-    ExecLastId -> "QueryExecLastId"
-    BatchOne -> "QueryBatchOne"
-    BatchMany -> "QueryBatchMany"
-    BatchExec -> "QueryBatchExec"
-    CopyFrom -> "QueryCopyFrom"
+    runtime.QueryOne -> "QueryOne"
+    runtime.QueryMany -> "QueryMany"
+    runtime.QueryExec -> "QueryExec"
+    runtime.QueryExecResult -> "QueryExecResult"
+    runtime.QueryExecRows -> "QueryExecRows"
+    runtime.QueryExecLastId -> "QueryExecLastId"
+    runtime.QueryBatchOne -> "QueryBatchOne"
+    runtime.QueryBatchMany -> "QueryBatchMany"
+    runtime.QueryBatchExec -> "QueryBatchExec"
+    runtime.QueryCopyFrom -> "QueryCopyFrom"
   }
 }
 
@@ -179,7 +172,7 @@ pub type ParsedQuery {
   ParsedQuery(
     name: String,
     function_name: String,
-    command: QueryCommand,
+    command: runtime.QueryCommand,
     sql: String,
     source_path: String,
     param_count: Int,

@@ -7,6 +7,7 @@ import gleam/result
 import gleam/string
 import sqlode/model
 import sqlode/naming
+import sqlode/runtime
 
 pub type ParseError {
   InvalidAnnotation(path: String, line: Int, detail: String)
@@ -17,7 +18,7 @@ type PendingQuery {
   PendingQuery(
     name: String,
     function_name: String,
-    command: model.QueryCommand,
+    command: runtime.QueryCommand,
     start_line: Int,
     body_rev: List(String),
   )

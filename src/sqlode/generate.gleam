@@ -14,6 +14,7 @@ import sqlode/model
 import sqlode/naming
 import sqlode/query_analyzer
 import sqlode/query_parser
+import sqlode/runtime
 import sqlode/schema_parser
 import sqlode/writer
 
@@ -481,20 +482,22 @@ fn find_column_rename(
 fn validate_unsupported_annotations(
   queries: List(model.AnalyzedQuery),
 ) -> Result(Nil, GenerateError) {
-  let unsupported = fn(command: model.QueryCommand) -> Bool {
+  let unsupported = fn(command: runtime.QueryCommand) -> Bool {
     case command {
-      model.BatchOne | model.BatchMany | model.BatchExec | model.CopyFrom ->
-        True
+      runtime.QueryBatchOne
+      | runtime.QueryBatchMany
+      | runtime.QueryBatchExec
+      | runtime.QueryCopyFrom -> True
       _ -> False
     }
   }
   case list.find(queries, fn(q) { unsupported(q.base.command) }) {
     Ok(q) -> {
       let #(command, alternative) = case q.base.command {
-        model.BatchOne -> #(":batchone", ":one")
-        model.BatchMany -> #(":batchmany", ":many")
-        model.BatchExec -> #(":batchexec", ":exec")
-        model.CopyFrom -> #(":copyfrom", ":exec")
+        runtime.QueryBatchOne -> #(":batchone", ":one")
+        runtime.QueryBatchMany -> #(":batchmany", ":many")
+        runtime.QueryBatchExec -> #(":batchexec", ":exec")
+        runtime.QueryCopyFrom -> #(":copyfrom", ":exec")
         _ -> #("", ":exec")
       }
       Error(UnsupportedAnnotation(
@@ -513,7 +516,7 @@ fn validate_unsupported_annotations(
 fn validate_native_annotations(
   queries: List(model.AnalyzedQuery),
 ) -> Result(Nil, GenerateError) {
-  case list.find(queries, fn(q) { q.base.command == model.ExecResult }) {
+  case list.find(queries, fn(q) { q.base.command == runtime.QueryExecResult }) {
     Ok(q) ->
       Error(UnsupportedAnnotation(
         query_name: q.base.name,

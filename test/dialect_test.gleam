@@ -6,6 +6,7 @@ import sqlode/model
 import sqlode/naming
 import sqlode/query_analyzer
 import sqlode/query_parser
+import sqlode/runtime
 import sqlode/schema_parser
 
 pub fn main() {
@@ -251,7 +252,7 @@ pub fn exec_result_command_test() {
     )
 
   let assert [query] = analyzed
-  query.base.command |> should.equal(model.ExecResult)
+  query.base.command |> should.equal(runtime.QueryExecResult)
   query.result_columns |> should.equal([])
   query.base.param_count |> should.equal(1)
 }
@@ -272,7 +273,7 @@ pub fn exec_rows_command_test() {
     )
 
   let assert [query] = analyzed
-  query.base.command |> should.equal(model.ExecRows)
+  query.base.command |> should.equal(runtime.QueryExecRows)
   query.result_columns |> should.equal([])
 }
 
@@ -287,7 +288,7 @@ pub fn exec_last_id_command_test() {
     query_analyzer.analyze_queries(model.MySQL, catalog, naming_ctx, queries)
 
   let assert [query] = analyzed
-  query.base.command |> should.equal(model.ExecLastId)
+  query.base.command |> should.equal(runtime.QueryExecLastId)
   query.result_columns |> should.equal([])
 }
 

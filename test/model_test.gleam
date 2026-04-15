@@ -3,6 +3,7 @@ import gleam/string
 import gleeunit
 import gleeunit/should
 import sqlode/model
+import sqlode/runtime
 
 pub fn main() {
   gleeunit.main()
@@ -47,45 +48,50 @@ pub fn parse_runtime_invalid_test() {
 // parse_query_command tests
 
 pub fn parse_query_command_one_test() {
-  model.parse_query_command(":one") |> should.equal(Ok(model.One))
+  model.parse_query_command(":one") |> should.equal(Ok(runtime.QueryOne))
 }
 
 pub fn parse_query_command_many_test() {
-  model.parse_query_command(":many") |> should.equal(Ok(model.Many))
+  model.parse_query_command(":many") |> should.equal(Ok(runtime.QueryMany))
 }
 
 pub fn parse_query_command_exec_test() {
-  model.parse_query_command(":exec") |> should.equal(Ok(model.Exec))
+  model.parse_query_command(":exec") |> should.equal(Ok(runtime.QueryExec))
 }
 
 pub fn parse_query_command_execresult_test() {
   model.parse_query_command(":execresult")
-  |> should.equal(Ok(model.ExecResult))
+  |> should.equal(Ok(runtime.QueryExecResult))
 }
 
 pub fn parse_query_command_execrows_test() {
-  model.parse_query_command(":execrows") |> should.equal(Ok(model.ExecRows))
+  model.parse_query_command(":execrows")
+  |> should.equal(Ok(runtime.QueryExecRows))
 }
 
 pub fn parse_query_command_execlastid_test() {
   model.parse_query_command(":execlastid")
-  |> should.equal(Ok(model.ExecLastId))
+  |> should.equal(Ok(runtime.QueryExecLastId))
 }
 
 pub fn parse_query_command_batchone_test() {
-  model.parse_query_command(":batchone") |> should.equal(Ok(model.BatchOne))
+  model.parse_query_command(":batchone")
+  |> should.equal(Ok(runtime.QueryBatchOne))
 }
 
 pub fn parse_query_command_batchmany_test() {
-  model.parse_query_command(":batchmany") |> should.equal(Ok(model.BatchMany))
+  model.parse_query_command(":batchmany")
+  |> should.equal(Ok(runtime.QueryBatchMany))
 }
 
 pub fn parse_query_command_batchexec_test() {
-  model.parse_query_command(":batchexec") |> should.equal(Ok(model.BatchExec))
+  model.parse_query_command(":batchexec")
+  |> should.equal(Ok(runtime.QueryBatchExec))
 }
 
 pub fn parse_query_command_copyfrom_test() {
-  model.parse_query_command(":copyfrom") |> should.equal(Ok(model.CopyFrom))
+  model.parse_query_command(":copyfrom")
+  |> should.equal(Ok(runtime.QueryCopyFrom))
 }
 
 pub fn parse_query_command_invalid_test() {
@@ -107,17 +113,20 @@ pub fn runtime_to_string_roundtrip_test() {
   model.runtime_to_string(model.Native) |> should.equal("native")
 }
 
-// query_command_to_variant tests
+// query_command_to_string tests
 
-pub fn query_command_to_variant_test() {
-  model.query_command_to_variant(model.One) |> should.equal("QueryOne")
-  model.query_command_to_variant(model.Many) |> should.equal("QueryMany")
-  model.query_command_to_variant(model.Exec) |> should.equal("QueryExec")
-  model.query_command_to_variant(model.ExecResult)
+pub fn query_command_to_string_test() {
+  model.query_command_to_string(runtime.QueryOne)
+  |> should.equal("QueryOne")
+  model.query_command_to_string(runtime.QueryMany)
+  |> should.equal("QueryMany")
+  model.query_command_to_string(runtime.QueryExec)
+  |> should.equal("QueryExec")
+  model.query_command_to_string(runtime.QueryExecResult)
   |> should.equal("QueryExecResult")
-  model.query_command_to_variant(model.ExecRows)
+  model.query_command_to_string(runtime.QueryExecRows)
   |> should.equal("QueryExecRows")
-  model.query_command_to_variant(model.ExecLastId)
+  model.query_command_to_string(runtime.QueryExecLastId)
   |> should.equal("QueryExecLastId")
 }
 
