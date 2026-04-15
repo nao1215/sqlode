@@ -79,6 +79,27 @@ pub fn dollar_quoted_string_postgresql_test() {
   ])
 }
 
+pub fn tagged_dollar_quoted_string_postgresql_test() {
+  lexer.tokenize("SELECT $tag$hello $1 world$tag$, id", model.PostgreSQL)
+  |> should.equal([
+    Keyword("select"),
+    StringLit("hello $1 world"),
+    Comma,
+    Ident("id"),
+  ])
+}
+
+pub fn nested_dollar_quoted_tags_postgresql_test() {
+  lexer.tokenize(
+    "SELECT $outer$contains $$inner$$ text$outer$",
+    model.PostgreSQL,
+  )
+  |> should.equal([
+    Keyword("select"),
+    StringLit("contains $$inner$$ text"),
+  ])
+}
+
 // --- Comment tests ---
 
 pub fn line_comment_stripped_test() {

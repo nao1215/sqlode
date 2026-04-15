@@ -545,6 +545,57 @@ pub fn sqlite_repeated_numbered_placeholder_dedup_test() {
   query.param_count |> should.equal(1)
 }
 
+pub fn postgresql_plain_dollar_quoted_string_masks_placeholder_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: DollarPlain :one\n"
+    <> "SELECT $$literal $1 inside$$, id FROM authors WHERE id = $1;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("pg.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+
+  query.param_count |> should.equal(1)
+}
+
+pub fn postgresql_tagged_dollar_quoted_string_masks_placeholder_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: DollarTag :one\n"
+    <> "SELECT $tag$literal $1 inside$tag$, id FROM authors WHERE id = $2;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("pg.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+
+  query.param_count |> should.equal(2)
+}
+
+pub fn postgresql_dollar_quoted_does_not_affect_real_params_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: DollarMixed :one\n"
+    <> "SELECT $fn$body with $1 and $2$fn$, id FROM authors WHERE id = $1 AND name = $2;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("pg.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+
+  query.param_count |> should.equal(2)
+}
+
+pub fn sqlite_dollar_not_treated_as_dollar_quoted_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: SqliteDollar :one\n" <> "SELECT id FROM authors WHERE id = $id;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
+  let assert [query] = queries
+
+  query.param_count |> should.equal(1)
+}
+
 pub fn error_to_string_coverage_test() {
   query_parser.error_to_string(query_parser.InvalidAnnotation(
     path: "test.sql",

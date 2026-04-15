@@ -2,6 +2,7 @@ import codegen_test
 import config_test
 import generate_test
 import gleeunit
+import lexer_test
 import model_test
 import naming_test
 import query_analyzer_test
@@ -567,4 +568,28 @@ pub fn sqlite_bare_question_marks_not_deduped_test() {
 
 pub fn sqlite_repeated_numbered_placeholder_dedup_test() {
   query_parser_test.sqlite_repeated_numbered_placeholder_dedup_test()
+}
+
+pub fn postgresql_plain_dollar_quoted_string_masks_placeholder_test() {
+  query_parser_test.postgresql_plain_dollar_quoted_string_masks_placeholder_test()
+}
+
+pub fn postgresql_tagged_dollar_quoted_string_masks_placeholder_test() {
+  query_parser_test.postgresql_tagged_dollar_quoted_string_masks_placeholder_test()
+}
+
+pub fn postgresql_dollar_quoted_does_not_affect_real_params_test() {
+  query_parser_test.postgresql_dollar_quoted_does_not_affect_real_params_test()
+}
+
+pub fn sqlite_dollar_not_treated_as_dollar_quoted_test() {
+  query_parser_test.sqlite_dollar_not_treated_as_dollar_quoted_test()
+}
+
+pub fn tagged_dollar_quoted_string_postgresql_test() {
+  lexer_test.tagged_dollar_quoted_string_postgresql_test()
+}
+
+pub fn nested_dollar_quoted_tags_postgresql_test() {
+  lexer_test.nested_dollar_quoted_tags_postgresql_test()
 }
