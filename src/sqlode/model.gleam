@@ -200,6 +200,7 @@ pub type ScalarType {
   JsonType
   EnumType(name: String)
   CustomType(name: String, underlying: ScalarType)
+  ArrayType(element: ScalarType)
 }
 
 pub type EnumDef {
@@ -212,6 +213,15 @@ pub type EnumDef {
 /// Returns Error(Nil) for unrecognized types.
 pub fn parse_sql_type(type_text: String) -> Result(ScalarType, Nil) {
   let lowered = string.lowercase(type_text)
+  // Detect PostgreSQL array syntax: TYPE[] or TYPE ARRAY
+  let #(base_type_text, is_array) = case string.ends_with(lowered, "[]") {
+    True -> #(string.drop_end(lowered, 2), True)
+    False ->
+      case string.ends_with(lowered, " array") {
+        True -> #(string.drop_end(lowered, 6), True)
+        False -> #(lowered, False)
+      }
+  }
   // Order matters: check more specific patterns before general ones
   // (e.g. "timestamp"/"datetime" before "time"/"date", "jsonb" before "json")
   let type_rules = [
@@ -226,7 +236,14 @@ pub fn parse_sql_type(type_text: String) -> Result(ScalarType, Nil) {
     #(["timetz", "time"], TimeType),
     #(["text", "char", "clob", "name", "string"], StringType),
   ]
-  find_matching_type(lowered, type_rules)
+  case find_matching_type(base_type_text, type_rules) {
+    Ok(element_type) ->
+      case is_array {
+        True -> Ok(ArrayType(element_type))
+        False -> Ok(element_type)
+      }
+    Error(Nil) -> Error(Nil)
+  }
 }
 
 fn find_matching_type(
@@ -280,6 +297,8 @@ pub fn scalar_type_to_gleam_type(
       }
     EnumType(name) -> enum_type_name(name)
     CustomType(name, _) -> name
+    ArrayType(element) ->
+      "List(" <> scalar_type_to_gleam_type(element, type_mapping) <> ")"
   }
 }
 
@@ -314,6 +333,7 @@ pub fn scalar_type_to_runtime_function(scalar_type: ScalarType) -> String {
     DateTimeType | DateType | TimeType | UuidType | JsonType -> "runtime.string"
     EnumType(_) -> "runtime.string"
     CustomType(_, underlying) -> scalar_type_to_runtime_function(underlying)
+    ArrayType(_) -> ""
   }
 }
 
@@ -331,6 +351,7 @@ pub fn scalar_type_to_db_name(scalar_type: ScalarType) -> String {
     JsonType -> "json"
     EnumType(name) -> name
     CustomType(_, underlying) -> scalar_type_to_db_name(underlying)
+    ArrayType(element) -> scalar_type_to_db_name(element) <> "[]"
   }
 }
 
@@ -352,6 +373,8 @@ pub fn scalar_type_to_value_function(
       "text"
     CustomType(_, underlying) ->
       scalar_type_to_value_function(engine, underlying)
+    ArrayType(element) ->
+      "array(pog." <> scalar_type_to_value_function(engine, element) <> ")"
   }
 }
 
@@ -369,6 +392,8 @@ pub fn scalar_type_to_decoder(engine: Engine, scalar_type: ScalarType) -> String
     DateTimeType | DateType | TimeType | UuidType | JsonType | EnumType(_) ->
       "decode.string"
     CustomType(_, underlying) -> scalar_type_to_decoder(engine, underlying)
+    ArrayType(element) ->
+      "decode.list(" <> scalar_type_to_decoder(engine, element) <> ")"
   }
 }
 
