@@ -31,6 +31,7 @@ pub type GenerateError {
     query_paths: List(String),
     schema_paths: List(String),
   )
+  DuplicateQueryName(name: String, paths: List(String))
   UnsupportedAnnotation(query_name: String, command: String, detail: String)
   WriteError(writer.WriteError)
 }
@@ -286,6 +287,27 @@ fn load_queries(
     })
   })
   |> result.map(list.flatten)
+  |> result.try(validate_no_duplicate_query_names)
+}
+
+fn validate_no_duplicate_query_names(
+  queries: List(model.ParsedQuery),
+) -> Result(List(model.ParsedQuery), GenerateError) {
+  let grouped =
+    list.group(queries, fn(q) { q.name })
+    |> dict.to_list
+    |> list.filter(fn(entry) { list.length(entry.1) > 1 })
+
+  case grouped {
+    [] -> Ok(queries)
+    [#(name, dupes), ..] -> {
+      let paths =
+        dupes
+        |> list.map(fn(q) { q.source_path })
+        |> list.unique
+      Error(DuplicateQueryName(name:, paths:))
+    }
+  }
 }
 
 fn apply_type_overrides(
@@ -646,6 +668,11 @@ pub fn error_to_string(error: GenerateError) -> String {
               "\n  Hint: Queries were parsed but none produced output. Check that your schema defines the tables referenced in your queries"
           }
       }
+    DuplicateQueryName(name:, paths:) ->
+      "duplicate query name \""
+      <> name
+      <> "\" found in: "
+      <> string.join(paths, ", ")
     UnsupportedAnnotation(query_name:, command:, detail:) ->
       "Query " <> query_name <> " uses " <> command <> ": " <> detail
     WriteError(inner) -> writer.error_to_string(inner)
