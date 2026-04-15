@@ -1,0 +1,372 @@
+import gleeunit
+import gleeunit/should
+import sqlode/lexer.{
+  Comma, Dot, Ident, Keyword, LParen, NumberLit, Operator, Placeholder,
+  QuotedIdent, RParen, Semicolon, Star, StringLit,
+}
+import sqlode/model
+
+pub fn main() {
+  gleeunit.main()
+}
+
+// --- Basic token tests ---
+
+pub fn simple_select_test() {
+  lexer.tokenize("SELECT id, name FROM authors;", model.PostgreSQL)
+  |> should.equal([
+    Keyword("select"),
+    Ident("id"),
+    Comma,
+    Ident("name"),
+    Keyword("from"),
+    Ident("authors"),
+    Semicolon,
+  ])
+}
+
+pub fn select_star_test() {
+  lexer.tokenize("SELECT * FROM users", model.PostgreSQL)
+  |> should.equal([
+    Keyword("select"),
+    Star,
+    Keyword("from"),
+    Ident("users"),
+  ])
+}
+
+pub fn create_table_test() {
+  lexer.tokenize(
+    "CREATE TABLE authors (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);",
+    model.PostgreSQL,
+  )
+  |> should.equal([
+    Keyword("create"),
+    Keyword("table"),
+    Ident("authors"),
+    LParen,
+    Ident("id"),
+    Keyword("bigserial"),
+    Keyword("primary"),
+    Keyword("key"),
+    Comma,
+    Ident("name"),
+    Ident("TEXT"),
+    Keyword("not"),
+    Keyword("null"),
+    RParen,
+    Semicolon,
+  ])
+}
+
+// --- String literal tests ---
+
+pub fn string_literal_test() {
+  lexer.tokenize("SELECT 'hello world'", model.PostgreSQL)
+  |> should.equal([Keyword("select"), StringLit("hello world")])
+}
+
+pub fn escaped_single_quote_test() {
+  lexer.tokenize("SELECT 'it''s'", model.PostgreSQL)
+  |> should.equal([Keyword("select"), StringLit("it's")])
+}
+
+pub fn dollar_quoted_string_postgresql_test() {
+  lexer.tokenize("SELECT $$hello 'world' -- not comment$$", model.PostgreSQL)
+  |> should.equal([
+    Keyword("select"),
+    StringLit("hello 'world' -- not comment"),
+  ])
+}
+
+// --- Comment tests ---
+
+pub fn line_comment_stripped_test() {
+  lexer.tokenize(
+    "SELECT id -- this is a comment\nFROM authors",
+    model.PostgreSQL,
+  )
+  |> should.equal([
+    Keyword("select"),
+    Ident("id"),
+    Keyword("from"),
+    Ident("authors"),
+  ])
+}
+
+pub fn block_comment_stripped_test() {
+  lexer.tokenize("SELECT /* comment */ id FROM authors", model.PostgreSQL)
+  |> should.equal([
+    Keyword("select"),
+    Ident("id"),
+    Keyword("from"),
+    Ident("authors"),
+  ])
+}
+
+pub fn nested_block_comment_test() {
+  lexer.tokenize(
+    "SELECT /* outer /* inner */ still outer */ id FROM authors",
+    model.PostgreSQL,
+  )
+  |> should.equal([
+    Keyword("select"),
+    Ident("id"),
+    Keyword("from"),
+    Ident("authors"),
+  ])
+}
+
+pub fn mysql_hash_comment_test() {
+  lexer.tokenize("SELECT id # comment\nFROM users", model.MySQL)
+  |> should.equal([
+    Keyword("select"),
+    Ident("id"),
+    Keyword("from"),
+    Ident("users"),
+  ])
+}
+
+// --- Quoted identifier tests ---
+
+pub fn double_quoted_identifier_postgresql_test() {
+  lexer.tokenize("SELECT \"user\" FROM \"my table\"", model.PostgreSQL)
+  |> should.equal([
+    Keyword("select"),
+    QuotedIdent("user"),
+    Keyword("from"),
+    QuotedIdent("my table"),
+  ])
+}
+
+pub fn backtick_identifier_mysql_test() {
+  lexer.tokenize("SELECT `order` FROM `my table`", model.MySQL)
+  |> should.equal([
+    Keyword("select"),
+    QuotedIdent("order"),
+    Keyword("from"),
+    QuotedIdent("my table"),
+  ])
+}
+
+pub fn bracket_identifier_sqlite_test() {
+  lexer.tokenize("SELECT [order] FROM [my table]", model.SQLite)
+  |> should.equal([
+    Keyword("select"),
+    QuotedIdent("order"),
+    Keyword("from"),
+    QuotedIdent("my table"),
+  ])
+}
+
+// --- Placeholder tests ---
+
+pub fn postgresql_placeholder_test() {
+  lexer.tokenize("WHERE id = $1 AND name = $2", model.PostgreSQL)
+  |> should.equal([
+    Keyword("where"),
+    Ident("id"),
+    Operator("="),
+    Placeholder("$1"),
+    Keyword("and"),
+    Ident("name"),
+    Operator("="),
+    Placeholder("$2"),
+  ])
+}
+
+pub fn mysql_placeholder_test() {
+  lexer.tokenize("WHERE id = ?", model.MySQL)
+  |> should.equal([
+    Keyword("where"),
+    Ident("id"),
+    Operator("="),
+    Placeholder("?"),
+  ])
+}
+
+pub fn sqlite_named_placeholder_test() {
+  lexer.tokenize("WHERE id = :user_id AND name = @name", model.SQLite)
+  |> should.equal([
+    Keyword("where"),
+    Ident("id"),
+    Operator("="),
+    Placeholder(":user_id"),
+    Keyword("and"),
+    Ident("name"),
+    Operator("="),
+    Placeholder("@name"),
+  ])
+}
+
+pub fn sqlite_numbered_placeholder_test() {
+  lexer.tokenize("WHERE id = ?1", model.SQLite)
+  |> should.equal([
+    Keyword("where"),
+    Ident("id"),
+    Operator("="),
+    Placeholder("?1"),
+  ])
+}
+
+// --- Operator tests ---
+
+pub fn postgresql_typecast_test() {
+  lexer.tokenize("$1::int", model.PostgreSQL)
+  |> should.equal([Placeholder("$1"), Operator("::"), Ident("int")])
+}
+
+pub fn comparison_operators_test() {
+  lexer.tokenize("a >= b AND c <> d", model.PostgreSQL)
+  |> should.equal([
+    Ident("a"),
+    Operator(">="),
+    Ident("b"),
+    Keyword("and"),
+    Ident("c"),
+    Operator("<>"),
+    Ident("d"),
+  ])
+}
+
+pub fn json_operators_test() {
+  lexer.tokenize("data->>'key'", model.PostgreSQL)
+  |> should.equal([
+    Ident("data"),
+    Operator("->>"),
+    StringLit("key"),
+  ])
+}
+
+// --- Number tests ---
+
+pub fn integer_literal_test() {
+  lexer.tokenize("SELECT 42", model.PostgreSQL)
+  |> should.equal([Keyword("select"), NumberLit("42")])
+}
+
+pub fn float_literal_test() {
+  lexer.tokenize("SELECT 3.14", model.PostgreSQL)
+  |> should.equal([Keyword("select"), NumberLit("3.14")])
+}
+
+// --- Schema-qualified identifier tests ---
+
+pub fn schema_qualified_table_test() {
+  lexer.tokenize("SELECT * FROM public.users", model.PostgreSQL)
+  |> should.equal([
+    Keyword("select"),
+    Star,
+    Keyword("from"),
+    Ident("public"),
+    Dot,
+    Ident("users"),
+  ])
+}
+
+// --- Complex SQL tests ---
+
+pub fn semicolon_in_string_literal_test() {
+  lexer.tokenize("INSERT INTO t VALUES ('a;b;c')", model.PostgreSQL)
+  |> should.equal([
+    Keyword("insert"),
+    Keyword("into"),
+    Ident("t"),
+    Keyword("values"),
+    LParen,
+    StringLit("a;b;c"),
+    RParen,
+  ])
+}
+
+pub fn comment_in_create_table_test() {
+  lexer.tokenize(
+    "CREATE TABLE t (\n  id INT, -- primary key\n  name TEXT\n);",
+    model.PostgreSQL,
+  )
+  |> should.equal([
+    Keyword("create"),
+    Keyword("table"),
+    Ident("t"),
+    LParen,
+    Ident("id"),
+    Ident("INT"),
+    Comma,
+    Ident("name"),
+    Ident("TEXT"),
+    RParen,
+    Semicolon,
+  ])
+}
+
+pub fn subquery_tokens_test() {
+  lexer.tokenize(
+    "SELECT * FROM (SELECT id FROM users) AS sub",
+    model.PostgreSQL,
+  )
+  |> should.equal([
+    Keyword("select"),
+    Star,
+    Keyword("from"),
+    LParen,
+    Keyword("select"),
+    Ident("id"),
+    Keyword("from"),
+    Ident("users"),
+    RParen,
+    Keyword("as"),
+    Ident("sub"),
+  ])
+}
+
+pub fn create_temporary_table_test() {
+  lexer.tokenize("CREATE TEMPORARY TABLE tmp (id INT)", model.PostgreSQL)
+  |> should.equal([
+    Keyword("create"),
+    Keyword("temporary"),
+    Keyword("table"),
+    Ident("tmp"),
+    LParen,
+    Ident("id"),
+    Ident("INT"),
+    RParen,
+  ])
+}
+
+pub fn enum_with_escaped_quotes_test() {
+  lexer.tokenize(
+    "CREATE TYPE status AS ENUM ('it''s', 'ok');",
+    model.PostgreSQL,
+  )
+  |> should.equal([
+    Keyword("create"),
+    Keyword("type"),
+    Ident("status"),
+    Keyword("as"),
+    Keyword("enum"),
+    LParen,
+    StringLit("it's"),
+    Comma,
+    StringLit("ok"),
+    RParen,
+    Semicolon,
+  ])
+}
+
+pub fn mysql_double_quote_as_string_test() {
+  lexer.tokenize("SELECT \"hello\"", model.MySQL)
+  |> should.equal([Keyword("select"), StringLit("hello")])
+}
+
+pub fn table_alias_tokens_test() {
+  lexer.tokenize("SELECT u.name FROM users u", model.PostgreSQL)
+  |> should.equal([
+    Keyword("select"),
+    Ident("u"),
+    Dot,
+    Ident("name"),
+    Keyword("from"),
+    Ident("users"),
+    Ident("u"),
+  ])
+}
