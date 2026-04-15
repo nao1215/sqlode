@@ -163,10 +163,11 @@ fn render_adapter(
         True -> ["import " <> module_path <> "/models"]
         False -> []
       },
-      [
-        "import " <> module_path <> "/params",
-        "import " <> module_path <> "/queries",
-      ],
+      case list.any(queries, fn(q) { !list.is_empty(q.params) }) {
+        True -> ["import " <> module_path <> "/params"]
+        False -> []
+      },
+      ["import " <> module_path <> "/queries"],
     ])
 
   let ctx =

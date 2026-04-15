@@ -42,6 +42,11 @@ pub fn render_queries_module_test() {
   string.contains(rendered, "pub fn all() -> List(QueryInfo) {")
   |> should.be_true()
   list.length(analyzed) |> should.equal(2)
+  // Parameterless query should use Nil type and inline encode
+  string.contains(rendered, "pub fn list_authors() -> runtime.RawQuery(Nil) {")
+  |> should.be_true()
+  string.contains(rendered, "encode: fn(_) { [] },")
+  |> should.be_true()
 }
 
 pub fn render_params_module_test() {
@@ -61,13 +66,11 @@ pub fn render_params_module_test() {
   |> should.be_true()
   string.contains(rendered, "runtime.int(params.id)")
   |> should.be_true()
+  // Parameterless queries should NOT generate Params type
   string.contains(rendered, "pub type ListAuthorsParams {")
-  |> should.be_true()
-  string.contains(
-    rendered,
-    "pub fn list_authors_values(_params: ListAuthorsParams) -> List(Value) {",
-  )
-  |> should.be_true()
+  |> should.be_false()
+  string.contains(rendered, "list_authors_values")
+  |> should.be_false()
 }
 
 pub fn render_models_module_test() {
@@ -778,8 +781,8 @@ pub fn readme_queries_snapshot_test() {
   )
   |> should.be_true()
 
-  // README: pub fn list_authors() -> runtime.RawQuery(...)
-  string.contains(rendered, "pub fn list_authors()")
+  // Parameterless query should use Nil type parameter
+  string.contains(rendered, "pub fn list_authors() -> runtime.RawQuery(Nil) {")
   |> should.be_true()
 
   // README: pub fn create_author() -> runtime.RawQuery(params.CreateAuthorParams)
