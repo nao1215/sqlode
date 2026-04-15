@@ -6,7 +6,8 @@ import gleam/string
 import sqlode/lexer
 import sqlode/model
 import sqlode/query_analyzer/context.{
-  type AnalysisError, type AnalyzerContext, ColumnNotFound, TableNotFound,
+  type AnalysisError, type AnalyzerContext, ColumnNotFound,
+  CompoundColumnCountMismatch, TableNotFound,
 }
 
 type ExtractedColumn {
@@ -54,6 +55,10 @@ pub fn infer_result_columns(
         }
         None -> {
           let main_tokens = tok_strip_cte(tokens)
+          use _ <- result.try(validate_compound_column_counts(
+            query.name,
+            main_tokens,
+          ))
           let main_tokens2 = tok_strip_compound(main_tokens)
           let table_names = tok_extract_table_names(main_tokens2)
           let nullable_tables =
@@ -553,6 +558,95 @@ fn tok_strip_compound_loop(
       }
     }
     [token, ..rest] -> tok_strip_compound_loop(rest, depth, [token, ..acc])
+  }
+}
+
+/// Validate that all compound query branches have the same column count.
+fn validate_compound_column_counts(
+  query_name: String,
+  tokens: List(lexer.Token),
+) -> Result(Nil, AnalysisError) {
+  let branches = tok_split_compound_branches(tokens)
+  case branches {
+    [] | [_] -> Ok(Nil)
+    [first, ..rest] -> {
+      let first_count = count_branch_columns(first)
+      list.try_each(rest, fn(branch) {
+        let branch_count = count_branch_columns(branch)
+        case branch_count == first_count {
+          True -> Ok(Nil)
+          False ->
+            Error(CompoundColumnCountMismatch(
+              query_name:,
+              first_count:,
+              branch_count:,
+            ))
+        }
+      })
+    }
+  }
+}
+
+fn count_branch_columns(branch: List(lexer.Token)) -> Int {
+  case tok_find_select_to_from(branch) {
+    Some(col_tokens) -> list.length(tok_split_on_commas(col_tokens))
+    None -> 0
+  }
+}
+
+/// Split tokens on top-level compound operators (UNION, INTERSECT, EXCEPT).
+fn tok_split_compound_branches(
+  tokens: List(lexer.Token),
+) -> List(List(lexer.Token)) {
+  tok_split_compound_branches_loop(tokens, 0, [], [])
+}
+
+fn tok_split_compound_branches_loop(
+  tokens: List(lexer.Token),
+  depth: Int,
+  current: List(lexer.Token),
+  acc: List(List(lexer.Token)),
+) -> List(List(lexer.Token)) {
+  case tokens {
+    [] ->
+      case current {
+        [] -> list.reverse(acc)
+        _ -> list.reverse([list.reverse(current), ..acc])
+      }
+    [lexer.LParen, ..rest] ->
+      tok_split_compound_branches_loop(
+        rest,
+        depth + 1,
+        [lexer.LParen, ..current],
+        acc,
+      )
+    [lexer.RParen, ..rest] ->
+      tok_split_compound_branches_loop(
+        rest,
+        depth - 1,
+        [lexer.RParen, ..current],
+        acc,
+      )
+    [lexer.Keyword(kw), ..rest] if depth == 0 ->
+      case kw == "union" || kw == "intersect" || kw == "except" {
+        True -> {
+          let rest2 = case rest {
+            [lexer.Keyword("all"), ..r] -> r
+            _ -> rest
+          }
+          let branch = list.reverse(current)
+          tok_split_compound_branches_loop(rest2, 0, [], [branch, ..acc])
+        }
+        False ->
+          tok_split_compound_branches_loop(
+            rest,
+            depth,
+            [lexer.Keyword(kw), ..current],
+            acc,
+          )
+      }
+    [token, ..rest] ->
+      tok_split_compound_branches_loop(rest, depth, [token, ..current], acc)
   }
 }
 
