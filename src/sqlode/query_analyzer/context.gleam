@@ -183,8 +183,47 @@ pub fn find_column(
 }
 
 pub fn split_csv(text: String) -> List(String) {
-  text
-  |> string.split(",")
+  split_csv_paren_aware(text, 0, [], [])
   |> list.map(string.trim)
   |> list.filter(fn(entry) { entry != "" })
+}
+
+fn split_csv_paren_aware(
+  remaining: String,
+  depth: Int,
+  current_rev: List(String),
+  acc: List(String),
+) -> List(String) {
+  case string.pop_grapheme(remaining) {
+    Error(_) -> {
+      let current = current_rev |> list.reverse |> string.concat |> string.trim
+      case current {
+        "" -> list.reverse(acc)
+        _ -> list.reverse([current, ..acc])
+      }
+    }
+    Ok(#(grapheme, rest)) ->
+      case grapheme {
+        "(" ->
+          split_csv_paren_aware(rest, depth + 1, [grapheme, ..current_rev], acc)
+        ")" -> {
+          let new_depth = case depth > 0 {
+            True -> depth - 1
+            False -> 0
+          }
+          split_csv_paren_aware(rest, new_depth, [grapheme, ..current_rev], acc)
+        }
+        "," ->
+          case depth == 0 {
+            True -> {
+              let current =
+                current_rev |> list.reverse |> string.concat |> string.trim
+              split_csv_paren_aware(rest, depth, [], [current, ..acc])
+            }
+            False ->
+              split_csv_paren_aware(rest, depth, [grapheme, ..current_rev], acc)
+          }
+        _ -> split_csv_paren_aware(rest, depth, [grapheme, ..current_rev], acc)
+      }
+  }
 }
