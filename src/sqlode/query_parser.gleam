@@ -28,8 +28,8 @@ type ParserContext {
     naming: naming.NamingContext,
     postgresql_param_re: regexp.Regexp,
     sqlite_param_re: regexp.Regexp,
-    sqlc_macro_re: regexp.Regexp,
-    masked_sqlc_macro_re: regexp.Regexp,
+    macro_re: regexp.Regexp,
+    masked_macro_re: regexp.Regexp,
     at_name_re: regexp.Regexp,
   )
 }
@@ -40,20 +40,20 @@ fn new_parser_context(naming_ctx: naming.NamingContext) -> ParserContext {
     regexp.from_string(
       "(\\?[0-9]+|\\?|:[A-Za-z_][A-Za-z0-9_]*|@[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*)",
     )
-  let assert Ok(sqlc_macro_re) =
+  let assert Ok(macro_re) =
     regexp.from_string(
-      "sqlc\\.(arg|narg|slice)\\(('[^']*'|\"[^\"]*\"|[a-zA-Z_][a-zA-Z0-9_]*)\\)",
+      "sqlode\\.(arg|narg|slice)\\(('[^']*'|\"[^\"]*\"|[a-zA-Z_][a-zA-Z0-9_]*)\\)",
     )
-  let assert Ok(masked_sqlc_macro_re) =
-    regexp.from_string("sqlc\\.(arg|narg|slice)\\(([^)]+)\\)")
+  let assert Ok(masked_macro_re) =
+    regexp.from_string("sqlode\\.(arg|narg|slice)\\(([^)]+)\\)")
   let assert Ok(at_name_re) = regexp.from_string("@([A-Za-z_][A-Za-z0-9_]*)")
 
   ParserContext(
     naming: naming_ctx,
     postgresql_param_re:,
     sqlite_param_re:,
-    sqlc_macro_re:,
-    masked_sqlc_macro_re:,
+    macro_re:,
+    masked_macro_re:,
     at_name_re:,
   )
 }
@@ -162,15 +162,9 @@ fn finalize_pending(
           let masked = mask_sql(engine, sql)
           let #(at_expanded, at_masked, at_macros, next_idx) =
             expand_at_name_shorthands(ctx, engine, sql, masked)
-          let #(expanded_sql, sqlc_macros) =
-            expand_sqlc_macros_from(
-              ctx,
-              engine,
-              at_expanded,
-              at_masked,
-              next_idx,
-            )
-          let macros = list.append(at_macros, sqlc_macros)
+          let #(expanded_sql, expanded_macros) =
+            expand_macros(ctx, engine, at_expanded, at_masked, next_idx)
+          let macros = list.append(at_macros, expanded_macros)
           let final_masked = mask_sql(engine, expanded_sql)
           Ok([
             model.ParsedQuery(
@@ -312,7 +306,7 @@ fn expand_at_name_shorthands(
   engine: model.Engine,
   sql: String,
   masked: String,
-) -> #(String, String, List(model.SqlcMacro), Int) {
+) -> #(String, String, List(model.Macro), Int) {
   case engine {
     model.MySQL -> #(sql, masked, [], 1)
     _ -> {
@@ -357,7 +351,7 @@ fn expand_at_name_shorthands(
                         #(
                           new_sql,
                           new_masked,
-                          [model.SqlcArg(index: idx, name:), ..macro_acc],
+                          [model.MacroArg(index: idx, name:), ..macro_acc],
                           idx + 1,
                           new_seen,
                         )
@@ -374,14 +368,14 @@ fn expand_at_name_shorthands(
   }
 }
 
-fn expand_sqlc_macros_from(
+fn expand_macros(
   ctx: ParserContext,
   engine: model.Engine,
   sql: String,
   masked: String,
   start_idx: Int,
-) -> #(String, List(model.SqlcMacro)) {
-  let matches = regexp.scan(ctx.masked_sqlc_macro_re, masked)
+) -> #(String, List(model.Macro)) {
+  let matches = regexp.scan(ctx.masked_macro_re, masked)
 
   case matches {
     [] -> #(sql, [])
@@ -405,12 +399,12 @@ fn expand_sqlc_macros_from(
                   match.content,
                   placeholder,
                 )
-              let sqlc_macro = case kind {
-                "narg" -> model.SqlcNarg(index: idx, name:)
-                "slice" -> model.SqlcSlice(index: idx, name:)
-                _ -> model.SqlcArg(index: idx, name:)
+              let macro_entry = case kind {
+                "narg" -> model.MacroNarg(index: idx, name:)
+                "slice" -> model.MacroSlice(index: idx, name:)
+                _ -> model.MacroArg(index: idx, name:)
               }
-              #(new_sql, new_masked, [sqlc_macro, ..macro_acc], idx + 1)
+              #(new_sql, new_masked, [macro_entry, ..macro_acc], idx + 1)
             }
             _ -> acc
           }

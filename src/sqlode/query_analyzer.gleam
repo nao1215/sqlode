@@ -100,20 +100,20 @@ fn build_params(
     })
 
     let #(field_name, scalar_type, nullable, is_list) = case macro_info {
-      Some(model.SqlcArg(name:, ..)) -> {
+      Some(model.MacroArg(name:, ..)) -> {
         let n = case inferred {
           Some(column) -> column.nullable
           None -> False
         }
         #(naming.to_snake_case(ctx.naming, name), inferred_type, n, False)
       }
-      Some(model.SqlcNarg(name:, ..)) -> #(
+      Some(model.MacroNarg(name:, ..)) -> #(
         naming.to_snake_case(ctx.naming, name),
         inferred_type,
         True,
         False,
       )
-      Some(model.SqlcSlice(name:, ..)) -> #(
+      Some(model.MacroSlice(name:, ..)) -> #(
         naming.to_snake_case(ctx.naming, name),
         inferred_type,
         False,
@@ -141,17 +141,15 @@ fn build_params(
   })
 }
 
-fn macro_index(m: model.SqlcMacro) -> Int {
+fn macro_index(m: model.Macro) -> Int {
   case m {
-    model.SqlcArg(index: i, ..) -> i
-    model.SqlcNarg(index: i, ..) -> i
-    model.SqlcSlice(index: i, ..) -> i
+    model.MacroArg(index: i, ..) -> i
+    model.MacroNarg(index: i, ..) -> i
+    model.MacroSlice(index: i, ..) -> i
   }
 }
 
-fn build_macro_dict(
-  macros: List(model.SqlcMacro),
-) -> dict.Dict(Int, model.SqlcMacro) {
+fn build_macro_dict(macros: List(model.Macro)) -> dict.Dict(Int, model.Macro) {
   list.fold(macros, dict.new(), fn(d, m) { dict.insert(d, macro_index(m), m) })
 }
 

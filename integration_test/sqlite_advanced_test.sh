@@ -1,6 +1,6 @@
 #!/bin/sh
 # Integration test: advanced SQLite patterns covering expression columns
-# (COUNT, COALESCE), LEFT JOIN with null results, and sqlc.embed.
+# (COUNT, COALESCE), LEFT JOIN with null results, and sqlode.embed.
 
 set -eu
 
@@ -197,8 +197,8 @@ pub fn left_join_with_valid_author_test() {
   Nil
 }
 
-// Note: sqlc.embed() runtime test is skipped because the generated SQL
-// retains the sqlc.embed(...) macro text which is not valid SQL.
+// Note: sqlode.embed() runtime test is skipped because the generated SQL
+// retains the sqlode.embed(...) macro text which is not valid SQL.
 // The embed codegen (nested type generation + decoder) is verified
 // at the unit test level in codegen_test.gleam.
 GLEAM

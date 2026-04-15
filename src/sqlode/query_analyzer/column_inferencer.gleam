@@ -149,11 +149,11 @@ fn resolve_select_columns(
     _ ->
       list.try_map(columns, fn(extracted) {
         let trimmed = string.trim(extracted.name)
-        case string.starts_with(trimmed, "sqlc.embed(") {
+        case string.starts_with(trimmed, "sqlode.embed(") {
           True -> {
             let embed_name =
               trimmed
-              |> string.replace("sqlc.embed(", "")
+              |> string.replace("sqlode.embed(", "")
               |> string.replace(")", "")
               |> string.trim
               |> string.lowercase
@@ -870,15 +870,16 @@ fn tok_split_commas_loop(
 
 /// Parse a column item from tokens into ExtractedColumn.
 fn tok_parse_column_item(tokens: List(lexer.Token)) -> ExtractedColumn {
-  // Check for sqlc.embed(table) pattern: Ident("sqlc") Dot Ident("embed") LParen ...
+  // Check for sqlode.embed(table) pattern: Ident("sqlode") Dot Ident("embed") LParen ...
   case tokens {
     [lexer.Ident(name), lexer.Dot, lexer.Ident(fn_name), lexer.LParen, ..] -> {
       case
-        string.lowercase(name) == "sqlc" && string.lowercase(fn_name) == "embed"
+        string.lowercase(name) == "sqlode"
+        && string.lowercase(fn_name) == "embed"
       {
         True -> {
-          // Reconstruct as "sqlc.embed(table_name)" without extra spaces
-          let text = tok_reconstruct_sqlc_call(tokens)
+          // Reconstruct as "sqlode.embed(table_name)" without extra spaces
+          let text = tok_reconstruct_macro_call(tokens)
           ExtractedColumn(name: text, source_table: None, expression: None)
         }
         False -> tok_parse_regular_column(tokens)
@@ -888,8 +889,8 @@ fn tok_parse_column_item(tokens: List(lexer.Token)) -> ExtractedColumn {
   }
 }
 
-/// Reconstruct sqlc.embed(table) or sqlc.arg(name) without extra spaces.
-fn tok_reconstruct_sqlc_call(tokens: List(lexer.Token)) -> String {
+/// Reconstruct sqlode.embed(table) call without extra spaces.
+fn tok_reconstruct_macro_call(tokens: List(lexer.Token)) -> String {
   tokens
   |> list.map(fn(t) {
     case t {

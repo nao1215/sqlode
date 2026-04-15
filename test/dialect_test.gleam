@@ -144,7 +144,7 @@ pub fn sqlite_at_named_placeholder_test() {
     list.find(analyzed, fn(q) { q.base.name == "GetAuthorByEmail" })
   get_by_email.base.param_count |> should.equal(1)
   let assert [param] = get_by_email.params
-  // @author_name shorthand is equivalent to sqlc.arg(author_name)
+  // @author_name shorthand is equivalent to sqlode.arg(author_name)
   param.field_name |> should.equal("author_name")
   param.scalar_type |> should.equal(model.StringType)
 }

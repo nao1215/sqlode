@@ -244,7 +244,7 @@ pub fn sqlc_arg_sets_param_name_test() {
   let naming_ctx = naming.new()
   let catalog = test_catalog()
   let sql =
-    "-- name: GetByName :one\nSELECT id, name FROM authors WHERE name = sqlc.arg(author_name);"
+    "-- name: GetByName :one\nSELECT id, name FROM authors WHERE name = sqlode.arg(author_name);"
   let assert Ok(queries) =
     query_parser.parse_file("arg.sql", model.PostgreSQL, naming_ctx, sql)
 
@@ -273,7 +273,7 @@ pub fn sqlc_narg_sets_nullable_test() {
   let naming_ctx = naming.new()
   let catalog = test_catalog()
   let sql =
-    "-- name: UpdateBio :exec\nUPDATE authors SET bio = sqlc.narg(new_bio) WHERE id = sqlc.arg(author_id);"
+    "-- name: UpdateBio :exec\nUPDATE authors SET bio = sqlode.narg(new_bio) WHERE id = sqlode.arg(author_id);"
   let assert Ok(queries) =
     query_parser.parse_file("narg.sql", model.PostgreSQL, naming_ctx, sql)
 
@@ -297,7 +297,7 @@ pub fn sqlc_slice_sets_is_list_test() {
   let naming_ctx = naming.new()
   let catalog = test_catalog()
   let sql =
-    "-- name: GetByIds :many\nSELECT id, name FROM authors WHERE id IN (sqlc.slice(ids));"
+    "-- name: GetByIds :many\nSELECT id, name FROM authors WHERE id IN (sqlode.slice(ids));"
   let assert Ok(queries) =
     query_parser.parse_file("slice.sql", model.PostgreSQL, naming_ctx, sql)
 
@@ -373,7 +373,7 @@ pub fn sqlc_embed_expands_table_columns_test() {
   let naming_ctx = naming.new()
   let catalog = join_catalog()
   let sql =
-    "-- name: GetBookFull :one\nSELECT sqlc.embed(authors), books.title FROM books JOIN authors ON books.author_id = authors.id WHERE books.id = $1;"
+    "-- name: GetBookFull :one\nSELECT sqlode.embed(authors), books.title FROM books JOIN authors ON books.author_id = authors.id WHERE books.id = $1;"
   let assert Ok(queries) =
     query_parser.parse_file("embed.sql", model.PostgreSQL, naming_ctx, sql)
 

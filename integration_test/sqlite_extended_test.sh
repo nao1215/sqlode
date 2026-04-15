@@ -153,7 +153,7 @@ pub fn update_author_bio_execrows_test() {
   Nil
 }
 
-// ---- Test sqlc.narg (nullable parameter) ----
+// ---- Test sqlode.narg (nullable parameter) ----
 pub fn update_bio_nullable_with_value_test() {
   let db = setup_db()
 
@@ -202,7 +202,7 @@ pub fn update_bio_nullable_to_null_test() {
   Nil
 }
 
-// ---- Test sqlc.slice (WHERE IN with list param) ----
+// ---- Test sqlode.slice (WHERE IN with list param) ----
 pub fn get_authors_by_ids_slice_test() {
   let db = setup_db()
 

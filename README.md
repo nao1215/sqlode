@@ -88,7 +88,7 @@ ORDER BY name;
 
 -- name: CreateAuthor :exec
 INSERT INTO authors (name, bio)
-VALUES (sqlc.arg(author_name), sqlc.narg(bio));
+VALUES (sqlode.arg(author_name), sqlode.narg(bio));
 ```
 
 ### Generate
@@ -167,7 +167,7 @@ let values = q.encode(params.GetAuthorParams(id: 1))
 // q.sql, q.command, and values are now tied together
 ```
 
-For queries using `sqlc.slice()`, use `runtime.prepare` to expand slice placeholders and encode parameters in one call:
+For queries using `sqlode.slice()`, use `runtime.prepare` to expand slice placeholders and encode parameters in one call:
 
 ```gleam
 let q = queries.get_authors_by_ids()
@@ -323,21 +323,21 @@ pub fn main() {
 | `:batchexec` | Batch variant of `:exec` |
 | `:copyfrom` | Bulk insert |
 
-## sqlc macros
+## Query macros
 
 | Macro | Description |
 |---|---|
-| `sqlc.arg(name)` | Names a parameter |
-| `sqlc.narg(name)` | Names a nullable parameter |
-| `sqlc.slice(name)` | Expands to a list parameter for IN clauses |
-| `sqlc.embed(table)` | Embeds all columns of a table into the result |
+| `sqlode.arg(name)` | Names a parameter |
+| `sqlode.narg(name)` | Names a nullable parameter |
+| `sqlode.slice(name)` | Expands to a list parameter for IN clauses |
+| `sqlode.embed(table)` | Embeds all columns of a table into the result |
 
-### sqlc.slice example
+### sqlode.slice example
 
 ```sql
 -- name: GetAuthorsByIds :many
 SELECT id, name FROM authors
-WHERE id IN (sqlc.slice(ids));
+WHERE id IN (sqlode.slice(ids));
 ```
 
 Generates a parameter with type `List(Int)`:
@@ -348,11 +348,11 @@ pub type GetAuthorsByIdsParams {
 }
 ```
 
-### sqlc.embed example
+### sqlode.embed example
 
 ```sql
 -- name: GetBookWithAuthor :one
-SELECT sqlc.embed(authors), books.title
+SELECT sqlode.embed(authors), books.title
 FROM books
 JOIN authors ON books.author_id = authors.id
 WHERE books.id = $1;
@@ -581,7 +581,7 @@ sqlode follows sqlc conventions, so most SQL files work without changes. Key dif
        runtime: "raw"   # or "native" for full adapter generation
    ```
 
-3. Your existing `.sql` schema and query files should work as-is. sqlode supports `sqlc.arg()`, `sqlc.narg()`, `sqlc.slice()`, `sqlc.embed()`, and `@name` shorthand.
+3. Replace `sqlc.arg(...)`, `sqlc.narg(...)`, `sqlc.slice(...)`, and `sqlc.embed(...)` with `sqlode.arg(...)`, `sqlode.narg(...)`, `sqlode.slice(...)`, and `sqlode.embed(...)` in your `.sql` query files. The `@name` shorthand remains unchanged.
 
 4. Run `sqlode generate` (or `gleam run -m sqlode -- generate`).
 

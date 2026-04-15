@@ -390,7 +390,7 @@ pub fn macro_duplicate_arg_name_test() {
 
   let assert Ok(search) =
     list.find(queries, fn(q) { q.name == "SearchByNameOrBio" })
-  // Two sqlc.arg(search_term) should produce two separate placeholders
+  // Two sqlode.arg(search_term) should produce two separate placeholders
   search.param_count |> should.equal(2)
   list.length(search.macros) |> should.equal(2)
 }

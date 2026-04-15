@@ -75,7 +75,7 @@ pub fn expand_sqlc_arg_macro_test() {
   let naming_ctx = naming.new()
   let content =
     "-- name: GetByName :one\n"
-    <> "SELECT id FROM authors WHERE name = sqlc.arg(author_name);"
+    <> "SELECT id FROM authors WHERE name = sqlode.arg(author_name);"
 
   let assert Ok(queries) =
     query_parser.parse_file("arg.sql", model.PostgreSQL, naming_ctx, content)
@@ -83,8 +83,8 @@ pub fn expand_sqlc_arg_macro_test() {
 
   query.param_count |> should.equal(1)
   query.macros
-  |> should.equal([model.SqlcArg(index: 1, name: "author_name")])
-  string.contains(query.sql, "sqlc.arg") |> should.be_false()
+  |> should.equal([model.MacroArg(index: 1, name: "author_name")])
+  string.contains(query.sql, "sqlode.arg") |> should.be_false()
   string.contains(query.sql, "$1") |> should.be_true()
 }
 
@@ -92,7 +92,7 @@ pub fn expand_sqlc_narg_macro_test() {
   let naming_ctx = naming.new()
   let content =
     "-- name: UpdateBio :exec\n"
-    <> "UPDATE authors SET bio = sqlc.narg(new_bio) WHERE id = sqlc.arg(author_id);"
+    <> "UPDATE authors SET bio = sqlode.narg(new_bio) WHERE id = sqlode.arg(author_id);"
 
   let assert Ok(queries) =
     query_parser.parse_file("narg.sql", model.PostgreSQL, naming_ctx, content)
@@ -101,18 +101,18 @@ pub fn expand_sqlc_narg_macro_test() {
   query.param_count |> should.equal(2)
   query.macros
   |> should.equal([
-    model.SqlcNarg(index: 1, name: "new_bio"),
-    model.SqlcArg(index: 2, name: "author_id"),
+    model.MacroNarg(index: 1, name: "new_bio"),
+    model.MacroArg(index: 2, name: "author_id"),
   ])
-  string.contains(query.sql, "sqlc.narg") |> should.be_false()
-  string.contains(query.sql, "sqlc.arg") |> should.be_false()
+  string.contains(query.sql, "sqlode.narg") |> should.be_false()
+  string.contains(query.sql, "sqlode.arg") |> should.be_false()
 }
 
 pub fn expand_sqlc_arg_mysql_test() {
   let naming_ctx = naming.new()
   let content =
     "-- name: GetByName :one\n"
-    <> "SELECT id FROM authors WHERE name = sqlc.arg(author_name);"
+    <> "SELECT id FROM authors WHERE name = sqlode.arg(author_name);"
 
   let assert Ok(queries) =
     query_parser.parse_file("arg_mysql.sql", model.MySQL, naming_ctx, content)
@@ -128,7 +128,7 @@ pub fn expand_sqlc_arg_single_quoted_test() {
   let naming_ctx = naming.new()
   let content =
     "-- name: GetByName :one\n"
-    <> "SELECT id FROM authors WHERE name = sqlc.arg('author_name');"
+    <> "SELECT id FROM authors WHERE name = sqlode.arg('author_name');"
 
   let assert Ok(queries) =
     query_parser.parse_file("arg.sql", model.PostgreSQL, naming_ctx, content)
@@ -136,8 +136,8 @@ pub fn expand_sqlc_arg_single_quoted_test() {
 
   query.param_count |> should.equal(1)
   query.macros
-  |> should.equal([model.SqlcArg(index: 1, name: "author_name")])
-  string.contains(query.sql, "sqlc.arg") |> should.be_false()
+  |> should.equal([model.MacroArg(index: 1, name: "author_name")])
+  string.contains(query.sql, "sqlode.arg") |> should.be_false()
   string.contains(query.sql, "$1") |> should.be_true()
 }
 
@@ -145,7 +145,7 @@ pub fn expand_sqlc_arg_double_quoted_test() {
   let naming_ctx = naming.new()
   let content =
     "-- name: GetByName :one\n"
-    <> "SELECT id FROM authors WHERE name = sqlc.arg(\"author_name\");"
+    <> "SELECT id FROM authors WHERE name = sqlode.arg(\"author_name\");"
 
   let assert Ok(queries) =
     query_parser.parse_file("arg.sql", model.PostgreSQL, naming_ctx, content)
@@ -153,14 +153,14 @@ pub fn expand_sqlc_arg_double_quoted_test() {
 
   query.param_count |> should.equal(1)
   query.macros
-  |> should.equal([model.SqlcArg(index: 1, name: "author_name")])
+  |> should.equal([model.MacroArg(index: 1, name: "author_name")])
 }
 
 pub fn expand_sqlc_narg_single_quoted_test() {
   let naming_ctx = naming.new()
   let content =
     "-- name: UpdateBio :exec\n"
-    <> "UPDATE authors SET bio = sqlc.narg('new_bio') WHERE id = sqlc.arg(author_id);"
+    <> "UPDATE authors SET bio = sqlode.narg('new_bio') WHERE id = sqlode.arg(author_id);"
 
   let assert Ok(queries) =
     query_parser.parse_file("narg.sql", model.PostgreSQL, naming_ctx, content)
@@ -169,8 +169,8 @@ pub fn expand_sqlc_narg_single_quoted_test() {
   query.param_count |> should.equal(2)
   query.macros
   |> should.equal([
-    model.SqlcNarg(index: 1, name: "new_bio"),
-    model.SqlcArg(index: 2, name: "author_id"),
+    model.MacroNarg(index: 1, name: "new_bio"),
+    model.MacroArg(index: 2, name: "author_id"),
   ])
 }
 
@@ -178,14 +178,14 @@ pub fn expand_sqlc_slice_double_quoted_test() {
   let naming_ctx = naming.new()
   let content =
     "-- name: GetByIds :many\n"
-    <> "SELECT id, name FROM authors WHERE id IN (sqlc.slice(\"ids\"));"
+    <> "SELECT id, name FROM authors WHERE id IN (sqlode.slice(\"ids\"));"
 
   let assert Ok(queries) =
     query_parser.parse_file("slice.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
 
   query.macros
-  |> should.equal([model.SqlcSlice(index: 1, name: "ids")])
+  |> should.equal([model.MacroSlice(index: 1, name: "ids")])
 }
 
 // @name shorthand tests
@@ -202,7 +202,7 @@ pub fn expand_at_name_postgresql_test() {
 
   query.param_count |> should.equal(1)
   query.macros
-  |> should.equal([model.SqlcArg(index: 1, name: "author_name")])
+  |> should.equal([model.MacroArg(index: 1, name: "author_name")])
   string.contains(query.sql, "@author_name") |> should.be_false()
   string.contains(query.sql, "$1") |> should.be_true()
 }
@@ -219,7 +219,7 @@ pub fn expand_at_name_sqlite_test() {
 
   query.param_count |> should.equal(1)
   query.macros
-  |> should.equal([model.SqlcArg(index: 1, name: "author_name")])
+  |> should.equal([model.MacroArg(index: 1, name: "author_name")])
   string.contains(query.sql, "@author_name") |> should.be_false()
   string.contains(query.sql, "?1") |> should.be_true()
 }
@@ -237,8 +237,8 @@ pub fn expand_multiple_at_names_test() {
   query.param_count |> should.equal(2)
   query.macros
   |> should.equal([
-    model.SqlcArg(index: 1, name: "new_bio"),
-    model.SqlcArg(index: 2, name: "author_id"),
+    model.MacroArg(index: 1, name: "new_bio"),
+    model.MacroArg(index: 2, name: "author_id"),
   ])
   string.contains(query.sql, "$1") |> should.be_true()
   string.contains(query.sql, "$2") |> should.be_true()
@@ -248,7 +248,7 @@ pub fn expand_at_name_mixed_with_sqlc_arg_test() {
   let naming_ctx = naming.new()
   let content =
     "-- name: Update :exec\n"
-    <> "UPDATE authors SET bio = @new_bio WHERE id = sqlc.arg(author_id);"
+    <> "UPDATE authors SET bio = @new_bio WHERE id = sqlode.arg(author_id);"
 
   let assert Ok(queries) =
     query_parser.parse_file("at.sql", model.PostgreSQL, naming_ctx, content)
@@ -257,8 +257,8 @@ pub fn expand_at_name_mixed_with_sqlc_arg_test() {
   query.param_count |> should.equal(2)
   query.macros
   |> should.equal([
-    model.SqlcArg(index: 1, name: "new_bio"),
-    model.SqlcArg(index: 2, name: "author_id"),
+    model.MacroArg(index: 1, name: "new_bio"),
+    model.MacroArg(index: 2, name: "author_id"),
   ])
 }
 
@@ -436,7 +436,7 @@ pub fn ignore_at_name_in_string_literal_test() {
 
   // @skip_me inside string should not be expanded
   query.param_count |> should.equal(1)
-  query.macros |> should.equal([model.SqlcArg(index: 1, name: "real_id")])
+  query.macros |> should.equal([model.MacroArg(index: 1, name: "real_id")])
   string.contains(query.sql, "'@skip_me'") |> should.be_true()
 }
 
@@ -600,7 +600,7 @@ pub fn sqlc_arg_in_string_literal_ignored_test() {
   let naming_ctx = naming.new()
   let content =
     "-- name: MacroInString :one\n"
-    <> "SELECT id FROM authors WHERE note = 'sqlc.arg(fake)' AND id = sqlc.arg(real_id);"
+    <> "SELECT id FROM authors WHERE note = 'sqlode.arg(fake)' AND id = sqlode.arg(real_id);"
 
   let assert Ok(queries) =
     query_parser.parse_file("pg.sql", model.PostgreSQL, naming_ctx, content)
@@ -608,8 +608,8 @@ pub fn sqlc_arg_in_string_literal_ignored_test() {
 
   query.param_count |> should.equal(1)
   query.macros
-  |> should.equal([model.SqlcArg(index: 1, name: "real_id")])
-  string.contains(query.sql, "'sqlc.arg(fake)'") |> should.be_true()
+  |> should.equal([model.MacroArg(index: 1, name: "real_id")])
+  string.contains(query.sql, "'sqlode.arg(fake)'") |> should.be_true()
 }
 
 pub fn sqlc_narg_in_line_comment_ignored_test() {
@@ -617,8 +617,8 @@ pub fn sqlc_narg_in_line_comment_ignored_test() {
   let content =
     "-- name: MacroInComment :one\n"
     <> "SELECT id FROM authors\n"
-    <> "-- WHERE name = sqlc.narg(ignored)\n"
-    <> "WHERE id = sqlc.arg(real_id);"
+    <> "-- WHERE name = sqlode.narg(ignored)\n"
+    <> "WHERE id = sqlode.arg(real_id);"
 
   let assert Ok(queries) =
     query_parser.parse_file("pg.sql", model.PostgreSQL, naming_ctx, content)
@@ -626,7 +626,7 @@ pub fn sqlc_narg_in_line_comment_ignored_test() {
 
   query.param_count |> should.equal(1)
   query.macros
-  |> should.equal([model.SqlcArg(index: 1, name: "real_id")])
+  |> should.equal([model.MacroArg(index: 1, name: "real_id")])
 }
 
 pub fn sqlc_slice_in_block_comment_ignored_test() {
@@ -634,7 +634,7 @@ pub fn sqlc_slice_in_block_comment_ignored_test() {
   let content =
     "-- name: MacroInBlock :many\n"
     <> "SELECT id FROM authors\n"
-    <> "WHERE /* sqlc.slice(phantom) */ id IN (sqlc.slice(real_ids));"
+    <> "WHERE /* sqlode.slice(phantom) */ id IN (sqlode.slice(real_ids));"
 
   let assert Ok(queries) =
     query_parser.parse_file("pg.sql", model.PostgreSQL, naming_ctx, content)
@@ -642,7 +642,7 @@ pub fn sqlc_slice_in_block_comment_ignored_test() {
 
   query.param_count |> should.equal(1)
   query.macros
-  |> should.equal([model.SqlcSlice(index: 1, name: "real_ids")])
+  |> should.equal([model.MacroSlice(index: 1, name: "real_ids")])
 }
 
 pub fn error_to_string_coverage_test() {

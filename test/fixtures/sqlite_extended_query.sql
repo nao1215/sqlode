@@ -8,10 +8,10 @@ INSERT INTO authors (name, bio) VALUES (?1, ?2);
 UPDATE authors SET bio = ?1 WHERE id = ?2;
 
 -- name: UpdateBioNullable :exec
-UPDATE authors SET bio = sqlc.narg(new_bio) WHERE id = sqlc.arg(author_id);
+UPDATE authors SET bio = sqlode.narg(new_bio) WHERE id = sqlode.arg(author_id);
 
 -- name: GetAuthorsByIds :many
-SELECT id, name, bio FROM authors WHERE id IN (sqlc.slice(ids));
+SELECT id, name, bio FROM authors WHERE id IN (sqlode.slice(ids));
 
 -- name: CreatePost :exec
 INSERT INTO posts (title, body, author_id) VALUES (?1, ?2, ?3);
@@ -22,7 +22,7 @@ FROM posts JOIN authors ON posts.author_id = authors.id
 WHERE posts.id = ?1;
 
 -- name: GetAuthorsByIdsAndNames :many
-SELECT id, name, bio FROM authors WHERE id IN (sqlc.slice(ids)) AND name IN (sqlc.slice(names));
+SELECT id, name, bio FROM authors WHERE id IN (sqlode.slice(ids)) AND name IN (sqlode.slice(names));
 
 -- name: ListAuthors :many
 SELECT id, name, bio FROM authors ORDER BY name;
