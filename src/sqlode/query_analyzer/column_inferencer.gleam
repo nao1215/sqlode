@@ -3,6 +3,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/regexp
 import gleam/result
 import gleam/string
+import sqlode/lexer
 import sqlode/model
 import sqlode/query_analyzer/context.{
   type AnalysisError, type AnalyzerContext, ColumnNotFound, TableNotFound,
@@ -16,15 +17,9 @@ type ExtractedColumn {
   )
 }
 
-type JoinKind {
-  LeftJoin
-  RightJoin
-  FullJoin
-  OtherJoin
-}
-
 pub fn infer_result_columns(
   ctx: AnalyzerContext,
+  engine: model.Engine,
   query: model.ParsedQuery,
   catalog: model.Catalog,
 ) -> Result(List(model.ResultColumn), AnalysisError) {
@@ -36,12 +31,14 @@ pub fn infer_result_columns(
     | model.BatchExec
     | model.CopyFrom -> Ok([])
     model.One | model.Many | model.BatchOne | model.BatchMany -> {
+      let tokens = lexer.tokenize(query.sql, engine)
       let normalized = context.normalize_sql(ctx, query.sql)
 
+      // RETURNING clause still uses regex (works well, no subquery risk)
       case extract_returning_columns(ctx, normalized) {
         Some(returning_cols) -> {
-          let table_names = extract_table_names(ctx, normalized)
-          let nullable_tables = extract_nullable_tables(ctx, normalized)
+          let table_names = tok_extract_table_names(tokens)
+          let nullable_tables = tok_extract_nullable_tables(tokens, table_names)
           case table_names {
             [] -> Ok([])
             [primary, ..] ->
@@ -56,16 +53,16 @@ pub fn infer_result_columns(
           }
         }
         None -> {
-          let main_sql =
-            strip_cte(ctx, normalized)
-            |> strip_compound
-          let table_names = extract_table_names(ctx, main_sql)
-          let nullable_tables = extract_nullable_tables(ctx, main_sql)
+          let main_tokens = tok_strip_cte(tokens)
+          let main_tokens2 = tok_strip_compound(main_tokens)
+          let table_names = tok_extract_table_names(main_tokens2)
+          let nullable_tables =
+            tok_extract_nullable_tables(main_tokens2, table_names)
 
           case table_names {
             [] -> Ok([])
             [primary, ..] -> {
-              let select_columns = extract_select_columns(ctx, main_sql)
+              let select_columns = tok_extract_select_columns(main_tokens2)
               resolve_select_columns(
                 query.name,
                 select_columns,
@@ -79,43 +76,6 @@ pub fn infer_result_columns(
         }
       }
     }
-  }
-}
-
-fn strip_cte(ctx: AnalyzerContext, sql: String) -> String {
-  case string.starts_with(sql, "with ") {
-    False -> sql
-    True -> {
-      case regexp.scan(ctx.cte_re, sql) {
-        [match, ..] ->
-          case match.submatches {
-            [Some(keyword)] -> {
-              let prefix_len =
-                string.length(match.content) - string.length(keyword) - 1
-              string.drop_start(sql, prefix_len)
-              |> string.trim
-            }
-            _ -> sql
-          }
-        [] -> sql
-      }
-    }
-  }
-}
-
-fn strip_compound(sql: String) -> String {
-  let keywords = [" union all ", " union ", " intersect ", " except "]
-  strip_first_compound(sql, keywords)
-}
-
-fn strip_first_compound(sql: String, keywords: List(String)) -> String {
-  case keywords {
-    [] -> sql
-    [keyword, ..rest] ->
-      case string.split_once(sql, keyword) {
-        Ok(#(before, _)) -> before |> string.trim
-        Error(_) -> strip_first_compound(sql, rest)
-      }
   }
 }
 
@@ -146,205 +106,6 @@ fn extract_returning_columns(
         _ -> None
       }
     [] -> None
-  }
-}
-
-fn extract_table_names(ctx: AnalyzerContext, sql: String) -> List(String) {
-  let primary = context.primary_table_name(ctx, sql)
-  let join_tables = extract_join_tables(ctx, sql)
-
-  case primary {
-    Some(name) -> [name, ..join_tables]
-    None -> join_tables
-  }
-}
-
-fn extract_join_tables(ctx: AnalyzerContext, sql: String) -> List(String) {
-  extract_join_info(ctx, sql)
-  |> list.map(fn(info) { info.0 })
-}
-
-fn extract_join_info(
-  ctx: AnalyzerContext,
-  sql: String,
-) -> List(#(String, JoinKind)) {
-  regexp.scan(ctx.join_re, sql)
-  |> list.filter_map(fn(match) {
-    case match.submatches {
-      [Some(join_type), Some(name)] -> {
-        let kind = case string.lowercase(join_type) {
-          "left" -> LeftJoin
-          "right" -> RightJoin
-          "full" -> FullJoin
-          _ -> OtherJoin
-        }
-        Ok(#(name, kind))
-      }
-      [None, Some(name)] -> Ok(#(name, OtherJoin))
-      _ -> Error(Nil)
-    }
-  })
-}
-
-fn extract_nullable_tables(ctx: AnalyzerContext, sql: String) -> List(String) {
-  let primary = context.primary_table_name(ctx, sql)
-  let joins = extract_join_info(ctx, sql)
-
-  let nullable_joined =
-    list.filter_map(joins, fn(j) {
-      case j.1 {
-        LeftJoin | FullJoin -> Ok(j.0)
-        _ -> Error(Nil)
-      }
-    })
-
-  let primary_nullable =
-    list.any(joins, fn(j) {
-      case j.1 {
-        RightJoin | FullJoin -> True
-        _ -> False
-      }
-    })
-
-  case primary_nullable, primary {
-    True, Some(name) -> [name, ..nullable_joined]
-    _, _ -> nullable_joined
-  }
-}
-
-fn extract_select_columns(
-  ctx: AnalyzerContext,
-  sql: String,
-) -> List(ExtractedColumn) {
-  case regexp.scan(ctx.select_columns_re, sql) {
-    [match, ..] ->
-      case match.submatches {
-        [Some(columns_text)] -> {
-          case string.trim(columns_text) == "*" {
-            True -> [
-              ExtractedColumn(name: "*", source_table: None, expression: None),
-            ]
-            False ->
-              columns_text
-              |> context.split_csv
-              |> list.map(fn(col) {
-                let trimmed = string.trim(col)
-                case string.starts_with(trimmed, "sqlc.embed(") {
-                  True ->
-                    ExtractedColumn(
-                      name: trimmed,
-                      source_table: None,
-                      expression: None,
-                    )
-                  False ->
-                    case split_last_as(trimmed) {
-                      Some(#(expr_part, alias_part)) -> {
-                        let expr_trimmed = string.trim(expr_part)
-                        let table = extract_table_qualifier(expr_trimmed)
-                        ExtractedColumn(
-                          name: string.trim(alias_part),
-                          source_table: table,
-                          expression: Some(expr_trimmed),
-                        )
-                      }
-                      None ->
-                        case string.contains(trimmed, ".") {
-                          True -> {
-                            let parts = string.split(trimmed, ".")
-                            let table = case parts {
-                              [t, _] -> Some(string.trim(t))
-                              _ -> None
-                            }
-                            let name = case list.last(parts) {
-                              Ok(last) -> string.trim(last)
-                              Error(_) -> trimmed
-                            }
-                            ExtractedColumn(
-                              name:,
-                              source_table: table,
-                              expression: None,
-                            )
-                          }
-                          False ->
-                            ExtractedColumn(
-                              name: trimmed,
-                              source_table: None,
-                              expression: None,
-                            )
-                        }
-                    }
-                }
-              })
-          }
-        }
-        _ -> []
-      }
-    [] -> []
-  }
-}
-
-/// Split on the last top-level " as " (outside parentheses).
-/// This avoids splitting on AS inside CAST(... AS type).
-fn split_last_as(s: String) -> Option(#(String, String)) {
-  let lowered = string.lowercase(s)
-  split_last_as_loop(lowered, s, 0, 0, -1)
-}
-
-fn split_last_as_loop(
-  lowered: String,
-  original: String,
-  idx: Int,
-  depth: Int,
-  last_pos: Int,
-) -> Option(#(String, String)) {
-  case string.pop_grapheme(lowered) {
-    Error(_) ->
-      case last_pos >= 0 {
-        True ->
-          Some(#(
-            string.slice(original, 0, last_pos),
-            string.slice(original, last_pos + 4, string.length(original)),
-          ))
-        False -> None
-      }
-    Ok(#(g, rest)) ->
-      case g {
-        "(" -> split_last_as_loop(rest, original, idx + 1, depth + 1, last_pos)
-        ")" -> {
-          let new_depth = case depth > 0 {
-            True -> depth - 1
-            False -> 0
-          }
-          split_last_as_loop(rest, original, idx + 1, new_depth, last_pos)
-        }
-        " " ->
-          case depth == 0 && string.starts_with(rest, "as ") {
-            True ->
-              split_last_as_loop(
-                string.drop_start(rest, 3),
-                original,
-                idx + 4,
-                depth,
-                idx,
-              )
-            False ->
-              split_last_as_loop(rest, original, idx + 1, depth, last_pos)
-          }
-        _ -> split_last_as_loop(rest, original, idx + 1, depth, last_pos)
-      }
-  }
-}
-
-fn extract_table_qualifier(expr: String) -> Option(String) {
-  case string.contains(expr, ".") {
-    True -> {
-      let parts = string.split(expr, ".")
-      case parts {
-        [table, _] -> Some(string.trim(table))
-        _ -> None
-      }
-    }
-    False -> None
   }
 }
 
@@ -649,4 +410,445 @@ fn find_column_in_tables(
     }
   })
   |> option.from_result
+}
+
+// ============================================================
+// Token-based extraction (Phase 3 of #203)
+// ============================================================
+
+/// Strip CTE: skip everything from WITH to the main SELECT/INSERT/UPDATE/DELETE.
+fn tok_strip_cte(tokens: List(lexer.Token)) -> List(lexer.Token) {
+  case tokens {
+    [lexer.Keyword("with"), ..rest] -> tok_skip_cte_defs(rest)
+    _ -> tokens
+  }
+}
+
+fn tok_skip_cte_defs(tokens: List(lexer.Token)) -> List(lexer.Token) {
+  case tokens {
+    [] -> []
+    [lexer.Keyword(kw), ..]
+      if kw == "select" || kw == "insert" || kw == "update" || kw == "delete"
+    -> tokens
+    [lexer.LParen, ..rest] -> {
+      let remaining = tok_skip_parens(rest, 1)
+      tok_skip_cte_defs(remaining)
+    }
+    [_, ..rest] -> tok_skip_cte_defs(rest)
+  }
+}
+
+/// Skip tokens until matching closing paren.
+fn tok_skip_parens(tokens: List(lexer.Token), depth: Int) -> List(lexer.Token) {
+  case depth <= 0 {
+    True -> tokens
+    False ->
+      case tokens {
+        [] -> []
+        [lexer.LParen, ..rest] -> tok_skip_parens(rest, depth + 1)
+        [lexer.RParen, ..rest] -> tok_skip_parens(rest, depth - 1)
+        [_, ..rest] -> tok_skip_parens(rest, depth)
+      }
+  }
+}
+
+/// Strip compound operators (UNION, INTERSECT, EXCEPT) at depth 0.
+fn tok_strip_compound(tokens: List(lexer.Token)) -> List(lexer.Token) {
+  tok_strip_compound_loop(tokens, 0, [])
+}
+
+fn tok_strip_compound_loop(
+  tokens: List(lexer.Token),
+  depth: Int,
+  acc: List(lexer.Token),
+) -> List(lexer.Token) {
+  case tokens {
+    [] -> list.reverse(acc)
+    [lexer.LParen, ..rest] ->
+      tok_strip_compound_loop(rest, depth + 1, [lexer.LParen, ..acc])
+    [lexer.RParen, ..rest] ->
+      tok_strip_compound_loop(rest, depth - 1, [lexer.RParen, ..acc])
+    [lexer.Keyword(kw), ..] if depth == 0 -> {
+      case kw == "union" || kw == "intersect" || kw == "except" {
+        True -> list.reverse(acc)
+        False ->
+          case tokens {
+            [token, ..rest] ->
+              tok_strip_compound_loop(rest, depth, [token, ..acc])
+            _ -> list.reverse(acc)
+          }
+      }
+    }
+    [token, ..rest] -> tok_strip_compound_loop(rest, depth, [token, ..acc])
+  }
+}
+
+/// Extract table names from FROM/JOIN/INTO/UPDATE keywords.
+fn tok_extract_table_names(tokens: List(lexer.Token)) -> List(String) {
+  tok_table_names_loop(tokens, [])
+  |> list.unique
+}
+
+fn tok_table_names_loop(
+  tokens: List(lexer.Token),
+  acc: List(String),
+) -> List(String) {
+  case tokens {
+    [] -> list.reverse(acc)
+    // FROM (SELECT ...) — skip subquery
+    [lexer.Keyword("from"), lexer.LParen, ..rest] -> {
+      let remaining = tok_skip_parens(rest, 1)
+      tok_table_names_loop(remaining, acc)
+    }
+    // FROM table, INTO table, UPDATE table
+    [lexer.Keyword(kw), ..rest]
+      if kw == "from" || kw == "into" || kw == "update"
+    -> {
+      let #(name, remaining) = tok_read_table_name(rest)
+      case name {
+        Some(n) -> tok_table_names_loop(remaining, [n, ..acc])
+        None -> tok_table_names_loop(rest, acc)
+      }
+    }
+    // JOIN table (possibly preceded by LEFT/RIGHT/FULL/INNER/CROSS + OUTER)
+    [lexer.Keyword("join"), ..rest] -> {
+      let #(name, remaining) = tok_read_table_name(rest)
+      case name {
+        Some(n) -> tok_table_names_loop(remaining, [n, ..acc])
+        None -> tok_table_names_loop(rest, acc)
+      }
+    }
+    [_, ..rest] -> tok_table_names_loop(rest, acc)
+  }
+}
+
+/// Read the next table name (handling schema.table → last part).
+fn tok_read_table_name(
+  tokens: List(lexer.Token),
+) -> #(Option(String), List(lexer.Token)) {
+  case tokens {
+    [lexer.Ident(_), lexer.Dot, lexer.Ident(name), ..rest] -> #(
+      Some(string.lowercase(name)),
+      rest,
+    )
+    [lexer.Ident(name), ..rest] -> #(Some(string.lowercase(name)), rest)
+    [lexer.QuotedIdent(name), ..rest] -> #(Some(string.lowercase(name)), rest)
+    [lexer.LParen, ..rest] -> {
+      let remaining = tok_skip_parens(rest, 1)
+      #(None, remaining)
+    }
+    _ -> #(None, tokens)
+  }
+}
+
+/// Extract nullable tables from LEFT/RIGHT/FULL JOIN keywords.
+fn tok_extract_nullable_tables(
+  tokens: List(lexer.Token),
+  all_table_names: List(String),
+) -> List(String) {
+  let primary = case all_table_names {
+    [p, ..] -> Some(p)
+    [] -> None
+  }
+  let #(nullable_joined, primary_nullable) =
+    tok_nullable_loop(tokens, [], False)
+  case primary_nullable, primary {
+    True, Some(name) -> [name, ..nullable_joined]
+    _, _ -> nullable_joined
+  }
+}
+
+fn tok_nullable_loop(
+  tokens: List(lexer.Token),
+  acc: List(String),
+  primary_nullable: Bool,
+) -> #(List(String), Bool) {
+  case tokens {
+    [] -> #(acc, primary_nullable)
+    // LEFT [OUTER] JOIN table → joined table is nullable
+    [lexer.Keyword("left"), ..rest] -> {
+      let rest2 = tok_skip_keyword(rest, "outer")
+      case rest2 {
+        [lexer.Keyword("join"), ..after_join] -> {
+          let #(name, remaining) = tok_read_table_name(after_join)
+          case name {
+            Some(n) ->
+              tok_nullable_loop(remaining, [n, ..acc], primary_nullable)
+            None -> tok_nullable_loop(remaining, acc, primary_nullable)
+          }
+        }
+        _ -> tok_nullable_loop(rest, acc, primary_nullable)
+      }
+    }
+    // FULL [OUTER] JOIN table → both sides nullable
+    [lexer.Keyword("full"), ..rest] -> {
+      let rest2 = tok_skip_keyword(rest, "outer")
+      case rest2 {
+        [lexer.Keyword("join"), ..after_join] -> {
+          let #(name, remaining) = tok_read_table_name(after_join)
+          case name {
+            Some(n) -> tok_nullable_loop(remaining, [n, ..acc], True)
+            None -> tok_nullable_loop(remaining, acc, True)
+          }
+        }
+        _ -> tok_nullable_loop(rest, acc, primary_nullable)
+      }
+    }
+    // RIGHT [OUTER] JOIN → primary becomes nullable
+    [lexer.Keyword("right"), ..rest] -> {
+      let rest2 = tok_skip_keyword(rest, "outer")
+      case rest2 {
+        [lexer.Keyword("join"), ..after_join] ->
+          tok_nullable_loop(after_join, acc, True)
+        _ -> tok_nullable_loop(rest, acc, primary_nullable)
+      }
+    }
+    [_, ..rest] -> tok_nullable_loop(rest, acc, primary_nullable)
+  }
+}
+
+fn tok_skip_keyword(tokens: List(lexer.Token), kw: String) -> List(lexer.Token) {
+  case tokens {
+    [lexer.Keyword(k), ..rest] if k == kw -> rest
+    _ -> tokens
+  }
+}
+
+/// Extract SELECT columns from tokens → List(ExtractedColumn).
+fn tok_extract_select_columns(
+  tokens: List(lexer.Token),
+) -> List(ExtractedColumn) {
+  case tok_find_select_to_from(tokens) {
+    Some(col_tokens) ->
+      tok_split_on_commas(col_tokens)
+      |> list.map(tok_parse_column_item)
+    None -> []
+  }
+}
+
+/// Find tokens between SELECT and top-level FROM.
+fn tok_find_select_to_from(
+  tokens: List(lexer.Token),
+) -> Option(List(lexer.Token)) {
+  case tokens {
+    [] -> None
+    [lexer.Keyword("select"), ..rest] -> {
+      // Skip DISTINCT/ALL
+      let rest2 = case rest {
+        [lexer.Keyword("distinct"), ..r] -> r
+        [lexer.Keyword("all"), ..r] -> r
+        _ -> rest
+      }
+      tok_collect_until_from(rest2, 0, [])
+    }
+    [_, ..rest] -> tok_find_select_to_from(rest)
+  }
+}
+
+/// Collect tokens until top-level FROM (depth 0).
+fn tok_collect_until_from(
+  tokens: List(lexer.Token),
+  depth: Int,
+  acc: List(lexer.Token),
+) -> Option(List(lexer.Token)) {
+  case tokens {
+    [] ->
+      case acc {
+        [] -> None
+        _ -> Some(list.reverse(acc))
+      }
+    [lexer.Keyword("from"), ..] if depth == 0 ->
+      case acc {
+        [] -> None
+        _ -> Some(list.reverse(acc))
+      }
+    [lexer.LParen, ..rest] ->
+      tok_collect_until_from(rest, depth + 1, [lexer.LParen, ..acc])
+    [lexer.RParen, ..rest] ->
+      tok_collect_until_from(rest, depth - 1, [lexer.RParen, ..acc])
+    [token, ..rest] -> tok_collect_until_from(rest, depth, [token, ..acc])
+  }
+}
+
+/// Split tokens on top-level commas.
+fn tok_split_on_commas(tokens: List(lexer.Token)) -> List(List(lexer.Token)) {
+  tok_split_commas_loop(tokens, 0, [], [])
+}
+
+fn tok_split_commas_loop(
+  tokens: List(lexer.Token),
+  depth: Int,
+  current: List(lexer.Token),
+  acc: List(List(lexer.Token)),
+) -> List(List(lexer.Token)) {
+  case tokens {
+    [] ->
+      case current {
+        [] -> list.reverse(acc)
+        _ -> list.reverse([list.reverse(current), ..acc])
+      }
+    [lexer.Comma, ..rest] if depth == 0 ->
+      case current {
+        [] -> tok_split_commas_loop(rest, 0, [], acc)
+        _ -> tok_split_commas_loop(rest, 0, [], [list.reverse(current), ..acc])
+      }
+    [lexer.LParen, ..rest] ->
+      tok_split_commas_loop(rest, depth + 1, [lexer.LParen, ..current], acc)
+    [lexer.RParen, ..rest] ->
+      tok_split_commas_loop(rest, depth - 1, [lexer.RParen, ..current], acc)
+    [token, ..rest] ->
+      tok_split_commas_loop(rest, depth, [token, ..current], acc)
+  }
+}
+
+/// Parse a column item from tokens into ExtractedColumn.
+fn tok_parse_column_item(tokens: List(lexer.Token)) -> ExtractedColumn {
+  // Check for sqlc.embed(table) pattern: Ident("sqlc") Dot Ident("embed") LParen ...
+  case tokens {
+    [lexer.Ident(name), lexer.Dot, lexer.Ident(fn_name), lexer.LParen, ..] -> {
+      case
+        string.lowercase(name) == "sqlc" && string.lowercase(fn_name) == "embed"
+      {
+        True -> {
+          // Reconstruct as "sqlc.embed(table_name)" without extra spaces
+          let text = tok_reconstruct_sqlc_call(tokens)
+          ExtractedColumn(name: text, source_table: None, expression: None)
+        }
+        False -> tok_parse_regular_column(tokens)
+      }
+    }
+    _ -> tok_parse_regular_column(tokens)
+  }
+}
+
+/// Reconstruct sqlc.embed(table) or sqlc.arg(name) without extra spaces.
+fn tok_reconstruct_sqlc_call(tokens: List(lexer.Token)) -> String {
+  tokens
+  |> list.map(fn(t) {
+    case t {
+      lexer.Ident(n) -> n
+      lexer.Dot -> "."
+      lexer.LParen -> "("
+      lexer.RParen -> ")"
+      lexer.Keyword(k) -> k
+      _ -> ""
+    }
+  })
+  |> string.concat
+}
+
+/// Parse a non-embed column item.
+fn tok_parse_regular_column(tokens: List(lexer.Token)) -> ExtractedColumn {
+  // Find last top-level AS
+  case tok_split_on_last_as(tokens) {
+    Some(#(expr_tokens, alias_tokens)) -> {
+      let alias_name = tok_tokens_to_text(alias_tokens)
+      let expr_text = tok_tokens_to_text(expr_tokens)
+      let table = case expr_tokens {
+        [lexer.Ident(t), lexer.Dot, lexer.Ident(_)] -> Some(string.lowercase(t))
+        _ -> None
+      }
+      ExtractedColumn(
+        name: alias_name,
+        source_table: table,
+        expression: Some(expr_text),
+      )
+    }
+    None ->
+      case tokens {
+        [lexer.Ident(table), lexer.Dot, lexer.Ident(col)] ->
+          ExtractedColumn(
+            name: col,
+            source_table: Some(string.lowercase(table)),
+            expression: None,
+          )
+        [lexer.Ident(name)] ->
+          ExtractedColumn(name: name, source_table: None, expression: None)
+        [lexer.Star] ->
+          ExtractedColumn(name: "*", source_table: None, expression: None)
+        _ -> {
+          let text = tok_tokens_to_text(tokens)
+          ExtractedColumn(
+            name: text,
+            source_table: None,
+            expression: Some(text),
+          )
+        }
+      }
+  }
+}
+
+/// Find last top-level AS in token list, split into (before, after).
+fn tok_split_on_last_as(
+  tokens: List(lexer.Token),
+) -> Option(#(List(lexer.Token), List(lexer.Token))) {
+  let last_idx = tok_find_last_as_idx(tokens, 0, None, 0)
+  case last_idx {
+    None -> None
+    Some(pos) -> Some(#(list.take(tokens, pos), list.drop(tokens, pos + 1)))
+  }
+}
+
+fn tok_find_last_as_idx(
+  tokens: List(lexer.Token),
+  depth: Int,
+  last: Option(Int),
+  idx: Int,
+) -> Option(Int) {
+  case tokens {
+    [] -> last
+    [lexer.LParen, ..rest] ->
+      tok_find_last_as_idx(rest, depth + 1, last, idx + 1)
+    [lexer.RParen, ..rest] ->
+      tok_find_last_as_idx(rest, depth - 1, last, idx + 1)
+    [lexer.Keyword("as"), ..rest] if depth == 0 ->
+      tok_find_last_as_idx(rest, depth, Some(idx), idx + 1)
+    [_, ..rest] -> tok_find_last_as_idx(rest, depth, last, idx + 1)
+  }
+}
+
+/// Convert token list to text with smart spacing (no space before parens/dots/commas).
+fn tok_tokens_to_text(tokens: List(lexer.Token)) -> String {
+  tok_text_loop(tokens, [])
+  |> list.reverse
+  |> string.concat
+}
+
+fn tok_text_loop(tokens: List(lexer.Token), acc: List(String)) -> List(String) {
+  case tokens {
+    [] -> acc
+    [token, ..rest] -> {
+      let s = case token {
+        lexer.Keyword(k) -> k
+        lexer.Ident(n) -> n
+        lexer.QuotedIdent(n) -> n
+        lexer.StringLit(s) -> "'" <> s <> "'"
+        lexer.NumberLit(n) -> n
+        lexer.Placeholder(p) -> p
+        lexer.Operator(op) -> op
+        lexer.LParen -> "("
+        lexer.RParen -> ")"
+        lexer.Comma -> ","
+        lexer.Semicolon -> ";"
+        lexer.Dot -> "."
+        lexer.Star -> "*"
+      }
+      let with_space = case acc, token {
+        // No space before these
+        _, lexer.LParen
+        | _, lexer.RParen
+        | _, lexer.Comma
+        | _, lexer.Dot
+        | _, lexer.Star
+        -> [s, ..acc]
+        // No space after LParen or Dot
+        ["(", ..], _ | [".", ..], _ -> [s, ..acc]
+        // First token
+        [], _ -> [s]
+        // Default: space before
+        _, _ -> [s, " ", ..acc]
+      }
+      tok_text_loop(rest, with_space)
+    }
+  }
 }

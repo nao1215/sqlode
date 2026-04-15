@@ -42,6 +42,7 @@ fn analyze_query(
   ))
   use result_columns <- result.try(column_inferencer.infer_result_columns(
     ctx,
+    engine,
     query,
     catalog,
   ))
