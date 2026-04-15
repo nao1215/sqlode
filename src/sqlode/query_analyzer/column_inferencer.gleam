@@ -308,7 +308,7 @@ fn infer_expression_type_dispatch(
         }
         Error(_) -> #(model.StringType, True)
       }
-    Some(InferCase) -> #(model.StringType, True)
+    Some(InferCase) -> infer_case_type(lowered, catalog, table_names)
     Some(InferStringLiteral) -> #(model.StringType, False)
     None ->
       case is_integer_literal(lowered) {
@@ -406,6 +406,43 @@ fn extract_first_csv_arg(
     [")", ..rest] -> extract_first_csv_arg(rest, depth - 1, [")", ..acc])
     [",", ..] if depth == 0 -> acc |> list.reverse |> string.concat
     [c, ..rest] -> extract_first_csv_arg(rest, depth, [c, ..acc])
+  }
+}
+
+/// Infer type from CASE expression by examining the first THEN branch.
+fn infer_case_type(
+  lowered: String,
+  catalog: model.Catalog,
+  table_names: List(String),
+) -> #(model.ScalarType, Bool) {
+  // Extract the first THEN value from "case when ... then <value> ..."
+  case string.split_once(lowered, " then ") {
+    Ok(#(_, after_then)) -> {
+      // The value extends until WHEN, ELSE, or END
+      let value_text =
+        after_then
+        |> split_before_keyword([" when ", " else ", " end"])
+        |> string.trim
+      case value_text {
+        "" -> #(model.StringType, True)
+        _ ->
+          infer_expression_type_dispatch(value_text, catalog, table_names)
+          |> fn(result) { #(result.0, True) }
+      }
+    }
+    Error(_) -> #(model.StringType, True)
+  }
+}
+
+/// Split string before the first occurrence of any keyword.
+fn split_before_keyword(s: String, keywords: List(String)) -> String {
+  case keywords {
+    [] -> s
+    [kw, ..rest] ->
+      case string.split_once(s, kw) {
+        Ok(#(before, _)) -> split_before_keyword(before, rest)
+        Error(_) -> split_before_keyword(s, rest)
+      }
   }
 }
 
