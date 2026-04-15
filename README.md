@@ -167,6 +167,19 @@ let values = q.encode(params.GetAuthorParams(id: 1))
 // q.sql, q.command, and values are now tied together
 ```
 
+For queries using `sqlc.slice()`, use `runtime.prepare` to expand slice placeholders and encode parameters in one call:
+
+```gleam
+let q = queries.get_authors_by_ids()
+let #(sql, values) = runtime.prepare(
+  q,
+  params.GetAuthorsByIdsParams(ids: [1, 2, 3]),
+  "$",  // "$" for PostgreSQL, "?" for SQLite
+)
+// sql has expanded placeholders: "... WHERE id IN ($1, $2, $3)"
+// values is the flattened parameter list
+```
+
 ## Runtime modes
 
 The `runtime` option controls what code sqlode generates and what dependencies your project needs.
@@ -490,6 +503,46 @@ When `type_mapping: "rich"` is set, sqlode generates transparent type aliases in
 
 **`strong`**: Single-constructor wrapper types with unwrap helpers (e.g. `sql_uuid_to_string`). A `SqlUuid` and a plain `String` are distinct at compile time, preventing accidental misuse. Generated adapters automatically wrap decoded values and unwrap encoded values.
 
+Example with `type_mapping: "strong"`:
+
+```gleam
+// Generated in models.gleam
+pub type SqlUuid {
+  SqlUuid(String)
+}
+
+pub fn sql_uuid_to_string(value: SqlUuid) -> String {
+  let SqlUuid(inner) = value
+  inner
+}
+```
+
+## Config options
+
+### emit_sql_as_comment
+
+When set to `true`, each generated adapter function includes the original SQL as a comment:
+
+```yaml
+gen:
+  gleam:
+    out: "src/db"
+    emit_sql_as_comment: true
+```
+
+### emit_exact_table_names
+
+When set to `true`, table type names use the exact table name instead of singularized form:
+
+```yaml
+gen:
+  gleam:
+    out: "src/db"
+    emit_exact_table_names: true
+```
+
+For example, a table named `authors` generates `pub type Authors { ... }` instead of the default `pub type Author { ... }`.
+
 ## CLI
 
 ```
@@ -536,7 +589,7 @@ sqlode follows sqlc conventions, so most SQL files work without changes. Key dif
 
 - `sqlc.yaml` v1 format
 - `vet` and `verify` commands
-- `emit_*` options (`emit_exact_table_names`, `emit_json_tags`, etc.)
+- `emit_json_tags` and other sqlc-specific emit options not listed above
 - MySQL adapter generation (`runtime: "raw"` works for MySQL)
 
 ## License
