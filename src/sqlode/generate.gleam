@@ -88,7 +88,7 @@ fn generate_sql_block(
   naming_ctx: naming.NamingContext,
   block: model.SqlBlock,
 ) -> Result(List(writer.GeneratedFile), GenerateError) {
-  use raw_catalog <- result.try(load_catalog(block.schema))
+  use raw_catalog <- result.try(load_catalog(block.schema, block.engine))
   let catalog =
     apply_type_overrides(raw_catalog, block.overrides.type_overrides)
   use queries <- result.try(load_queries(naming_ctx, block))
@@ -227,7 +227,10 @@ fn expand_sql_paths(
   |> result.map(list.flatten)
 }
 
-fn load_catalog(paths: List(String)) -> Result(model.Catalog, GenerateError) {
+fn load_catalog(
+  paths: List(String),
+  engine: model.Engine,
+) -> Result(model.Catalog, GenerateError) {
   use expanded <- result.try(
     expand_sql_paths(paths, fn(path, detail) { SchemaReadError(path:, detail:) }),
   )
@@ -246,7 +249,7 @@ fn load_catalog(paths: List(String)) -> Result(model.Catalog, GenerateError) {
     }),
   )
 
-  schema_parser.parse_files(entries)
+  schema_parser.parse_files_with_engine(entries, engine)
   |> result.map_error(fn(error) {
     SchemaParseError(detail: schema_parser.error_to_string(error))
   })
