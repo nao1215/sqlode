@@ -58,16 +58,7 @@ pub fn render(
       imports,
       [
         "",
-        "pub type QueryInfo {",
-        "  QueryInfo(",
-        "    name: String,",
-        "    sql: String,",
-        "    command: runtime.QueryCommand,",
-        "    param_count: Int,",
-        "  )",
-        "}",
-        "",
-        "pub fn all() -> List(QueryInfo) {",
+        "pub fn all() -> List(runtime.QueryInfo) {",
         "  " <> all_items,
         "}",
         "",
@@ -148,7 +139,7 @@ fn render_query_function(
 }
 
 fn render_query_info_literal(query: model.ParsedQuery) -> String {
-  "QueryInfo(name: \""
+  "runtime.QueryInfo(name: \""
   <> common.escape_string(query.name)
   <> "\", sql: \""
   <> common.escape_string(query.sql)
