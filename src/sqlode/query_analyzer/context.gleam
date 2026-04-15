@@ -11,6 +11,11 @@ pub type AnalysisError {
   ColumnNotFound(query_name: String, table_name: String, column_name: String)
   ParameterTypeNotInferred(query_name: String, param_index: Int)
   UnrecognizedCastType(query_name: String, param_index: Int, cast_type: String)
+  CompoundColumnCountMismatch(
+    query_name: String,
+    first_count: Int,
+    branch_count: Int,
+  )
 }
 
 pub fn analysis_error_to_string(error: AnalysisError) -> String {
@@ -44,6 +49,13 @@ pub fn analysis_error_to_string(error: AnalysisError) -> String {
       <> cast_type
       <> "\" for parameter $"
       <> int.to_string(param_index)
+    CompoundColumnCountMismatch(query_name:, first_count:, branch_count:) ->
+      "Query \""
+      <> query_name
+      <> "\": compound query branch has "
+      <> int.to_string(branch_count)
+      <> " columns, but the first branch has "
+      <> int.to_string(first_count)
   }
 }
 

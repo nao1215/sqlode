@@ -605,3 +605,15 @@ pub fn sqlc_narg_in_line_comment_ignored_test() {
 pub fn sqlc_slice_in_block_comment_ignored_test() {
   query_parser_test.sqlc_slice_in_block_comment_ignored_test()
 }
+
+pub fn compound_query_column_count_mismatch_test() {
+  query_analyzer_test.compound_query_column_count_mismatch_test()
+}
+
+pub fn compound_query_valid_union_test() {
+  query_analyzer_test.compound_query_valid_union_test()
+}
+
+pub fn compound_query_except_mismatch_test() {
+  query_analyzer_test.compound_query_except_mismatch_test()
+}

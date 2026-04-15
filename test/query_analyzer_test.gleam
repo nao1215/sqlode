@@ -453,6 +453,72 @@ pub fn cte_select_from_real_table_test() {
   name_col.name |> should.equal("name")
 }
 
+pub fn compound_query_column_count_mismatch_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let content =
+    "-- name: BadUnion :many\n"
+    <> "SELECT id, name FROM authors\n"
+    <> "UNION\n"
+    <> "SELECT id FROM authors;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("union.sql", model.PostgreSQL, naming_ctx, content)
+  let assert Error(err) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let msg = query_analyzer.analysis_error_to_string(err)
+  msg |> string.contains("2") |> should.be_true()
+  msg |> string.contains("1") |> should.be_true()
+  msg |> string.contains("BadUnion") |> should.be_true()
+}
+
+pub fn compound_query_valid_union_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let content =
+    "-- name: GoodUnion :many\n"
+    <> "SELECT id, name FROM authors\n"
+    <> "UNION ALL\n"
+    <> "SELECT id, name FROM authors;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("union.sql", model.PostgreSQL, naming_ctx, content)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  list.length(query.result_columns) |> should.equal(2)
+}
+
+pub fn compound_query_except_mismatch_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let content =
+    "-- name: BadExcept :many\n"
+    <> "SELECT id, name FROM authors\n"
+    <> "EXCEPT\n"
+    <> "SELECT id, name, bio FROM authors;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("except.sql", model.PostgreSQL, naming_ctx, content)
+  let assert Error(_) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+}
+
 fn test_catalog() -> model.Catalog {
   let assert Ok(content) = simplifile.read("test/fixtures/schema.sql")
   let assert Ok(catalog) =
