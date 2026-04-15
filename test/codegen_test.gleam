@@ -37,6 +37,8 @@ pub fn render_queries_module_test() {
   |> should.be_true()
   string.contains(rendered, "encode: params.get_author_values,")
   |> should.be_true()
+  string.contains(rendered, "slice_info: fn(_) { [] },")
+  |> should.be_true()
   string.contains(rendered, "pub fn all() -> List(QueryInfo) {")
   |> should.be_true()
   list.length(analyzed) |> should.equal(2)
