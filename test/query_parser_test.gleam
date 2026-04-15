@@ -62,7 +62,7 @@ pub fn count_sqlite_named_placeholders_test() {
   let naming_ctx = naming.new()
   let content =
     "-- name: GetAuthor :one\n"
-    <> "SELECT id FROM authors WHERE id = :id OR name = @name OR slug = $slug OR code = ?1;"
+    <> "SELECT id FROM authors WHERE id = :id OR name = @name OR slug = $slug OR code = ?2;"
 
   let assert Ok(queries) =
     query_parser.parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
@@ -449,6 +449,97 @@ pub fn ignore_question_mark_in_string_mysql_test() {
 
   let assert Ok(queries) =
     query_parser.parse_file("q.sql", model.MySQL, naming_ctx, content)
+  let assert [query] = queries
+
+  query.param_count |> should.equal(1)
+}
+
+pub fn sqlite_repeated_colon_placeholder_dedup_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: ReusedNamed :one\n"
+    <> "SELECT id FROM authors WHERE id = :id OR parent_id = :id;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
+  let assert [query] = queries
+
+  query.param_count |> should.equal(1)
+}
+
+pub fn sqlite_repeated_dollar_placeholder_dedup_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: ReusedDollar :one\n"
+    <> "SELECT id FROM authors WHERE id = $id OR parent_id = $id;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
+  let assert [query] = queries
+
+  query.param_count |> should.equal(1)
+}
+
+pub fn sqlite_repeated_at_placeholder_dedup_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: ReusedAt :one\n"
+    <> "SELECT id FROM authors WHERE id = @id OR parent_id = @id;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
+  let assert [query] = queries
+
+  query.param_count |> should.equal(1)
+}
+
+pub fn sqlite_distinct_named_placeholders_not_deduped_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: DistinctNames :one\n"
+    <> "SELECT id FROM authors WHERE id = :id OR name = :name;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
+  let assert [query] = queries
+
+  query.param_count |> should.equal(2)
+}
+
+pub fn sqlite_colon_and_at_are_different_params_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: DifferentPrefix :one\n"
+    <> "SELECT id FROM authors WHERE id = :id OR parent_id = @id;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
+  let assert [query] = queries
+
+  query.param_count |> should.equal(2)
+}
+
+pub fn sqlite_bare_question_marks_not_deduped_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: BareQuestions :exec\n"
+    <> "INSERT INTO authors (name, bio) VALUES (?, ?);"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
+  let assert [query] = queries
+
+  query.param_count |> should.equal(2)
+}
+
+pub fn sqlite_repeated_numbered_placeholder_dedup_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: ReusedNumbered :one\n"
+    <> "SELECT id FROM authors WHERE id = ?1 OR parent_id = ?1;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(1)

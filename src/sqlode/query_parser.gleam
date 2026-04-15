@@ -1,3 +1,4 @@
+import gleam/dict
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -266,8 +267,16 @@ fn count_question_mark_parameters(sql: String) -> Int {
 }
 
 fn count_sqlite_parameters(ctx: ParserContext, sql: String) -> Int {
-  regexp.scan(ctx.sqlite_param_re, sql)
-  |> list.length
+  let tokens =
+    regexp.scan(ctx.sqlite_param_re, sql)
+    |> list.filter_map(fn(match) {
+      case match.submatches {
+        [Some(token)] -> Ok(token)
+        _ -> Error(Nil)
+      }
+    })
+  let #(anon, named) = list.partition(tokens, fn(t) { t == "?" })
+  list.length(anon) + list.length(list.unique(named))
 }
 
 pub fn error_to_string(error: ParseError) -> String {
@@ -301,29 +310,53 @@ fn expand_at_name_shorthands(
       case matches {
         [] -> #(sql, masked, [], 1)
         _ -> {
-          let #(expanded, expanded_masked, macros, next_idx) =
-            list.fold(matches, #(sql, masked, [], 1), fn(acc, match) {
-              let #(current_sql, current_masked, macro_acc, idx) = acc
-              case match.submatches {
-                [Some(name)] -> {
-                  let placeholder = engine_placeholder(engine, idx)
-                  let #(new_sql, new_masked) =
-                    replace_first_in_masked(
-                      current_sql,
-                      current_masked,
-                      match.content,
-                      placeholder,
-                    )
-                  #(
-                    new_sql,
-                    new_masked,
-                    [model.SqlcArg(index: idx, name:), ..macro_acc],
-                    idx + 1,
-                  )
+          let #(expanded, expanded_masked, macros, next_idx, _seen) =
+            list.fold(
+              matches,
+              #(sql, masked, [], 1, dict.new()),
+              fn(acc, match) {
+                let #(current_sql, current_masked, macro_acc, idx, seen) = acc
+                case match.submatches {
+                  [Some(name)] ->
+                    case engine, dict.get(seen, name) {
+                      model.SQLite, Ok(existing_idx) -> {
+                        let placeholder =
+                          engine_placeholder(engine, existing_idx)
+                        let #(new_sql, new_masked) =
+                          replace_first_in_masked(
+                            current_sql,
+                            current_masked,
+                            match.content,
+                            placeholder,
+                          )
+                        #(new_sql, new_masked, macro_acc, idx, seen)
+                      }
+                      _, _ -> {
+                        let placeholder = engine_placeholder(engine, idx)
+                        let #(new_sql, new_masked) =
+                          replace_first_in_masked(
+                            current_sql,
+                            current_masked,
+                            match.content,
+                            placeholder,
+                          )
+                        let new_seen = case engine {
+                          model.SQLite -> dict.insert(seen, name, idx)
+                          _ -> seen
+                        }
+                        #(
+                          new_sql,
+                          new_masked,
+                          [model.SqlcArg(index: idx, name:), ..macro_acc],
+                          idx + 1,
+                          new_seen,
+                        )
+                      }
+                    }
+                  _ -> acc
                 }
-                _ -> acc
-              }
-            })
+              },
+            )
           #(expanded, expanded_masked, list.reverse(macros), next_idx)
         }
       }
