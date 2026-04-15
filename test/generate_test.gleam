@@ -843,8 +843,8 @@ pub fn all_commands_generate_params_test() {
   string.contains(params, "UpdatePostParams") |> should.be_true()
   // :execlastid with params
   string.contains(params, "InsertPostParams") |> should.be_true()
-  // :many without params should still have type
-  string.contains(params, "ListPostsParams") |> should.be_true()
+  // :many without params should NOT generate Params type
+  string.contains(params, "ListPostsParams") |> should.be_false()
 
   cleanup_commands()
 }

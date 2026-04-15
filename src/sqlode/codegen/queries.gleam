@@ -32,16 +32,19 @@ pub fn render(
       |> fn(items) { "[" <> items <> "]" }
   }
 
+  let has_any_params = list.any(queries, fn(q) { !list.is_empty(q.params) })
+
   let imports =
     list.flatten([
       case has_slices {
         True -> ["import gleam/list"]
         False -> []
       },
-      [
-        "import sqlode/runtime",
-        "import " <> module_path <> "/params",
-      ],
+      ["import sqlode/runtime"],
+      case has_any_params {
+        True -> ["import " <> module_path <> "/params"]
+        False -> []
+      },
     ])
 
   string.join(
@@ -80,13 +83,28 @@ fn render_query_function(
   query: model.AnalyzedQuery,
   emit_sql_as_comment: Bool,
 ) -> String {
-  let params_type =
-    naming.to_pascal_case(naming_ctx, query.base.name) <> "Params"
-  let values_fn = query.base.function_name <> "_values"
+  let has_params = !list.is_empty(query.params)
 
   let comment = case emit_sql_as_comment {
     True -> ["// SQL: " <> query.base.sql]
     False -> []
+  }
+
+  let return_type = case has_params {
+    True -> {
+      let params_type =
+        naming.to_pascal_case(naming_ctx, query.base.name) <> "Params"
+      "runtime.RawQuery(params." <> params_type <> ")"
+    }
+    False -> "runtime.RawQuery(Nil)"
+  }
+
+  let encode_line = case has_params {
+    True -> {
+      let values_fn = query.base.function_name <> "_values"
+      "    encode: params." <> values_fn <> ","
+    }
+    False -> "    encode: fn(_) { [] },"
   }
 
   let slice_params = list.filter(query.params, fn(p) { p.is_list })
@@ -111,11 +129,7 @@ fn render_query_function(
     list.flatten([
       comment,
       [
-        "pub fn "
-          <> query.base.function_name
-          <> "() -> runtime.RawQuery(params."
-          <> params_type
-          <> ") {",
+        "pub fn " <> query.base.function_name <> "() -> " <> return_type <> " {",
         "  runtime.RawQuery(",
         "    name: \"" <> common.escape_string(query.base.name) <> "\",",
         "    sql: \"" <> common.escape_string(query.base.sql) <> "\",",
@@ -123,7 +137,7 @@ fn render_query_function(
           <> model.query_command_to_variant(query.base.command)
           <> ",",
         "    param_count: " <> int.to_string(query.base.param_count) <> ",",
-        "    encode: params." <> values_fn <> ",",
+        encode_line,
         slice_info_line,
         "  )",
         "}",
