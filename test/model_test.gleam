@@ -1,3 +1,4 @@
+import gleam/option
 import gleam/string
 import gleeunit
 import gleeunit/should
@@ -219,9 +220,13 @@ pub fn strong_type_uses_same_names_as_rich_test() {
 
 pub fn strong_type_unwrap_fn_test() {
   model.strong_type_unwrap_fn(model.UuidType)
-  |> should.equal("sql_uuid_to_string")
+  |> should.equal(option.Some("sql_uuid_to_string"))
   model.strong_type_unwrap_fn(model.JsonType)
-  |> should.equal("sql_json_to_string")
+  |> should.equal(option.Some("sql_json_to_string"))
+  model.strong_type_unwrap_fn(model.IntType)
+  |> should.equal(option.None)
+  model.strong_type_unwrap_fn(model.StringType)
+  |> should.equal(option.None)
 }
 
 // is_rich_type tests
