@@ -2,6 +2,17 @@ import gleam/list
 import gleam/string
 import sqlode/model
 
+/// Options for controlling how tokens are rendered back to text.
+pub type TokenRenderOptions {
+  TokenRenderOptions(
+    /// When True, SQL keywords are rendered in UPPERCASE.
+    uppercase_keywords: Bool,
+    /// When True, quoted identifiers keep their quotes and string
+    /// literals escape embedded single-quotes.
+    preserve_quotes: Bool,
+  )
+}
+
 /// A SQL token produced by the lexer.
 pub type Token {
   /// SQL keyword (lowercased): SELECT, FROM, CREATE, etc.
@@ -636,4 +647,69 @@ fn is_alpha(g: String) -> Bool {
     _ -> 0
   }
   { cp >= 65 && cp <= 90 } || { cp >= 97 && cp <= 122 }
+}
+
+/// Render a list of tokens back to a SQL string with smart spacing.
+pub fn tokens_to_string(
+  tokens: List(Token),
+  options: TokenRenderOptions,
+) -> String {
+  tokens_to_string_loop(tokens, [], options)
+  |> list.reverse
+  |> string.concat
+}
+
+fn tokens_to_string_loop(
+  tokens: List(Token),
+  acc: List(String),
+  options: TokenRenderOptions,
+) -> List(String) {
+  case tokens {
+    [] -> acc
+    [token, ..rest] -> {
+      let s = token_to_string(token, options)
+      let with_space = case acc, token {
+        _, Comma | _, Semicolon | _, LParen | _, RParen | _, Dot | _, Star -> [
+          s,
+          ..acc
+        ]
+        ["(", ..], _ | [".", ..], _ -> [s, ..acc]
+        _, Operator("[") -> [s, ..acc]
+        ["]", ..], _ | ["[", ..], _ -> [s, ..acc]
+        [], _ -> [s]
+        _, _ -> [s, " ", ..acc]
+      }
+      tokens_to_string_loop(rest, with_space, options)
+    }
+  }
+}
+
+fn token_to_string(token: Token, options: TokenRenderOptions) -> String {
+  case token {
+    Keyword(k) ->
+      case options.uppercase_keywords {
+        True -> string.uppercase(k)
+        False -> k
+      }
+    Ident(name) -> name
+    QuotedIdent(name) ->
+      case options.preserve_quotes {
+        True -> "\"" <> name <> "\""
+        False -> name
+      }
+    StringLit(value) ->
+      case options.preserve_quotes {
+        True -> "'" <> string.replace(value, "'", "''") <> "'"
+        False -> "'" <> value <> "'"
+      }
+    NumberLit(n) -> n
+    Placeholder(p) -> p
+    Operator(op) -> op
+    LParen -> "("
+    RParen -> ")"
+    Comma -> ","
+    Semicolon -> ";"
+    Dot -> "."
+    Star -> "*"
+  }
 }

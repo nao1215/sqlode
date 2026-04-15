@@ -979,48 +979,9 @@ fn tok_find_last_as_idx(
   }
 }
 
-/// Convert token list to text with smart spacing (no space before parens/dots/commas).
 fn tok_tokens_to_text(tokens: List(lexer.Token)) -> String {
-  tok_text_loop(tokens, [])
-  |> list.reverse
-  |> string.concat
-}
-
-fn tok_text_loop(tokens: List(lexer.Token), acc: List(String)) -> List(String) {
-  case tokens {
-    [] -> acc
-    [token, ..rest] -> {
-      let s = case token {
-        lexer.Keyword(k) -> k
-        lexer.Ident(n) -> n
-        lexer.QuotedIdent(n) -> n
-        lexer.StringLit(s) -> "'" <> s <> "'"
-        lexer.NumberLit(n) -> n
-        lexer.Placeholder(p) -> p
-        lexer.Operator(op) -> op
-        lexer.LParen -> "("
-        lexer.RParen -> ")"
-        lexer.Comma -> ","
-        lexer.Semicolon -> ";"
-        lexer.Dot -> "."
-        lexer.Star -> "*"
-      }
-      let with_space = case acc, token {
-        // No space before these
-        _, lexer.LParen
-        | _, lexer.RParen
-        | _, lexer.Comma
-        | _, lexer.Dot
-        | _, lexer.Star
-        -> [s, ..acc]
-        // No space after LParen or Dot
-        ["(", ..], _ | [".", ..], _ -> [s, ..acc]
-        // First token
-        [], _ -> [s]
-        // Default: space before
-        _, _ -> [s, " ", ..acc]
-      }
-      tok_text_loop(rest, with_space)
-    }
-  }
+  lexer.tokens_to_string(
+    tokens,
+    lexer.TokenRenderOptions(uppercase_keywords: False, preserve_quotes: False),
+  )
 }

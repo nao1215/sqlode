@@ -155,59 +155,11 @@ fn extract_enum_values(
   }
 }
 
-/// Reconstruct a SQL string from tokens (for backward compatibility with
-/// string-based parsing functions during incremental migration).
 fn tokens_to_string(tokens: List(lexer.Token)) -> String {
-  tokens_to_string_loop(tokens, [])
-  |> list.reverse
-  |> string.concat
-}
-
-fn tokens_to_string_loop(
-  tokens: List(lexer.Token),
-  acc: List(String),
-) -> List(String) {
-  case tokens {
-    [] -> acc
-    [token, ..rest] -> {
-      let s = token_to_string(token)
-      let with_space = case acc, token {
-        // No space before these tokens
-        _, lexer.Comma | _, lexer.Semicolon | _, lexer.RParen | _, lexer.Dot -> [
-          s,
-          ..acc
-        ]
-        // No space after LParen or Dot
-        ["(", ..], _ | [".", ..], _ -> [s, ..acc]
-        // No space before/after [] (array syntax)
-        _, lexer.Operator("[") -> [s, ..acc]
-        ["]", ..], _ | ["[", ..], _ -> [s, ..acc]
-        // First token
-        [], _ -> [s]
-        // Default: add space before
-        _, _ -> [s, " ", ..acc]
-      }
-      tokens_to_string_loop(rest, with_space)
-    }
-  }
-}
-
-fn token_to_string(token: lexer.Token) -> String {
-  case token {
-    lexer.Keyword(k) -> string.uppercase(k)
-    lexer.Ident(name) -> name
-    lexer.QuotedIdent(name) -> "\"" <> name <> "\""
-    lexer.StringLit(value) -> "'" <> string.replace(value, "'", "''") <> "'"
-    lexer.NumberLit(n) -> n
-    lexer.Placeholder(p) -> p
-    lexer.Operator(op) -> op
-    lexer.LParen -> "("
-    lexer.RParen -> ")"
-    lexer.Comma -> ","
-    lexer.Semicolon -> ";"
-    lexer.Dot -> "."
-    lexer.Star -> "*"
-  }
+  lexer.tokens_to_string(
+    tokens,
+    lexer.TokenRenderOptions(uppercase_keywords: True, preserve_quotes: True),
+  )
 }
 
 fn parse_statement(
