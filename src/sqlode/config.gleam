@@ -4,6 +4,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import simplifile
+import sqlode/char_utils
 import sqlode/model
 import yay
 
@@ -272,7 +273,7 @@ fn validate_gleam_type(gleam_type: String) -> Result(Nil, ConfigError) {
       let first =
         string.first(type_name)
         |> result.unwrap("")
-      case is_uppercase_letter(first) {
+      case char_utils.is_uppercase_letter(first) {
         False ->
           Error(InvalidValue(
             field: "overrides.types.gleam_type",
@@ -283,38 +284,6 @@ fn validate_gleam_type(gleam_type: String) -> Result(Nil, ConfigError) {
         True -> Ok(Nil)
       }
     }
-  }
-}
-
-fn is_uppercase_letter(char: String) -> Bool {
-  case char {
-    "A"
-    | "B"
-    | "C"
-    | "D"
-    | "E"
-    | "F"
-    | "G"
-    | "H"
-    | "I"
-    | "J"
-    | "K"
-    | "L"
-    | "M"
-    | "N"
-    | "O"
-    | "P"
-    | "Q"
-    | "R"
-    | "S"
-    | "T"
-    | "U"
-    | "V"
-    | "W"
-    | "X"
-    | "Y"
-    | "Z" -> True
-    _ -> False
   }
 }
 

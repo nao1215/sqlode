@@ -1,6 +1,9 @@
 import gleam/list
 import gleam/option
 import gleam/string
+import sqlode/char_utils.{
+  is_alnum_or_underscore, is_alpha_or_underscore, is_digit,
+}
 import sqlode/model
 
 /// Options for controlling how tokens are rendered back to text.
@@ -611,31 +614,6 @@ fn read_operator(input: List(String)) -> #(String, List(String)) {
     [g, ..rest] -> #(g, rest)
     [] -> #("", [])
   }
-}
-
-// --- Character classification ---
-
-fn is_digit(g: String) -> Bool {
-  case g {
-    "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" -> True
-    _ -> False
-  }
-}
-
-fn is_alpha_or_underscore(g: String) -> Bool {
-  is_alpha(g) || g == "_"
-}
-
-fn is_alnum_or_underscore(g: String) -> Bool {
-  is_alpha(g) || is_digit(g) || g == "_"
-}
-
-fn is_alpha(g: String) -> Bool {
-  let cp = case string.to_utf_codepoints(g) {
-    [cp] -> string.utf_codepoint_to_int(cp)
-    _ -> 0
-  }
-  { cp >= 65 && cp <= 90 } || { cp >= 97 && cp <= 122 }
 }
 
 /// Render a list of tokens back to a SQL string with smart spacing.

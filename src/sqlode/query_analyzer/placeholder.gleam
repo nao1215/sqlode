@@ -3,6 +3,7 @@ import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
+import sqlode/char_utils
 import sqlode/lexer
 import sqlode/model
 import sqlode/naming
@@ -195,31 +196,12 @@ fn named_placeholder_name(token: String) -> Option(String) {
       {
         True -> {
           let raw_name = string.slice(token, 1, string.length(token) - 1)
-          case is_digits(raw_name) {
+          case char_utils.all_digits(raw_name) {
             True -> None
             False -> Some(raw_name)
           }
         }
         False -> None
-      }
-  }
-}
-
-fn is_digits(value: String) -> Bool {
-  case value == "" {
-    True -> False
-    False -> all_digits(value)
-  }
-}
-
-fn all_digits(value: String) -> Bool {
-  case string.pop_grapheme(value) {
-    Error(_) -> True
-    Ok(#(char, rest)) ->
-      case char {
-        "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ->
-          all_digits(rest)
-        _ -> False
       }
   }
 }
