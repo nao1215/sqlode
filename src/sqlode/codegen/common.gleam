@@ -120,3 +120,36 @@ pub fn out_to_module_path(out: String) -> String {
       |> result.unwrap(out)
   }
 }
+
+/// Render a single-constructor Gleam type declaration.
+///
+/// gleam_type("UserId", "Int") →
+///   "pub type UserId {
+///      UserId(Int)
+///    }"
+pub fn gleam_type(name: String, body: String) -> String {
+  "pub type " <> name <> " {\n  " <> name <> "(" <> body <> ")\n}"
+}
+
+/// Render a Gleam function declaration as a single string.
+///
+/// gleam_fn("double", "x: Int", "Int", "x * 2") →
+///   "pub fn double(x: Int) -> Int {
+///      x * 2
+///    }"
+pub fn gleam_fn(
+  name: String,
+  params: String,
+  return_type: String,
+  body: String,
+) -> String {
+  "pub fn "
+  <> name
+  <> "("
+  <> params
+  <> ") -> "
+  <> return_type
+  <> " {\n  "
+  <> body
+  <> "\n}"
+}

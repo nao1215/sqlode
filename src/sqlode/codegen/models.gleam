@@ -182,17 +182,10 @@ fn render_strong_type_wrappers(
       option.Some(fn_name) -> fn_name
       option.None -> type_name <> "_to_string"
     }
-    "pub type "
-    <> type_name
-    <> " {\n  "
-    <> type_name
-    <> "(String)\n}\n\npub fn "
-    <> unwrap_fn
-    <> "(value: "
-    <> type_name
-    <> ") -> String {\n  let "
-    <> type_name
-    <> "(inner) = value\n  inner\n}"
+    let body = "let " <> type_name <> "(inner) = value\n  inner"
+    common.gleam_type(type_name, "String")
+    <> "\n\n"
+    <> common.gleam_fn(unwrap_fn, "value: " <> type_name, "String", body)
   })
   |> string.join("\n\n")
 }
