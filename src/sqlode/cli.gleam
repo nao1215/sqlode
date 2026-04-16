@@ -76,7 +76,7 @@ fn run_generate(config_path: String) -> Nil {
       list.each(written, fn(path) { io.println("  Generated: " <> path) })
     }
     Error(error) -> {
-      io.println("Error: " <> generate.error_to_string(error))
+      io.println_error("Error: " <> generate.error_to_string(error))
       halt(1)
     }
   }
@@ -96,7 +96,7 @@ fn run_init(path: String) -> Nil {
 
   case simplifile.is_file(path) {
     Ok(True) -> {
-      io.println("Error: " <> path <> " already exists")
+      io.println_error("Error: " <> path <> " already exists")
       halt(1)
     }
     _ -> {
@@ -106,7 +106,7 @@ fn run_init(path: String) -> Nil {
           create_stub_files(filepath.directory_name(path))
         }
         Error(_) -> {
-          io.println("Error: failed to write " <> path)
+          io.println_error("Error: failed to write " <> path)
           halt(1)
         }
       }
@@ -161,5 +161,8 @@ fn create_stub_files(base_dir: String) -> Nil {
   }
 }
 
-@external(erlang, "erlang", "halt")
+/// Exit the process with the given status code, flushing I/O before shutdown.
+/// Uses init:stop/1 which triggers a graceful OTP shutdown instead of the
+/// abrupt erlang:halt/1.
+@external(erlang, "init", "stop")
 fn halt(code: Int) -> Nil
