@@ -532,24 +532,7 @@ fn is_sql_keyword(word: String) -> Bool {
     | "some"
     | "array"
     | "of"
-    | "collate"
-    | "coalesce"
-    | "greatest"
-    | "least"
-    | "count"
-    | "sum"
-    | "avg"
-    | "min"
-    | "max"
-    | "row_number"
-    | "rank"
-    | "dense_rank"
-    | "ntile"
-    | "lag"
-    | "lead"
-    | "first_value"
-    | "last_value"
-    | "nth_value" -> True
+    | "collate" -> True
     _ -> False
   }
 }

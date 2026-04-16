@@ -292,57 +292,7 @@ fn infer_expression_type_from_tokens(
   query_name: String,
 ) -> Result(#(model.ScalarType, Bool), AnalysisError) {
   case tokens {
-    // --- Aggregate functions ---
-    [lexer.Keyword("count"), lexer.LParen, ..] -> Ok(#(model.IntType, False))
-
-    [lexer.Keyword("sum"), lexer.LParen, ..rest] -> {
-      let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
-      let first_arg = tok_first_comma_group(inner_tokens)
-      case resolve_column_type_from_tokens(first_arg, catalog, table_names) {
-        Some(t) -> Ok(#(t, True))
-        None -> Ok(#(model.IntType, True))
-      }
-    }
-
-    [lexer.Keyword("avg"), lexer.LParen, ..] -> Ok(#(model.FloatType, True))
-
-    [lexer.Keyword(kw), lexer.LParen, ..rest] if kw == "min" || kw == "max" -> {
-      let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
-      let first_arg = tok_first_comma_group(inner_tokens)
-      case resolve_column_type_from_tokens(first_arg, catalog, table_names) {
-        Some(t) -> Ok(#(t, True))
-        None -> Ok(#(model.IntType, True))
-      }
-    }
-
-    // --- Window functions ---
-    [lexer.Keyword(kw), lexer.LParen, ..]
-      if kw == "row_number" || kw == "rank" || kw == "dense_rank"
-    -> Ok(#(model.IntType, False))
-
-    // --- Null-handling functions ---
-    [lexer.Keyword("coalesce"), lexer.LParen, ..rest] -> {
-      let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
-      let first_arg = tok_first_comma_group(inner_tokens)
-      case resolve_column_type_from_tokens(first_arg, catalog, table_names) {
-        Some(t) -> Ok(#(t, False))
-        None -> Ok(#(model.StringType, False))
-      }
-    }
-
-    // greatest/least(...) → same type as first arg, nullable
-    [lexer.Keyword(kw), lexer.LParen, ..rest]
-      if kw == "greatest" || kw == "least"
-    -> {
-      let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
-      let first_arg = tok_first_comma_group(inner_tokens)
-      case resolve_column_type_from_tokens(first_arg, catalog, table_names) {
-        Some(t) -> Ok(#(t, True))
-        None -> Ok(#(model.StringType, True))
-      }
-    }
-
-    // --- Type conversion ---
+    // --- Type conversion (SQL reserved syntax) ---
     [lexer.Keyword("cast"), lexer.LParen, ..rest] -> {
       let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
       case tok_find_as_type(inner_tokens) {
@@ -355,7 +305,7 @@ fn infer_expression_type_from_tokens(
       }
     }
 
-    // --- Boolean-producing patterns ---
+    // --- Boolean-producing patterns (SQL reserved syntax) ---
     [lexer.Keyword("exists"), lexer.LParen, ..] -> Ok(#(model.BoolType, False))
 
     [lexer.Keyword("not"), ..rest] ->
@@ -365,14 +315,47 @@ fn infer_expression_type_from_tokens(
     [lexer.Keyword("case"), ..rest] ->
       infer_case_type_from_tokens(rest, catalog, table_names, query_name)
 
-    // --- Function calls via Keyword that are also function names ---
+    // --- REPLACE is both a keyword (CREATE OR REPLACE) and a function ---
     [lexer.Keyword("replace"), lexer.LParen, ..] ->
       Ok(#(model.StringType, False))
 
-    // --- Function calls via Ident (SQL functions not in keyword list) ---
+    // --- SQL function calls (now Ident tokens after #319) ---
     [lexer.Ident(fn_name), lexer.LParen, ..rest] -> {
       let lowered = string.lowercase(fn_name)
       case classify_function(lowered) {
+        FnCount -> Ok(#(model.IntType, False))
+        FnAvg -> Ok(#(model.FloatType, True))
+        FnAggregateInner -> {
+          let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
+          let first_arg = tok_first_comma_group(inner_tokens)
+          case
+            resolve_column_type_from_tokens(first_arg, catalog, table_names)
+          {
+            Some(t) -> Ok(#(t, True))
+            None -> Ok(#(model.IntType, True))
+          }
+        }
+        FnWindow -> Ok(#(model.IntType, False))
+        FnCoalesce -> {
+          let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
+          let first_arg = tok_first_comma_group(inner_tokens)
+          case
+            resolve_column_type_from_tokens(first_arg, catalog, table_names)
+          {
+            Some(t) -> Ok(#(t, False))
+            None -> Ok(#(model.StringType, False))
+          }
+        }
+        FnGreatestLeast -> {
+          let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
+          let first_arg = tok_first_comma_group(inner_tokens)
+          case
+            resolve_column_type_from_tokens(first_arg, catalog, table_names)
+          {
+            Some(t) -> Ok(#(t, True))
+            None -> Ok(#(model.StringType, True))
+          }
+        }
         FnString -> Ok(#(model.StringType, False))
         FnLength -> Ok(#(model.IntType, False))
         FnMath -> {
@@ -439,6 +422,12 @@ fn infer_expression_type_from_tokens(
 // ============================================================
 
 type FunctionClass {
+  FnCount
+  FnAggregateInner
+  FnAvg
+  FnWindow
+  FnCoalesce
+  FnGreatestLeast
   FnString
   FnLength
   FnMath
@@ -449,7 +438,22 @@ type FunctionClass {
 
 fn classify_function(lowered_name: String) -> FunctionClass {
   case lowered_name {
-    "lower"
+    "count" -> FnCount
+    "sum" | "min" | "max" -> FnAggregateInner
+    "avg" -> FnAvg
+    "row_number"
+    | "rank"
+    | "dense_rank"
+    | "ntile"
+    | "lag"
+    | "lead"
+    | "first_value"
+    | "last_value"
+    | "nth_value" -> FnWindow
+    "coalesce" -> FnCoalesce
+    "greatest" | "least" -> FnGreatestLeast
+    "replace"
+    | "lower"
     | "upper"
     | "trim"
     | "ltrim"
