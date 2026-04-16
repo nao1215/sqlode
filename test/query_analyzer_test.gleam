@@ -1023,3 +1023,259 @@ pub fn literal_expression_test() {
     ..,
   ) = greeting_col
 }
+
+// --- New expression type inference tests ---
+
+pub fn exists_subquery_infers_bool_type_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: HasAuthor :one\nSELECT EXISTS(SELECT 1 FROM authors WHERE id = $1) AS present FROM authors LIMIT 1;"
+  let assert Ok(queries) =
+    query_parser.parse_file("exists.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+
+  let assert [col] = query.result_columns
+  let assert model.ResultColumn(
+    name: "present",
+    scalar_type: model.BoolType,
+    nullable: False,
+    ..,
+  ) = col
+}
+
+pub fn boolean_comparison_infers_bool_type_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: IsAdult :one\nSELECT authors.id > 0 AS is_positive FROM authors WHERE id = $1;"
+  let assert Ok(queries) =
+    query_parser.parse_file("cmp.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+
+  let assert [col] = query.result_columns
+  let assert model.ResultColumn(
+    name: "is_positive",
+    scalar_type: model.BoolType,
+    nullable: False,
+    ..,
+  ) = col
+}
+
+pub fn string_concat_infers_string_type_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: FullName :one\nSELECT name || ' - ' || bio AS display FROM authors WHERE id = $1;"
+  let assert Ok(queries) =
+    query_parser.parse_file("concat.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+
+  let assert [col] = query.result_columns
+  let assert model.ResultColumn(
+    name: "display",
+    scalar_type: model.StringType,
+    nullable: False,
+    ..,
+  ) = col
+}
+
+pub fn arithmetic_expression_infers_int_type_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: NextId :one\nSELECT id + 1 AS next_id FROM authors WHERE id = $1;"
+  let assert Ok(queries) =
+    query_parser.parse_file("arith.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+
+  let assert [col] = query.result_columns
+  let assert model.ResultColumn(
+    name: "next_id",
+    scalar_type: model.IntType,
+    nullable: False,
+    ..,
+  ) = col
+}
+
+pub fn lower_function_infers_string_type_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: LowerName :one\nSELECT lower(name) AS lower_name FROM authors WHERE id = $1;"
+  let assert Ok(queries) =
+    query_parser.parse_file("lower.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+
+  let assert [col] = query.result_columns
+  let assert model.ResultColumn(
+    name: "lower_name",
+    scalar_type: model.StringType,
+    nullable: False,
+    ..,
+  ) = col
+}
+
+pub fn length_function_infers_int_type_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: NameLen :one\nSELECT length(name) AS name_len FROM authors WHERE id = $1;"
+  let assert Ok(queries) =
+    query_parser.parse_file("length.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+
+  let assert [col] = query.result_columns
+  let assert model.ResultColumn(
+    name: "name_len",
+    scalar_type: model.IntType,
+    nullable: False,
+    ..,
+  ) = col
+}
+
+pub fn abs_function_resolves_inner_type_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: AbsVal :one\nSELECT abs(id) AS abs_id FROM authors WHERE id = $1;"
+  let assert Ok(queries) =
+    query_parser.parse_file("abs.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+
+  let assert [col] = query.result_columns
+  let assert model.ResultColumn(
+    name: "abs_id",
+    scalar_type: model.IntType,
+    nullable: False,
+    ..,
+  ) = col
+}
+
+pub fn unsupported_expression_error_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: Unknown :one\nSELECT my_custom_udf(id) AS result FROM authors WHERE id = $1;"
+  let assert Ok(queries) =
+    query_parser.parse_file("udf.sql", model.PostgreSQL, naming_ctx, sql)
+
+  let result =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  result |> should.be_error()
+}
+
+pub fn not_exists_infers_bool_type_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: NotExists :one\nSELECT NOT EXISTS(SELECT 1 FROM authors WHERE id = 0) AS no_match FROM authors LIMIT 1;"
+  let assert Ok(queries) =
+    query_parser.parse_file("notexists.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+
+  let assert [col] = query.result_columns
+  let assert model.ResultColumn(
+    name: "no_match",
+    scalar_type: model.BoolType,
+    nullable: False,
+    ..,
+  ) = col
+}
+
+pub fn greatest_infers_first_arg_type_nullable_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: MaxId :one\nSELECT GREATEST(id, 0) AS max_id FROM authors WHERE id = $1;"
+  let assert Ok(queries) =
+    query_parser.parse_file("greatest.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+
+  let assert [col] = query.result_columns
+  let assert model.ResultColumn(
+    name: "max_id",
+    scalar_type: model.IntType,
+    nullable: True,
+    ..,
+  ) = col
+}
+
+pub fn unsupported_expression_error_message_test() {
+  let error =
+    context.UnsupportedExpression(
+      query_name: "BadQuery",
+      expression: "my_custom_udf(id)",
+    )
+  let msg = query_analyzer.analysis_error_to_string(error)
+  string.contains(msg, "unsupported expression") |> should.be_true()
+  string.contains(msg, "BadQuery") |> should.be_true()
+}
