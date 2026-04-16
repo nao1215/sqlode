@@ -7,8 +7,11 @@ import gleam/option
 import gleam/result
 import gleam/string
 import simplifile
-import sqlode/codegen
+import sqlode/codegen/adapter
 import sqlode/codegen/common
+import sqlode/codegen/models
+import sqlode/codegen/params
+import sqlode/codegen/queries
 import sqlode/config
 import sqlode/model
 import sqlode/naming
@@ -138,7 +141,7 @@ fn generate_sql_block(
         writer.GeneratedFile(
           directory: out,
           path: "params.gleam",
-          content: codegen.render_params_module(
+          content: params.render(
             naming_ctx,
             analyzed,
             gleam.type_mapping,
@@ -148,7 +151,7 @@ fn generate_sql_block(
         writer.GeneratedFile(
           directory: out,
           path: "queries.gleam",
-          content: codegen.render_queries_module(naming_ctx, block, analyzed),
+          content: queries.render(naming_ctx, block, analyzed),
         ),
       ]
 
@@ -158,7 +161,7 @@ fn generate_sql_block(
             writer.GeneratedFile(
               directory: out,
               path: "models.gleam",
-              content: codegen.render_models_module(
+              content: models.render(
                 naming_ctx,
                 catalog,
                 analyzed,
@@ -180,7 +183,7 @@ fn generate_sql_block(
               writer.GeneratedFile(
                 directory: out,
                 path: adapter_filename(block.engine),
-                content: codegen.render_adapter_module(
+                content: adapter.render(
                   naming_ctx,
                   block,
                   analyzed,
