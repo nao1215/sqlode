@@ -98,3 +98,23 @@ Query commands are defined in `runtime.gleam` as `QueryCommand` variants.
 - Include tests for new behavior.
 - Use [Conventional Commits](https://www.conventionalcommits.org/) for commit messages (e.g., `feat(parser): ...`, `fix(codegen): ...`).
 - One logical change per PR.
+
+## Public documentation style
+
+User-facing docs (README, release notes, hexdocs) follow a terse reference-oriented style. These rules apply to every PR that touches public-facing documentation; treat violations as review blockers.
+
+- No marketing prose. Write as if documenting a standard library.
+- No bold emphasis on inline phrases. Use bold only for table headers or actual UI labels.
+- No emoji in code examples, tables, or prose.
+- Prefer code examples over explanations. If the example is self-explanatory, delete the surrounding commentary.
+- State constraints factually: "X requires Y" beats "You need to make sure that X has Y".
+- Do not use second-person cheerleading ("you can easily", "just do X").
+- Reference sections (type mapping table, annotation table, config options) stay normative. Migration and tutorial content goes in separate sections at the end.
+
+### Review checklist for docs PRs
+
+- [ ] No new bold-italic emphasis on inline phrases
+- [ ] No emoji added to README, code comments, or error messages
+- [ ] Each new section is either purely reference or purely tutorial — not both
+- [ ] Code examples are runnable as written; any required imports are shown
+- [ ] New options/flags are added to the relevant reference table, not only described in prose
