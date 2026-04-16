@@ -370,40 +370,47 @@ fn infer_view_expression_type(
   tables: List(model.Table),
 ) -> Option(#(model.ScalarType, Bool)) {
   case expr_tokens {
-    [lexer.Keyword("count"), lexer.LParen, ..] -> Some(#(model.IntType, False))
-    [lexer.Keyword("avg"), lexer.LParen, ..rest] ->
-      Some(#(
-        case extract_aggregate_inner_type(rest, tables) {
-          Some(col) ->
-            case col.scalar_type {
-              model.IntType | model.FloatType -> model.FloatType
-              other -> other
-            }
-          None -> model.FloatType
-        },
-        True,
-      ))
-    [lexer.Keyword("sum"), lexer.LParen, ..rest] ->
-      case extract_aggregate_inner_type(rest, tables) {
-        Some(col) -> Some(#(col.scalar_type, True))
-        None -> Some(#(model.FloatType, True))
-      }
-    [lexer.Keyword(fn_name), lexer.LParen, ..rest]
-      if fn_name == "min" || fn_name == "max"
-    ->
-      case extract_aggregate_inner_type(rest, tables) {
-        Some(col) -> Some(#(col.scalar_type, True))
-        None -> None
-      }
-    [lexer.Keyword("coalesce"), lexer.LParen, ..rest] ->
-      case extract_aggregate_inner_type(rest, tables) {
-        Some(col) -> Some(#(col.scalar_type, False))
-        None -> None
-      }
+    // SQL syntax keywords
     [lexer.Keyword("cast"), lexer.LParen, ..rest] -> infer_cast_type(rest)
-    [lexer.Keyword(fn_name), lexer.LParen, ..]
-      if fn_name == "row_number" || fn_name == "rank" || fn_name == "dense_rank"
-    -> Some(#(model.IntType, False))
+
+    // SQL function calls (now Ident tokens after #319)
+    [lexer.Ident(fn_name), lexer.LParen, ..rest] -> {
+      let lowered = string.lowercase(fn_name)
+      case lowered {
+        "count" -> Some(#(model.IntType, False))
+        "avg" ->
+          Some(#(
+            case extract_aggregate_inner_type(rest, tables) {
+              Some(col) ->
+                case col.scalar_type {
+                  model.IntType | model.FloatType -> model.FloatType
+                  other -> other
+                }
+              None -> model.FloatType
+            },
+            True,
+          ))
+        "sum" ->
+          case extract_aggregate_inner_type(rest, tables) {
+            Some(col) -> Some(#(col.scalar_type, True))
+            None -> Some(#(model.FloatType, True))
+          }
+        "min" | "max" ->
+          case extract_aggregate_inner_type(rest, tables) {
+            Some(col) -> Some(#(col.scalar_type, True))
+            None -> None
+          }
+        "coalesce" ->
+          case extract_aggregate_inner_type(rest, tables) {
+            Some(col) -> Some(#(col.scalar_type, False))
+            None -> None
+          }
+        "row_number" | "rank" | "dense_rank" -> Some(#(model.IntType, False))
+        _ -> None
+      }
+    }
+
+    // Literals
     [lexer.StringLit(_), ..] -> Some(#(model.StringType, False))
     [lexer.NumberLit(n), ..] ->
       case string.contains(n, ".") {
