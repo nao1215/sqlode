@@ -762,6 +762,66 @@ pub fn full_join_makes_both_tables_nullable_test() {
   ])
 }
 
+pub fn sqlite_repeated_named_placeholder_single_param_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: ReusedNamed :one\n"
+    <> "SELECT id FROM authors WHERE name = :name OR bio = :name;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("dedup.sql", model.SQLite, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, queries)
+  let assert [query] = analyzed
+
+  // Repeated :name should produce exactly one parameter
+  list.length(query.params) |> should.equal(1)
+  let assert [param] = query.params
+  param.index |> should.equal(1)
+  param.scalar_type |> should.equal(model.StringType)
+}
+
+pub fn sqlite_repeated_and_distinct_placeholders_correct_index_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: MixedDedup :one\n"
+    <> "SELECT id FROM authors WHERE name = :name AND bio = :name AND id = :id;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("mixed.sql", model.SQLite, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, queries)
+  let assert [query] = analyzed
+
+  // :name deduped to index=1, :id gets index=2
+  list.length(query.params) |> should.equal(2)
+  let assert [name_param, id_param] = query.params
+  name_param.index |> should.equal(1)
+  name_param.scalar_type |> should.equal(model.StringType)
+  id_param.index |> should.equal(2)
+  id_param.scalar_type |> should.equal(model.IntType)
+}
+
+pub fn sqlite_repeated_at_placeholder_single_param_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: ReusedAt :one\n"
+    <> "SELECT id FROM authors WHERE id = @id OR name = @id;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("at.sql", model.SQLite, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, queries)
+  let assert [query] = analyzed
+
+  list.length(query.params) |> should.equal(1)
+  let assert [param] = query.params
+  param.index |> should.equal(1)
+}
+
 fn join_catalog() -> model.Catalog {
   let assert Ok(content) = simplifile.read("test/fixtures/join_schema.sql")
   let assert Ok(catalog) =

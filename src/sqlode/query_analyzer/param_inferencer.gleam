@@ -38,6 +38,7 @@ pub fn infer_insert_params(
             columns,
             values,
             1,
+            dict.new(),
             [],
           )
           |> list.reverse
@@ -55,25 +56,26 @@ fn map_insert_columns(
   columns: List(String),
   values: List(String),
   occurrence: Int,
+  seen: dict.Dict(String, Int),
   acc: List(#(Int, model.Column)),
 ) -> List(#(Int, model.Column)) {
   case columns, values {
     [], _ | _, [] -> acc
     [column_name, ..rest_columns], [value, ..rest_values] -> {
-      let acc = case
-        placeholder.placeholder_index_for_token(engine, value, occurrence)
+      let #(maybe_index, next_occurrence, updated_seen) = case
+        placeholder.is_placeholder_token(value)
       {
+        True -> placeholder.resolve_index(engine, value, occurrence, seen)
+        False -> #(None, occurrence, seen)
+      }
+
+      let acc = case maybe_index {
         Some(index) ->
           case context.find_column(catalog, table_name, column_name) {
             Some(column) -> [#(index, column), ..acc]
             None -> acc
           }
         None -> acc
-      }
-
-      let next_occurrence = case placeholder.is_placeholder_token(value) {
-        True -> occurrence + 1
-        False -> occurrence
       }
 
       map_insert_columns(
@@ -83,6 +85,7 @@ fn map_insert_columns(
         rest_columns,
         rest_values,
         next_occurrence,
+        updated_seen,
         acc,
       )
     }
@@ -109,6 +112,7 @@ pub fn infer_equality_params(
         all_tables,
         regexp.scan(ctx.equality_re, normalized),
         1,
+        dict.new(),
         [],
       )
       |> list.reverse
@@ -122,6 +126,7 @@ fn scan_equality_matches(
   all_tables: List(String),
   matches: List(regexp.Match),
   occurrence: Int,
+  seen: dict.Dict(String, Int),
   acc: List(#(Int, model.Column)),
 ) -> List(#(Int, model.Column)) {
   case matches {
@@ -141,9 +146,10 @@ fn scan_equality_matches(
           }
           let normalized_col = naming.normalize_identifier(col_name)
 
-          let acc = case
-            placeholder.placeholder_index_for_token(engine, token, occurrence)
-          {
+          let #(maybe_index, next_occurrence, updated_seen) =
+            placeholder.resolve_index(engine, token, occurrence, seen)
+
+          let acc = case maybe_index {
             Some(index) -> {
               let found = case search_table {
                 Some(table) ->
@@ -173,13 +179,6 @@ fn scan_equality_matches(
             None -> acc
           }
 
-          let next_occurrence = case
-            placeholder.sequential_placeholder(engine)
-          {
-            True -> occurrence + 1
-            False -> occurrence
-          }
-
           scan_equality_matches(
             engine,
             catalog,
@@ -187,6 +186,7 @@ fn scan_equality_matches(
             all_tables,
             rest,
             next_occurrence,
+            updated_seen,
             acc,
           )
         }
@@ -198,6 +198,7 @@ fn scan_equality_matches(
             all_tables,
             rest,
             occurrence,
+            seen,
             acc,
           )
       }
@@ -224,6 +225,7 @@ pub fn infer_in_params(
         all_tables,
         regexp.scan(ctx.in_clause_re, normalized),
         1,
+        dict.new(),
         [],
       )
       |> list.reverse

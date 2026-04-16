@@ -627,6 +627,18 @@ pub fn sqlc_slice_in_block_comment_ignored_test() {
   query_parser_test.sqlc_slice_in_block_comment_ignored_test()
 }
 
+pub fn sqlite_repeated_named_placeholder_single_param_test() {
+  query_analyzer_test.sqlite_repeated_named_placeholder_single_param_test()
+}
+
+pub fn sqlite_repeated_and_distinct_placeholders_correct_index_test() {
+  query_analyzer_test.sqlite_repeated_and_distinct_placeholders_correct_index_test()
+}
+
+pub fn sqlite_repeated_at_placeholder_single_param_test() {
+  query_analyzer_test.sqlite_repeated_at_placeholder_single_param_test()
+}
+
 pub fn compound_query_column_count_mismatch_test() {
   query_analyzer_test.compound_query_column_count_mismatch_test()
 }
