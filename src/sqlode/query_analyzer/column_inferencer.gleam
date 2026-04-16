@@ -9,6 +9,7 @@ import sqlode/query_analyzer/context.{
   type AnalysisError, type AnalyzerContext, ColumnNotFound,
   CompoundColumnCountMismatch, TableNotFound,
 }
+import sqlode/query_analyzer/token_utils
 import sqlode/runtime
 
 type ExtractedColumn {
@@ -42,7 +43,7 @@ pub fn infer_result_columns(
       // RETURNING clause still uses regex (works well, no subquery risk)
       case extract_returning_columns(ctx, normalized) {
         Some(returning_cols) -> {
-          let table_names = tok_extract_table_names(tokens)
+          let table_names = token_utils.extract_table_names(tokens)
           let nullable_tables = tok_extract_nullable_tables(tokens, table_names)
           case table_names {
             [] -> Ok([])
@@ -64,7 +65,7 @@ pub fn infer_result_columns(
             main_tokens,
           ))
           let main_tokens2 = tok_strip_compound(main_tokens)
-          let table_names = tok_extract_table_names(main_tokens2)
+          let table_names = token_utils.extract_table_names(main_tokens2)
           let nullable_tables =
             tok_extract_nullable_tables(main_tokens2, table_names)
 
@@ -217,7 +218,11 @@ fn resolve_select_columns(
                 }
               None ->
                 case
-                  find_column_in_tables(catalog, all_tables, normalized_name)
+                  context.find_column_in_tables(
+                    catalog,
+                    all_tables,
+                    normalized_name,
+                  )
                 {
                   Some(#(found_table, column)) ->
                     Ok([
@@ -465,7 +470,7 @@ fn resolve_column_type(
     Ok(#(_, col)) -> string.trim(col)
     Error(_) -> name
   }
-  case find_column_in_tables(catalog, table_names, col_name) {
+  case context.find_column_in_tables(catalog, table_names, col_name) {
     Some(#(_, column)) -> Some(column.scalar_type)
     None -> None
   }
@@ -478,20 +483,6 @@ fn is_integer_literal(s: String) -> Bool {
     let value = string.utf_codepoint_to_int(cp)
     value >= 48 && value <= 57
   })
-}
-
-fn find_column_in_tables(
-  catalog: model.Catalog,
-  table_names: List(String),
-  column_name: String,
-) -> Option(#(String, model.Column)) {
-  list.find_map(table_names, fn(name) {
-    case context.find_column(catalog, name, column_name) {
-      Some(col) -> Ok(#(name, col))
-      None -> Error(Nil)
-    }
-  })
-  |> option.from_result
 }
 
 // ============================================================
@@ -513,24 +504,10 @@ fn tok_skip_cte_defs(tokens: List(lexer.Token)) -> List(lexer.Token) {
       if kw == "select" || kw == "insert" || kw == "update" || kw == "delete"
     -> tokens
     [lexer.LParen, ..rest] -> {
-      let remaining = tok_skip_parens(rest, 1)
+      let remaining = token_utils.skip_parens(rest, 1)
       tok_skip_cte_defs(remaining)
     }
     [_, ..rest] -> tok_skip_cte_defs(rest)
-  }
-}
-
-/// Skip tokens until matching closing paren.
-fn tok_skip_parens(tokens: List(lexer.Token), depth: Int) -> List(lexer.Token) {
-  case depth <= 0 {
-    True -> tokens
-    False ->
-      case tokens {
-        [] -> []
-        [lexer.LParen, ..rest] -> tok_skip_parens(rest, depth + 1)
-        [lexer.RParen, ..rest] -> tok_skip_parens(rest, depth - 1)
-        [_, ..rest] -> tok_skip_parens(rest, depth)
-      }
   }
 }
 
@@ -654,64 +631,6 @@ fn tok_split_compound_branches_loop(
   }
 }
 
-/// Extract table names from FROM/JOIN/INTO/UPDATE keywords.
-fn tok_extract_table_names(tokens: List(lexer.Token)) -> List(String) {
-  tok_table_names_loop(tokens, [])
-  |> list.unique
-}
-
-fn tok_table_names_loop(
-  tokens: List(lexer.Token),
-  acc: List(String),
-) -> List(String) {
-  case tokens {
-    [] -> list.reverse(acc)
-    // FROM (SELECT ...) — skip subquery
-    [lexer.Keyword("from"), lexer.LParen, ..rest] -> {
-      let remaining = tok_skip_parens(rest, 1)
-      tok_table_names_loop(remaining, acc)
-    }
-    // FROM table, INTO table, UPDATE table
-    [lexer.Keyword(kw), ..rest]
-      if kw == "from" || kw == "into" || kw == "update"
-    -> {
-      let #(name, remaining) = tok_read_table_name(rest)
-      case name {
-        Some(n) -> tok_table_names_loop(remaining, [n, ..acc])
-        None -> tok_table_names_loop(rest, acc)
-      }
-    }
-    // JOIN table (possibly preceded by LEFT/RIGHT/FULL/INNER/CROSS + OUTER)
-    [lexer.Keyword("join"), ..rest] -> {
-      let #(name, remaining) = tok_read_table_name(rest)
-      case name {
-        Some(n) -> tok_table_names_loop(remaining, [n, ..acc])
-        None -> tok_table_names_loop(rest, acc)
-      }
-    }
-    [_, ..rest] -> tok_table_names_loop(rest, acc)
-  }
-}
-
-/// Read the next table name (handling schema.table → last part).
-fn tok_read_table_name(
-  tokens: List(lexer.Token),
-) -> #(Option(String), List(lexer.Token)) {
-  case tokens {
-    [lexer.Ident(_), lexer.Dot, lexer.Ident(name), ..rest] -> #(
-      Some(string.lowercase(name)),
-      rest,
-    )
-    [lexer.Ident(name), ..rest] -> #(Some(string.lowercase(name)), rest)
-    [lexer.QuotedIdent(name), ..rest] -> #(Some(string.lowercase(name)), rest)
-    [lexer.LParen, ..rest] -> {
-      let remaining = tok_skip_parens(rest, 1)
-      #(None, remaining)
-    }
-    _ -> #(None, tokens)
-  }
-}
-
 /// Extract nullable tables from LEFT/RIGHT/FULL JOIN keywords.
 fn tok_extract_nullable_tables(
   tokens: List(lexer.Token),
@@ -741,7 +660,7 @@ fn tok_nullable_loop(
       let rest2 = tok_skip_keyword(rest, "outer")
       case rest2 {
         [lexer.Keyword("join"), ..after_join] -> {
-          let #(name, remaining) = tok_read_table_name(after_join)
+          let #(name, remaining) = token_utils.read_table_name(after_join)
           case name {
             Some(n) ->
               tok_nullable_loop(remaining, [n, ..acc], primary_nullable)
@@ -756,7 +675,7 @@ fn tok_nullable_loop(
       let rest2 = tok_skip_keyword(rest, "outer")
       case rest2 {
         [lexer.Keyword("join"), ..after_join] -> {
-          let #(name, remaining) = tok_read_table_name(after_join)
+          let #(name, remaining) = token_utils.read_table_name(after_join)
           case name {
             Some(n) -> tok_nullable_loop(remaining, [n, ..acc], True)
             None -> tok_nullable_loop(remaining, acc, True)

@@ -1,7 +1,7 @@
 import gleam/dict
 import gleam/int
 import gleam/list
-import gleam/option.{type Option, None, Some}
+import gleam/option.{None, Some}
 import gleam/regexp
 import gleam/string
 import sqlode/lexer
@@ -9,6 +9,7 @@ import sqlode/model
 import sqlode/naming
 import sqlode/query_analyzer/context.{type AnalyzerContext}
 import sqlode/query_analyzer/placeholder
+import sqlode/query_analyzer/token_utils
 
 pub fn infer_insert_params(
   ctx: AnalyzerContext,
@@ -96,7 +97,7 @@ pub fn infer_equality_params(
 ) -> List(#(Int, model.Column)) {
   let normalized = context.normalize_sql(ctx, query.sql)
   let tokens = lexer.tokenize(query.sql, engine)
-  let all_tables = tok_extract_table_names(tokens)
+  let all_tables = token_utils.extract_table_names(tokens)
 
   case all_tables {
     [] -> []
@@ -148,7 +149,14 @@ fn scan_equality_matches(
                 Some(table) ->
                   context.find_column(catalog, table, normalized_col)
                 None ->
-                  find_column_in_tables(catalog, all_tables, normalized_col)
+                  option.map(
+                    context.find_column_in_tables(
+                      catalog,
+                      all_tables,
+                      normalized_col,
+                    ),
+                    fn(pair) { pair.1 },
+                  )
               }
               case found {
                 Some(column) -> [#(index, column), ..acc]
@@ -204,7 +212,7 @@ pub fn infer_in_params(
 ) -> List(#(Int, model.Column)) {
   let normalized = context.normalize_sql(ctx, query.sql)
   let tokens = lexer.tokenize(query.sql, engine)
-  let all_tables = tok_extract_table_names(tokens)
+  let all_tables = token_utils.extract_table_names(tokens)
 
   case all_tables {
     [] -> []
@@ -259,87 +267,4 @@ pub fn extract_type_casts(
 fn cast_type_to_scalar(type_name: String) -> Result(model.ScalarType, Nil) {
   model.parse_sql_type(string.trim(type_name))
 }
-
 // --- Token-based helpers ---
-
-/// Search all tables for a column by name.
-fn find_column_in_tables(
-  catalog: model.Catalog,
-  table_names: List(String),
-  column_name: String,
-) -> Option(model.Column) {
-  list.find_map(table_names, fn(name) {
-    case context.find_column(catalog, name, column_name) {
-      Some(col) -> Ok(col)
-      None -> Error(Nil)
-    }
-  })
-  |> option.from_result
-}
-
-/// Extract table names from tokens (FROM/JOIN/INTO/UPDATE).
-fn tok_extract_table_names(tokens: List(lexer.Token)) -> List(String) {
-  tok_table_names_loop(tokens, [])
-  |> list.unique
-}
-
-fn tok_table_names_loop(
-  tokens: List(lexer.Token),
-  acc: List(String),
-) -> List(String) {
-  case tokens {
-    [] -> list.reverse(acc)
-    [lexer.Keyword("from"), lexer.LParen, ..rest] -> {
-      let remaining = tok_skip_parens(rest, 1)
-      tok_table_names_loop(remaining, acc)
-    }
-    [lexer.Keyword(kw), ..rest]
-      if kw == "from" || kw == "into" || kw == "update"
-    -> {
-      let #(name, remaining) = tok_read_table_name(rest)
-      case name {
-        Some(n) -> tok_table_names_loop(remaining, [n, ..acc])
-        None -> tok_table_names_loop(rest, acc)
-      }
-    }
-    [lexer.Keyword("join"), ..rest] -> {
-      let #(name, remaining) = tok_read_table_name(rest)
-      case name {
-        Some(n) -> tok_table_names_loop(remaining, [n, ..acc])
-        None -> tok_table_names_loop(rest, acc)
-      }
-    }
-    [_, ..rest] -> tok_table_names_loop(rest, acc)
-  }
-}
-
-fn tok_read_table_name(
-  tokens: List(lexer.Token),
-) -> #(Option(String), List(lexer.Token)) {
-  case tokens {
-    [lexer.Ident(_), lexer.Dot, lexer.Ident(name), ..rest] -> #(
-      Some(string.lowercase(name)),
-      rest,
-    )
-    [lexer.Ident(name), ..rest] -> #(Some(string.lowercase(name)), rest)
-    [lexer.QuotedIdent(name), ..rest] -> #(Some(string.lowercase(name)), rest)
-    [lexer.LParen, ..rest] -> {
-      let remaining = tok_skip_parens(rest, 1)
-      #(None, remaining)
-    }
-    _ -> #(None, tokens)
-  }
-}
-
-fn tok_skip_parens(tokens: List(lexer.Token), depth: Int) -> List(lexer.Token) {
-  case depth <= 0 {
-    True -> tokens
-    False ->
-      case tokens {
-        [] -> []
-        [lexer.LParen, ..rest] -> tok_skip_parens(rest, depth + 1)
-        [lexer.RParen, ..rest] -> tok_skip_parens(rest, depth - 1)
-        [_, ..rest] -> tok_skip_parens(rest, depth)
-      }
-  }
-}
