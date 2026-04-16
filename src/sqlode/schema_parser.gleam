@@ -785,6 +785,7 @@ fn parse_column_tokens(
               let nullable = case
                 tokens_contain_not_null(tokens)
                 || tokens_contain_keyword(tokens, "primary")
+                || string.contains(type_text, "serial")
               {
                 True -> False
                 False -> True
@@ -906,6 +907,7 @@ fn is_column_constraint(keyword: String) -> Bool {
       "constraint",
       "generated",
       "collate",
+      "autoincrement",
     ],
     keyword,
   )
