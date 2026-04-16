@@ -111,3 +111,75 @@ pub fn version_command_succeeds_test() {
   |> result.is_ok
   |> should.be_true
 }
+
+pub fn init_sqlite_engine_generates_sqlite_schema_test() {
+  setup("sqlite_engine")
+  let dir = base_dir <> "/sqlite_engine"
+  let config_path = dir <> "/sqlode.yaml"
+
+  cli.app()
+  |> glint.execute([
+    "init",
+    "--output=" <> config_path,
+    "--engine=sqlite",
+  ])
+  |> result.is_ok
+  |> should.be_true
+
+  let assert Ok(config) = simplifile.read(config_path)
+  config |> string.contains("engine: \"sqlite\"") |> should.be_true
+
+  let assert Ok(schema) = simplifile.read(dir <> "/db/schema.sql")
+  schema
+  |> string.contains("INTEGER PRIMARY KEY AUTOINCREMENT")
+  |> should.be_true
+
+  let assert Ok(query) = simplifile.read(dir <> "/db/query.sql")
+  // SQLite uses ? placeholders
+  query |> string.contains("WHERE id = ?;") |> should.be_true
+
+  cleanup("sqlite_engine")
+}
+
+pub fn init_sqlite_native_runtime_test() {
+  setup("sqlite_native")
+  let dir = base_dir <> "/sqlite_native"
+  let config_path = dir <> "/sqlode.yaml"
+
+  cli.app()
+  |> glint.execute([
+    "init",
+    "--output=" <> config_path,
+    "--engine=sqlite",
+    "--runtime=native",
+  ])
+  |> result.is_ok
+  |> should.be_true
+
+  let assert Ok(config) = simplifile.read(config_path)
+  config |> string.contains("runtime: \"native\"") |> should.be_true
+
+  cleanup("sqlite_native")
+}
+
+pub fn init_mysql_engine_generates_mysql_schema_test() {
+  setup("mysql_engine")
+  let dir = base_dir <> "/mysql_engine"
+  let config_path = dir <> "/sqlode.yaml"
+
+  cli.app()
+  |> glint.execute([
+    "init",
+    "--output=" <> config_path,
+    "--engine=mysql",
+  ])
+  |> result.is_ok
+  |> should.be_true
+
+  let assert Ok(schema) = simplifile.read(dir <> "/db/schema.sql")
+  schema
+  |> string.contains("BIGINT AUTO_INCREMENT PRIMARY KEY")
+  |> should.be_true
+
+  cleanup("mysql_engine")
+}

@@ -23,7 +23,7 @@ fn global_help_text() -> String {
 
 Usage:
   sqlode generate [--config=./sqlode.yaml]
-  sqlode init [--output=./sqlode.yaml]
+  sqlode init [--output=./sqlode.yaml] [--engine=postgresql|sqlite|mysql] [--runtime=raw|native]
   sqlode version
 
 Run `sqlode <command> --help` for details on each command."
@@ -62,17 +62,33 @@ fn init_command() -> glint.Command(Nil) {
         "Output path for generated config (default: ./sqlode.yaml)",
       ),
     )
+    use engine_flag <- glint.flag(
+      glint.string_flag("engine")
+      |> glint.flag_default("postgresql")
+      |> glint.flag_help(
+        "Target engine: postgresql | sqlite | mysql (default: postgresql)",
+      ),
+    )
+    use runtime_flag <- glint.flag(
+      glint.string_flag("runtime")
+      |> glint.flag_default("raw")
+      |> glint.flag_help("Generated runtime: raw | native (default: raw)"),
+    )
 
     glint.command_help(
       "Scaffold a sqlode.yaml plus starter db/schema.sql and db/query.sql.
 
 Examples:
   sqlode init
-  sqlode init --output=./config/sqlode.yaml",
+  sqlode init --output=./config/sqlode.yaml
+  sqlode init --engine=sqlite --runtime=native
+  sqlode init --engine=mysql",
       fn() {
         glint.command(fn(_named_args, _args, flags) {
           let path = output_path(flags) |> result.unwrap("./sqlode.yaml")
-          run_init(path)
+          let engine = engine_flag(flags) |> result.unwrap("postgresql")
+          let runtime = runtime_flag(flags) |> result.unwrap("raw")
+          run_init(path, engine, runtime)
         })
       },
     )
@@ -107,61 +123,85 @@ fn run_generate(config_path: String) -> Nil {
   }
 }
 
-fn run_init(path: String) -> Nil {
-  let template =
-    "version: \"2\"\n"
-    <> "sql:\n"
-    <> "  - schema: \"db/schema.sql\"\n"
-    <> "    queries: \"db/query.sql\"\n"
-    <> "    engine: \"postgresql\"\n"
-    <> "    gen:\n"
-    <> "      gleam:\n"
-    <> "        out: \"src/db\"\n"
-    <> "        runtime: \"raw\"\n"
-
-  case simplifile.is_file(path) {
-    Ok(True) -> {
-      io.println_error("Error: " <> path <> " already exists")
+fn run_init(path: String, engine: String, runtime: String) -> Nil {
+  case validate_init_flags(engine, runtime) {
+    Error(msg) -> {
+      io.println_error("Error: " <> msg)
       halt(1)
     }
-    _ -> {
-      case simplifile.write(path, template) {
-        Ok(_) -> {
-          io.println("Created " <> path)
-          create_stub_files(filepath.directory_name(path))
-        }
-        Error(_) -> {
-          io.println_error("Error: failed to write " <> path)
+    Ok(Nil) -> {
+      let template = config_template(engine, runtime)
+      case simplifile.is_file(path) {
+        Ok(True) -> {
+          io.println_error("Error: " <> path <> " already exists")
           halt(1)
+        }
+        _ -> {
+          case simplifile.write(path, template) {
+            Ok(_) -> {
+              io.println("Created " <> path)
+              create_stub_files(filepath.directory_name(path), engine)
+            }
+            Error(_) -> {
+              io.println_error("Error: failed to write " <> path)
+              halt(1)
+            }
+          }
         }
       }
     }
   }
 }
 
-fn create_stub_files(base_dir: String) -> Nil {
-  let schema_content =
-    "CREATE TABLE authors (\n"
-    <> "  id BIGSERIAL PRIMARY KEY,\n"
-    <> "  name TEXT NOT NULL,\n"
-    <> "  bio TEXT,\n"
-    <> "  created_at TIMESTAMP NOT NULL\n"
-    <> ");\n"
+fn validate_init_flags(engine: String, runtime: String) -> Result(Nil, String) {
+  case engine {
+    "postgresql" | "sqlite" | "mysql" -> Ok(Nil)
+    _ ->
+      Error(
+        "unsupported engine \""
+        <> engine
+        <> "\"; expected postgresql, sqlite, or mysql",
+      )
+  }
+  |> result.try(fn(_) {
+    case runtime {
+      "raw" | "native" -> Ok(Nil)
+      _ ->
+        Error(
+          "unsupported runtime \"" <> runtime <> "\"; expected raw or native",
+        )
+    }
+  })
+  |> result.try(fn(_) {
+    case engine, runtime {
+      "mysql", "native" ->
+        Error(
+          "MySQL does not support runtime: \"native\" because no Gleam MySQL driver is available; use runtime: \"raw\"",
+        )
+      _, _ -> Ok(Nil)
+    }
+  })
+}
 
-  let query_content =
-    "-- name: GetAuthor :one\n"
-    <> "SELECT id, name, bio\n"
-    <> "FROM authors\n"
-    <> "WHERE id = $1;\n"
-    <> "\n"
-    <> "-- name: ListAuthors :many\n"
-    <> "SELECT id, name\n"
-    <> "FROM authors\n"
-    <> "ORDER BY name;\n"
-    <> "\n"
-    <> "-- name: CreateAuthor :exec\n"
-    <> "INSERT INTO authors (name, bio)\n"
-    <> "VALUES (sqlode.arg(author_name), sqlode.narg(bio));\n"
+fn config_template(engine: String, runtime: String) -> String {
+  "version: \"2\"\n"
+  <> "sql:\n"
+  <> "  - schema: \"db/schema.sql\"\n"
+  <> "    queries: \"db/query.sql\"\n"
+  <> "    engine: \""
+  <> engine
+  <> "\"\n"
+  <> "    gen:\n"
+  <> "      gleam:\n"
+  <> "        out: \"src/db\"\n"
+  <> "        runtime: \""
+  <> runtime
+  <> "\"\n"
+}
+
+fn create_stub_files(base_dir: String, engine: String) -> Nil {
+  let schema_content = starter_schema(engine)
+  let query_content = starter_query(engine)
 
   let db_dir = filepath.join(base_dir, "db")
   let schema_path = filepath.join(db_dir, "schema.sql")
@@ -186,6 +226,55 @@ fn create_stub_files(base_dir: String) -> Nil {
         Error(_) -> io.println("  Warning: failed to create " <> query_path)
       }
   }
+}
+
+fn starter_schema(engine: String) -> String {
+  case engine {
+    "sqlite" ->
+      "CREATE TABLE authors (\n"
+      <> "  id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+      <> "  name TEXT NOT NULL,\n"
+      <> "  bio TEXT,\n"
+      <> "  created_at TEXT NOT NULL\n"
+      <> ");\n"
+    "mysql" ->
+      "CREATE TABLE authors (\n"
+      <> "  id BIGINT AUTO_INCREMENT PRIMARY KEY,\n"
+      <> "  name TEXT NOT NULL,\n"
+      <> "  bio TEXT,\n"
+      <> "  created_at DATETIME NOT NULL\n"
+      <> ");\n"
+    _ ->
+      "CREATE TABLE authors (\n"
+      <> "  id BIGSERIAL PRIMARY KEY,\n"
+      <> "  name TEXT NOT NULL,\n"
+      <> "  bio TEXT,\n"
+      <> "  created_at TIMESTAMP NOT NULL\n"
+      <> ");\n"
+  }
+}
+
+fn starter_query(engine: String) -> String {
+  let get_placeholder = case engine {
+    "mysql" | "sqlite" -> "?"
+    _ -> "$1"
+  }
+
+  "-- name: GetAuthor :one\n"
+  <> "SELECT id, name, bio\n"
+  <> "FROM authors\n"
+  <> "WHERE id = "
+  <> get_placeholder
+  <> ";\n"
+  <> "\n"
+  <> "-- name: ListAuthors :many\n"
+  <> "SELECT id, name\n"
+  <> "FROM authors\n"
+  <> "ORDER BY name;\n"
+  <> "\n"
+  <> "-- name: CreateAuthor :exec\n"
+  <> "INSERT INTO authors (name, bio)\n"
+  <> "VALUES (sqlode.arg(author_name), sqlode.narg(bio));\n"
 }
 
 /// Exit the process with the given status code, flushing I/O before shutdown.

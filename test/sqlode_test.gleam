@@ -739,6 +739,18 @@ pub fn parse_error_carries_source_path_test() {
   schema_parser_test.parse_error_carries_source_path_test()
 }
 
+pub fn init_sqlite_engine_generates_sqlite_schema_test() {
+  cli_test.init_sqlite_engine_generates_sqlite_schema_test()
+}
+
+pub fn init_sqlite_native_runtime_test() {
+  cli_test.init_sqlite_native_runtime_test()
+}
+
+pub fn init_mysql_engine_generates_mysql_schema_test() {
+  cli_test.init_mysql_engine_generates_mysql_schema_test()
+}
+
 pub fn load_named_sql_blocks_test() {
   config_test.load_named_sql_blocks_test()
 }
