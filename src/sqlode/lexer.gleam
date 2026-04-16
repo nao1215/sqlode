@@ -1,4 +1,5 @@
 import gleam/list
+import gleam/option
 import gleam/string
 import sqlode/model
 
@@ -10,6 +11,9 @@ pub type TokenRenderOptions {
     /// When True, quoted identifiers keep their quotes and string
     /// literals escape embedded single-quotes.
     preserve_quotes: Bool,
+    /// When set, use engine-specific quote style for identifiers:
+    /// MySQL → backticks, PostgreSQL/SQLite → double quotes.
+    engine: option.Option(model.Engine),
   )
 }
 
@@ -696,7 +700,11 @@ fn token_to_string(token: Token, options: TokenRenderOptions) -> String {
     Ident(name) -> name
     QuotedIdent(name) ->
       case options.preserve_quotes {
-        True -> "\"" <> name <> "\""
+        True ->
+          case options.engine {
+            option.Some(model.MySQL) -> "`" <> name <> "`"
+            _ -> "\"" <> name <> "\""
+          }
         False -> name
       }
     StringLit(value) ->

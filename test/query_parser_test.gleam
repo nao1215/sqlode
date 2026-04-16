@@ -374,7 +374,9 @@ pub fn multiline_sql_body_test() {
     query_parser.parse_file("multi.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
   query.param_count |> should.equal(1)
-  string.contains(query.sql, "SELECT id,") |> should.be_true()
+  // Token-first rendering normalizes keywords to lowercase
+  string.contains(query.sql, "select") |> should.be_true()
+  string.contains(query.sql, "id") |> should.be_true()
 }
 
 // --- Placeholder inside string literal / comment tests (#118) ---

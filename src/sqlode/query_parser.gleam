@@ -172,12 +172,33 @@ fn finalize_pending(
       case sql == "" {
         True -> Error(MissingSql(path:, line: start_line, name:))
         False -> {
-          let masked = mask_sql(engine, sql)
-          let #(at_expanded, at_masked, at_macros, next_idx) =
-            expand_at_name_shorthands(engine, sql, masked)
-          let #(expanded_sql, expanded_macros) =
-            expand_macros(engine, at_expanded, at_masked, next_idx)
+          // Phase 1: Tokenize the raw SQL
+          let tokens = lexer.tokenize(sql, engine)
+
+          // Phase 2: Expand @name shorthands in token list (non-MySQL)
+          let #(tokens, at_macros, next_idx) =
+            expand_at_name_tokens(engine, tokens, 1)
+
+          // Phase 3: Expand sqlode.arg/narg/slice(...) macros in token list
+          let #(tokens, expanded_macros) =
+            expand_macro_tokens(engine, tokens, next_idx)
+
           let macros = list.append(at_macros, expanded_macros)
+
+          // Phase 4: Render expanded token list back to SQL
+          let expanded_sql =
+            lexer.tokens_to_string(
+              tokens,
+              lexer.TokenRenderOptions(
+                uppercase_keywords: False,
+                preserve_quotes: True,
+                engine: Some(engine),
+              ),
+            )
+
+          // Phase 5: Count parameters from the already-expanded token list
+          let param_count = count_parameters_from_tokens(engine, tokens)
+
           Ok([
             model.ParsedQuery(
               name:,
@@ -185,7 +206,7 @@ fn finalize_pending(
               command:,
               sql: expanded_sql,
               source_path: path,
-              param_count: count_parameters(engine, expanded_sql),
+              param_count:,
               macros:,
             ),
             ..parsed_rev
@@ -251,9 +272,13 @@ fn is_skip_annotation(line: String) -> Bool {
   line == "-- sqlode:skip"
 }
 
-fn count_parameters(engine: model.Engine, sql: String) -> Int {
+/// Count parameters from an already-expanded token list.
+fn count_parameters_from_tokens(
+  engine: model.Engine,
+  tokens: List(lexer.Token),
+) -> Int {
   let placeholders =
-    lexer.tokenize(sql, engine)
+    tokens
     |> list.filter_map(fn(token) {
       case token {
         lexer.Placeholder(p) -> Ok(p)
@@ -298,269 +323,179 @@ pub fn error_to_string(error: ParseError) -> String {
 }
 
 // ============================================================
-// @name expansion (token-detected, string-replaced)
+// Token-based @name expansion
 // ============================================================
 
-/// Expand @name shorthands. Uses masked SQL for position-safe detection,
-/// original SQL for replacement to preserve formatting.
-fn expand_at_name_shorthands(
+/// Expand @name shorthands in the token list.
+/// For non-MySQL engines, Placeholder("@name") tokens are replaced
+/// with engine-appropriate placeholders ($N, ?N).
+/// The lexer only emits Placeholder("@...") when @ is followed by
+/// alpha/underscore, so @1 is never matched (it becomes Operator+NumberLit).
+fn expand_at_name_tokens(
   engine: model.Engine,
-  sql: String,
-  masked: String,
-) -> #(String, String, List(model.Macro), Int) {
+  tokens: List(lexer.Token),
+  start_idx: Int,
+) -> #(List(lexer.Token), List(model.Macro), Int) {
   case engine {
-    model.MySQL -> #(sql, masked, [], 1)
-    _ -> {
-      let at_positions = find_at_names(masked)
-      case at_positions {
-        [] -> #(sql, masked, [], 1)
-        _ ->
-          expand_at_positions(
-            engine,
-            sql,
-            masked,
-            at_positions,
-            1,
-            dict.new(),
-            [],
-          )
-      }
-    }
+    model.MySQL -> #(tokens, [], start_idx)
+    _ -> expand_at_loop(engine, tokens, start_idx, dict.new(), [], [])
   }
 }
 
-/// Find all @name positions in masked SQL (no regex).
-fn find_at_names(masked: String) -> List(#(Int, String)) {
-  find_at_loop(string.to_graphemes(masked), 0, [])
-  |> list.reverse
-}
-
-fn find_at_loop(
-  chars: List(String),
-  pos: Int,
-  acc: List(#(Int, String)),
-) -> List(#(Int, String)) {
-  case chars {
-    [] -> acc
-    ["@", ..rest] ->
-      case read_identifier_chars(rest, []) {
-        #("", _) -> find_at_loop(rest, pos + 1, acc)
-        #(name, remaining) -> {
-          let full = "@" <> name
-          find_at_loop(remaining, pos + string.length(full), [
-            #(pos, name),
-            ..acc
-          ])
-        }
-      }
-    [c, ..rest] -> find_at_loop(rest, pos + string.length(c), acc)
-  }
-}
-
-fn read_identifier_chars(
-  chars: List(String),
-  acc: List(String),
-) -> #(String, List(String)) {
-  case chars {
-    [c, ..rest] ->
-      case is_ident_char(c) {
-        True -> read_identifier_chars(rest, [c, ..acc])
-        False -> #(acc |> list.reverse |> string.concat, chars)
-      }
-    [] -> #(acc |> list.reverse |> string.concat, [])
-  }
-}
-
-fn is_ident_char(c: String) -> Bool {
-  let cp = case string.to_utf_codepoints(c) {
-    [cp] -> string.utf_codepoint_to_int(cp)
-    _ -> 0
-  }
-  { cp >= 65 && cp <= 90 }
-  || { cp >= 97 && cp <= 122 }
-  || { cp >= 48 && cp <= 57 }
-  || c == "_"
-}
-
-fn expand_at_positions(
+fn expand_at_loop(
   engine: model.Engine,
-  sql: String,
-  masked: String,
-  positions: List(#(Int, String)),
+  tokens: List(lexer.Token),
   idx: Int,
   seen: dict.Dict(String, Int),
+  token_acc: List(lexer.Token),
   macro_acc: List(model.Macro),
-) -> #(String, String, List(model.Macro), Int) {
-  case positions {
-    [] -> #(sql, masked, list.reverse(macro_acc), idx)
-    [#(_pos, name), ..rest] ->
-      case engine, dict.get(seen, name) {
-        model.SQLite, Ok(existing_idx) -> {
-          let placeholder = engine_placeholder(engine, existing_idx)
-          let pattern = "@" <> name
-          let #(new_sql, new_masked) =
-            replace_first_in_masked(sql, masked, pattern, placeholder)
-          expand_at_positions(
+) -> #(List(lexer.Token), List(model.Macro), Int) {
+  case tokens {
+    [] -> #(list.reverse(token_acc), list.reverse(macro_acc), idx)
+    [lexer.Placeholder(p), ..rest] ->
+      case string.starts_with(p, "@") {
+        True -> {
+          let name = string.drop_start(p, 1)
+          case engine, dict.get(seen, name) {
+            model.SQLite, Ok(existing_idx) -> {
+              let placeholder = engine_placeholder(engine, existing_idx)
+              expand_at_loop(
+                engine,
+                rest,
+                idx,
+                seen,
+                [lexer.Placeholder(placeholder), ..token_acc],
+                macro_acc,
+              )
+            }
+            _, _ -> {
+              let placeholder = engine_placeholder(engine, idx)
+              let new_seen = case engine {
+                model.SQLite -> dict.insert(seen, name, idx)
+                _ -> seen
+              }
+              expand_at_loop(
+                engine,
+                rest,
+                idx + 1,
+                new_seen,
+                [lexer.Placeholder(placeholder), ..token_acc],
+                [model.MacroArg(index: idx, name:), ..macro_acc],
+              )
+            }
+          }
+        }
+        False ->
+          expand_at_loop(
             engine,
-            new_sql,
-            new_masked,
             rest,
             idx,
             seen,
+            [lexer.Placeholder(p), ..token_acc],
             macro_acc,
           )
-        }
-        _, _ -> {
-          let placeholder = engine_placeholder(engine, idx)
-          let pattern = "@" <> name
-          let #(new_sql, new_masked) =
-            replace_first_in_masked(sql, masked, pattern, placeholder)
-          let new_seen = case engine {
-            model.SQLite -> dict.insert(seen, name, idx)
-            _ -> seen
-          }
-          expand_at_positions(
-            engine,
-            new_sql,
-            new_masked,
-            rest,
-            idx + 1,
-            new_seen,
-            [model.MacroArg(index: idx, name:), ..macro_acc],
-          )
-        }
       }
+    [token, ..rest] ->
+      expand_at_loop(engine, rest, idx, seen, [token, ..token_acc], macro_acc)
   }
 }
 
 // ============================================================
-// Macro expansion (token-detected, string-replaced)
+// Token-based sqlode.arg/narg/slice expansion
 // ============================================================
 
-/// Expand sqlode.arg/narg/slice macros. Detects patterns in masked SQL
-/// without regex, replaces in original SQL to preserve formatting.
-fn expand_macros(
+/// Expand sqlode.arg(name), sqlode.narg(name), sqlode.slice(name) macros
+/// by walking the token list and replacing the token span with a Placeholder.
+/// Pattern: Ident("sqlode") Dot Ident("arg"|"narg"|"slice") LParen ...arg... RParen
+fn expand_macro_tokens(
   engine: model.Engine,
-  sql: String,
-  masked: String,
+  tokens: List(lexer.Token),
   start_idx: Int,
-) -> #(String, List(model.Macro)) {
-  let macro_positions = find_macro_patterns(masked)
-  case macro_positions {
-    [] -> #(sql, [])
-    _ ->
-      expand_macro_positions(
-        engine,
-        sql,
-        masked,
-        macro_positions,
-        start_idx,
-        [],
-      )
-  }
+) -> #(List(lexer.Token), List(model.Macro)) {
+  expand_macro_loop(engine, tokens, start_idx, [], [])
 }
 
-type MacroMatch {
-  MacroMatch(kind: String, full_pattern: String)
-}
-
-/// Find sqlode.arg|narg|slice(...) patterns in masked text (no regex).
-fn find_macro_patterns(masked: String) -> List(MacroMatch) {
-  find_macro_loop(masked, [])
-  |> list.reverse
-}
-
-fn find_macro_loop(masked: String, acc: List(MacroMatch)) -> List(MacroMatch) {
-  case string.split_once(masked, "sqlode.") {
-    Error(_) -> acc
-    Ok(#(_before, after)) -> {
-      // Check for arg|narg|slice after "sqlode."
-      case try_parse_macro_kind(after) {
-        Some(#(kind, after_kind)) ->
-          case string.split_once(after_kind, ")") {
-            Ok(#(arg_content, rest)) -> {
-              let full = "sqlode." <> kind <> "(" <> arg_content <> ")"
-              find_macro_loop(rest, [
-                MacroMatch(kind:, full_pattern: full),
-                ..acc
-              ])
-            }
-            Error(_) -> find_macro_loop(after, acc)
-          }
-        None -> find_macro_loop(after, acc)
-      }
-    }
-  }
-}
-
-fn try_parse_macro_kind(s: String) -> Option(#(String, String)) {
-  case string.starts_with(s, "arg(") {
-    True -> Some(#("arg", string.drop_start(s, 4)))
-    False ->
-      case string.starts_with(s, "narg(") {
-        True -> Some(#("narg", string.drop_start(s, 5)))
-        False ->
-          case string.starts_with(s, "slice(") {
-            True -> Some(#("slice", string.drop_start(s, 6)))
-            False -> None
-          }
-      }
-  }
-}
-
-fn expand_macro_positions(
+fn expand_macro_loop(
   engine: model.Engine,
-  sql: String,
-  masked: String,
-  matches: List(MacroMatch),
+  tokens: List(lexer.Token),
   idx: Int,
+  token_acc: List(lexer.Token),
   macro_acc: List(model.Macro),
-) -> #(String, List(model.Macro)) {
-  case matches {
-    [] -> #(sql, list.reverse(macro_acc))
-    [match, ..rest] -> {
-      let name = extract_macro_arg(sql, masked, match.full_pattern)
+) -> #(List(lexer.Token), List(model.Macro)) {
+  case tokens {
+    [] -> #(list.reverse(token_acc), list.reverse(macro_acc))
+
+    // Match: sqlode.arg|narg|slice(...)
+    [lexer.Ident(mod), lexer.Dot, lexer.Ident(kind), lexer.LParen, ..rest]
+      if { mod == "sqlode" || mod == "Sqlode" || mod == "SQLODE" }
+      && { kind == "arg" || kind == "narg" || kind == "slice" }
+    -> {
+      // Collect tokens inside parens to extract the argument name
+      let #(arg_tokens, remaining) = collect_macro_arg_tokens(rest, 1, [])
+      let name = extract_arg_name(arg_tokens)
       let placeholder = engine_placeholder(engine, idx)
-      let #(new_sql, new_masked) =
-        replace_first_in_masked(sql, masked, match.full_pattern, placeholder)
-      let macro_entry = case match.kind {
+      let macro_entry = case kind {
         "narg" -> model.MacroNarg(index: idx, name:)
         "slice" -> model.MacroSlice(index: idx, name:)
         _ -> model.MacroArg(index: idx, name:)
       }
-      expand_macro_positions(engine, new_sql, new_masked, rest, idx + 1, [
-        macro_entry,
-        ..macro_acc
-      ])
+      expand_macro_loop(
+        engine,
+        remaining,
+        idx + 1,
+        [lexer.Placeholder(placeholder), ..token_acc],
+        [macro_entry, ..macro_acc],
+      )
     }
+
+    [token, ..rest] ->
+      expand_macro_loop(engine, rest, idx, [token, ..token_acc], macro_acc)
   }
 }
 
-fn extract_macro_arg(
-  sql: String,
-  masked: String,
-  masked_match: String,
-) -> String {
-  case string.split_once(masked, masked_match) {
-    Ok(#(before, _)) -> {
-      let pos = string.length(before)
-      let span = string.slice(sql, pos, string.length(masked_match))
-      case string.split_once(span, "(") {
-        Ok(#(_, after_paren)) -> {
-          let arg = string.drop_end(after_paren, 1)
-          strip_quotes(string.trim(arg))
-        }
-        Error(_) -> ""
+/// Collect tokens inside macro parens until the matching RParen.
+fn collect_macro_arg_tokens(
+  tokens: List(lexer.Token),
+  depth: Int,
+  acc: List(lexer.Token),
+) -> #(List(lexer.Token), List(lexer.Token)) {
+  case depth <= 0 {
+    True -> #(list.reverse(acc), tokens)
+    False ->
+      case tokens {
+        [] -> #(list.reverse(acc), [])
+        [lexer.LParen, ..rest] ->
+          collect_macro_arg_tokens(rest, depth + 1, [lexer.LParen, ..acc])
+        [lexer.RParen, ..rest] ->
+          case depth == 1 {
+            True -> #(list.reverse(acc), rest)
+            False ->
+              collect_macro_arg_tokens(rest, depth - 1, [lexer.RParen, ..acc])
+          }
+        [token, ..rest] -> collect_macro_arg_tokens(rest, depth, [token, ..acc])
       }
-    }
-    Error(_) -> ""
   }
 }
 
-fn strip_quotes(name: String) -> String {
-  case string.first(name) {
-    Ok("'") | Ok("\"") -> string.slice(name, 1, string.length(name) - 2)
-    _ -> name
+/// Extract the argument name from macro arg tokens.
+/// Handles: Ident(name), StringLit(name), QuotedIdent(name).
+fn extract_arg_name(tokens: List(lexer.Token)) -> String {
+  case tokens {
+    [lexer.Ident(name)] -> name
+    [lexer.StringLit(name)] -> name
+    [lexer.QuotedIdent(name)] -> name
+    _ ->
+      // Fallback: render tokens to text
+      tokens
+      |> list.filter_map(fn(t) {
+        case t {
+          lexer.Ident(n) -> Ok(n)
+          lexer.StringLit(n) -> Ok(n)
+          lexer.QuotedIdent(n) -> Ok(n)
+          _ -> Error(Nil)
+        }
+      })
+      |> string.join("")
   }
 }
 
@@ -569,205 +504,5 @@ fn engine_placeholder(engine: model.Engine, index: Int) -> String {
     model.PostgreSQL -> "$" <> int.to_string(index)
     model.MySQL -> "?"
     model.SQLite -> "?" <> int.to_string(index)
-  }
-}
-
-fn replace_first_in_masked(
-  original: String,
-  masked: String,
-  pattern: String,
-  replacement: String,
-) -> #(String, String) {
-  case string.split_once(masked, pattern) {
-    Ok(#(before_masked, after_masked)) -> {
-      let pos = string.length(before_masked)
-      let before_orig = string.slice(original, 0, pos)
-      let after_orig = string.drop_start(original, pos + string.length(pattern))
-      #(
-        before_orig <> replacement <> after_orig,
-        before_masked <> replacement <> after_masked,
-      )
-    }
-    Error(_) -> #(original, masked)
-  }
-}
-
-// --- SQL masking (strip string literals and comments) ---
-
-type MaskState {
-  MaskNormal
-  MaskSingleQuote
-  MaskDoubleQuote
-  MaskLineComment
-  MaskBlockComment
-  MaskDollarQuoted(tag: String)
-}
-
-fn mask_sql(engine: model.Engine, sql: String) -> String {
-  let chars = string.to_graphemes(sql)
-  do_mask(engine, chars, MaskNormal, [])
-  |> list.reverse
-  |> string.join("")
-}
-
-fn do_mask(
-  engine: model.Engine,
-  chars: List(String),
-  state: MaskState,
-  acc: List(String),
-) -> List(String) {
-  case state {
-    MaskNormal ->
-      case chars {
-        [] -> acc
-        ["'", ..rest] -> do_mask(engine, rest, MaskSingleQuote, [" ", ..acc])
-        ["\"", ..rest] -> do_mask(engine, rest, MaskDoubleQuote, [" ", ..acc])
-        ["-", "-", ..rest] ->
-          do_mask(engine, rest, MaskLineComment, [" ", " ", ..acc])
-        ["/", "*", ..rest] ->
-          do_mask(engine, rest, MaskBlockComment, [" ", " ", ..acc])
-        ["$", ..rest] ->
-          case engine {
-            model.PostgreSQL ->
-              case try_dollar_tag(rest) {
-                Ok(#(tag, after_tag)) -> {
-                  let spaces = list.repeat(" ", string.length(tag) + 2)
-                  do_mask(
-                    engine,
-                    after_tag,
-                    MaskDollarQuoted(tag),
-                    list.append(spaces, acc),
-                  )
-                }
-                Error(_) -> do_mask(engine, rest, MaskNormal, ["$", ..acc])
-              }
-            _ -> do_mask(engine, rest, MaskNormal, ["$", ..acc])
-          }
-        [c, ..rest] -> do_mask(engine, rest, MaskNormal, [c, ..acc])
-      }
-    MaskSingleQuote ->
-      case chars {
-        [] -> acc
-        ["'", "'", ..rest] ->
-          do_mask(engine, rest, MaskSingleQuote, [" ", " ", ..acc])
-        ["'", ..rest] -> do_mask(engine, rest, MaskNormal, [" ", ..acc])
-        [_, ..rest] -> do_mask(engine, rest, MaskSingleQuote, [" ", ..acc])
-      }
-    MaskDoubleQuote ->
-      case chars {
-        [] -> acc
-        ["\"", "\"", ..rest] ->
-          do_mask(engine, rest, MaskDoubleQuote, [" ", " ", ..acc])
-        ["\"", ..rest] -> do_mask(engine, rest, MaskNormal, [" ", ..acc])
-        [_, ..rest] -> do_mask(engine, rest, MaskDoubleQuote, [" ", ..acc])
-      }
-    MaskLineComment ->
-      case chars {
-        [] -> acc
-        ["\n", ..rest] -> do_mask(engine, rest, MaskNormal, ["\n", ..acc])
-        [_, ..rest] -> do_mask(engine, rest, MaskLineComment, [" ", ..acc])
-      }
-    MaskBlockComment ->
-      case chars {
-        [] -> acc
-        ["*", "/", ..rest] ->
-          do_mask(engine, rest, MaskNormal, [" ", " ", ..acc])
-        [_, ..rest] -> do_mask(engine, rest, MaskBlockComment, [" ", ..acc])
-      }
-    MaskDollarQuoted(tag) ->
-      case chars {
-        [] -> acc
-        ["$", ..rest] ->
-          case try_match_closing_dollar_tag(rest, tag) {
-            Ok(remaining) -> {
-              let spaces = list.repeat(" ", string.length(tag) + 2)
-              do_mask(engine, remaining, MaskNormal, list.append(spaces, acc))
-            }
-            Error(_) ->
-              do_mask(engine, rest, MaskDollarQuoted(tag), [" ", ..acc])
-          }
-        [_, ..rest] ->
-          do_mask(engine, rest, MaskDollarQuoted(tag), [" ", ..acc])
-      }
-  }
-}
-
-fn try_dollar_tag(chars: List(String)) -> Result(#(String, List(String)), Nil) {
-  case chars {
-    ["$", ..rest] -> Ok(#("", rest))
-    [c, ..rest] ->
-      case is_mask_alpha_or_underscore(c) {
-        True -> read_dollar_tag_chars(rest, [c])
-        False -> Error(Nil)
-      }
-    [] -> Error(Nil)
-  }
-}
-
-fn read_dollar_tag_chars(
-  chars: List(String),
-  acc: List(String),
-) -> Result(#(String, List(String)), Nil) {
-  case chars {
-    [] -> Error(Nil)
-    ["$", ..rest] -> {
-      let tag = acc |> list.reverse |> string.concat
-      Ok(#(tag, rest))
-    }
-    [c, ..rest] ->
-      case is_mask_alnum_or_underscore(c) {
-        True -> read_dollar_tag_chars(rest, [c, ..acc])
-        False -> Error(Nil)
-      }
-  }
-}
-
-fn try_match_closing_dollar_tag(
-  chars: List(String),
-  tag: String,
-) -> Result(List(String), Nil) {
-  let tag_chars = string.to_graphemes(tag)
-  match_tag_then_dollar(chars, tag_chars)
-}
-
-fn match_tag_then_dollar(
-  chars: List(String),
-  tag_chars: List(String),
-) -> Result(List(String), Nil) {
-  case tag_chars {
-    [] ->
-      case chars {
-        ["$", ..rest] -> Ok(rest)
-        _ -> Error(Nil)
-      }
-    [expected, ..tag_rest] ->
-      case chars {
-        [actual, ..chars_rest] if actual == expected ->
-          match_tag_then_dollar(chars_rest, tag_rest)
-        _ -> Error(Nil)
-      }
-  }
-}
-
-fn is_mask_alpha_or_underscore(c: String) -> Bool {
-  is_mask_alpha(c) || c == "_"
-}
-
-fn is_mask_alnum_or_underscore(c: String) -> Bool {
-  is_mask_alpha(c) || is_mask_digit(c) || c == "_"
-}
-
-fn is_mask_alpha(c: String) -> Bool {
-  let cp = case string.to_utf_codepoints(c) {
-    [cp] -> string.utf_codepoint_to_int(cp)
-    _ -> 0
-  }
-  { cp >= 65 && cp <= 90 } || { cp >= 97 && cp <= 122 }
-}
-
-fn is_mask_digit(c: String) -> Bool {
-  case c {
-    "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" -> True
-    _ -> False
   }
 }

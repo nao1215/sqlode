@@ -870,6 +870,10 @@ fn tok_find_last_as_idx(
 fn tok_tokens_to_text(tokens: List(lexer.Token)) -> String {
   lexer.tokens_to_string(
     tokens,
-    lexer.TokenRenderOptions(uppercase_keywords: False, preserve_quotes: False),
+    lexer.TokenRenderOptions(
+      uppercase_keywords: False,
+      preserve_quotes: False,
+      engine: None,
+    ),
   )
 }
