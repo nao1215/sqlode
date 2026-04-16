@@ -387,6 +387,22 @@ pub fn execresult_allowed_on_raw_runtime_test() {
   generate_test.execresult_allowed_on_raw_runtime_test()
 }
 
+pub fn emit_sql_as_comment_includes_sql_in_output_test() {
+  generate_test.emit_sql_as_comment_includes_sql_in_output_test()
+}
+
+pub fn omits_sql_comment_by_default_test() {
+  generate_test.omits_sql_comment_by_default_test()
+}
+
+pub fn emit_exact_table_names_skips_singularization_test() {
+  generate_test.emit_exact_table_names_skips_singularization_test()
+}
+
+pub fn singularizes_table_names_by_default_test() {
+  generate_test.singularizes_table_names_by_default_test()
+}
+
 pub fn render_enum_from_string_returns_result_test() {
   codegen_test.render_enum_from_string_returns_result_test()
 }

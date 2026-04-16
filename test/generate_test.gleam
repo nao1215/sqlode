@@ -1497,3 +1497,87 @@ pub fn reject_duplicate_query_names_test() {
   |> string.contains("duplicate query name \"GetAuthor\"")
   |> should.be_true
 }
+
+// --- emit_sql_as_comment / emit_exact_table_names coverage ---
+
+pub fn emit_sql_as_comment_includes_sql_in_output_test() {
+  cleanup()
+  let block =
+    model.SqlBlock(
+      name: option.None,
+      engine: model.PostgreSQL,
+      schema: ["test/fixtures/schema.sql"],
+      queries: ["test/fixtures/query.sql"],
+      gleam: model.GleamOutput(
+        out: test_out,
+        runtime: model.Raw,
+        type_mapping: model.StringMapping,
+        emit_sql_as_comment: True,
+        emit_exact_table_names: False,
+      ),
+      overrides: model.empty_overrides(),
+    )
+
+  run_generate(block)
+  let queries = read_generated("queries.gleam")
+
+  queries
+  |> string.contains("// SQL: ")
+  |> should.be_true
+
+  cleanup()
+}
+
+pub fn omits_sql_comment_by_default_test() {
+  cleanup()
+  run_generate(base_block(model.empty_overrides()))
+  let queries = read_generated("queries.gleam")
+
+  queries
+  |> string.contains("// SQL: ")
+  |> should.be_false
+
+  cleanup()
+}
+
+pub fn emit_exact_table_names_skips_singularization_test() {
+  cleanup()
+  let block =
+    model.SqlBlock(
+      name: option.None,
+      engine: model.PostgreSQL,
+      schema: ["test/fixtures/schema.sql"],
+      queries: ["test/fixtures/query.sql"],
+      gleam: model.GleamOutput(
+        out: test_out,
+        runtime: model.Raw,
+        type_mapping: model.StringMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: True,
+      ),
+      overrides: model.empty_overrides(),
+    )
+
+  run_generate(block)
+  let models = read_generated("models.gleam")
+
+  // "authors" table stays "Authors" rather than being singularized to "Author"
+  models
+  |> string.contains("pub type Authors {")
+  |> should.be_true
+
+  cleanup()
+}
+
+pub fn singularizes_table_names_by_default_test() {
+  cleanup()
+  run_generate(base_block(model.empty_overrides()))
+  let models = read_generated("models.gleam")
+
+  // Default: "authors" singularizes to "Author"
+  models
+  |> string.contains("pub type Author {")
+  |> should.be_true
+
+  cleanup()
+}
