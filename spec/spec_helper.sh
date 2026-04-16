@@ -18,3 +18,11 @@ generate() {
 clean_test_output() {
   rm -rf "$TEST_OUTPUT_DIR"
 }
+
+init_cmd() {
+  cd "$PROJECT_ROOT" && gleam run -- init "$@" 2>&1
+}
+
+version_cmd() {
+  cd "$PROJECT_ROOT" && gleam run -- version "$@" 2>&1
+}

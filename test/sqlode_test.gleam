@@ -1,3 +1,4 @@
+import cli_test
 import codegen_test
 import config_test
 import generate_test
@@ -616,4 +617,26 @@ pub fn compound_query_valid_union_test() {
 
 pub fn compound_query_except_mismatch_test() {
   query_analyzer_test.compound_query_except_mismatch_test()
+}
+
+// --- CLI tests ---
+
+pub fn init_creates_config_file_test() {
+  cli_test.init_creates_config_file_test()
+}
+
+pub fn init_creates_stub_schema_file_test() {
+  cli_test.init_creates_stub_schema_file_test()
+}
+
+pub fn init_creates_stub_query_file_test() {
+  cli_test.init_creates_stub_query_file_test()
+}
+
+pub fn init_does_not_overwrite_existing_stubs_test() {
+  cli_test.init_does_not_overwrite_existing_stubs_test()
+}
+
+pub fn version_command_succeeds_test() {
+  cli_test.version_command_succeeds_test()
 }
