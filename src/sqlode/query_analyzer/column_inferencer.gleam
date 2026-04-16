@@ -299,9 +299,17 @@ fn infer_expression_type_from_tokens(
         Some(type_name) ->
           case model.parse_sql_type(type_name) {
             Ok(scalar_type) -> Ok(#(scalar_type, True))
-            Error(_) -> Ok(#(model.StringType, True))
+            Error(_) ->
+              Error(UnsupportedExpression(
+                query_name:,
+                expression: tok_tokens_to_text(tokens),
+              ))
           }
-        None -> Ok(#(model.StringType, True))
+        None ->
+          Error(UnsupportedExpression(
+            query_name:,
+            expression: tok_tokens_to_text(tokens),
+          ))
       }
     }
 
@@ -343,7 +351,14 @@ fn infer_expression_type_from_tokens(
             resolve_column_type_from_tokens(first_arg, catalog, table_names)
           {
             Some(t) -> Ok(#(t, False))
-            None -> Ok(#(model.StringType, False))
+            None ->
+              infer_expression_type_from_tokens(
+                first_arg,
+                catalog,
+                table_names,
+                query_name,
+              )
+              |> result.map(fn(pair) { #(pair.0, False) })
           }
         }
         FnGreatestLeast -> {
@@ -353,7 +368,14 @@ fn infer_expression_type_from_tokens(
             resolve_column_type_from_tokens(first_arg, catalog, table_names)
           {
             Some(t) -> Ok(#(t, True))
-            None -> Ok(#(model.StringType, True))
+            None ->
+              infer_expression_type_from_tokens(
+                first_arg,
+                catalog,
+                table_names,
+                query_name,
+              )
+              |> result.map(fn(pair) { #(pair.0, True) })
           }
         }
         FnString -> Ok(#(model.StringType, False))
@@ -376,7 +398,14 @@ fn infer_expression_type_from_tokens(
             resolve_column_type_from_tokens(first_arg, catalog, table_names)
           {
             Some(t) -> Ok(#(t, True))
-            None -> Ok(#(model.StringType, True))
+            None ->
+              infer_expression_type_from_tokens(
+                first_arg,
+                catalog,
+                table_names,
+                query_name,
+              )
+              |> result.map(fn(pair) { #(pair.0, True) })
           }
         }
         FnUnknown ->
@@ -410,7 +439,11 @@ fn infer_expression_type_from_tokens(
     [lexer.Keyword("true")] | [lexer.Keyword("false")] ->
       Ok(#(model.BoolType, False))
 
-    [lexer.Keyword("null")] -> Ok(#(model.StringType, True))
+    [lexer.Keyword("null")] ->
+      Error(UnsupportedExpression(
+        query_name:,
+        expression: tok_tokens_to_text(tokens),
+      ))
 
     // --- Scan-based inference for compound expressions ---
     _ -> infer_by_scanning(tokens, query_name)
@@ -685,7 +718,11 @@ fn infer_case_type_from_tokens(
   case tok_collect_then_value(tokens) {
     Some(then_tokens) ->
       case then_tokens {
-        [] -> Ok(#(model.StringType, True))
+        [] ->
+          Error(UnsupportedExpression(
+            query_name:,
+            expression: tok_tokens_to_text(tokens),
+          ))
         _ -> {
           use #(scalar_type, _) <- result.try(infer_expression_type_from_tokens(
             then_tokens,
@@ -696,7 +733,11 @@ fn infer_case_type_from_tokens(
           Ok(#(scalar_type, True))
         }
       }
-    None -> Ok(#(model.StringType, True))
+    None ->
+      Error(UnsupportedExpression(
+        query_name:,
+        expression: tok_tokens_to_text(tokens),
+      ))
   }
 }
 
