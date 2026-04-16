@@ -245,11 +245,34 @@ pub fn view_nonexistent_table_test() {
 
 pub fn error_to_string_invalid_column_test() {
   schema_parser.error_to_string(schema_parser.InvalidColumn(
+    path: "schema.sql",
     table: "users",
     detail: "missing type",
   ))
   |> string.contains("users")
   |> should.be_true()
+}
+
+pub fn error_to_string_includes_path_test() {
+  schema_parser.error_to_string(schema_parser.InvalidColumn(
+    path: "db/schema.sql",
+    table: "users",
+    detail: "missing type",
+  ))
+  |> string.contains("db/schema.sql")
+  |> should.be_true()
+}
+
+pub fn parse_error_carries_source_path_test() {
+  // Truncated CREATE TABLE surfaces with the originating file path so
+  // users with multiple schema files can locate the issue.
+  let assert Error(err) =
+    schema_parser.parse_files([#("db/main.sql", "CREATE TABLE")])
+  case err {
+    schema_parser.InvalidCreateTable(path:, ..) ->
+      path |> should.equal("db/main.sql")
+    _ -> should.fail()
+  }
 }
 
 pub fn unrecognized_sql_type_returns_error_test() {

@@ -731,6 +731,14 @@ pub fn schema_duplicate_table_across_files_test() {
   schema_parser_test.schema_duplicate_table_across_files_test()
 }
 
+pub fn error_to_string_includes_path_test() {
+  schema_parser_test.error_to_string_includes_path_test()
+}
+
+pub fn parse_error_carries_source_path_test() {
+  schema_parser_test.parse_error_carries_source_path_test()
+}
+
 pub fn load_named_sql_blocks_test() {
   config_test.load_named_sql_blocks_test()
 }
