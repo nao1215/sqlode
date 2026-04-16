@@ -5,6 +5,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/regexp
 import gleam/result
 import gleam/string
+import sqlode/lexer
 import sqlode/model
 import sqlode/naming
 import sqlode/runtime
@@ -27,8 +28,6 @@ type PendingQuery {
 type ParserContext {
   ParserContext(
     naming: naming.NamingContext,
-    postgresql_param_re: regexp.Regexp,
-    sqlite_param_re: regexp.Regexp,
     macro_re: regexp.Regexp,
     masked_macro_re: regexp.Regexp,
     at_name_re: regexp.Regexp,
@@ -36,11 +35,6 @@ type ParserContext {
 }
 
 fn new_parser_context(naming_ctx: naming.NamingContext) -> ParserContext {
-  let assert Ok(postgresql_param_re) = regexp.from_string("\\$([0-9]+)")
-  let assert Ok(sqlite_param_re) =
-    regexp.from_string(
-      "(\\?[0-9]+|\\?|:[A-Za-z_][A-Za-z0-9_]*|@[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*)",
-    )
   let assert Ok(macro_re) =
     regexp.from_string(
       "sqlode\\.(arg|narg|slice)\\(('[^']*'|\"[^\"]*\"|[a-zA-Z_][a-zA-Z0-9_]*)\\)",
@@ -49,14 +43,7 @@ fn new_parser_context(naming_ctx: naming.NamingContext) -> ParserContext {
     regexp.from_string("sqlode\\.(arg|narg|slice)\\(([^)]+)\\)")
   let assert Ok(at_name_re) = regexp.from_string("@([A-Za-z_][A-Za-z0-9_]*)")
 
-  ParserContext(
-    naming: naming_ctx,
-    postgresql_param_re:,
-    sqlite_param_re:,
-    macro_re:,
-    masked_macro_re:,
-    at_name_re:,
-  )
+  ParserContext(naming: naming_ctx, macro_re:, masked_macro_re:, at_name_re:)
 }
 
 pub fn parse_file(
@@ -166,7 +153,6 @@ fn finalize_pending(
           let #(expanded_sql, expanded_macros) =
             expand_macros(ctx, engine, at_expanded, at_masked, next_idx)
           let macros = list.append(at_macros, expanded_macros)
-          let final_masked = mask_sql(engine, expanded_sql)
           Ok([
             model.ParsedQuery(
               name:,
@@ -174,7 +160,7 @@ fn finalize_pending(
               command:,
               sql: expanded_sql,
               source_path: path,
-              param_count: count_parameters(ctx, engine, final_masked),
+              param_count: count_parameters(engine, expanded_sql),
               macros:,
             ),
             ..parsed_rev
@@ -236,52 +222,32 @@ fn parse_annotation(
   }
 }
 
-fn count_parameters(
-  ctx: ParserContext,
-  engine: model.Engine,
-  sql: String,
-) -> Int {
-  case engine {
-    model.PostgreSQL -> count_postgresql_parameters(ctx, sql)
-    model.MySQL -> count_question_mark_parameters(sql)
-    model.SQLite -> count_sqlite_parameters(ctx, sql)
-  }
-}
-
-fn count_postgresql_parameters(ctx: ParserContext, sql: String) -> Int {
-  regexp.scan(ctx.postgresql_param_re, sql)
-  |> list.filter_map(fn(match) {
-    case match.submatches {
-      [Some(index_text)] -> int.parse(index_text)
-      _ -> Error(Nil)
-    }
-  })
-  |> list.fold(0, fn(max_index, value) {
-    case value > max_index {
-      True -> value
-      False -> max_index
-    }
-  })
-}
-
-fn count_question_mark_parameters(sql: String) -> Int {
-  sql
-  |> string.split("?")
-  |> list.length
-  |> fn(count) { count - 1 }
-}
-
-fn count_sqlite_parameters(ctx: ParserContext, sql: String) -> Int {
-  let tokens =
-    regexp.scan(ctx.sqlite_param_re, sql)
-    |> list.filter_map(fn(match) {
-      case match.submatches {
-        [Some(token)] -> Ok(token)
+fn count_parameters(engine: model.Engine, sql: String) -> Int {
+  let placeholders =
+    lexer.tokenize(sql, engine)
+    |> list.filter_map(fn(token) {
+      case token {
+        lexer.Placeholder(p) -> Ok(p)
         _ -> Error(Nil)
       }
     })
-  let #(anon, named) = list.partition(tokens, fn(t) { t == "?" })
-  list.length(anon) + list.length(list.unique(named))
+
+  case engine {
+    model.PostgreSQL ->
+      placeholders
+      |> list.filter_map(fn(p) { string.replace(p, "$", "") |> int.parse })
+      |> list.fold(0, fn(max_idx, v) {
+        case v > max_idx {
+          True -> v
+          False -> max_idx
+        }
+      })
+    model.MySQL -> list.length(placeholders)
+    model.SQLite -> {
+      let #(anon, named) = list.partition(placeholders, fn(p) { p == "?" })
+      list.length(anon) + list.length(list.unique(named))
+    }
+  }
 }
 
 pub fn error_to_string(error: ParseError) -> String {
