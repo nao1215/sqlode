@@ -579,6 +579,66 @@ pub fn singularize_compound_table_names_test() {
   naming_test.singularize_compound_table_names_test()
 }
 
+pub fn pascal_case_empty_string_test() {
+  naming_test.pascal_case_empty_string_test()
+}
+
+pub fn snake_case_empty_string_test() {
+  naming_test.snake_case_empty_string_test()
+}
+
+pub fn pascal_case_only_underscores_test() {
+  naming_test.pascal_case_only_underscores_test()
+}
+
+pub fn snake_case_only_underscores_test() {
+  naming_test.snake_case_only_underscores_test()
+}
+
+pub fn pascal_case_only_numbers_test() {
+  naming_test.pascal_case_only_numbers_test()
+}
+
+pub fn snake_case_only_numbers_test() {
+  naming_test.snake_case_only_numbers_test()
+}
+
+pub fn pascal_case_single_lower_char_test() {
+  naming_test.pascal_case_single_lower_char_test()
+}
+
+pub fn pascal_case_single_upper_char_test() {
+  naming_test.pascal_case_single_upper_char_test()
+}
+
+pub fn snake_case_single_upper_char_test() {
+  naming_test.snake_case_single_upper_char_test()
+}
+
+pub fn normalize_identifier_empty_test() {
+  naming_test.normalize_identifier_empty_test()
+}
+
+pub fn normalize_identifier_whitespace_only_test() {
+  naming_test.normalize_identifier_whitespace_only_test()
+}
+
+pub fn singularize_empty_test() {
+  naming_test.singularize_empty_test()
+}
+
+pub fn singularize_single_char_test() {
+  naming_test.singularize_single_char_test()
+}
+
+pub fn normalize_identifier_unicode_test() {
+  naming_test.normalize_identifier_unicode_test()
+}
+
+pub fn singularize_unicode_preserves_input_test() {
+  naming_test.singularize_unicode_preserves_input_test()
+}
+
 pub fn sqlite_repeated_colon_placeholder_dedup_test() {
   query_parser_test.sqlite_repeated_colon_placeholder_dedup_test()
 }

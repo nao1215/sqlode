@@ -157,6 +157,79 @@ pub fn singularize_irregular_test() {
   naming.singularize("children") |> should.equal("child")
 }
 
+// Edge case tests — empty strings, single chars, unicode, numbers only
+
+pub fn pascal_case_empty_string_test() {
+  let ctx = naming.new()
+  naming.to_pascal_case(ctx, "") |> should.equal("")
+}
+
+pub fn snake_case_empty_string_test() {
+  let ctx = naming.new()
+  naming.to_snake_case(ctx, "") |> should.equal("")
+}
+
+pub fn pascal_case_only_underscores_test() {
+  let ctx = naming.new()
+  naming.to_pascal_case(ctx, "___") |> should.equal("")
+}
+
+pub fn snake_case_only_underscores_test() {
+  let ctx = naming.new()
+  naming.to_snake_case(ctx, "___") |> should.equal("")
+}
+
+pub fn pascal_case_only_numbers_test() {
+  let ctx = naming.new()
+  naming.to_pascal_case(ctx, "123") |> should.equal("123")
+}
+
+pub fn snake_case_only_numbers_test() {
+  let ctx = naming.new()
+  naming.to_snake_case(ctx, "123") |> should.equal("123")
+}
+
+pub fn pascal_case_single_lower_char_test() {
+  let ctx = naming.new()
+  naming.to_pascal_case(ctx, "a") |> should.equal("A")
+}
+
+pub fn pascal_case_single_upper_char_test() {
+  let ctx = naming.new()
+  naming.to_pascal_case(ctx, "A") |> should.equal("A")
+}
+
+pub fn snake_case_single_upper_char_test() {
+  let ctx = naming.new()
+  naming.to_snake_case(ctx, "A") |> should.equal("a")
+}
+
+pub fn normalize_identifier_empty_test() {
+  naming.normalize_identifier("") |> should.equal("")
+}
+
+pub fn normalize_identifier_whitespace_only_test() {
+  naming.normalize_identifier("   ") |> should.equal("")
+}
+
+pub fn singularize_empty_test() {
+  naming.singularize("") |> should.equal("")
+}
+
+pub fn singularize_single_char_test() {
+  naming.singularize("a") |> should.equal("a")
+}
+
+pub fn normalize_identifier_unicode_test() {
+  // Japanese column name in quoted identifier
+  naming.normalize_identifier("\"著者\"") |> should.equal("著者")
+}
+
+pub fn singularize_unicode_preserves_input_test() {
+  // Non-ASCII input that doesn't match any pluralization rule stays as-is
+  naming.singularize("著者") |> should.equal("著者")
+}
+
 pub fn singularize_compound_table_names_test() {
   let ctx = naming.new()
   // blog_posts → singularize("blog_posts") → "blog_post" → PascalCase → "BlogPost"
