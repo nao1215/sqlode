@@ -388,8 +388,7 @@ fn scalar_type_info(scalar_type: ScalarType) -> option.Option(ScalarTypeInfo) {
         decoder: "decode.string",
         unwrap_fn: option.Some("sql_json_to_string"),
       ))
-    // EnumType, CustomType, ArrayType need special handling
-    _ -> option.None
+    EnumType(_) | CustomType(_, _, _) | ArrayType(_) -> option.None
   }
 }
 
@@ -412,7 +411,17 @@ pub fn scalar_type_to_gleam_type(
         CustomType(name, _, _) -> name
         ArrayType(element) ->
           "List(" <> scalar_type_to_gleam_type(element, type_mapping) <> ")"
-        _ -> "String"
+        IntType
+        | FloatType
+        | BoolType
+        | StringType
+        | BytesType
+        | DateTimeType
+        | DateType
+        | TimeType
+        | UuidType
+        | JsonType ->
+          panic as "unreachable: all leaf ScalarType variants handled by scalar_type_info"
       }
   }
 }
@@ -440,7 +449,17 @@ pub fn scalar_type_to_runtime_function(scalar_type: ScalarType) -> String {
         CustomType(_, _, underlying) ->
           scalar_type_to_runtime_function(underlying)
         ArrayType(element) -> scalar_type_to_runtime_function(element)
-        _ -> "runtime.string"
+        IntType
+        | FloatType
+        | BoolType
+        | StringType
+        | BytesType
+        | DateTimeType
+        | DateType
+        | TimeType
+        | UuidType
+        | JsonType ->
+          panic as "unreachable: all leaf ScalarType variants handled by scalar_type_info"
       }
   }
 }
@@ -453,7 +472,17 @@ pub fn scalar_type_to_db_name(scalar_type: ScalarType) -> String {
         EnumType(name) -> name
         CustomType(_, _, underlying) -> scalar_type_to_db_name(underlying)
         ArrayType(element) -> scalar_type_to_db_name(element) <> "[]"
-        _ -> "string"
+        IntType
+        | FloatType
+        | BoolType
+        | StringType
+        | BytesType
+        | DateTimeType
+        | DateType
+        | TimeType
+        | UuidType
+        | JsonType ->
+          panic as "unreachable: all leaf ScalarType variants handled by scalar_type_info"
       }
   }
 }
@@ -479,7 +508,17 @@ pub fn scalar_type_to_value_function(
           scalar_type_to_value_function(engine, underlying)
         ArrayType(element) ->
           "array(pog." <> scalar_type_to_value_function(engine, element) <> ")"
-        _ -> "text"
+        IntType
+        | FloatType
+        | BoolType
+        | StringType
+        | BytesType
+        | DateTimeType
+        | DateType
+        | TimeType
+        | UuidType
+        | JsonType ->
+          panic as "unreachable: all leaf ScalarType variants handled by scalar_type_info"
       }
   }
 }
@@ -503,7 +542,17 @@ pub fn scalar_type_to_decoder(engine: Engine, scalar_type: ScalarType) -> String
           scalar_type_to_decoder(engine, underlying)
         ArrayType(element) ->
           "decode.list(" <> scalar_type_to_decoder(engine, element) <> ")"
-        _ -> "decode.string"
+        IntType
+        | FloatType
+        | BoolType
+        | StringType
+        | BytesType
+        | DateTimeType
+        | DateType
+        | TimeType
+        | UuidType
+        | JsonType ->
+          panic as "unreachable: all leaf ScalarType variants handled by scalar_type_info"
       }
   }
 }
