@@ -34,6 +34,7 @@ pub type GenerateError {
   )
   DuplicateQueryName(name: String, paths: List(String))
   UnsupportedAnnotation(query_name: String, command: String, detail: String)
+  InvalidOutPath(path: String)
   WriteError(writer.WriteError)
 }
 
@@ -90,6 +91,7 @@ fn generate_sql_block(
   naming_ctx: naming.NamingContext,
   block: model.SqlBlock,
 ) -> Result(List(writer.GeneratedFile), GenerateError) {
+  use Nil <- result.try(validate_out_path(block.gleam.out))
   use raw_catalog <- result.try(load_catalog(block.schema, block.engine))
   let catalog =
     apply_type_overrides(raw_catalog, block.overrides.type_overrides)
@@ -479,6 +481,16 @@ fn find_column_rename(
   })
 }
 
+fn validate_out_path(out: String) -> Result(Nil, GenerateError) {
+  let module_path = common.out_to_module_path(out)
+  case
+    string.starts_with(module_path, "/") || string.starts_with(module_path, ".")
+  {
+    True -> Error(InvalidOutPath(path: out))
+    False -> Ok(Nil)
+  }
+}
+
 fn validate_unsupported_annotations(
   queries: List(model.AnalyzedQuery),
 ) -> Result(Nil, GenerateError) {
@@ -678,6 +690,10 @@ pub fn error_to_string(error: GenerateError) -> String {
       <> string.join(paths, ", ")
     UnsupportedAnnotation(query_name:, command:, detail:) ->
       "Query " <> query_name <> " uses " <> command <> ": " <> detail
+    InvalidOutPath(path:) ->
+      "Invalid output path \""
+      <> path
+      <> "\": produces an invalid Gleam module path. Use a relative path under src/ (e.g., \"src/db\")"
     WriteError(inner) -> writer.error_to_string(inner)
   }
 }

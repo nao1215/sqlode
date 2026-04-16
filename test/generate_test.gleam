@@ -1222,7 +1222,7 @@ pub fn view_select_star_inferred_test() {
 
 // --- Config path resolution tests ---
 
-const resolve_out = "/tmp/sqlode_resolve_paths_test"
+const resolve_out = "src/resolve_paths_test"
 
 fn cleanup_resolve() {
   let _ = simplifile.delete(resolve_out)
@@ -1242,6 +1242,27 @@ pub fn run_resolves_paths_relative_to_config_dir_test() {
   string.contains(models, "Author") |> should.be_true()
 
   cleanup_resolve()
+}
+
+pub fn invalid_out_path_rejected_test() {
+  let block =
+    model.SqlBlock(
+      name: option.None,
+      engine: model.PostgreSQL,
+      schema: ["test/fixtures/schema.sql"],
+      queries: ["test/fixtures/query.sql"],
+      gleam: model.GleamOutput(
+        out: "/tmp/invalid_absolute_path",
+        runtime: model.Raw,
+        type_mapping: model.StringMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: False,
+      ),
+      overrides: model.empty_overrides(),
+    )
+  let cfg = model.Config(version: 2, sql: [block])
+  let result = generate.generate_config(cfg)
+  result |> should.be_error()
 }
 
 // --- Directory input tests ---
