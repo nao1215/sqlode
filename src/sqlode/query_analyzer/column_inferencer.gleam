@@ -1,6 +1,5 @@
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/regexp
 import gleam/result
 import gleam/string
 import sqlode/lexer
@@ -21,7 +20,7 @@ type ExtractedColumn {
 }
 
 pub fn infer_result_columns(
-  ctx: AnalyzerContext,
+  _ctx: AnalyzerContext,
   engine: model.Engine,
   query: model.ParsedQuery,
   catalog: model.Catalog,
@@ -38,10 +37,8 @@ pub fn infer_result_columns(
     | runtime.QueryBatchOne
     | runtime.QueryBatchMany -> {
       let tokens = lexer.tokenize(query.sql, engine)
-      let normalized = context.normalize_sql(ctx, query.sql)
 
-      // RETURNING clause still uses regex (works well, no subquery risk)
-      case extract_returning_columns(ctx, normalized) {
+      case tok_extract_returning_columns(tokens) {
         Some(returning_cols) -> {
           let table_names = token_utils.extract_table_names(tokens)
           let nullable_tables = tok_extract_nullable_tables(tokens, table_names)
@@ -89,33 +86,40 @@ pub fn infer_result_columns(
   }
 }
 
-fn extract_returning_columns(
-  ctx: AnalyzerContext,
-  sql: String,
+/// Extract RETURNING columns from tokens using token-based analysis.
+fn tok_extract_returning_columns(
+  tokens: List(lexer.Token),
 ) -> Option(List(ExtractedColumn)) {
-  case regexp.scan(ctx.returning_re, sql) {
-    [match, ..] ->
-      case match.submatches {
-        [Some(columns_text)] -> {
-          let cols = case string.trim(columns_text) == "*" {
-            True -> [
-              ExtractedColumn(name: "*", source_table: None, expression: None),
-            ]
-            False ->
-              context.split_csv(columns_text)
-              |> list.map(fn(c) {
-                ExtractedColumn(
-                  name: string.trim(c),
-                  source_table: None,
-                  expression: None,
-                )
-              })
-          }
-          Some(cols)
-        }
-        _ -> None
-      }
+  case tok_find_returning_tokens(tokens) {
+    Some(col_tokens) ->
+      Some(
+        tok_split_on_commas(col_tokens)
+        |> list.map(tok_parse_column_item),
+      )
+    None -> None
+  }
+}
+
+/// Find tokens after the RETURNING keyword until end of statement.
+fn tok_find_returning_tokens(
+  tokens: List(lexer.Token),
+) -> Option(List(lexer.Token)) {
+  case tokens {
     [] -> None
+    [lexer.Keyword("returning"), ..rest] -> {
+      let filtered =
+        list.filter(rest, fn(tok) {
+          case tok {
+            lexer.Semicolon -> False
+            _ -> True
+          }
+        })
+      case filtered {
+        [] -> None
+        _ -> Some(filtered)
+      }
+    }
+    [_, ..rest] -> tok_find_returning_tokens(rest)
   }
 }
 
