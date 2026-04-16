@@ -11,13 +11,22 @@ import sqlode/version
 pub fn app() -> glint.Glint(Nil) {
   glint.new()
   |> glint.with_name("sqlode")
-  |> glint.global_help(
-    "Generate Gleam code from SQL files using sqlc-style config",
-  )
+  |> glint.global_help(global_help_text())
   |> glint.pretty_help(glint.default_pretty_help())
   |> glint.add(at: ["generate"], do: generate_command())
   |> glint.add(at: ["init"], do: init_command())
   |> glint.add(at: ["version"], do: version_command())
+}
+
+fn global_help_text() -> String {
+  "Generate type-safe Gleam code from SQL files using sqlc-style config.
+
+Usage:
+  sqlode generate [--config=./sqlode.yaml]
+  sqlode init [--output=./sqlode.yaml]
+  sqlode version
+
+Run `sqlode <command> --help` for details on each command."
 }
 
 fn generate_command() -> glint.Command(Nil) {
@@ -25,15 +34,22 @@ fn generate_command() -> glint.Command(Nil) {
     use config_path <- glint.flag(
       glint.string_flag("config")
       |> glint.flag_default("./sqlode.yaml")
-      |> glint.flag_help("Path to config file"),
+      |> glint.flag_help("Path to config file (default: ./sqlode.yaml)"),
     )
 
-    glint.command_help("Generate Gleam files from SQL", fn() {
-      glint.command(fn(_named_args, _args, flags) {
-        let config_path = config_path(flags) |> result.unwrap("./sqlode.yaml")
-        run_generate(config_path)
-      })
-    })
+    glint.command_help(
+      "Read sqlode.yaml, parse SQL schema and queries, emit Gleam code.
+
+Examples:
+  sqlode generate
+  sqlode generate --config=./custom.yaml",
+      fn() {
+        glint.command(fn(_named_args, _args, flags) {
+          let config_path = config_path(flags) |> result.unwrap("./sqlode.yaml")
+          run_generate(config_path)
+        })
+      },
+    )
   }
 }
 
@@ -42,20 +58,29 @@ fn init_command() -> glint.Command(Nil) {
     use output_path <- glint.flag(
       glint.string_flag("output")
       |> glint.flag_default("./sqlode.yaml")
-      |> glint.flag_help("Output path for config file"),
+      |> glint.flag_help(
+        "Output path for generated config (default: ./sqlode.yaml)",
+      ),
     )
 
-    glint.command_help("Create a sqlode.yaml config file", fn() {
-      glint.command(fn(_named_args, _args, flags) {
-        let path = output_path(flags) |> result.unwrap("./sqlode.yaml")
-        run_init(path)
-      })
-    })
+    glint.command_help(
+      "Scaffold a sqlode.yaml plus starter db/schema.sql and db/query.sql.
+
+Examples:
+  sqlode init
+  sqlode init --output=./config/sqlode.yaml",
+      fn() {
+        glint.command(fn(_named_args, _args, flags) {
+          let path = output_path(flags) |> result.unwrap("./sqlode.yaml")
+          run_init(path)
+        })
+      },
+    )
   }
 }
 
 fn version_command() -> glint.Command(Nil) {
-  glint.command_help("Print the sqlode version", fn() {
+  glint.command_help("Print the sqlode version and exit.", fn() {
     glint.command(fn(_named_args, _args, _flags) {
       io.println("sqlode v" <> version.version)
     })
