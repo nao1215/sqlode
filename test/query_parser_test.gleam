@@ -663,3 +663,60 @@ pub fn error_to_string_coverage_test() {
   |> string.contains("MyQuery")
   |> should.be_true()
 }
+
+pub fn skip_annotation_skips_query_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- sqlode:skip\n"
+    <> "-- name: SkippedQuery :one\n"
+    <> "SELECT complex_stuff FROM somewhere;\n"
+    <> "\n"
+    <> "-- name: KeptQuery :many\n"
+    <> "SELECT id FROM authors;\n"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("test.sql", model.PostgreSQL, naming_ctx, content)
+
+  list.length(queries) |> should.equal(1)
+  let assert [query] = queries
+  query.name |> should.equal("KeptQuery")
+  query.command |> should.equal(runtime.QueryMany)
+}
+
+pub fn skip_annotation_all_queries_skipped_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- sqlode:skip\n"
+    <> "-- name: SkippedOne :one\n"
+    <> "SELECT 1;\n"
+    <> "\n"
+    <> "-- sqlode:skip\n"
+    <> "-- name: SkippedTwo :many\n"
+    <> "SELECT 2;\n"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("test.sql", model.PostgreSQL, naming_ctx, content)
+
+  list.length(queries) |> should.equal(0)
+}
+
+pub fn skip_annotation_middle_query_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: First :one\n"
+    <> "SELECT 1;\n"
+    <> "\n"
+    <> "-- sqlode:skip\n"
+    <> "-- name: Second :one\n"
+    <> "SELECT 2;\n"
+    <> "\n"
+    <> "-- name: Third :many\n"
+    <> "SELECT 3;\n"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("test.sql", model.PostgreSQL, naming_ctx, content)
+
+  list.length(queries) |> should.equal(2)
+  let names = list.map(queries, fn(q) { q.name })
+  names |> should.equal(["First", "Third"])
+}

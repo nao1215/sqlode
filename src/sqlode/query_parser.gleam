@@ -53,7 +53,16 @@ pub fn parse_file(
   content: String,
 ) -> Result(List(model.ParsedQuery), ParseError) {
   let ctx = new_parser_context(naming_ctx)
-  parse_lines(ctx, string.split(content, "\n"), path, engine, 1, None, [])
+  parse_lines(
+    ctx,
+    string.split(content, "\n"),
+    path,
+    engine,
+    1,
+    None,
+    [],
+    False,
+  )
   |> result.map(list.reverse)
 }
 
@@ -65,14 +74,16 @@ fn parse_lines(
   line_number: Int,
   pending: Option(PendingQuery),
   parsed_rev: List(model.ParsedQuery),
+  skip_next: Bool,
 ) -> Result(List(model.ParsedQuery), ParseError) {
   case lines {
     [] -> finalize_pending(ctx, pending, path, engine, parsed_rev)
     [line, ..rest] -> {
       let trimmed = string.trim(line)
 
-      case parse_annotation(ctx, trimmed, path, line_number) {
-        Ok(Some(next_pending)) -> {
+      case is_skip_annotation(trimmed) {
+        True -> {
+          // Finalize any current pending query before entering skip mode
           use parsed_rev <- result.try(finalize_pending(
             ctx,
             pending,
@@ -80,49 +91,88 @@ fn parse_lines(
             engine,
             parsed_rev,
           ))
-
           parse_lines(
             ctx,
             rest,
             path,
             engine,
             line_number + 1,
-            Some(next_pending),
+            None,
             parsed_rev,
+            True,
           )
         }
-        Ok(None) -> {
-          let pending = case pending {
-            Some(PendingQuery(
-              name:,
-              function_name:,
-              command:,
-              start_line:,
-              body_rev:,
-            )) ->
-              Some(
-                PendingQuery(
+        False ->
+          case parse_annotation(ctx, trimmed, path, line_number) {
+            Ok(Some(next_pending)) -> {
+              use parsed_rev <- result.try(finalize_pending(
+                ctx,
+                pending,
+                path,
+                engine,
+                parsed_rev,
+              ))
+
+              case skip_next {
+                True ->
+                  // Skip this query: don't set pending, clear skip flag
+                  parse_lines(
+                    ctx,
+                    rest,
+                    path,
+                    engine,
+                    line_number + 1,
+                    None,
+                    parsed_rev,
+                    False,
+                  )
+                False ->
+                  parse_lines(
+                    ctx,
+                    rest,
+                    path,
+                    engine,
+                    line_number + 1,
+                    Some(next_pending),
+                    parsed_rev,
+                    False,
+                  )
+              }
+            }
+            Ok(None) -> {
+              let pending = case pending {
+                Some(PendingQuery(
                   name:,
                   function_name:,
                   command:,
                   start_line:,
-                  body_rev: [line, ..body_rev],
-                ),
-              )
-            None -> None
-          }
+                  body_rev:,
+                )) ->
+                  Some(
+                    PendingQuery(
+                      name:,
+                      function_name:,
+                      command:,
+                      start_line:,
+                      body_rev: [line, ..body_rev],
+                    ),
+                  )
+                None -> None
+              }
 
-          parse_lines(
-            ctx,
-            rest,
-            path,
-            engine,
-            line_number + 1,
-            pending,
-            parsed_rev,
-          )
-        }
-        Error(error) -> Error(error)
+              parse_lines(
+                ctx,
+                rest,
+                path,
+                engine,
+                line_number + 1,
+                pending,
+                parsed_rev,
+                skip_next,
+              )
+            }
+            Error(error) -> Error(error)
+          }
       }
     }
   }
@@ -220,6 +270,10 @@ fn parse_annotation(
       }
     }
   }
+}
+
+fn is_skip_annotation(line: String) -> Bool {
+  line == "-- sqlode:skip"
 }
 
 fn count_parameters(engine: model.Engine, sql: String) -> Int {
