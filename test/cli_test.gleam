@@ -57,6 +57,7 @@ pub fn init_creates_stub_schema_file_test() {
   content |> string.contains("id BIGSERIAL PRIMARY KEY") |> should.be_true
   content |> string.contains("name TEXT NOT NULL") |> should.be_true
   content |> string.contains("bio TEXT") |> should.be_true
+  content |> string.contains("created_at TIMESTAMP NOT NULL") |> should.be_true
 
   cleanup("schema")
 }
@@ -74,6 +75,8 @@ pub fn init_creates_stub_query_file_test() {
   content |> string.contains("-- name: GetAuthor :one") |> should.be_true
   content |> string.contains("-- name: ListAuthors :many") |> should.be_true
   content |> string.contains("-- name: CreateAuthor :exec") |> should.be_true
+  content |> string.contains("sqlode.arg(author_name)") |> should.be_true
+  content |> string.contains("sqlode.narg(bio)") |> should.be_true
 
   cleanup("query")
 }

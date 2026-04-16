@@ -119,7 +119,8 @@ fn create_stub_files(base_dir: String) -> Nil {
     "CREATE TABLE authors (\n"
     <> "  id BIGSERIAL PRIMARY KEY,\n"
     <> "  name TEXT NOT NULL,\n"
-    <> "  bio TEXT\n"
+    <> "  bio TEXT,\n"
+    <> "  created_at TIMESTAMP NOT NULL\n"
     <> ");\n"
 
   let query_content =
@@ -134,7 +135,8 @@ fn create_stub_files(base_dir: String) -> Nil {
     <> "ORDER BY name;\n"
     <> "\n"
     <> "-- name: CreateAuthor :exec\n"
-    <> "INSERT INTO authors (name, bio) VALUES ($1, $2);\n"
+    <> "INSERT INTO authors (name, bio)\n"
+    <> "VALUES (sqlode.arg(author_name), sqlode.narg(bio));\n"
 
   let db_dir = filepath.join(base_dir, "db")
   let schema_path = filepath.join(db_dir, "schema.sql")

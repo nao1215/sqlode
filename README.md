@@ -46,7 +46,7 @@ sqlode init
 gleam run -m sqlode -- init
 ```
 
-This creates `sqlode.yaml`:
+This creates `sqlode.yaml` along with stub files `db/schema.sql` and `db/query.sql`:
 
 ```yaml
 version: "2"
@@ -128,7 +128,7 @@ sqlode generates reusable record types for each table in the schema, plus per-qu
 ```gleam
 // Table record type (singularized) — reusable across queries
 pub type Author {
-  Author(id: Int, name: String, bio: Option(String))
+  Author(id: Int, name: String, bio: Option(String), created_at: String)
 }
 
 // Exact table match — alias instead of duplicate
