@@ -257,6 +257,8 @@ pub fn unrecognized_sql_type_returns_error_test() {
   let msg = schema_parser.error_to_string(error)
   string.contains(msg, "geo") |> should.be_true()
   string.contains(msg, "GEOMETRY") |> should.be_true()
+  string.contains(msg, "Hint:") |> should.be_true()
+  string.contains(msg, "Supported types:") |> should.be_true()
 }
 
 // --- ALTER TABLE ADD COLUMN tests ---

@@ -518,7 +518,7 @@ fn validate_unsupported_annotations(
         detail: command
           <> " is not yet supported. Use "
           <> alternative
-          <> " instead",
+          <> " instead, or add '-- sqlode:skip' before the annotation to bypass this query",
       ))
     }
     Error(_) -> Ok(Nil)

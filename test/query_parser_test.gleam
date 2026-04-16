@@ -287,6 +287,8 @@ pub fn invalid_annotation_format_test() {
     query_parser.parse_file("bad.sql", model.PostgreSQL, naming_ctx, content)
   let msg = query_parser.error_to_string(error)
   string.contains(msg, "expected") |> should.be_true()
+  string.contains(msg, ":one") |> should.be_true()
+  string.contains(msg, ":exec") |> should.be_true()
 }
 
 pub fn invalid_command_test() {
