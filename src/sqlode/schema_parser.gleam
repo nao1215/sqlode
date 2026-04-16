@@ -6,6 +6,7 @@ import gleam/string
 import sqlode/lexer
 import sqlode/model
 import sqlode/naming
+import sqlode/query_analyzer/token_utils
 
 pub type ParseError {
   InvalidCreateTable(detail: String)
@@ -227,20 +228,28 @@ fn parse_create_view_from_tokens(
           // Find FROM keyword at depth 0 to split SELECT columns from FROM clause
           let #(select_tokens, from_tokens) = split_at_from(after_select, 0, [])
 
-          // Extract table names from FROM clause
-          let source_tables = extract_view_source_tables(from_tokens)
+          // Extract table names from FROM clause (prepend "from" keyword
+          // because split_at_from already consumed it)
+          let source_tables =
+            token_utils.extract_table_names([
+              lexer.Keyword("from"),
+              ..from_tokens
+            ])
 
           case select_tokens {
-            [lexer.Star] ->
-              case source_tables {
-                [table_name, ..] ->
+            [lexer.Star] -> {
+              let columns =
+                list.flat_map(source_tables, fn(table_name) {
                   case list.find(tables, fn(t) { t.name == table_name }) {
-                    Ok(table) ->
-                      Some(model.Table(name: view_name, columns: table.columns))
-                    Error(_) -> None
+                    Ok(table) -> table.columns
+                    Error(_) -> []
                   }
+                })
+              case columns {
                 [] -> None
+                _ -> Some(model.Table(name: view_name, columns: columns))
               }
+            }
             _ -> {
               let view_cols = extract_view_columns(select_tokens)
               let columns =
@@ -318,17 +327,6 @@ fn split_at_from(
       split_at_from(rest, depth - 1, [lexer.RParen, ..acc])
     [lexer.Keyword("from"), ..rest] if depth == 0 -> #(list.reverse(acc), rest)
     [token, ..rest] -> split_at_from(rest, depth, [token, ..acc])
-  }
-}
-
-fn extract_view_source_tables(tokens: List(lexer.Token)) -> List(String) {
-  case tokens {
-    [lexer.Ident(_schema), lexer.Dot, lexer.Ident(name), ..] -> [
-      string.lowercase(name),
-    ]
-    [lexer.Ident(name), ..] -> [string.lowercase(name)]
-    [lexer.QuotedIdent(name), ..] -> [string.lowercase(name)]
-    _ -> []
   }
 }
 

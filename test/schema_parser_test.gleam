@@ -415,3 +415,54 @@ pub fn serial_types_are_implicitly_not_null_test() {
   // Plain INTEGER without NOT NULL should be nullable
   d.nullable |> should.equal(True)
 }
+
+pub fn view_with_join_extracts_all_source_tables_test() {
+  let content =
+    "CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);\n"
+    <> "CREATE TABLE orders (id BIGSERIAL PRIMARY KEY, user_id INTEGER NOT NULL, amount INTEGER NOT NULL);\n"
+    <> "CREATE VIEW user_orders AS SELECT u.name, o.amount FROM users u JOIN orders o ON u.id = o.user_id;\n"
+
+  let assert Ok(catalog) =
+    schema_parser.parse_files([#("join_view.sql", content)])
+
+  let assert Ok(view) =
+    list.find(catalog.tables, fn(tbl) { tbl.name == "user_orders" })
+  let col_names = list.map(view.columns, fn(c) { c.name })
+  col_names |> should.equal(["name", "amount"])
+
+  let assert Ok(name_col) = list.find(view.columns, fn(c) { c.name == "name" })
+  name_col.scalar_type |> should.equal(model.StringType)
+
+  let assert Ok(amount_col) =
+    list.find(view.columns, fn(c) { c.name == "amount" })
+  amount_col.scalar_type |> should.equal(model.IntType)
+}
+
+pub fn view_with_left_join_test() {
+  let content =
+    "CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);\n"
+    <> "CREATE TABLE profiles (id BIGSERIAL PRIMARY KEY, user_id INTEGER NOT NULL, bio TEXT);\n"
+    <> "CREATE VIEW user_profiles AS SELECT u.name, p.bio FROM users u LEFT JOIN profiles p ON u.id = p.user_id;\n"
+
+  let assert Ok(catalog) =
+    schema_parser.parse_files([#("left_join.sql", content)])
+
+  let assert Ok(view) =
+    list.find(catalog.tables, fn(tbl) { tbl.name == "user_profiles" })
+  let col_names = list.map(view.columns, fn(c) { c.name })
+  col_names |> should.equal(["name", "bio"])
+}
+
+pub fn view_star_with_join_test() {
+  let content =
+    "CREATE TABLE t1 (a INTEGER NOT NULL, b TEXT NOT NULL);\n"
+    <> "CREATE TABLE t2 (c INTEGER NOT NULL, d TEXT NOT NULL);\n"
+    <> "CREATE VIEW v AS SELECT * FROM t1 JOIN t2 ON t1.a = t2.c;\n"
+
+  let assert Ok(catalog) =
+    schema_parser.parse_files([#("star_join.sql", content)])
+
+  let assert Ok(view) = list.find(catalog.tables, fn(tbl) { tbl.name == "v" })
+  let col_names = list.map(view.columns, fn(c) { c.name })
+  col_names |> should.equal(["a", "b", "c", "d"])
+}
