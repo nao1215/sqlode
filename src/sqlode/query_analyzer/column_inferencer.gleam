@@ -6,7 +6,7 @@ import sqlode/lexer
 import sqlode/model
 import sqlode/query_analyzer/context.{
   type AnalysisError, type AnalyzerContext, ColumnNotFound,
-  CompoundColumnCountMismatch, TableNotFound,
+  CompoundColumnCountMismatch, TableNotFound, UnsupportedExpression,
 }
 import sqlode/query_analyzer/token_utils
 import sqlode/runtime
@@ -202,12 +202,14 @@ fn resolve_select_columns(
                   None ->
                     case extracted.expression_tokens {
                       Some(expr_tokens) -> {
-                        let #(scalar_type, nullable) =
+                        use #(scalar_type, nullable) <- result.try(
                           infer_expression_type_from_tokens(
                             expr_tokens,
                             catalog,
                             all_tables,
-                          )
+                            query_name,
+                          ),
+                        )
                         Ok([
                           model.ResultColumn(
                             name: normalized_name,
@@ -246,12 +248,14 @@ fn resolve_select_columns(
                   None ->
                     case extracted.expression_tokens {
                       Some(expr_tokens) -> {
-                        let #(scalar_type, nullable) =
+                        use #(scalar_type, nullable) <- result.try(
                           infer_expression_type_from_tokens(
                             expr_tokens,
                             catalog,
                             all_tables,
-                          )
+                            query_name,
+                          ),
+                        )
                         Ok([
                           model.ResultColumn(
                             name: normalized_name,
@@ -278,97 +282,362 @@ fn resolve_select_columns(
 }
 
 // ============================================================
-// Token-based expression type inference (#342)
+// Token-based expression type inference (#342, #298)
 // ============================================================
 
 fn infer_expression_type_from_tokens(
   tokens: List(lexer.Token),
   catalog: model.Catalog,
   table_names: List(String),
-) -> #(model.ScalarType, Bool) {
+  query_name: String,
+) -> Result(#(model.ScalarType, Bool), AnalysisError) {
   case tokens {
-    // count(...) -> IntType, not nullable
-    [lexer.Keyword("count"), lexer.LParen, ..] -> #(model.IntType, False)
+    // --- Aggregate functions ---
+    [lexer.Keyword("count"), lexer.LParen, ..] -> Ok(#(model.IntType, False))
 
-    // sum(...) -> inner type, nullable
     [lexer.Keyword("sum"), lexer.LParen, ..rest] -> {
       let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
       let first_arg = tok_first_comma_group(inner_tokens)
-      let inner_type =
-        resolve_column_type_from_tokens(first_arg, catalog, table_names)
-      case inner_type {
-        Some(t) -> #(t, True)
-        None -> #(model.IntType, True)
+      case resolve_column_type_from_tokens(first_arg, catalog, table_names) {
+        Some(t) -> Ok(#(t, True))
+        None -> Ok(#(model.IntType, True))
       }
     }
 
-    // avg(...) -> FloatType, nullable
-    [lexer.Keyword("avg"), lexer.LParen, ..] -> #(model.FloatType, True)
+    [lexer.Keyword("avg"), lexer.LParen, ..] -> Ok(#(model.FloatType, True))
 
-    // min/max(...) -> inner type, nullable
     [lexer.Keyword(kw), lexer.LParen, ..rest] if kw == "min" || kw == "max" -> {
       let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
       let first_arg = tok_first_comma_group(inner_tokens)
-      let inner_type =
-        resolve_column_type_from_tokens(first_arg, catalog, table_names)
-      case inner_type {
-        Some(t) -> #(t, True)
-        None -> #(model.IntType, True)
+      case resolve_column_type_from_tokens(first_arg, catalog, table_names) {
+        Some(t) -> Ok(#(t, True))
+        None -> Ok(#(model.IntType, True))
       }
     }
 
-    // row_number(), rank(), dense_rank() -> IntType
+    // --- Window functions ---
     [lexer.Keyword(kw), lexer.LParen, ..]
       if kw == "row_number" || kw == "rank" || kw == "dense_rank"
-    -> #(model.IntType, False)
+    -> Ok(#(model.IntType, False))
 
-    // coalesce(...) -> first arg type, not nullable
+    // --- Null-handling functions ---
     [lexer.Keyword("coalesce"), lexer.LParen, ..rest] -> {
       let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
       let first_arg = tok_first_comma_group(inner_tokens)
       case resolve_column_type_from_tokens(first_arg, catalog, table_names) {
-        Some(t) -> #(t, False)
-        None -> #(model.StringType, False)
+        Some(t) -> Ok(#(t, False))
+        None -> Ok(#(model.StringType, False))
       }
     }
 
-    // cast(expr AS type) -> parsed type, nullable
+    // greatest/least(...) → same type as first arg, nullable
+    [lexer.Keyword(kw), lexer.LParen, ..rest]
+      if kw == "greatest" || kw == "least"
+    -> {
+      let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
+      let first_arg = tok_first_comma_group(inner_tokens)
+      case resolve_column_type_from_tokens(first_arg, catalog, table_names) {
+        Some(t) -> Ok(#(t, True))
+        None -> Ok(#(model.StringType, True))
+      }
+    }
+
+    // --- Type conversion ---
     [lexer.Keyword("cast"), lexer.LParen, ..rest] -> {
       let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
       case tok_find_as_type(inner_tokens) {
         Some(type_name) ->
           case model.parse_sql_type(type_name) {
-            Ok(scalar_type) -> #(scalar_type, True)
-            Error(_) -> #(model.StringType, True)
+            Ok(scalar_type) -> Ok(#(scalar_type, True))
+            Error(_) -> Ok(#(model.StringType, True))
           }
-        None -> #(model.StringType, True)
+        None -> Ok(#(model.StringType, True))
       }
     }
 
-    // CASE WHEN ... THEN value ... -> examine first THEN branch
+    // --- Boolean-producing patterns ---
+    [lexer.Keyword("exists"), lexer.LParen, ..] -> Ok(#(model.BoolType, False))
+
+    [lexer.Keyword("not"), ..rest] ->
+      infer_expression_type_from_tokens(rest, catalog, table_names, query_name)
+
+    // --- CASE ---
     [lexer.Keyword("case"), ..rest] ->
-      infer_case_type_from_tokens(rest, catalog, table_names)
+      infer_case_type_from_tokens(rest, catalog, table_names, query_name)
 
-    // String literal
-    [lexer.StringLit(_)] -> #(model.StringType, False)
+    // --- Function calls via Keyword that are also function names ---
+    [lexer.Keyword("replace"), lexer.LParen, ..] ->
+      Ok(#(model.StringType, False))
 
-    // Number literal
+    // --- Function calls via Ident (SQL functions not in keyword list) ---
+    [lexer.Ident(fn_name), lexer.LParen, ..rest] -> {
+      let lowered = string.lowercase(fn_name)
+      case classify_function(lowered) {
+        FnString -> Ok(#(model.StringType, False))
+        FnLength -> Ok(#(model.IntType, False))
+        FnMath -> {
+          let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
+          let first_arg = tok_first_comma_group(inner_tokens)
+          case
+            resolve_column_type_from_tokens(first_arg, catalog, table_names)
+          {
+            Some(t) -> Ok(#(t, False))
+            None -> Ok(#(model.FloatType, False))
+          }
+        }
+        FnDatetime -> Ok(#(infer_datetime_return_type(lowered), False))
+        FnNullif -> {
+          let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
+          let first_arg = tok_first_comma_group(inner_tokens)
+          case
+            resolve_column_type_from_tokens(first_arg, catalog, table_names)
+          {
+            Some(t) -> Ok(#(t, True))
+            None -> Ok(#(model.StringType, True))
+          }
+        }
+        FnUnknown ->
+          // Unknown function call — fall through to scan-based inference
+          infer_by_scanning(tokens, query_name)
+      }
+    }
+
+    // --- Bare date/time identifiers (no parens) ---
+    [lexer.Ident(fn_name)] -> {
+      let lowered = string.lowercase(fn_name)
+      case is_datetime_identifier(lowered) {
+        True -> Ok(#(infer_datetime_return_type(lowered), False))
+        False ->
+          Error(UnsupportedExpression(
+            query_name:,
+            expression: tok_tokens_to_text(tokens),
+          ))
+      }
+    }
+
+    // --- Literals ---
+    [lexer.StringLit(_)] -> Ok(#(model.StringType, False))
+
     [lexer.NumberLit(n)] ->
       case string.contains(n, ".") {
-        True -> #(model.FloatType, False)
-        False -> #(model.IntType, False)
+        True -> Ok(#(model.FloatType, False))
+        False -> Ok(#(model.IntType, False))
       }
 
-    // Boolean keywords
-    [lexer.Keyword("true")] | [lexer.Keyword("false")] -> #(
-      model.BoolType,
-      False,
-    )
+    [lexer.Keyword("true")] | [lexer.Keyword("false")] ->
+      Ok(#(model.BoolType, False))
 
-    // Fallback: StringType, nullable
-    _ -> #(model.StringType, True)
+    [lexer.Keyword("null")] -> Ok(#(model.StringType, True))
+
+    // --- Scan-based inference for compound expressions ---
+    _ -> infer_by_scanning(tokens, query_name)
   }
 }
+
+// ============================================================
+// Function classification helpers
+// ============================================================
+
+type FunctionClass {
+  FnString
+  FnLength
+  FnMath
+  FnDatetime
+  FnNullif
+  FnUnknown
+}
+
+fn classify_function(lowered_name: String) -> FunctionClass {
+  case lowered_name {
+    "lower"
+    | "upper"
+    | "trim"
+    | "ltrim"
+    | "rtrim"
+    | "substr"
+    | "substring"
+    | "concat"
+    | "reverse"
+    | "lpad"
+    | "rpad"
+    | "left"
+    | "right"
+    | "repeat"
+    | "initcap"
+    | "translate"
+    | "to_char"
+    | "format"
+    | "quote_literal"
+    | "quote_ident"
+    | "md5"
+    | "encode"
+    | "decode" -> FnString
+    "length"
+    | "char_length"
+    | "character_length"
+    | "octet_length"
+    | "bit_length"
+    | "position"
+    | "strpos"
+    | "ascii" -> FnLength
+    "abs"
+    | "round"
+    | "floor"
+    | "ceil"
+    | "ceiling"
+    | "mod"
+    | "power"
+    | "sqrt"
+    | "sign"
+    | "trunc"
+    | "log"
+    | "ln"
+    | "exp"
+    | "random"
+    | "pi"
+    | "degrees"
+    | "radians"
+    | "div" -> FnMath
+    "now"
+    | "current_timestamp"
+    | "current_date"
+    | "current_time"
+    | "date"
+    | "time"
+    | "timestamp"
+    | "date_trunc"
+    | "date_part"
+    | "extract"
+    | "age"
+    | "make_date"
+    | "make_time"
+    | "make_timestamp"
+    | "to_timestamp"
+    | "to_date"
+    | "clock_timestamp"
+    | "statement_timestamp"
+    | "timeofday"
+    | "localtime"
+    | "localtimestamp" -> FnDatetime
+    "nullif" | "ifnull" | "nvl" -> FnNullif
+    _ -> FnUnknown
+  }
+}
+
+fn is_datetime_identifier(lowered: String) -> Bool {
+  case lowered {
+    "now"
+    | "current_timestamp"
+    | "current_date"
+    | "current_time"
+    | "localtime"
+    | "localtimestamp" -> True
+    _ -> False
+  }
+}
+
+fn infer_datetime_return_type(lowered: String) -> model.ScalarType {
+  case lowered {
+    "current_date" | "date" | "make_date" | "to_date" -> model.DateType
+    "current_time" | "time" | "make_time" | "localtime" -> model.TimeType
+    "date_part" | "extract" -> model.FloatType
+    "to_char" -> model.StringType
+    _ -> model.DateTimeType
+  }
+}
+
+// ============================================================
+// Scan-based inference for compound expressions
+// ============================================================
+
+type TopLevelPattern {
+  PatBool
+  PatConcat
+  PatArithmetic
+  PatNone
+}
+
+fn infer_by_scanning(
+  tokens: List(lexer.Token),
+  query_name: String,
+) -> Result(#(model.ScalarType, Bool), AnalysisError) {
+  case find_top_level_pattern(tokens) {
+    PatBool -> Ok(#(model.BoolType, False))
+    PatConcat -> Ok(#(model.StringType, False))
+    PatArithmetic -> Ok(#(model.IntType, False))
+    PatNone ->
+      Error(UnsupportedExpression(
+        query_name:,
+        expression: tok_tokens_to_text(tokens),
+      ))
+  }
+}
+
+fn find_top_level_pattern(tokens: List(lexer.Token)) -> TopLevelPattern {
+  find_pattern_loop(tokens, 0, PatNone)
+}
+
+fn find_pattern_loop(
+  tokens: List(lexer.Token),
+  depth: Int,
+  found: TopLevelPattern,
+) -> TopLevelPattern {
+  case tokens {
+    [] -> found
+    [lexer.LParen, ..rest] -> find_pattern_loop(rest, depth + 1, found)
+    [lexer.RParen, ..rest] -> find_pattern_loop(rest, depth - 1, found)
+    [token, ..rest] if depth == 0 -> {
+      case classify_top_level_token(token) {
+        PatBool -> PatBool
+        PatConcat ->
+          find_pattern_loop(rest, depth, case found {
+            PatNone -> PatConcat
+            _ -> found
+          })
+        PatArithmetic ->
+          find_pattern_loop(rest, depth, case found {
+            PatNone -> PatArithmetic
+            _ -> found
+          })
+        PatNone -> find_pattern_loop(rest, depth, found)
+      }
+    }
+    [_, ..rest] -> find_pattern_loop(rest, depth, found)
+  }
+}
+
+fn classify_top_level_token(token: lexer.Token) -> TopLevelPattern {
+  case token {
+    lexer.Operator(op)
+      if op == "="
+      || op == "!="
+      || op == "<>"
+      || op == "<"
+      || op == ">"
+      || op == "<="
+      || op == ">="
+    -> PatBool
+    lexer.Keyword(kw)
+      if kw == "and"
+      || kw == "or"
+      || kw == "between"
+      || kw == "in"
+      || kw == "like"
+      || kw == "ilike"
+      || kw == "is"
+      || kw == "not"
+      || kw == "exists"
+    -> PatBool
+    lexer.Operator("||") -> PatConcat
+    lexer.Operator(op) if op == "+" || op == "-" || op == "*" || op == "/" ->
+      PatArithmetic
+    _ -> PatNone
+  }
+}
+
+// ============================================================
+// Expression helpers
+// ============================================================
 
 /// Get the first comma-separated group of tokens (top-level only).
 fn tok_first_comma_group(tokens: List(lexer.Token)) -> List(lexer.Token) {
@@ -407,18 +676,23 @@ fn infer_case_type_from_tokens(
   tokens: List(lexer.Token),
   catalog: model.Catalog,
   table_names: List(String),
-) -> #(model.ScalarType, Bool) {
+  query_name: String,
+) -> Result(#(model.ScalarType, Bool), AnalysisError) {
   case tok_collect_then_value(tokens) {
     Some(then_tokens) ->
       case then_tokens {
-        [] -> #(model.StringType, True)
+        [] -> Ok(#(model.StringType, True))
         _ -> {
-          let #(scalar_type, _) =
-            infer_expression_type_from_tokens(then_tokens, catalog, table_names)
-          #(scalar_type, True)
+          use #(scalar_type, _) <- result.try(infer_expression_type_from_tokens(
+            then_tokens,
+            catalog,
+            table_names,
+            query_name,
+          ))
+          Ok(#(scalar_type, True))
         }
       }
-    None -> #(model.StringType, True)
+    None -> Ok(#(model.StringType, True))
   }
 }
 

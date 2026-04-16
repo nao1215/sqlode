@@ -15,6 +15,7 @@ pub type AnalysisError {
     first_count: Int,
     branch_count: Int,
   )
+  UnsupportedExpression(query_name: String, expression: String)
 }
 
 pub fn analysis_error_to_string(error: AnalysisError) -> String {
@@ -55,6 +56,12 @@ pub fn analysis_error_to_string(error: AnalysisError) -> String {
       <> int.to_string(branch_count)
       <> " columns, but the first branch has "
       <> int.to_string(first_count)
+    UnsupportedExpression(query_name:, expression:) ->
+      "Query \""
+      <> query_name
+      <> "\": unsupported expression \""
+      <> expression
+      <> "\", cannot infer result type. Use CAST to specify the type explicitly"
   }
 }
 
