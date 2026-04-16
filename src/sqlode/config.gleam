@@ -335,7 +335,8 @@ fn check_unknown_keys(
         fields ->
           Error(UnsupportedFields(
             fields:,
-            message: "these sqlc options are not supported by sqlode; please remove them from your config",
+            message: "these sqlc options are not supported by sqlode; please remove them. Valid keys: "
+              <> string.join(known_keys, ", "),
           ))
       }
     }

@@ -68,6 +68,7 @@ pub fn reject_unsupported_root_field_test() {
   let msg = config.error_to_string(error)
   string.contains(msg, "database") |> should.be_true()
   string.contains(msg, "Unsupported") |> should.be_true()
+  string.contains(msg, "Valid keys: version, sql") |> should.be_true()
 }
 
 pub fn reject_unsupported_sql_block_field_test() {

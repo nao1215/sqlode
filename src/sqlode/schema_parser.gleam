@@ -750,7 +750,13 @@ fn take_type_tokens(tokens: List(String), acc: List(String)) -> List(String) {
 
 fn infer_scalar_type(type_text: String) -> Result(model.ScalarType, String) {
   model.parse_sql_type(type_text)
-  |> result.replace_error("unrecognized SQL type \"" <> type_text <> "\"")
+  |> result.replace_error(
+    "unrecognized SQL type \""
+    <> type_text
+    <> "\". Supported types: int, serial, float, numeric, bool, text, char, bytea,"
+    <> " uuid, json, jsonb, timestamp, datetime, date, time, interval."
+    <> " Hint: add a type override in sqlode.yaml under overrides.db_type",
+  )
 }
 
 fn is_table_constraint(token: String) -> Bool {

@@ -265,7 +265,7 @@ fn parse_annotation(
           Error(InvalidAnnotation(
             path:,
             line: line_number,
-            detail: "expected '-- name: <Name> <command>'",
+            detail: "expected '-- name: <Name> <command>' where command is one of: :one, :many, :exec, :execresult, :execrows, :execlastid",
           ))
       }
     }
