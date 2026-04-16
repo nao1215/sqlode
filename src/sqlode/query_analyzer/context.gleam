@@ -77,11 +77,11 @@ pub type AnalyzerContext {
 pub fn new(naming_ctx: naming.NamingContext) -> AnalyzerContext {
   let assert Ok(insert_re) =
     regexp.from_string(
-      "insert\\s+into\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(([^)]*)\\)\\s*values\\s*\\(([^)]*)\\)",
+      "insert\\s+into\\s+(`[^`]+`|[a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(([^)]*)\\)\\s*values\\s*\\(([^)]*)\\)",
     )
   let assert Ok(equality_re) =
     regexp.from_string(
-      "([a-zA-Z_][a-zA-Z0-9_.]*)\\s*(?:<=|>=|!=|<>|=|<|>|\\blike\\b|\\bilike\\b)\\s*(\\$[0-9]+|\\?|:[A-Za-z_][A-Za-z0-9_]*|@[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*)",
+      "(`[^`]+`|[a-zA-Z_][a-zA-Z0-9_.]*)\\s*(?:<=|>=|!=|<>|=|<|>|\\blike\\b|\\bilike\\b)\\s*(\\$[0-9]+|\\?|:[A-Za-z_][A-Za-z0-9_]*|@[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*)",
     )
   let assert Ok(postgresql_placeholder_re) = regexp.from_string("(\\$[0-9]+)")
   let assert Ok(mysql_placeholder_re) = regexp.from_string("(\\?)")
@@ -96,7 +96,7 @@ pub fn new(naming_ctx: naming.NamingContext) -> AnalyzerContext {
     regexp.from_string("(\\$[0-9]+)::[a-zA-Z_][a-zA-Z0-9_]*")
   let assert Ok(in_clause_re) =
     regexp.from_string(
-      "([a-zA-Z_][a-zA-Z0-9_.]*)\\s+in\\s*\\(\\s*(\\$[0-9]+|\\?[0-9]*|:[A-Za-z_][A-Za-z0-9_]*|@[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*)\\s*\\)",
+      "(`[^`]+`|[a-zA-Z_][a-zA-Z0-9_.]*)\\s+in\\s*\\(\\s*(\\$[0-9]+|\\?[0-9]*|:[A-Za-z_][A-Za-z0-9_]*|@[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*)\\s*\\)",
     )
 
   AnalyzerContext(
