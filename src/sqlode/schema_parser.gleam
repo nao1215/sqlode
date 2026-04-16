@@ -6,6 +6,7 @@ import gleam/string
 import sqlode/lexer
 import sqlode/model
 import sqlode/naming
+import sqlode/query_analyzer/context
 
 pub type ParseError {
   InvalidCreateTable(detail: String)
@@ -343,9 +344,7 @@ fn parse_columns(
   enums: List(model.EnumDef),
 ) -> Result(List(model.Column), ParseError) {
   body
-  |> split_top_level_commas
-  |> list.map(string.trim)
-  |> list.filter(fn(entry) { entry != "" })
+  |> context.split_csv
   |> list.try_fold([], fn(columns, entry) {
     use maybe_column <- result.try(parse_column(table_name, entry, enums))
     Ok(case maybe_column {
@@ -411,73 +410,6 @@ fn parse_column(
       }
     }
   }
-}
-
-fn split_top_level_commas(input: String) -> List(String) {
-  split_top_level_commas_loop(input, 0, [], [])
-}
-
-fn split_top_level_commas_loop(
-  remaining: String,
-  depth: Int,
-  current_rev: List(String),
-  acc: List(String),
-) -> List(String) {
-  case string.pop_grapheme(remaining) {
-    Error(_) -> {
-      let current = flush_current(current_rev)
-      case current == "" {
-        True -> list.reverse(acc)
-        False -> list.reverse([current, ..acc])
-      }
-    }
-    Ok(#(grapheme, rest)) ->
-      case grapheme {
-        "(" ->
-          split_top_level_commas_loop(
-            rest,
-            depth + 1,
-            [grapheme, ..current_rev],
-            acc,
-          )
-        ")" ->
-          split_top_level_commas_loop(
-            rest,
-            depth - 1,
-            [grapheme, ..current_rev],
-            acc,
-          )
-        "," ->
-          case depth == 0 {
-            True ->
-              split_top_level_commas_loop(rest, depth, [], [
-                flush_current(current_rev),
-                ..acc
-              ])
-            False ->
-              split_top_level_commas_loop(
-                rest,
-                depth,
-                [grapheme, ..current_rev],
-                acc,
-              )
-          }
-        _ ->
-          split_top_level_commas_loop(
-            rest,
-            depth,
-            [grapheme, ..current_rev],
-            acc,
-          )
-      }
-  }
-}
-
-fn flush_current(current_rev: List(String)) -> String {
-  current_rev
-  |> list.reverse
-  |> string.concat
-  |> string.trim
 }
 
 fn take_type_tokens(tokens: List(String), acc: List(String)) -> List(String) {
