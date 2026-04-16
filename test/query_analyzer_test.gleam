@@ -1,5 +1,5 @@
 import gleam/list
-import gleam/option.{Some}
+import gleam/option.{None, Some}
 import gleam/string
 import gleeunit
 import gleeunit/should
@@ -427,6 +427,41 @@ pub fn returning_clause_result_columns_test() {
       source_table: Some("authors"),
     ),
   ])
+}
+
+pub fn returning_clause_with_function_expression_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: CreateAuthorCoalesce :one\nINSERT INTO authors (name, bio) VALUES ($1, $2) RETURNING id, COALESCE(bio, name) AS display;"
+  let assert Ok(queries) =
+    query_parser.parse_file("ret_fn.sql", model.PostgreSQL, naming_ctx, sql)
+
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+
+  let assert [id_col, display_col] = query.result_columns
+  id_col
+  |> should.equal(model.ResultColumn(
+    name: "id",
+    scalar_type: model.IntType,
+    nullable: False,
+    source_table: Some("authors"),
+  ))
+  // COALESCE(bio, name) should resolve to StringType
+  display_col
+  |> should.equal(model.ResultColumn(
+    name: "display",
+    scalar_type: model.StringType,
+    nullable: False,
+    source_table: None,
+  ))
 }
 
 pub fn cte_select_from_real_table_test() {
