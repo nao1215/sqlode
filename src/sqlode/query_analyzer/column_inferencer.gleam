@@ -343,7 +343,25 @@ fn infer_expression_type_from_tokens(
             None -> Ok(#(model.IntType, True))
           }
         }
-        FnWindow -> Ok(#(model.IntType, False))
+        FnWindowInt -> Ok(#(model.IntType, False))
+        FnWindowFloat -> Ok(#(model.FloatType, False))
+        FnWindowFirstArg -> {
+          let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
+          let first_arg = tok_first_comma_group(inner_tokens)
+          case
+            resolve_column_type_from_tokens(first_arg, catalog, table_names)
+          {
+            Some(t) -> Ok(#(t, True))
+            None ->
+              infer_expression_type_from_tokens(
+                first_arg,
+                catalog,
+                table_names,
+                query_name,
+              )
+              |> result.map(fn(pair) { #(pair.0, True) })
+          }
+        }
         FnCoalesce -> {
           let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
           let first_arg = tok_first_comma_group(inner_tokens)
@@ -458,7 +476,9 @@ type FunctionClass {
   FnCount
   FnAggregateInner
   FnAvg
-  FnWindow
+  FnWindowInt
+  FnWindowFloat
+  FnWindowFirstArg
   FnCoalesce
   FnGreatestLeast
   FnString
@@ -474,15 +494,10 @@ fn classify_function(lowered_name: String) -> FunctionClass {
     "count" -> FnCount
     "sum" | "min" | "max" -> FnAggregateInner
     "avg" -> FnAvg
-    "row_number"
-    | "rank"
-    | "dense_rank"
-    | "ntile"
-    | "lag"
-    | "lead"
-    | "first_value"
-    | "last_value"
-    | "nth_value" -> FnWindow
+    "row_number" | "rank" | "dense_rank" | "ntile" -> FnWindowInt
+    "percent_rank" | "cume_dist" -> FnWindowFloat
+    "lag" | "lead" | "first_value" | "last_value" | "nth_value" ->
+      FnWindowFirstArg
     "coalesce" -> FnCoalesce
     "greatest" | "least" -> FnGreatestLeast
     "replace"
