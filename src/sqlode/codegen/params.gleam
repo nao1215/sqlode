@@ -266,92 +266,18 @@ fn param_accessors_flattened(
 ) -> List(String) {
   params
   |> list.map(fn(param) {
-    let value_expr = "params." <> param.field_name
-    let runtime_fn = model.scalar_type_to_runtime_function(param.scalar_type)
-    let unwrap = strong_unwrap_expr(param.scalar_type, type_mapping)
-
     case param.is_list {
-      True ->
-        case param.scalar_type {
-          model.EnumType(name) -> {
-            let to_str = "models." <> model.enum_to_string_fn(name)
-            "list.map("
-            <> value_expr
-            <> ", fn(v) { "
-            <> runtime_fn
-            <> "("
-            <> to_str
-            <> "(v)) })"
-          }
-          _ ->
-            case unwrap {
-              option.None ->
-                "list.map(" <> value_expr <> ", " <> runtime_fn <> ")"
-              option.Some(fn_name) ->
-                "list.map("
-                <> value_expr
-                <> ", fn(v) { "
-                <> runtime_fn
-                <> "("
-                <> fn_name
-                <> "(v)) })"
-            }
-        }
-      False ->
-        case param.scalar_type {
-          model.EnumType(name) -> {
-            let to_str = "models." <> model.enum_to_string_fn(name)
-            case param.nullable {
-              True -> {
-                let encode_fn =
-                  "fn(v) { " <> runtime_fn <> "(" <> to_str <> "(v)) }"
-                "[runtime.nullable(" <> value_expr <> ", " <> encode_fn <> ")]"
-              }
-              False ->
-                "[" <> runtime_fn <> "(" <> to_str <> "(" <> value_expr <> "))]"
-            }
-          }
-          model.ArrayType(element) -> {
-            let mapper = render_array_element_mapper(element, type_mapping)
-            case param.nullable {
-              True ->
-                "[runtime.nullable("
-                <> value_expr
-                <> ", fn(v) { runtime.array(list.map(v, "
-                <> mapper
-                <> ")) })]"
-              False ->
-                "[runtime.array(list.map("
-                <> value_expr
-                <> ", "
-                <> mapper
-                <> "))]"
-            }
-          }
-          _ ->
-            case param.nullable {
-              True -> {
-                let encode_fn = case unwrap {
-                  option.None -> runtime_fn
-                  option.Some(fn_name) ->
-                    "fn(v) { " <> runtime_fn <> "(" <> fn_name <> "(v)) }"
-                }
-                "[runtime.nullable(" <> value_expr <> ", " <> encode_fn <> ")]"
-              }
-              False ->
-                case unwrap {
-                  option.None -> "[" <> runtime_fn <> "(" <> value_expr <> ")]"
-                  option.Some(fn_name) ->
-                    "["
-                    <> runtime_fn
-                    <> "("
-                    <> fn_name
-                    <> "("
-                    <> value_expr
-                    <> "))]"
-                }
-            }
-        }
+      True -> render_list_param_mapper(param, type_mapping)
+      False -> "[" <> render_param_value(param, type_mapping) <> "]"
     }
   })
+}
+
+fn render_list_param_mapper(
+  param: model.QueryParam,
+  type_mapping: model.TypeMapping,
+) -> String {
+  let value_expr = "params." <> param.field_name
+  let mapper = render_array_element_mapper(param.scalar_type, type_mapping)
+  "list.map(" <> value_expr <> ", " <> mapper <> ")"
 }
