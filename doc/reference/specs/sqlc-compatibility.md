@@ -56,7 +56,7 @@ sql:
 | `database` | Not implemented (live DB analysis) |
 | `analyzer` | Not implemented |
 
-These options are **rejected** with an error if present in the config file. sqlode prefers early errors over silently ignoring unsupported configuration. Remove these fields from your config to proceed.
+These options are rejected with an error if present in the config file. sqlode prefers early errors over silently ignoring unsupported configuration, so remove them from your config to proceed.
 
 ## Query annotations
 
@@ -100,14 +100,13 @@ Batch annotations and `:copyfrom` are also implemented:
 
 ### Compatibility notes
 
-- `sqlc.arg` and `sqlc.narg` are expanded by the query parser into
-  engine-appropriate placeholders (`$N` for PostgreSQL, `?` for MySQL,
-  `?N` for SQLite).
+- `sqlc.arg` and `sqlc.narg` are expanded into engine-appropriate
+  placeholders (`$N` for PostgreSQL, `?` for MySQL, `?N` for SQLite).
 - `sqlc.embed` flattens all columns from the embedded table into the
-  result type. **Note:** This differs from sqlc's Go behavior which
-  produces nested structs. Gleam does not have implicit struct embedding.
+  result type. This differs from sqlc's Go behavior, which produces
+  nested structs; Gleam has no implicit struct embedding.
 - `sqlc.slice` generates a `List(T)` parameter type.
-- `@name` shorthand is supported on PostgreSQL and SQLite (not MySQL).
+- The `@name` shorthand works on PostgreSQL and SQLite but not MySQL.
 
 ## Type mapping
 
