@@ -1,4 +1,3 @@
-import gleam/io
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
@@ -13,8 +12,16 @@ pub type ParseError {
   InvalidColumn(table: String, detail: String)
 }
 
+pub type SchemaWarning {
+  UnresolvableViewColumn(column: String)
+}
+
 type ParsedSchema {
-  ParsedSchema(tables: List(model.Table), enums: List(model.EnumDef))
+  ParsedSchema(
+    tables: List(model.Table),
+    enums: List(model.EnumDef),
+    warnings: List(SchemaWarning),
+  )
 }
 
 type ViewColumn {
@@ -23,25 +30,32 @@ type ViewColumn {
 
 pub fn parse_files(
   entries: List(#(String, String)),
-) -> Result(model.Catalog, ParseError) {
+) -> Result(#(model.Catalog, List(SchemaWarning)), ParseError) {
   parse_files_with_engine(entries, model.PostgreSQL)
 }
 
 pub fn parse_files_with_engine(
   entries: List(#(String, String)),
   engine: model.Engine,
-) -> Result(model.Catalog, ParseError) {
+) -> Result(#(model.Catalog, List(SchemaWarning)), ParseError) {
   entries
-  |> list.try_fold(ParsedSchema(tables: [], enums: []), fn(acc, entry) {
-    let #(_path, content) = entry
-    use parsed <- result.try(parse_content(content, acc.enums, engine))
-    Ok(ParsedSchema(
-      tables: list.append(acc.tables, parsed.tables),
-      enums: list.append(acc.enums, parsed.enums),
-    ))
-  })
+  |> list.try_fold(
+    ParsedSchema(tables: [], enums: [], warnings: []),
+    fn(acc, entry) {
+      let #(_path, content) = entry
+      use parsed <- result.try(parse_content(content, acc.enums, engine))
+      Ok(ParsedSchema(
+        tables: list.append(acc.tables, parsed.tables),
+        enums: list.append(acc.enums, parsed.enums),
+        warnings: list.append(acc.warnings, parsed.warnings),
+      ))
+    },
+  )
   |> result.map(fn(schema) {
-    model.Catalog(tables: schema.tables, enums: schema.enums)
+    #(
+      model.Catalog(tables: schema.tables, enums: schema.enums),
+      schema.warnings,
+    )
   })
 }
 
@@ -64,38 +78,47 @@ fn parse_content(
 
   let all_enums = list.append(known_enums, enums)
 
-  use tables <- result.try(
+  use #(tables, warnings) <- result.try(
     statements
-    |> list.try_fold([], fn(tables, stmt_tokens) {
+    |> list.try_fold(#([], []), fn(acc, stmt_tokens) {
+      let #(tables, warnings) = acc
       case is_create_view_tokens(stmt_tokens) {
         True -> {
-          let maybe_table =
+          let #(maybe_table, view_warnings) =
             parse_create_view_from_tokens(stmt_tokens, list.reverse(tables))
+          let new_warnings = list.append(warnings, view_warnings)
           Ok(case maybe_table {
-            Some(table) -> [table, ..tables]
-            None -> tables
+            Some(table) -> #([table, ..tables], new_warnings)
+            None -> #(tables, new_warnings)
           })
         }
         False ->
           case is_alter_table_add_column_tokens(stmt_tokens) {
-            True -> apply_alter_table_add_column(stmt_tokens, all_enums, tables)
+            True -> {
+              use new_tables <- result.try(apply_alter_table_add_column(
+                stmt_tokens,
+                all_enums,
+                tables,
+              ))
+              Ok(#(new_tables, warnings))
+            }
             False -> {
               use maybe_table <- result.try(parse_statement_tokens(
                 stmt_tokens,
                 all_enums,
               ))
               Ok(case maybe_table {
-                Some(table) -> [table, ..tables]
-                None -> tables
+                Some(table) -> #([table, ..tables], warnings)
+                None -> #(tables, warnings)
               })
             }
           }
       }
     })
-    |> result.map(list.reverse),
+    |> result.map(fn(pair) { #(list.reverse(pair.0), pair.1) }),
   )
 
-  Ok(ParsedSchema(tables:, enums:))
+  Ok(ParsedSchema(tables:, enums:, warnings:))
 }
 
 // --- Lexer-based helpers ---
@@ -191,36 +214,47 @@ fn is_create_view_tokens(tokens: List(lexer.Token)) -> Bool {
 fn parse_create_view_from_tokens(
   tokens: List(lexer.Token),
   tables: List(model.Table),
-) -> Option(model.Table) {
-  use #(view_name, after_name) <- extract_view_name(tokens)
-  let after_as = skip_to_keyword(after_name, "as")
-  use after_select <- extract_after_select(after_as)
+) -> #(Option(model.Table), List(SchemaWarning)) {
+  case extract_view_name_result(tokens) {
+    None -> #(None, [])
+    Some(#(view_name, after_name)) -> {
+      let after_as = skip_to_keyword(after_name, "as")
+      case extract_after_select_result(after_as) {
+        None -> #(None, [])
+        Some(after_select) -> {
+          let #(select_tokens, from_tokens) = split_at_from(after_select, 0, [])
+          let source_tables =
+            token_utils.extract_table_names([
+              lexer.Keyword("from"),
+              ..from_tokens
+            ])
 
-  let #(select_tokens, from_tokens) = split_at_from(after_select, 0, [])
-  let source_tables =
-    token_utils.extract_table_names([lexer.Keyword("from"), ..from_tokens])
+          let #(columns, warnings) = case select_tokens {
+            [lexer.Star] -> #(
+              list.flat_map(source_tables, fn(table_name) {
+                case list.find(tables, fn(t) { t.name == table_name }) {
+                  Ok(table) -> table.columns
+                  Error(_) -> []
+                }
+              }),
+              [],
+            )
+            _ -> resolve_view_columns(select_tokens, tables)
+          }
 
-  let columns = case select_tokens {
-    [lexer.Star] ->
-      list.flat_map(source_tables, fn(table_name) {
-        case list.find(tables, fn(t) { t.name == table_name }) {
-          Ok(table) -> table.columns
-          Error(_) -> []
+          case columns {
+            [] -> #(None, warnings)
+            _ -> #(Some(model.Table(name: view_name, columns:)), warnings)
+          }
         }
-      })
-    _ -> resolve_view_columns(select_tokens, tables)
-  }
-
-  case columns {
-    [] -> None
-    _ -> Some(model.Table(name: view_name, columns:))
+      }
+    }
   }
 }
 
-fn extract_view_name(
+fn extract_view_name_result(
   tokens: List(lexer.Token),
-  cont: fn(#(String, List(lexer.Token))) -> Option(model.Table),
-) -> Option(model.Table) {
+) -> Option(#(String, List(lexer.Token))) {
   let remaining = case tokens {
     [
       lexer.Keyword("create"),
@@ -233,21 +267,20 @@ fn extract_view_name(
     _ -> []
   }
   case remaining {
-    [lexer.Ident(n), ..rest] -> cont(#(string.lowercase(n), rest))
-    [lexer.QuotedIdent(n), ..rest] -> cont(#(string.lowercase(n), rest))
+    [lexer.Ident(n), ..rest] -> Some(#(string.lowercase(n), rest))
+    [lexer.QuotedIdent(n), ..rest] -> Some(#(string.lowercase(n), rest))
     _ -> None
   }
 }
 
-fn extract_after_select(
+fn extract_after_select_result(
   tokens: List(lexer.Token),
-  cont: fn(List(lexer.Token)) -> Option(model.Table),
-) -> Option(model.Table) {
+) -> Option(List(lexer.Token)) {
   case tokens {
     [lexer.Keyword("select"), ..rest] ->
       case rest {
         [] -> None
-        _ -> cont(rest)
+        _ -> Some(rest)
       }
     _ -> None
   }
@@ -256,11 +289,15 @@ fn extract_after_select(
 fn resolve_view_columns(
   select_tokens: List(lexer.Token),
   tables: List(model.Table),
-) -> List(model.Column) {
+) -> #(List(model.Column), List(SchemaWarning)) {
   let view_cols = extract_view_columns(select_tokens)
-  list.filter_map(view_cols, fn(view_col) {
+  list.fold(view_cols, #([], []), fn(acc, view_col) {
+    let #(columns, warnings) = acc
     let normalized = naming.normalize_identifier(view_col.name)
-    resolve_single_view_column(normalized, view_col.expr_tokens, tables)
+    case resolve_single_view_column(normalized, view_col.expr_tokens, tables) {
+      Ok(col) -> #(list.append(columns, [col]), warnings)
+      Error(warning) -> #(columns, list.append(warnings, [warning]))
+    }
   })
 }
 
@@ -268,7 +305,7 @@ fn resolve_single_view_column(
   name: String,
   expr_tokens: List(lexer.Token),
   tables: List(model.Table),
-) -> Result(model.Column, Nil) {
+) -> Result(model.Column, SchemaWarning) {
   case find_column_in_tables(tables, name) {
     Some(col) -> Ok(model.Column(..col, name:))
     None ->
@@ -278,15 +315,7 @@ fn resolve_single_view_column(
           case infer_view_expression_type(expr_tokens, tables) {
             Some(#(scalar_type, nullable)) ->
               Ok(model.Column(name:, scalar_type:, nullable:))
-            None -> {
-              io.println_error(
-                "Warning: view column \""
-                <> name
-                <> "\" could not be resolved from source tables"
-                <> " — skipping column.",
-              )
-              Error(Nil)
-            }
+            None -> Error(UnresolvableViewColumn(column: name))
           }
       }
   }
@@ -921,5 +950,14 @@ pub fn error_to_string(error: ParseError) -> String {
     InvalidCreateTable(detail:) -> "Invalid CREATE TABLE statement: " <> detail
     InvalidColumn(table:, detail:) ->
       "Invalid column definition in table " <> table <> ": " <> detail
+  }
+}
+
+pub fn warning_to_string(warning: SchemaWarning) -> String {
+  case warning {
+    UnresolvableViewColumn(column:) ->
+      "Warning: view column \""
+      <> column
+      <> "\" could not be resolved from source tables — skipping column."
   }
 }

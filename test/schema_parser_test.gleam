@@ -12,7 +12,7 @@ pub fn main() {
 
 pub fn parse_create_table_columns_test() {
   let assert Ok(content) = simplifile.read("test/fixtures/schema.sql")
-  let assert Ok(catalog) =
+  let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([#("test/fixtures/schema.sql", content)])
 
   list.length(catalog.tables) |> should.equal(1)
@@ -31,7 +31,7 @@ pub fn parse_create_table_columns_test() {
 
 pub fn parse_extended_types_test() {
   let assert Ok(content) = simplifile.read("test/fixtures/extended_schema.sql")
-  let assert Ok(catalog) =
+  let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([
       #("test/fixtures/extended_schema.sql", content),
     ])
@@ -66,19 +66,19 @@ pub fn parse_extended_types_test() {
 // Error and boundary tests
 
 pub fn empty_schema_content_test() {
-  let assert Ok(catalog) = schema_parser.parse_files([#("empty.sql", "")])
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("empty.sql", "")])
   catalog.tables |> should.equal([])
 }
 
 pub fn schema_with_only_whitespace_test() {
-  let assert Ok(catalog) =
+  let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([#("blank.sql", "   \n  \n  ")])
   catalog.tables |> should.equal([])
 }
 
 pub fn schema_with_comments_only_test() {
   let content = "-- This is a comment\n-- Another comment\n"
-  let assert Ok(catalog) =
+  let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([#("comments.sql", content)])
   catalog.tables |> should.equal([])
 }
@@ -97,7 +97,8 @@ pub fn schema_if_not_exists_test() {
     <> "  id BIGSERIAL PRIMARY KEY,\n"
     <> "  name TEXT NOT NULL\n"
     <> ");"
-  let assert Ok(catalog) = schema_parser.parse_files([#("ifne.sql", content)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("ifne.sql", content)])
   let assert [table] = catalog.tables
   table.name |> should.equal("users")
   list.length(table.columns) |> should.equal(2)
@@ -109,7 +110,8 @@ pub fn schema_quoted_table_name_test() {
     <> "  id BIGSERIAL PRIMARY KEY,\n"
     <> "  name TEXT NOT NULL\n"
     <> ");"
-  let assert Ok(catalog) = schema_parser.parse_files([#("quoted.sql", content)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("quoted.sql", content)])
   let assert [table] = catalog.tables
   table.name |> should.equal("mytable")
 }
@@ -117,7 +119,7 @@ pub fn schema_quoted_table_name_test() {
 pub fn schema_multiple_files_test() {
   let file1 = "CREATE TABLE a (id BIGSERIAL PRIMARY KEY);"
   let file2 = "CREATE TABLE b (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);"
-  let assert Ok(catalog) =
+  let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([#("a.sql", file1), #("b.sql", file2)])
   list.length(catalog.tables) |> should.equal(2)
 }
@@ -130,7 +132,8 @@ pub fn schema_table_with_constraints_test() {
     <> "  total NUMERIC(10,2) NOT NULL,\n"
     <> "  FOREIGN KEY (user_id) REFERENCES users(id)\n"
     <> ");"
-  let assert Ok(catalog) = schema_parser.parse_files([#("fk.sql", content)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("fk.sql", content)])
   let assert [table] = catalog.tables
   table.name |> should.equal("orders")
   // FOREIGN KEY constraint should not be parsed as a column
@@ -144,7 +147,8 @@ pub fn schema_enum_type_test() {
     <> "  id BIGSERIAL PRIMARY KEY,\n"
     <> "  current_mood mood NOT NULL\n"
     <> ");"
-  let assert Ok(catalog) = schema_parser.parse_files([#("enum.sql", content)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("enum.sql", content)])
   let assert [enum] = catalog.enums
   enum.name |> should.equal("mood")
   enum.values |> should.equal(["happy", "sad", "neutral"])
@@ -159,7 +163,7 @@ pub fn view_with_cast_expression_test() {
   let content =
     "CREATE TABLE t (x TEXT NOT NULL, y TEXT NOT NULL);\n"
     <> "CREATE VIEW v AS SELECT CAST(x AS TEXT) AS col_a, y AS col_b FROM t;"
-  let assert Ok(catalog) =
+  let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([#("cast_view.sql", content)])
 
   let assert Ok(view) = list.find(catalog.tables, fn(tbl) { tbl.name == "v" })
@@ -177,7 +181,8 @@ pub fn view_basic_select_test() {
   let content =
     "CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT);\n"
     <> "CREATE VIEW active_users AS SELECT id, name FROM users;"
-  let assert Ok(catalog) = schema_parser.parse_files([#("view.sql", content)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("view.sql", content)])
 
   let assert Ok(view) =
     list.find(catalog.tables, fn(tbl) { tbl.name == "active_users" })
@@ -190,7 +195,7 @@ pub fn view_with_alias_test() {
   let content =
     "CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);\n"
     <> "CREATE VIEW user_names AS SELECT id, name AS display_name FROM users;"
-  let assert Ok(catalog) =
+  let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([#("view_alias.sql", content)])
 
   let assert Ok(view) =
@@ -208,7 +213,7 @@ pub fn view_star_test() {
   let content =
     "CREATE TABLE items (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);\n"
     <> "CREATE VIEW all_items AS SELECT * FROM items;"
-  let assert Ok(catalog) =
+  let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([#("view_star.sql", content)])
 
   let assert Ok(view) =
@@ -220,7 +225,7 @@ pub fn view_or_replace_test() {
   let content =
     "CREATE TABLE t (id BIGSERIAL PRIMARY KEY, val TEXT NOT NULL);\n"
     <> "CREATE OR REPLACE VIEW v AS SELECT id FROM t;"
-  let assert Ok(catalog) =
+  let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([#("or_replace.sql", content)])
 
   let assert Ok(view) = list.find(catalog.tables, fn(tbl) { tbl.name == "v" })
@@ -229,7 +234,7 @@ pub fn view_or_replace_test() {
 
 pub fn view_nonexistent_table_test() {
   let content = "CREATE VIEW v AS SELECT id FROM nonexistent;"
-  let assert Ok(catalog) =
+  let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([#("noexist.sql", content)])
 
   // View referencing nonexistent table: all columns are unresolvable and
@@ -267,7 +272,7 @@ pub fn alter_table_add_column_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
 ALTER TABLE users ADD COLUMN email TEXT;"
-  let assert Ok(catalog) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
   let assert [table] = catalog.tables
   table.name |> should.equal("users")
   list.length(table.columns) |> should.equal(3)
@@ -281,7 +286,7 @@ pub fn alter_table_add_column_with_keyword_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY);
 ALTER TABLE users ADD COLUMN status TEXT NOT NULL;"
-  let assert Ok(catalog) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
   let assert [table] = catalog.tables
   list.length(table.columns) |> should.equal(2)
   let assert [_, status] = table.columns
@@ -293,7 +298,7 @@ pub fn alter_table_add_without_column_keyword_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY);
 ALTER TABLE users ADD bio TEXT;"
-  let assert Ok(catalog) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
   let assert [table] = catalog.tables
   list.length(table.columns) |> should.equal(2)
   let assert [_, bio] = table.columns
@@ -304,7 +309,7 @@ pub fn alter_table_add_column_nonexistent_table_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY);
 ALTER TABLE posts ADD COLUMN title TEXT;"
-  let assert Ok(catalog) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
   // posts table does not exist, so ALTER TABLE is silently ignored
   let assert [table] = catalog.tables
   table.name |> should.equal("users")
@@ -315,7 +320,7 @@ pub fn alter_table_add_constraint_ignored_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT);
 ALTER TABLE users ADD CONSTRAINT unique_email UNIQUE (email);"
-  let assert Ok(catalog) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
   let assert [table] = catalog.tables
   // ADD CONSTRAINT should not add a column
   list.length(table.columns) |> should.equal(2)
@@ -325,7 +330,7 @@ pub fn view_with_count_expression_test() {
   let content =
     "CREATE TABLE authors (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);\n"
     <> "CREATE VIEW author_counts AS SELECT COUNT(*) AS total FROM authors;"
-  let assert Ok(catalog) =
+  let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([#("count_view.sql", content)])
 
   let assert Ok(view) =
@@ -339,7 +344,7 @@ pub fn view_with_sum_expression_test() {
   let content =
     "CREATE TABLE orders (id BIGSERIAL PRIMARY KEY, amount INTEGER NOT NULL);\n"
     <> "CREATE VIEW order_totals AS SELECT SUM(amount) AS total_amount FROM orders;"
-  let assert Ok(catalog) =
+  let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([#("sum_view.sql", content)])
 
   let assert Ok(view) =
@@ -354,7 +359,7 @@ pub fn view_with_avg_expression_test() {
   let content =
     "CREATE TABLE products (id BIGSERIAL PRIMARY KEY, price REAL NOT NULL);\n"
     <> "CREATE VIEW avg_prices AS SELECT AVG(price) AS avg_price FROM products;"
-  let assert Ok(catalog) =
+  let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([#("avg_view.sql", content)])
 
   let assert Ok(view) =
@@ -368,7 +373,7 @@ pub fn view_with_coalesce_expression_test() {
   let content =
     "CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, bio TEXT);\n"
     <> "CREATE VIEW user_display AS SELECT id, COALESCE(bio, 'N/A') AS bio_text FROM users;"
-  let assert Ok(catalog) =
+  let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([#("coalesce_view.sql", content)])
 
   let assert Ok(view) =
@@ -382,7 +387,7 @@ pub fn view_with_literal_expression_test() {
   let content =
     "CREATE TABLE t (id BIGSERIAL PRIMARY KEY);\n"
     <> "CREATE VIEW v AS SELECT 42 AS magic, 'hello' AS greeting FROM t;"
-  let assert Ok(catalog) =
+  let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([#("literal_view.sql", content)])
 
   let assert Ok(view) = list.find(catalog.tables, fn(tbl) { tbl.name == "v" })
@@ -403,7 +408,8 @@ pub fn serial_types_are_implicitly_not_null_test() {
     <> "  d INTEGER\n"
     <> ");\n"
 
-  let assert Ok(catalog) = schema_parser.parse_files([#("serial.sql", content)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("serial.sql", content)])
 
   let assert [table] = catalog.tables
   let assert [a, b, c, d] = table.columns
@@ -422,7 +428,7 @@ pub fn view_with_join_extracts_all_source_tables_test() {
     <> "CREATE TABLE orders (id BIGSERIAL PRIMARY KEY, user_id INTEGER NOT NULL, amount INTEGER NOT NULL);\n"
     <> "CREATE VIEW user_orders AS SELECT u.name, o.amount FROM users u JOIN orders o ON u.id = o.user_id;\n"
 
-  let assert Ok(catalog) =
+  let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([#("join_view.sql", content)])
 
   let assert Ok(view) =
@@ -444,7 +450,7 @@ pub fn view_with_left_join_test() {
     <> "CREATE TABLE profiles (id BIGSERIAL PRIMARY KEY, user_id INTEGER NOT NULL, bio TEXT);\n"
     <> "CREATE VIEW user_profiles AS SELECT u.name, p.bio FROM users u LEFT JOIN profiles p ON u.id = p.user_id;\n"
 
-  let assert Ok(catalog) =
+  let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([#("left_join.sql", content)])
 
   let assert Ok(view) =
@@ -459,7 +465,7 @@ pub fn view_star_with_join_test() {
     <> "CREATE TABLE t2 (c INTEGER NOT NULL, d TEXT NOT NULL);\n"
     <> "CREATE VIEW v AS SELECT * FROM t1 JOIN t2 ON t1.a = t2.c;\n"
 
-  let assert Ok(catalog) =
+  let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([#("star_join.sql", content)])
 
   let assert Ok(view) = list.find(catalog.tables, fn(tbl) { tbl.name == "v" })

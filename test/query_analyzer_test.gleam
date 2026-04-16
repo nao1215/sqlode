@@ -324,7 +324,8 @@ pub fn parse_enum_column_type_test() {
     <> "  status status NOT NULL\n"
     <> ");"
 
-  let assert Ok(catalog) = schema_parser.parse_files([#("enum.sql", schema)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("enum.sql", schema)])
 
   let assert [table] = catalog.tables
   let assert [_id, _name, status_col] = table.columns
@@ -556,7 +557,7 @@ pub fn compound_query_except_mismatch_test() {
 
 fn test_catalog() -> model.Catalog {
   let assert Ok(content) = simplifile.read("test/fixtures/schema.sql")
-  let assert Ok(catalog) =
+  let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([#("test/fixtures/schema.sql", content)])
 
   catalog
@@ -593,7 +594,7 @@ pub fn type_cast_infers_param_type_test() {
 
 fn typecast_catalog() -> model.Catalog {
   let assert Ok(content) = simplifile.read("test/fixtures/typecast_schema.sql")
-  let assert Ok(catalog) =
+  let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([#("test/fixtures/typecast_schema.sql", content)])
 
   catalog
@@ -859,7 +860,7 @@ pub fn sqlite_repeated_at_placeholder_single_param_test() {
 
 fn join_catalog() -> model.Catalog {
   let assert Ok(content) = simplifile.read("test/fixtures/join_schema.sql")
-  let assert Ok(catalog) =
+  let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([#("test/fixtures/join_schema.sql", content)])
 
   catalog

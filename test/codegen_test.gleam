@@ -183,7 +183,7 @@ pub fn render_sqlight_adapter_test() {
     )
 
   let assert Ok(schema_content) = simplifile.read("test/fixtures/schema.sql")
-  let assert Ok(catalog) =
+  let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([#("test/fixtures/schema.sql", schema_content)])
   let assert Ok(content) = simplifile.read("test/fixtures/query.sql")
   let assert Ok(queries) =
@@ -424,7 +424,7 @@ pub fn render_adapter_uses_table_constructor_for_match_test() {
 fn analyzed_slice_queries(engine: model.Engine) -> List(model.AnalyzedQuery) {
   let naming_ctx = naming.new()
   let assert Ok(schema_content) = simplifile.read("test/fixtures/schema.sql")
-  let assert Ok(catalog) =
+  let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([#("test/fixtures/schema.sql", schema_content)])
   let sql =
     "-- name: GetByIds :many\nSELECT id, name FROM authors WHERE id IN (sqlode.slice(ids));"
@@ -471,7 +471,7 @@ fn test_block_native() -> model.SqlBlock {
 
 fn test_catalog() -> model.Catalog {
   let assert Ok(schema_content) = simplifile.read("test/fixtures/schema.sql")
-  let assert Ok(catalog) =
+  let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([#("test/fixtures/schema.sql", schema_content)])
   catalog
 }
@@ -571,7 +571,7 @@ pub fn render_enum_decoder_uses_decode_then_test() {
 fn enum_test_catalog() -> model.Catalog {
   let assert Ok(schema_content) =
     simplifile.read("test/fixtures/enum_schema.sql")
-  let assert Ok(catalog) =
+  let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([
       #("test/fixtures/enum_schema.sql", schema_content),
     ])
@@ -781,7 +781,7 @@ pub fn readme_queries_snapshot_test() {
 fn readme_test_catalog() -> model.Catalog {
   let assert Ok(schema_content) =
     simplifile.read("test/fixtures/readme_schema.sql")
-  let assert Ok(catalog) =
+  let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([
       #("test/fixtures/readme_schema.sql", schema_content),
     ])
@@ -925,7 +925,7 @@ pub fn render_pog_adapter_with_array_columns_test() {
 fn array_test_catalog() -> model.Catalog {
   let assert Ok(schema_content) =
     simplifile.read("test/fixtures/array_schema.sql")
-  let assert Ok(catalog) =
+  let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([
       #("test/fixtures/array_schema.sql", schema_content),
     ])
