@@ -55,13 +55,7 @@ pub fn render_queries_module_test() {
 pub fn render_params_module_test() {
   let naming_ctx = naming.new()
   let analyzed = analyzed_queries("test/fixtures/query.sql")
-  let rendered =
-    params.render(
-      naming_ctx,
-      analyzed,
-      model.StringMapping,
-      "db",
-    )
+  let rendered = params.render(naming_ctx, analyzed, model.StringMapping, "db")
 
   string.contains(rendered, "pub type GetAuthorParams {")
   |> should.be_true()
@@ -153,8 +147,7 @@ pub fn render_pog_adapter_test() {
   let naming_ctx = naming.new()
   let block = test_block_native()
   let analyzed = analyzed_queries("test/fixtures/query.sql")
-  let rendered =
-    adapter.render(naming_ctx, block, analyzed, dict.new())
+  let rendered = adapter.render(naming_ctx, block, analyzed, dict.new())
 
   string.contains(rendered, "import pog") |> should.be_true()
   string.contains(rendered, "import db/models") |> should.be_true()
@@ -202,8 +195,7 @@ pub fn render_sqlight_adapter_test() {
     )
   let assert Ok(analyzed) =
     query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, queries)
-  let rendered =
-    adapter.render(naming_ctx, block, analyzed, dict.new())
+  let rendered = adapter.render(naming_ctx, block, analyzed, dict.new())
 
   string.contains(rendered, "import sqlight") |> should.be_true()
   string.contains(rendered, "pub fn get_author(db: sqlight.Connection")
@@ -216,13 +208,7 @@ pub fn render_sqlight_adapter_test() {
 pub fn render_params_module_slice_test() {
   let naming_ctx = naming.new()
   let analyzed = analyzed_slice_queries(model.PostgreSQL)
-  let rendered =
-    params.render(
-      naming_ctx,
-      analyzed,
-      model.StringMapping,
-      "db",
-    )
+  let rendered = params.render(naming_ctx, analyzed, model.StringMapping, "db")
 
   // The type should use List(...) for slice params
   string.contains(rendered, "ids: List(")
@@ -255,8 +241,7 @@ pub fn render_pog_adapter_slice_test() {
       overrides: model.empty_overrides(),
     )
   let analyzed = analyzed_slice_queries(model.PostgreSQL)
-  let rendered =
-    adapter.render(naming_ctx, block, analyzed, dict.new())
+  let rendered = adapter.render(naming_ctx, block, analyzed, dict.new())
 
   // Should import runtime for slice expansion
   string.contains(rendered, "import sqlode/runtime")
@@ -290,8 +275,7 @@ pub fn render_sqlight_adapter_slice_test() {
       overrides: model.empty_overrides(),
     )
   let analyzed = analyzed_slice_queries(model.SQLite)
-  let rendered =
-    adapter.render(naming_ctx, block, analyzed, dict.new())
+  let rendered = adapter.render(naming_ctx, block, analyzed, dict.new())
 
   // Should call expand_slice_placeholders with "?" prefix
   string.contains(rendered, "runtime.expand_slice_placeholders(")
@@ -425,8 +409,7 @@ pub fn render_adapter_uses_table_constructor_for_match_test() {
     )
   let analyzed = analyzed_star_queries()
   let table_matches = dict.from_list([#("get_all_authors", "Author")])
-  let rendered =
-    adapter.render(naming_ctx, block, analyzed, table_matches)
+  let rendered = adapter.render(naming_ctx, block, analyzed, table_matches)
 
   // When matched, decoder should use table constructor
   string.contains(rendered, "decode.success(models.Author(")
@@ -565,8 +548,7 @@ pub fn render_enum_decoder_uses_decode_then_test() {
       ),
       overrides: model.empty_overrides(),
     )
-  let rendered =
-    adapter.render(naming_ctx, block, analyzed, dict.new())
+  let rendered = adapter.render(naming_ctx, block, analyzed, dict.new())
 
   // Should use decode.then, not decode.map for enums
   string.contains(rendered, "decode.then(decode.string")
@@ -636,8 +618,7 @@ pub fn render_pog_adapter_enum_slice_converts_to_string_test() {
       ),
       overrides: model.empty_overrides(),
     )
-  let rendered =
-    adapter.render(naming_ctx, block, analyzed, dict.new())
+  let rendered = adapter.render(naming_ctx, block, analyzed, dict.new())
 
   // Slice enum params should call to_string before pog.text
   string.contains(rendered, "models.status_to_string(v)")
@@ -675,8 +656,7 @@ pub fn render_sqlight_adapter_enum_slice_converts_to_string_test() {
       ),
       overrides: model.empty_overrides(),
     )
-  let rendered =
-    adapter.render(naming_ctx, block, analyzed, dict.new())
+  let rendered = adapter.render(naming_ctx, block, analyzed, dict.new())
 
   // Slice enum params should call to_string before sqlight.text
   string.contains(rendered, "models.status_to_string(v)")
@@ -695,13 +675,7 @@ pub fn render_sqlight_adapter_enum_slice_converts_to_string_test() {
 pub fn readme_params_snapshot_test() {
   let naming_ctx = naming.new()
   let analyzed = readme_analyzed_queries()
-  let rendered =
-    params.render(
-      naming_ctx,
-      analyzed,
-      model.StringMapping,
-      "db",
-    )
+  let rendered = params.render(naming_ctx, analyzed, model.StringMapping, "db")
 
   // README: pub type GetAuthorParams { GetAuthorParams(id: Int) }
   string.contains(rendered, "pub type GetAuthorParams {")
@@ -888,13 +862,7 @@ pub fn render_models_with_array_columns_test() {
 pub fn render_params_with_array_columns_test() {
   let naming_ctx = naming.new()
   let analyzed = array_analyzed_queries()
-  let rendered =
-    params.render(
-      naming_ctx,
-      analyzed,
-      model.StringMapping,
-      "db",
-    )
+  let rendered = params.render(naming_ctx, analyzed, model.StringMapping, "db")
 
   // Params for CreateArticle should have array fields (nullable since no NOT NULL)
   string.contains(rendered, "tags: Option(List(String))")
@@ -906,13 +874,7 @@ pub fn render_params_with_array_columns_test() {
 pub fn render_params_array_encoding_raw_runtime_test() {
   let naming_ctx = naming.new()
   let analyzed = array_analyzed_queries()
-  let rendered =
-    params.render(
-      naming_ctx,
-      analyzed,
-      model.StringMapping,
-      "db",
-    )
+  let rendered = params.render(naming_ctx, analyzed, model.StringMapping, "db")
 
   // Raw-mode array params should encode using runtime.array + list.map
   string.contains(rendered, "runtime.array(list.map(")
@@ -945,8 +907,7 @@ pub fn render_pog_adapter_with_array_columns_test() {
       overrides: model.empty_overrides(),
     )
   let analyzed = array_analyzed_queries()
-  let rendered =
-    adapter.render(naming_ctx, block, analyzed, dict.new())
+  let rendered = adapter.render(naming_ctx, block, analyzed, dict.new())
 
   // Decoder should use decode.list for array result columns
   string.contains(rendered, "decode.list(decode.string)")
