@@ -158,6 +158,9 @@ fn build_inference_dict(
 ) -> dict.Dict(Int, model.Column) {
   list.fold(inferences, dict.new(), fn(d, entry) {
     let #(index, column) = entry
-    dict.insert(d, index, column)
+    case dict.has_key(d, index) {
+      True -> d
+      False -> dict.insert(d, index, column)
+    }
   })
 }
