@@ -469,14 +469,17 @@ fn apply_column_renames(
     _ ->
       list.map(queries, fn(query) {
         let result_columns =
-          list.map(query.result_columns, fn(col) {
-            case col {
-              model.ResultColumn(name:, source_table:, ..) ->
-                case find_column_rename(name, source_table, renames) {
-                  Ok(new_name) -> model.ResultColumn(..col, name: new_name)
-                  Error(_) -> col
+          list.map(query.result_columns, fn(item) {
+            case item {
+              model.ScalarResult(col) ->
+                case find_column_rename(col.name, col.source_table, renames) {
+                  Ok(new_name) ->
+                    model.ScalarResult(
+                      model.ResultColumn(..col, name: new_name),
+                    )
+                  Error(_) -> item
                 }
-              model.EmbeddedColumn(..) -> col
+              model.EmbeddedResult(..) -> item
             }
           })
         model.AnalyzedQuery(..query, result_columns:)
@@ -597,15 +600,18 @@ fn try_match_query_to_table(
   let has_embed =
     list.any(query.result_columns, fn(col) {
       case col {
-        model.EmbeddedColumn(..) -> True
-        _ -> False
+        model.EmbeddedResult(..) -> True
+        model.ScalarResult(..) -> False
       }
     })
   use <- guard_result(!has_embed)
 
   // Extract the source table from the first result column
   use table_name <- result.try(case query.result_columns {
-    [model.ResultColumn(source_table: option.Some(name), ..), ..] -> Ok(name)
+    [
+      model.ScalarResult(model.ResultColumn(source_table: option.Some(name), ..)),
+      ..
+    ] -> Ok(name)
     _ -> Error(Nil)
   })
 
@@ -613,9 +619,9 @@ fn try_match_query_to_table(
   let all_same_table =
     list.all(query.result_columns, fn(col) {
       case col {
-        model.ResultColumn(source_table: src, ..) ->
+        model.ScalarResult(model.ResultColumn(source_table: src, ..)) ->
           src == option.Some(table_name)
-        model.EmbeddedColumn(..) -> False
+        model.EmbeddedResult(..) -> False
       }
     })
   use <- guard_result(all_same_table)
@@ -647,7 +653,7 @@ fn find_table(
 }
 
 fn columns_match(
-  result_columns: List(model.ResultColumn),
+  result_columns: List(model.ResultItem),
   table_columns: List(model.Column),
 ) -> Bool {
   case list.length(result_columns) == list.length(table_columns) {
@@ -657,11 +663,16 @@ fn columns_match(
       |> list.all(fn(pair) {
         let #(rc, tc) = pair
         case rc {
-          model.ResultColumn(name:, scalar_type:, nullable:, ..) ->
+          model.ScalarResult(model.ResultColumn(
+            name:,
+            scalar_type:,
+            nullable:,
+            ..,
+          )) ->
             string.lowercase(name) == string.lowercase(tc.name)
             && scalar_type == tc.scalar_type
             && nullable == tc.nullable
-          model.EmbeddedColumn(..) -> False
+          model.EmbeddedResult(..) -> False
         }
       })
   }

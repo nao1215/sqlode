@@ -215,14 +215,14 @@ fn collect_rich_scalar_types(
   let query_types =
     queries
     |> list.flat_map(fn(query) {
-      list.filter_map(query.result_columns, fn(col) {
-        case col {
-          model.ResultColumn(scalar_type:, ..) ->
+      list.filter_map(query.result_columns, fn(item) {
+        case item {
+          model.ScalarResult(model.ResultColumn(scalar_type:, ..)) ->
             case type_mapping.is_rich_type(scalar_type) {
               True -> Ok(scalar_type)
               False -> Error(Nil)
             }
-          model.EmbeddedColumn(..) -> Error(Nil)
+          model.EmbeddedResult(..) -> Error(Nil)
         }
       })
     })
@@ -241,12 +241,12 @@ fn needs_option_import_for_results(queries: List(model.AnalyzedQuery)) -> Bool {
   list.any(queries, fn(query) {
     case model.is_result_command(query.base.command) {
       True ->
-        list.any(query.result_columns, fn(col) {
-          case col {
-            model.ResultColumn(nullable: True, ..) -> True
-            model.EmbeddedColumn(columns:, ..) ->
+        list.any(query.result_columns, fn(item) {
+          case item {
+            model.ScalarResult(model.ResultColumn(nullable: True, ..)) -> True
+            model.ScalarResult(..) -> False
+            model.EmbeddedResult(model.EmbeddedColumn(columns:, ..)) ->
               list.any(columns, fn(c) { c.nullable })
-            _ -> False
           }
         })
       False -> False
@@ -264,17 +264,20 @@ fn has_custom_types_in_results(queries: List(model.AnalyzedQuery)) -> Bool {
   list.any(queries, fn(query) {
     case model.is_result_command(query.base.command) {
       True ->
-        list.any(query.result_columns, fn(col) {
-          case col {
-            model.ResultColumn(scalar_type: model.CustomType(..), ..) -> True
-            model.EmbeddedColumn(columns:, ..) ->
+        list.any(query.result_columns, fn(item) {
+          case item {
+            model.ScalarResult(model.ResultColumn(
+              scalar_type: model.CustomType(..),
+              ..,
+            )) -> True
+            model.ScalarResult(..) -> False
+            model.EmbeddedResult(model.EmbeddedColumn(columns:, ..)) ->
               list.any(columns, fn(c) {
                 case c.scalar_type {
                   model.CustomType(..) -> True
                   _ -> False
                 }
               })
-            _ -> False
           }
         })
       False -> False
@@ -352,7 +355,12 @@ fn render_row_type(
         columns
         |> list.map(fn(col) {
           case col {
-            model.ResultColumn(name:, scalar_type:, nullable:, ..) -> {
+            model.ScalarResult(model.ResultColumn(
+              name:,
+              scalar_type:,
+              nullable:,
+              ..,
+            )) -> {
               let gleam_type = case nullable {
                 True ->
                   "Option("
@@ -369,7 +377,7 @@ fn render_row_type(
               }
               naming.to_snake_case(naming_ctx, name) <> ": " <> gleam_type
             }
-            model.EmbeddedColumn(name:, table_name:, ..) ->
+            model.EmbeddedResult(model.EmbeddedColumn(name:, table_name:, ..)) ->
               naming.to_snake_case(naming_ctx, name)
               <> ": "
               <> naming.table_type_name(

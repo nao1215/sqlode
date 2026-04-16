@@ -25,7 +25,7 @@ pub fn infer_result_columns(
   engine: model.Engine,
   query: model.ParsedQuery,
   catalog: model.Catalog,
-) -> Result(List(model.ResultColumn), AnalysisError) {
+) -> Result(List(model.ResultItem), AnalysisError) {
   case query.command {
     runtime.QueryExec
     | runtime.QueryExecResult
@@ -131,7 +131,7 @@ fn resolve_select_columns(
   primary_table: String,
   all_tables: List(String),
   nullable_tables: List(String),
-) -> Result(List(model.ResultColumn), AnalysisError) {
+) -> Result(List(model.ResultItem), AnalysisError) {
   case columns {
     [ExtractedColumn(name: "*", ..)] -> {
       let result_columns =
@@ -140,13 +140,13 @@ fn resolve_select_columns(
           case list.find(catalog.tables, fn(t) { t.name == table_name }) {
             Ok(table) ->
               list.map(table.columns, fn(col) {
-                model.ResultColumn(
+                model.ScalarResult(model.ResultColumn(
                   name: col.name,
                   scalar_type: col.scalar_type,
                   nullable: col.nullable
                     || list.contains(nullable_tables, table_name),
                   source_table: Some(table_name),
-                )
+                ))
               })
             Error(_) -> []
           }
@@ -174,11 +174,11 @@ fn resolve_select_columns(
             {
               Ok(table) ->
                 Ok([
-                  model.EmbeddedColumn(
+                  model.EmbeddedResult(model.EmbeddedColumn(
                     name: embed_name,
                     table_name: embed_name,
                     columns: table.columns,
-                  ),
+                  )),
                 ])
               Error(_) ->
                 Error(TableNotFound(query_name:, table_name: embed_name))
@@ -191,13 +191,13 @@ fn resolve_select_columns(
                 case context.find_column(catalog, table, normalized_name) {
                   Some(column) ->
                     Ok([
-                      model.ResultColumn(
+                      model.ScalarResult(model.ResultColumn(
                         name: column.name,
                         scalar_type: column.scalar_type,
                         nullable: column.nullable
                           || list.contains(nullable_tables, table),
                         source_table: Some(table),
-                      ),
+                      )),
                     ])
                   None ->
                     case extracted.expression_tokens {
@@ -211,12 +211,12 @@ fn resolve_select_columns(
                           ),
                         )
                         Ok([
-                          model.ResultColumn(
+                          model.ScalarResult(model.ResultColumn(
                             name: normalized_name,
                             scalar_type:,
                             nullable:,
                             source_table: None,
-                          ),
+                          )),
                         ])
                       }
                       None ->
@@ -237,13 +237,13 @@ fn resolve_select_columns(
                 {
                   Some(#(found_table, column)) ->
                     Ok([
-                      model.ResultColumn(
+                      model.ScalarResult(model.ResultColumn(
                         name: column.name,
                         scalar_type: column.scalar_type,
                         nullable: column.nullable
                           || list.contains(nullable_tables, found_table),
                         source_table: Some(found_table),
-                      ),
+                      )),
                     ])
                   None ->
                     case extracted.expression_tokens {
@@ -257,12 +257,12 @@ fn resolve_select_columns(
                           ),
                         )
                         Ok([
-                          model.ResultColumn(
+                          model.ScalarResult(model.ResultColumn(
                             name: normalized_name,
                             scalar_type:,
                             nullable:,
                             source_table: None,
-                          ),
+                          )),
                         ])
                       }
                       None ->

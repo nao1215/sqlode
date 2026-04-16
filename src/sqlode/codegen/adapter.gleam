@@ -272,7 +272,12 @@ fn render_decoder(
         list.fold(columns, #(0, []), fn(acc, col) {
           let #(idx, lines) = acc
           case col {
-            model.ResultColumn(name:, scalar_type:, nullable:, ..) -> {
+            model.ScalarResult(model.ResultColumn(
+              name:,
+              scalar_type:,
+              nullable:,
+              ..,
+            )) -> {
               let line =
                 render_field_decode_line(
                   naming.to_snake_case(ctx.naming_ctx, name),
@@ -284,11 +289,11 @@ fn render_decoder(
                 )
               #(idx + 1, list.append(lines, [line]))
             }
-            model.EmbeddedColumn(
+            model.EmbeddedResult(model.EmbeddedColumn(
               name: embed_name,
               table_name:,
               columns: embed_cols,
-            ) -> {
+            )) -> {
               let #(new_idx, embed_lines) =
                 render_embedded_column_lines(
                   ctx,
@@ -306,9 +311,9 @@ fn render_decoder(
         columns
         |> list.map(fn(col) {
           case col {
-            model.ResultColumn(name:, ..) ->
+            model.ScalarResult(model.ResultColumn(name:, ..)) ->
               naming.to_snake_case(ctx.naming_ctx, name) <> ":"
-            model.EmbeddedColumn(name:, ..) ->
+            model.EmbeddedResult(model.EmbeddedColumn(name:, ..)) ->
               naming.to_snake_case(ctx.naming_ctx, name) <> ":"
           }
         })
@@ -1059,10 +1064,10 @@ fn needs_option_import_for_adapter(queries: List(model.AnalyzedQuery)) -> Bool {
     let has_nullable_results =
       list.any(query.result_columns, fn(col) {
         case col {
-          model.ResultColumn(nullable: True, ..) -> True
-          model.EmbeddedColumn(columns:, ..) ->
+          model.ScalarResult(model.ResultColumn(nullable: True, ..)) -> True
+          model.ScalarResult(..) -> False
+          model.EmbeddedResult(model.EmbeddedColumn(columns:, ..)) ->
             list.any(columns, fn(c) { c.nullable })
-          _ -> False
         }
       })
     let has_one_command =
