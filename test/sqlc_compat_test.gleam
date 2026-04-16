@@ -477,6 +477,203 @@ pub fn macro_update_with_multiple_macros_test() {
 }
 
 // ============================================================
+// sqlc-compatible E2E: common SQL patterns
+// ============================================================
+
+pub fn create_index_ignored_gracefully_test() {
+  let catalog = load_catalog("test/fixtures/sqlc_compat/schema.sql")
+
+  // CREATE INDEX should be silently ignored; only tables are parsed
+  let table_names = list.map(catalog.tables, fn(t) { t.name })
+  list.contains(table_names, "users") |> should.be_true()
+  list.contains(table_names, "posts") |> should.be_true()
+  list.contains(table_names, "tags") |> should.be_true()
+  list.contains(table_names, "post_tags") |> should.be_true()
+  // No extra tables from CREATE INDEX
+  list.length(catalog.tables) |> should.equal(4)
+}
+
+pub fn foreign_key_on_delete_cascade_test() {
+  let catalog = load_catalog("test/fixtures/sqlc_compat/schema.sql")
+
+  // Foreign key constraints with ON DELETE CASCADE should not break parsing
+  let assert Ok(posts) = list.find(catalog.tables, fn(t) { t.name == "posts" })
+  let assert Ok(user_id_col) =
+    list.find(posts.columns, fn(c) { c.name == "user_id" })
+  user_id_col.scalar_type |> should.equal(model.IntType)
+  user_id_col.nullable |> should.equal(False)
+}
+
+pub fn numeric_precision_test() {
+  let catalog = load_catalog("test/fixtures/sqlc_compat/schema.sql")
+
+  let assert Ok(users) = list.find(catalog.tables, fn(t) { t.name == "users" })
+  let assert Ok(score_col) =
+    list.find(users.columns, fn(c) { c.name == "score" })
+  score_col.scalar_type |> should.equal(model.FloatType)
+  score_col.nullable |> should.equal(False)
+}
+
+pub fn upsert_on_conflict_test() {
+  let naming_ctx = naming.new()
+  let catalog = load_catalog("test/fixtures/sqlc_compat/schema.sql")
+  let queries =
+    parse_queries(
+      "test/fixtures/sqlc_compat/queries.sql",
+      model.PostgreSQL,
+      naming_ctx,
+    )
+
+  let assert Ok(upsert) = list.find(queries, fn(q) { q.name == "UpsertUser" })
+  upsert.command |> should.equal(runtime.QueryOne)
+  upsert.param_count |> should.equal(2)
+
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert Ok(upsert_a) =
+    list.find(analyzed, fn(q) { q.base.name == "UpsertUser" })
+  // RETURNING id, email, name → 3 result columns
+  list.length(upsert_a.result_columns) |> should.equal(3)
+  list.length(upsert_a.params) |> should.equal(2)
+}
+
+pub fn distinct_query_test() {
+  let naming_ctx = naming.new()
+  let queries =
+    parse_queries(
+      "test/fixtures/sqlc_compat/queries.sql",
+      model.PostgreSQL,
+      naming_ctx,
+    )
+
+  let assert Ok(distinct) =
+    list.find(queries, fn(q) { q.name == "ListPostsByTag" })
+  distinct.command |> should.equal(runtime.QueryMany)
+  distinct.param_count |> should.equal(1)
+}
+
+pub fn group_by_having_test() {
+  let naming_ctx = naming.new()
+  let queries =
+    parse_queries(
+      "test/fixtures/sqlc_compat/queries.sql",
+      model.PostgreSQL,
+      naming_ctx,
+    )
+
+  let assert Ok(grouped) =
+    list.find(queries, fn(q) { q.name == "ListActiveUsers" })
+  grouped.command |> should.equal(runtime.QueryMany)
+  grouped.param_count |> should.equal(1)
+}
+
+pub fn exists_subquery_test() {
+  let naming_ctx = naming.new()
+  let catalog = load_catalog("test/fixtures/sqlc_compat/schema.sql")
+  let queries =
+    parse_queries(
+      "test/fixtures/sqlc_compat/queries.sql",
+      model.PostgreSQL,
+      naming_ctx,
+    )
+
+  let assert Ok(with_posts) =
+    list.find(queries, fn(q) { q.name == "ListUsersWithPosts" })
+  with_posts.command |> should.equal(runtime.QueryMany)
+  // No params in the outer query (subquery is correlated, not parameterized)
+  with_posts.param_count |> should.equal(0)
+
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert Ok(with_posts_a) =
+    list.find(analyzed, fn(q) { q.base.name == "ListUsersWithPosts" })
+  list.length(with_posts_a.result_columns) |> should.equal(2)
+}
+
+pub fn not_exists_subquery_test() {
+  let naming_ctx = naming.new()
+  let queries =
+    parse_queries(
+      "test/fixtures/sqlc_compat/queries.sql",
+      model.PostgreSQL,
+      naming_ctx,
+    )
+
+  let assert Ok(without_posts) =
+    list.find(queries, fn(q) { q.name == "ListUsersWithoutPosts" })
+  without_posts.command |> should.equal(runtime.QueryMany)
+  without_posts.param_count |> should.equal(0)
+}
+
+pub fn parameterized_pagination_test() {
+  let naming_ctx = naming.new()
+  let catalog = load_catalog("test/fixtures/sqlc_compat/schema.sql")
+  let queries =
+    parse_queries(
+      "test/fixtures/sqlc_compat/queries.sql",
+      model.PostgreSQL,
+      naming_ctx,
+    )
+
+  let assert Ok(paginate) =
+    list.find(queries, fn(q) { q.name == "PaginateUsers" })
+  paginate.command |> should.equal(runtime.QueryMany)
+  paginate.param_count |> should.equal(2)
+
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert Ok(paginate_a) =
+    list.find(analyzed, fn(q) { q.base.name == "PaginateUsers" })
+  list.length(paginate_a.result_columns) |> should.equal(3)
+}
+
+pub fn multiple_ctes_test() {
+  let naming_ctx = naming.new()
+  let queries =
+    parse_queries(
+      "test/fixtures/sqlc_compat/queries.sql",
+      model.PostgreSQL,
+      naming_ctx,
+    )
+
+  let assert Ok(multi_cte) =
+    list.find(queries, fn(q) { q.name == "RecentPostsWithAuthor" })
+  multi_cte.command |> should.equal(runtime.QueryMany)
+  // No parameters in this query
+  multi_cte.param_count |> should.equal(0)
+}
+
+pub fn distinct_top_scores_test() {
+  let naming_ctx = naming.new()
+  let queries =
+    parse_queries(
+      "test/fixtures/sqlc_compat/queries.sql",
+      model.PostgreSQL,
+      naming_ctx,
+    )
+
+  let assert Ok(top) =
+    list.find(queries, fn(q) { q.name == "TopDistinctScores" })
+  top.command |> should.equal(runtime.QueryMany)
+  top.param_count |> should.equal(1)
+}
+
+// ============================================================
 // Helpers
 // ============================================================
 
