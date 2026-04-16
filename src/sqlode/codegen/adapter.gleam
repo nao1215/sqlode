@@ -698,14 +698,7 @@ fn render_pog_params_with_slices(params: List(model.QueryParam)) -> String {
 }
 
 fn render_pog_one_result() -> List(String) {
-  [
-    "  |> result.map(fn(returned) {",
-    "    case returned.rows {",
-    "      [row, ..] -> Some(row)",
-    "      [] -> None",
-    "    }",
-    "  })",
-  ]
+  render_one_result_with("returned", "returned.rows")
 }
 
 fn render_pog_many_result() -> List(String) {
@@ -732,40 +725,22 @@ fn render_pog_exec_last_id(
       |> list.filter(fn(l) { l != "" })
   }
 
+  let result_lines = [
+    "  |> pog.returning(decode.int)",
+    "  |> pog.execute(db)",
+    ..render_first_or_default("returned", "returned.rows", "0")
+  ]
+
   case has_slices {
     True -> {
       let slice_expansion = render_slice_expansion_line(params, "$")
       list.flatten([
         ["  " <> slice_expansion, "  let query = pog.query(sql)"],
         param_lines,
-        [
-          "  query",
-          "  |> pog.returning(decode.int)",
-          "  |> pog.execute(db)",
-          "  |> result.map(fn(returned) {",
-          "    case returned.rows {",
-          "      [id, ..] -> id",
-          "      [] -> 0",
-          "    }",
-          "  })",
-        ],
+        ["  query", ..result_lines],
       ])
     }
-    False ->
-      list.flatten([
-        ["  pog.query(q.sql)"],
-        param_lines,
-        [
-          "  |> pog.returning(decode.int)",
-          "  |> pog.execute(db)",
-          "  |> result.map(fn(returned) {",
-          "    case returned.rows {",
-          "      [id, ..] -> id",
-          "      [] -> 0",
-          "    }",
-          "  })",
-        ],
-      ])
+    False -> list.flatten([["  pog.query(q.sql)"], param_lines, result_lines])
   }
 }
 
@@ -861,14 +836,7 @@ fn render_sqlight_params_with_slices(params: List(model.QueryParam)) -> String {
 }
 
 fn render_sqlight_one_result() -> List(String) {
-  [
-    "  |> result.map(fn(rows) {",
-    "    case rows {",
-    "      [row, ..] -> Some(row)",
-    "      [] -> None",
-    "    }",
-    "  })",
-  ]
+  render_one_result_with("rows", "rows")
 }
 
 fn render_sqlight_many_result() -> List(String) {
@@ -876,22 +844,19 @@ fn render_sqlight_many_result() -> List(String) {
 }
 
 fn render_sqlight_exec_rows_result() -> List(String) {
-  [
-    "  |> result.try(fn(_) {",
-    "    sqlight.query(",
-    "      \"SELECT changes()\",",
-    "      on: db,",
-    "      with: [],",
-    "      expecting: decode.at([0], decode.int),",
-    "    )",
-    "  })",
-    "  |> result.map(fn(rows) {",
-    "    case rows {",
-    "      [count, ..] -> count",
-    "      [] -> 0",
-    "    }",
-    "  })",
-  ]
+  list.flatten([
+    [
+      "  |> result.try(fn(_) {",
+      "    sqlight.query(",
+      "      \"SELECT changes()\",",
+      "      on: db,",
+      "      with: [],",
+      "      expecting: decode.at([0], decode.int),",
+      "    )",
+      "  })",
+    ],
+    render_first_or_default("rows", "rows", "0"),
+  ])
 }
 
 fn render_sqlight_exec_last_id(
@@ -926,13 +891,8 @@ fn render_sqlight_exec_last_id(
       "      expecting: decode.at([0], decode.int),",
       "    )",
       "  })",
-      "  |> result.map(fn(rows) {",
-      "    case rows {",
-      "      [id, ..] -> id",
-      "      [] -> 0",
-      "    }",
-      "  })",
     ],
+    render_first_or_default("rows", "rows", "0"),
   ])
 }
 
@@ -955,6 +915,32 @@ fn render_mysql_adapter() -> String {
 // ============================================================
 // Shared helpers
 // ============================================================
+
+fn render_one_result_with(param: String, rows_expr: String) -> List(String) {
+  [
+    "  |> result.map(fn(" <> param <> ") {",
+    "    case " <> rows_expr <> " {",
+    "      [row, ..] -> Some(row)",
+    "      [] -> None",
+    "    }",
+    "  })",
+  ]
+}
+
+fn render_first_or_default(
+  param: String,
+  rows_expr: String,
+  default: String,
+) -> List(String) {
+  [
+    "  |> result.map(fn(" <> param <> ") {",
+    "    case " <> rows_expr <> " {",
+    "      [id, ..] -> id",
+    "      [] -> " <> default,
+    "    }",
+    "  })",
+  ]
+}
 
 fn render_param_value_expr(
   lib: String,
