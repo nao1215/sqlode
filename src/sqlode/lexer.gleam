@@ -440,6 +440,8 @@ fn is_sql_keyword(word: String) -> Bool {
     | "type"
     | "index"
     | "alter"
+    | "add"
+    | "column"
     | "drop"
     | "if"
     | "exists"

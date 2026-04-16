@@ -250,3 +250,63 @@ pub fn unrecognized_sql_type_returns_error_test() {
   string.contains(msg, "geo") |> should.be_true()
   string.contains(msg, "GEOMETRY") |> should.be_true()
 }
+
+// --- ALTER TABLE ADD COLUMN tests ---
+
+pub fn alter_table_add_column_test() {
+  let sql =
+    "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+ALTER TABLE users ADD COLUMN email TEXT;"
+  let assert Ok(catalog) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert [table] = catalog.tables
+  table.name |> should.equal("users")
+  list.length(table.columns) |> should.equal(3)
+  let assert [_, _, email] = table.columns
+  email.name |> should.equal("email")
+  email.scalar_type |> should.equal(model.StringType)
+  email.nullable |> should.equal(True)
+}
+
+pub fn alter_table_add_column_with_keyword_test() {
+  let sql =
+    "CREATE TABLE users (id INTEGER PRIMARY KEY);
+ALTER TABLE users ADD COLUMN status TEXT NOT NULL;"
+  let assert Ok(catalog) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert [table] = catalog.tables
+  list.length(table.columns) |> should.equal(2)
+  let assert [_, status] = table.columns
+  status.name |> should.equal("status")
+  status.nullable |> should.equal(False)
+}
+
+pub fn alter_table_add_without_column_keyword_test() {
+  let sql =
+    "CREATE TABLE users (id INTEGER PRIMARY KEY);
+ALTER TABLE users ADD bio TEXT;"
+  let assert Ok(catalog) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert [table] = catalog.tables
+  list.length(table.columns) |> should.equal(2)
+  let assert [_, bio] = table.columns
+  bio.name |> should.equal("bio")
+}
+
+pub fn alter_table_add_column_nonexistent_table_test() {
+  let sql =
+    "CREATE TABLE users (id INTEGER PRIMARY KEY);
+ALTER TABLE posts ADD COLUMN title TEXT;"
+  let assert Ok(catalog) = schema_parser.parse_files([#("test.sql", sql)])
+  // posts table does not exist, so ALTER TABLE is silently ignored
+  let assert [table] = catalog.tables
+  table.name |> should.equal("users")
+  list.length(table.columns) |> should.equal(1)
+}
+
+pub fn alter_table_add_constraint_ignored_test() {
+  let sql =
+    "CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT);
+ALTER TABLE users ADD CONSTRAINT unique_email UNIQUE (email);"
+  let assert Ok(catalog) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert [table] = catalog.tables
+  // ADD CONSTRAINT should not add a column
+  list.length(table.columns) |> should.equal(2)
+}
