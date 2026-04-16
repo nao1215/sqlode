@@ -5,5 +5,5 @@ sql:
     engine: "postgresql"
     gen:
       gleam:
-        out: "/tmp/sqlode_resolve_paths_test"
+        out: "../../../src/resolve_paths_test"
         runtime: "raw"
