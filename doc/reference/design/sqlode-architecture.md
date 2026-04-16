@@ -49,7 +49,7 @@ A single unified parser handles all SQL dialects:
 - parses `-- name: <Name> <command>` annotations
 - counts placeholders per engine (`$N` for PostgreSQL, `?` for MySQL,
   `?N`/`:name`/`@name`/`$name` for SQLite)
-- expands `sqlc.arg`, `sqlc.narg`, `sqlc.slice` macros into
+- expands `sqlode.arg`, `sqlode.narg`, `sqlode.slice` macros into
   engine-appropriate placeholders
 
 ## 3. Query analysis (`query_analyzer.gleam`)
@@ -58,7 +58,7 @@ Analyzes parsed queries against the schema catalog:
 
 - infers parameter types from INSERT column order and WHERE equality
 - infers result columns from SELECT lists, `*` expansion, table prefixes
-- resolves JOIN tables and `sqlc.embed` table expansion
+- resolves JOIN tables and `sqlode.embed` table expansion
 - handles RETURNING clauses and CTE (WITH) stripping
 - uses pre-compiled regexes via `AnalyzerContext` for performance
 
@@ -90,22 +90,26 @@ patterns.
 
 ```text
 src/sqlode/
-  cli.gleam            — CLI commands (generate, init, version)
-  config.gleam         — YAML config parsing
-  generate.gleam       — orchestrates the pipeline
-  model.gleam          — shared types (Engine, Config, Query, ScalarType, etc.)
-  naming.gleam         — NamingContext, identifier normalization, case conversion
-  query_parser.gleam   — query annotation parsing with ParserContext
-  schema_parser.gleam  — DDL schema parsing
-  runtime.gleam        — runtime types (Value, QueryCommand)
-  version.gleam        — version constant
-  writer.gleam         — file output
+  cli.gleam              — CLI commands (generate, init, version)
+  codegen.gleam          — top-level codegen dispatcher
+  config.gleam           — YAML config parsing
+  generate.gleam         — orchestrates the pipeline
+  lexer.gleam            — SQL tokenizer for all dialects
+  model.gleam            — shared types (Engine, Config, Query, ScalarType, etc.)
+  naming.gleam           — NamingContext, identifier normalization, case conversion
+  query_analyzer.gleam   — top-level query analysis orchestrator
+  query_parser.gleam     — query annotation parsing with ParserContext
+  schema_parser.gleam    — DDL schema parsing
+  runtime.gleam          — runtime types (Value, QueryCommand)
+  version.gleam          — version constant
+  writer.gleam           — file output
 
   query_analyzer/
     column_inferencer.gleam — result column inference
     context.gleam           — AnalyzerContext with pre-compiled regexes
     param_inferencer.gleam  — parameter type inference
     placeholder.gleam       — placeholder extraction and indexing
+    token_utils.gleam       — SQL token helpers (table name extraction, etc.)
 
   codegen/
     adapter.gleam  — database adapter generation (pog, sqlight)
@@ -121,11 +125,11 @@ The IR consumed by codegen:
 
 - `Config`, `SqlBlock`, `GleamOutput`, `Overrides`
 - `Catalog`, `Table`, `Column`, `EnumDef`
-- `ParsedQuery`, `QueryCommand`, `SqlcMacro`
+- `ParsedQuery`, `QueryCommand`, `Macro`
 - `AnalyzedQuery`, `QueryParam`, `ResultColumn`
 - `ScalarType` — IntType, FloatType, BoolType, StringType, BytesType,
   DateTimeType, DateType, TimeType, UuidType, JsonType, EnumType,
-  CustomType(name, underlying)
+  CustomType(name, module, underlying), ArrayType(element)
 
 ## Runtime strategy
 
@@ -148,9 +152,9 @@ A single flat `runtime.gleam` module exports:
 
 - Config parsing with overrides and column renames
 - All 10 query annotations (`:one`, `:many`, `:exec`, `:execresult`, `:execrows`, `:execlastid`, `:batchone`, `:batchmany`, `:batchexec`, `:copyfrom`)
-- All sqlc macros (`sqlc.arg`, `sqlc.narg`, `sqlc.slice`, `sqlc.embed`)
+- All sqlode macros (`sqlode.arg`, `sqlode.narg`, `sqlode.slice`, `sqlode.embed`)
 - Comprehensive type mapping (integers, floats, booleans, strings, bytes,
-  date/time/timestamp, UUID, JSON/JSONB, PostgreSQL enums)
+  date/time/timestamp, UUID, JSON/JSONB, PostgreSQL enums, PostgreSQL arrays)
 - Nullable detection and `Option(T)` wrapping
 - JOIN type inference, RETURNING clause, CTE support
 - pog and sqlight adapter generation
@@ -161,5 +165,4 @@ A single flat `runtime.gleam` module exports:
 - `database` / `analyzer` config fields for live DB analysis
 - `query_parameter_limit`
 - MySQL native adapter (no Gleam MySQL driver exists)
-- PostgreSQL arrays
 - Golden-file / snapshot testing for codegen output

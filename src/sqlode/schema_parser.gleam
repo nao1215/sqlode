@@ -6,7 +6,6 @@ import gleam/string
 import sqlode/lexer
 import sqlode/model
 import sqlode/naming
-import sqlode/query_analyzer/context
 
 pub type ParseError {
   InvalidCreateTable(detail: String)
@@ -80,9 +79,8 @@ fn parse_content(
           case is_alter_table_add_column_tokens(stmt_tokens) {
             True -> apply_alter_table_add_column(stmt_tokens, all_enums, tables)
             False -> {
-              let statement = tokens_to_string(stmt_tokens)
-              use maybe_table <- result.try(parse_statement(
-                statement,
+              use maybe_table <- result.try(parse_statement_tokens(
+                stmt_tokens,
                 all_enums,
               ))
               Ok(case maybe_table {
@@ -528,15 +526,11 @@ fn apply_alter_table_add_column(
   case table_name {
     "" -> Ok(tables)
     _ -> {
-      let col_str =
-        lexer.tokens_to_string(
-          col_tokens,
-          lexer.TokenRenderOptions(
-            uppercase_keywords: True,
-            preserve_quotes: True,
-          ),
-        )
-      use maybe_col <- result.try(parse_column(table_name, col_str, enums))
+      use maybe_col <- result.try(parse_column_tokens(
+        table_name,
+        col_tokens,
+        enums,
+      ))
       case maybe_col {
         None -> Ok(tables)
         Some(col) ->
@@ -584,31 +578,34 @@ fn extract_ident(token: lexer.Token) -> String {
   }
 }
 
-fn tokens_to_string(tokens: List(lexer.Token)) -> String {
-  lexer.tokens_to_string(
-    tokens,
-    lexer.TokenRenderOptions(uppercase_keywords: True, preserve_quotes: True),
-  )
-}
-
-fn parse_statement(
-  statement: String,
+fn parse_statement_tokens(
+  tokens: List(lexer.Token),
   enums: List(model.EnumDef),
 ) -> Result(Option(model.Table), ParseError) {
-  let lowered = string.lowercase(statement)
-
-  case
-    string.starts_with(lowered, "create table")
-    || string.starts_with(lowered, "create temporary table")
-    || string.starts_with(lowered, "create temp table")
-    || string.starts_with(lowered, "create unlogged table")
-    || string.starts_with(lowered, "create table if not exists")
-    || string.starts_with(lowered, "create temporary table if not exists")
-    || string.starts_with(lowered, "create temp table if not exists")
-    || string.starts_with(lowered, "create unlogged table if not exists")
-  {
-    True -> parse_create_table(statement, enums)
+  case is_create_table_tokens(tokens) {
+    True -> parse_create_table_tokens(tokens, enums)
     False -> Ok(None)
+  }
+}
+
+fn is_create_table_tokens(tokens: List(lexer.Token)) -> Bool {
+  case tokens {
+    [lexer.Keyword("create"), lexer.Keyword("table"), ..] -> True
+    [
+      lexer.Keyword("create"),
+      lexer.Keyword("temporary"),
+      lexer.Keyword("table"),
+      ..
+    ] -> True
+    [lexer.Keyword("create"), lexer.Keyword("temp"), lexer.Keyword("table"), ..] ->
+      True
+    [
+      lexer.Keyword("create"),
+      lexer.Keyword("unlogged"),
+      lexer.Keyword("table"),
+      ..
+    ] -> True
+    _ -> False
   }
 }
 
@@ -625,53 +622,91 @@ fn find_column_in_tables(
   |> option.from_result
 }
 
-fn parse_create_table(
-  statement: String,
+fn parse_create_table_tokens(
+  tokens: List(lexer.Token),
   enums: List(model.EnumDef),
 ) -> Result(Option(model.Table), ParseError) {
-  use parts <- result.try(case string.split_once(statement, on: "(") {
-    Ok(parts) -> Ok(parts)
-    Error(_) ->
+  // Find the table name: last Ident/QuotedIdent before the first LParen
+  let #(header, body) = split_at_lparen(tokens, [])
+
+  case body {
+    [] ->
       Error(InvalidCreateTable(
         detail: "missing opening parenthesis in CREATE TABLE statement",
       ))
-  })
+    _ -> {
+      use table_name <- result.try(
+        find_last_ident(header)
+        |> result.map_error(fn(_) {
+          InvalidCreateTable(detail: "missing table name")
+        }),
+      )
 
-  let #(header, raw_body) = parts
-  let header_tokens =
-    header
-    |> string.split(" ")
-    |> list.map(string.trim)
-    |> list.filter(fn(token) { token != "" })
+      // Strip trailing RParen from body
+      let body_tokens = strip_trailing_rparen(body)
 
-  use table_name <- result.try(
-    header_tokens
-    |> list.last
-    |> result.map(naming.normalize_identifier)
-    |> result.map_error(fn(_) {
-      InvalidCreateTable(detail: "missing table name")
-    }),
-  )
-
-  let body = case string.ends_with(raw_body, ")") {
-    True -> string.slice(raw_body, 0, string.length(raw_body) - 1)
-    False -> raw_body
+      use columns <- result.try(parse_columns_tokens(
+        table_name,
+        body_tokens,
+        enums,
+      ))
+      Ok(Some(model.Table(name: table_name, columns:)))
+    }
   }
-
-  use columns <- result.try(parse_columns(table_name, body, enums))
-
-  Ok(Some(model.Table(name: table_name, columns:)))
 }
 
-fn parse_columns(
+/// Split tokens at the first top-level LParen. Returns (header, body_after_lparen).
+fn split_at_lparen(
+  tokens: List(lexer.Token),
+  header: List(lexer.Token),
+) -> #(List(lexer.Token), List(lexer.Token)) {
+  case tokens {
+    [] -> #(list.reverse(header), [])
+    [lexer.LParen, ..rest] -> #(list.reverse(header), rest)
+    [tok, ..rest] -> split_at_lparen(rest, [tok, ..header])
+  }
+}
+
+/// Find the last Ident or QuotedIdent token in a list and return its name.
+fn find_last_ident(tokens: List(lexer.Token)) -> Result(String, Nil) {
+  tokens
+  |> list.filter_map(fn(tok) {
+    case tok {
+      lexer.Ident(n) | lexer.QuotedIdent(n) ->
+        Ok(naming.normalize_identifier(n))
+      _ -> Error(Nil)
+    }
+  })
+  |> list.last
+}
+
+/// Strip trailing RParen from token list.
+fn strip_trailing_rparen(tokens: List(lexer.Token)) -> List(lexer.Token) {
+  tokens
+  |> list.reverse
+  |> drop_trailing_rparens
+  |> list.reverse
+}
+
+fn drop_trailing_rparens(rev_tokens: List(lexer.Token)) -> List(lexer.Token) {
+  case rev_tokens {
+    [lexer.RParen, ..rest] -> rest
+    _ -> rev_tokens
+  }
+}
+
+fn parse_columns_tokens(
   table_name: String,
-  body: String,
+  tokens: List(lexer.Token),
   enums: List(model.EnumDef),
 ) -> Result(List(model.Column), ParseError) {
-  body
-  |> context.split_csv
-  |> list.try_fold([], fn(columns, entry) {
-    use maybe_column <- result.try(parse_column(table_name, entry, enums))
+  split_tokens_by_comma(tokens)
+  |> list.try_fold([], fn(columns, col_tokens) {
+    use maybe_column <- result.try(parse_column_tokens(
+      table_name,
+      col_tokens,
+      enums,
+    ))
     Ok(case maybe_column {
       Some(column) -> [column, ..columns]
       None -> columns
@@ -680,40 +715,76 @@ fn parse_columns(
   |> result.map(list.reverse)
 }
 
-fn parse_column(
+/// Split a token list by top-level commas (depth-0 only).
+fn split_tokens_by_comma(tokens: List(lexer.Token)) -> List(List(lexer.Token)) {
+  split_tokens_by_comma_loop(tokens, 0, [], [])
+}
+
+fn split_tokens_by_comma_loop(
+  tokens: List(lexer.Token),
+  depth: Int,
+  current: List(lexer.Token),
+  acc: List(List(lexer.Token)),
+) -> List(List(lexer.Token)) {
+  case tokens {
+    [] ->
+      case current {
+        [] -> list.reverse(acc)
+        _ -> list.reverse([list.reverse(current), ..acc])
+      }
+    [lexer.LParen, ..rest] ->
+      split_tokens_by_comma_loop(
+        rest,
+        depth + 1,
+        [lexer.LParen, ..current],
+        acc,
+      )
+    [lexer.RParen, ..rest] ->
+      split_tokens_by_comma_loop(
+        rest,
+        case depth > 0 {
+          True -> depth - 1
+          False -> 0
+        },
+        [lexer.RParen, ..current],
+        acc,
+      )
+    [lexer.Comma, ..rest] if depth == 0 ->
+      split_tokens_by_comma_loop(rest, depth, [], [list.reverse(current), ..acc])
+    [tok, ..rest] ->
+      split_tokens_by_comma_loop(rest, depth, [tok, ..current], acc)
+  }
+}
+
+fn parse_column_tokens(
   table_name: String,
-  entry: String,
+  tokens: List(lexer.Token),
   enums: List(model.EnumDef),
 ) -> Result(Option(model.Column), ParseError) {
-  let tokens =
-    entry
-    |> string.split(" ")
-    |> list.map(string.trim)
-    |> list.filter(fn(token) { token != "" })
-
   case tokens {
     [] -> Ok(None)
-    [first, ..rest] -> {
-      let first_lower = string.lowercase(first)
+    [first, ..rest] ->
+      case first {
+        lexer.Keyword("primary")
+        | lexer.Keyword("foreign")
+        | lexer.Keyword("unique")
+        | lexer.Keyword("constraint")
+        | lexer.Keyword("check") -> Ok(None)
+        lexer.Ident(n) | lexer.QuotedIdent(n) -> {
+          let name = naming.normalize_identifier(n)
+          let type_toks = take_type_tokens_from_lexer(rest, [])
 
-      case is_table_constraint(first_lower) {
-        True -> Ok(None)
-        False -> {
-          let name = naming.normalize_identifier(first)
-          let type_tokens = take_type_tokens(rest, [])
-
-          case type_tokens {
+          case type_toks {
             [] ->
               Error(InvalidColumn(
                 table: table_name,
                 detail: "missing type for column " <> name,
               ))
             _ -> {
-              let type_text = string.join(type_tokens, " ")
-              let lowered = list.map(tokens, string.lowercase)
+              let type_text = render_type_tokens(type_toks)
               let nullable = case
-                contains_phrase(lowered, "not", "null")
-                || list.contains(lowered, "primary")
+                tokens_contain_not_null(tokens)
+                || tokens_contain_keyword(tokens, "primary")
               {
                 True -> False
                 False -> True
@@ -732,20 +803,83 @@ fn parse_column(
             }
           }
         }
+        _ -> Ok(None)
+      }
+  }
+}
+
+fn take_type_tokens_from_lexer(
+  tokens: List(lexer.Token),
+  acc: List(lexer.Token),
+) -> List(lexer.Token) {
+  case tokens {
+    [] -> list.reverse(acc)
+    [lexer.Keyword(k), ..rest] ->
+      case is_column_constraint(k) {
+        True -> list.reverse(acc)
+        False -> take_type_tokens_from_lexer(rest, [lexer.Keyword(k), ..acc])
+      }
+    [tok, ..rest] -> take_type_tokens_from_lexer(rest, [tok, ..acc])
+  }
+}
+
+/// Render type tokens back to a type string for parse_sql_type lookup.
+/// Handles array syntax ([] operators) by joining without spaces.
+fn render_type_tokens(tokens: List(lexer.Token)) -> String {
+  render_type_tokens_loop(tokens, [])
+  |> list.reverse
+  |> string.join(" ")
+}
+
+fn render_type_tokens_loop(
+  tokens: List(lexer.Token),
+  acc: List(String),
+) -> List(String) {
+  case tokens {
+    [] -> acc
+    // Collapse "[" "]" into "[]" appended to the previous token
+    [lexer.Operator("["), lexer.Operator("]"), ..rest] ->
+      case acc {
+        [prev, ..prev_rest] ->
+          render_type_tokens_loop(rest, [prev <> "[]", ..prev_rest])
+        [] -> render_type_tokens_loop(rest, ["[]", ..acc])
+      }
+    [tok, ..rest] -> {
+      let s = case tok {
+        lexer.Keyword(k) -> k
+        lexer.Ident(n) -> n
+        lexer.QuotedIdent(n) -> n
+        lexer.NumberLit(n) -> n
+        lexer.Operator(op) -> op
+        lexer.LParen -> "("
+        lexer.RParen -> ")"
+        lexer.Comma -> ","
+        lexer.Star -> "*"
+        _ -> ""
+      }
+      case s {
+        "" -> render_type_tokens_loop(rest, acc)
+        _ -> render_type_tokens_loop(rest, [s, ..acc])
       }
     }
   }
 }
 
-fn take_type_tokens(tokens: List(String), acc: List(String)) -> List(String) {
+fn tokens_contain_not_null(tokens: List(lexer.Token)) -> Bool {
   case tokens {
-    [] -> list.reverse(acc)
-    [token, ..rest] ->
-      case is_column_constraint(string.lowercase(token)) {
-        True -> list.reverse(acc)
-        False -> take_type_tokens(rest, [token, ..acc])
-      }
+    [] | [_] -> False
+    [lexer.Keyword("not"), lexer.Keyword("null"), ..] -> True
+    [_, ..rest] -> tokens_contain_not_null(rest)
   }
+}
+
+fn tokens_contain_keyword(tokens: List(lexer.Token), keyword: String) -> Bool {
+  list.any(tokens, fn(tok) {
+    case tok {
+      lexer.Keyword(k) -> k == keyword
+      _ -> False
+    }
+  })
 }
 
 fn infer_scalar_type(type_text: String) -> Result(model.ScalarType, String) {
@@ -759,11 +893,7 @@ fn infer_scalar_type(type_text: String) -> Result(model.ScalarType, String) {
   )
 }
 
-fn is_table_constraint(token: String) -> Bool {
-  list.contains(["primary", "foreign", "unique", "constraint", "check"], token)
-}
-
-fn is_column_constraint(token: String) -> Bool {
+fn is_column_constraint(keyword: String) -> Bool {
   list.contains(
     [
       "not",
@@ -777,19 +907,8 @@ fn is_column_constraint(token: String) -> Bool {
       "generated",
       "collate",
     ],
-    token,
+    keyword,
   )
-}
-
-fn contains_phrase(tokens: List(String), first: String, second: String) -> Bool {
-  case tokens {
-    [] | [_] -> False
-    [a, b, ..rest] ->
-      case a == first && b == second {
-        True -> True
-        False -> contains_phrase([b, ..rest], first, second)
-      }
-  }
 }
 
 fn find_enum(type_text: String, enums: List(model.EnumDef)) -> Option(String) {
