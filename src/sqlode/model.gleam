@@ -192,7 +192,11 @@ pub type ScalarType {
   UuidType
   JsonType
   EnumType(name: String)
-  CustomType(name: String, underlying: ScalarType)
+  CustomType(
+    name: String,
+    module: option.Option(String),
+    underlying: ScalarType,
+  )
   ArrayType(element: ScalarType)
 }
 
@@ -405,7 +409,7 @@ pub fn scalar_type_to_gleam_type(
     option.None ->
       case scalar_type {
         EnumType(name) -> enum_type_name(name)
-        CustomType(name, _) -> name
+        CustomType(name, _, _) -> name
         ArrayType(element) ->
           "List(" <> scalar_type_to_gleam_type(element, type_mapping) <> ")"
         _ -> "String"
@@ -433,7 +437,8 @@ pub fn scalar_type_to_runtime_function(scalar_type: ScalarType) -> String {
     option.None ->
       case scalar_type {
         EnumType(_) -> "runtime.string"
-        CustomType(_, underlying) -> scalar_type_to_runtime_function(underlying)
+        CustomType(_, _, underlying) ->
+          scalar_type_to_runtime_function(underlying)
         ArrayType(element) -> scalar_type_to_runtime_function(element)
         _ -> "runtime.string"
       }
@@ -446,7 +451,7 @@ pub fn scalar_type_to_db_name(scalar_type: ScalarType) -> String {
     option.None ->
       case scalar_type {
         EnumType(name) -> name
-        CustomType(_, underlying) -> scalar_type_to_db_name(underlying)
+        CustomType(_, _, underlying) -> scalar_type_to_db_name(underlying)
         ArrayType(element) -> scalar_type_to_db_name(element) <> "[]"
         _ -> "string"
       }
@@ -470,7 +475,7 @@ pub fn scalar_type_to_value_function(
     option.None ->
       case scalar_type {
         EnumType(_) -> "text"
-        CustomType(_, underlying) ->
+        CustomType(_, _, underlying) ->
           scalar_type_to_value_function(engine, underlying)
         ArrayType(element) ->
           "array(pog." <> scalar_type_to_value_function(engine, element) <> ")"
@@ -494,7 +499,8 @@ pub fn scalar_type_to_decoder(engine: Engine, scalar_type: ScalarType) -> String
     option.None ->
       case scalar_type {
         EnumType(_) -> "decode.string"
-        CustomType(_, underlying) -> scalar_type_to_decoder(engine, underlying)
+        CustomType(_, _, underlying) ->
+          scalar_type_to_decoder(engine, underlying)
         ArrayType(element) ->
           "decode.list(" <> scalar_type_to_decoder(engine, element) <> ")"
         _ -> "decode.string"

@@ -1,4 +1,5 @@
 import gleam/list
+import gleam/option
 import gleam/result
 import gleam/string
 import sqlode/model
@@ -36,6 +37,61 @@ pub fn queries_have_enums(queries: List(model.AnalyzedQuery)) -> Bool {
         _ -> False
       }
     })
+  })
+}
+
+/// Collect import statements for module-qualified custom types from scalar types.
+pub fn custom_type_imports(scalar_types: List(model.ScalarType)) -> List(String) {
+  scalar_types
+  |> list.filter_map(fn(st) {
+    case st {
+      model.CustomType(name, option.Some(module), _) ->
+        Ok("import " <> module <> ".{type " <> name <> "}")
+      _ -> Error(Nil)
+    }
+  })
+  |> list.unique
+  |> list.sort(string.compare)
+}
+
+/// Collect all scalar types from query result columns.
+pub fn result_scalar_types(
+  queries: List(model.AnalyzedQuery),
+) -> List(model.ScalarType) {
+  list.flat_map(queries, fn(query) {
+    list.filter_map(query.result_columns, fn(col) {
+      case col {
+        model.ResultColumn(scalar_type:, ..) -> Ok(scalar_type)
+        model.EmbeddedColumn(columns:, ..) ->
+          case
+            list.find_map(columns, fn(c) {
+              case c.scalar_type {
+                model.CustomType(..) -> Ok(c.scalar_type)
+                _ -> Error(Nil)
+              }
+            })
+          {
+            Ok(st) -> Ok(st)
+            Error(_) -> Error(Nil)
+          }
+      }
+    })
+  })
+}
+
+/// Collect all scalar types from query params.
+pub fn param_scalar_types(
+  queries: List(model.AnalyzedQuery),
+) -> List(model.ScalarType) {
+  list.flat_map(queries, fn(query) {
+    list.map(query.params, fn(p) { p.scalar_type })
+  })
+}
+
+/// Collect all scalar types from catalog tables.
+pub fn catalog_scalar_types(catalog: model.Catalog) -> List(model.ScalarType) {
+  list.flat_map(catalog.tables, fn(table) {
+    list.map(table.columns, fn(col) { col.scalar_type })
   })
 }
 

@@ -418,6 +418,7 @@ fn gleam_type_to_scalar(
     "string" -> model.StringType
     "bitarray" -> model.BytesType
     _ -> {
+      let #(module, type_name) = parse_module_qualified_type(gleam_type)
       let underlying_name =
         model.scalar_type_to_gleam_type(underlying, model.StringMapping)
       io.println_error(
@@ -426,15 +427,24 @@ fn gleam_type_to_scalar(
         <> "\" will use the encoder/decoder for the underlying \""
         <> underlying_name
         <> "\" type. Ensure \""
-        <> gleam_type
+        <> type_name
         <> "\" is defined as a transparent type alias (e.g., pub type "
-        <> gleam_type
+        <> type_name
         <> " = "
         <> underlying_name
         <> "). Opaque types are not supported.",
       )
-      model.CustomType(name: gleam_type, underlying:)
+      model.CustomType(name: type_name, module:, underlying:)
     }
+  }
+}
+
+fn parse_module_qualified_type(
+  gleam_type: String,
+) -> #(option.Option(String), String) {
+  case string.split_once(gleam_type, ".") {
+    Ok(#(module_path, type_name)) -> #(option.Some(module_path), type_name)
+    Error(_) -> #(option.None, gleam_type)
   }
 }
 
