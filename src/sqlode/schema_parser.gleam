@@ -63,16 +63,24 @@ fn parse_content(
   use tables <- result.try(
     statements
     |> list.try_fold([], fn(tables, stmt_tokens) {
-      let statement = tokens_to_string(stmt_tokens)
-      use maybe_table <- result.try(parse_statement(
-        statement,
-        all_enums,
-        list.reverse(tables),
-      ))
-      Ok(case maybe_table {
-        Some(table) -> [table, ..tables]
-        None -> tables
-      })
+      case is_create_view_tokens(stmt_tokens) {
+        True -> {
+          let maybe_table =
+            parse_create_view_from_tokens(stmt_tokens, list.reverse(tables))
+          Ok(case maybe_table {
+            Some(table) -> [table, ..tables]
+            None -> tables
+          })
+        }
+        False -> {
+          let statement = tokens_to_string(stmt_tokens)
+          use maybe_table <- result.try(parse_statement(statement, all_enums))
+          Ok(case maybe_table {
+            Some(table) -> [table, ..tables]
+            None -> tables
+          })
+        }
+      }
     })
     |> result.map(list.reverse),
   )
@@ -156,107 +164,76 @@ fn extract_enum_values(
   }
 }
 
-fn tokens_to_string(tokens: List(lexer.Token)) -> String {
-  lexer.tokens_to_string(
-    tokens,
-    lexer.TokenRenderOptions(uppercase_keywords: True, preserve_quotes: True),
-  )
-}
-
-fn parse_statement(
-  statement: String,
-  enums: List(model.EnumDef),
-  tables: List(model.Table),
-) -> Result(Option(model.Table), ParseError) {
-  let lowered = string.lowercase(statement)
-
-  case
-    string.starts_with(lowered, "create table")
-    || string.starts_with(lowered, "create temporary table")
-    || string.starts_with(lowered, "create temp table")
-    || string.starts_with(lowered, "create unlogged table")
-    || string.starts_with(lowered, "create table if not exists")
-    || string.starts_with(lowered, "create temporary table if not exists")
-    || string.starts_with(lowered, "create temp table if not exists")
-    || string.starts_with(lowered, "create unlogged table if not exists")
-  {
-    True -> parse_create_table(statement, enums)
-    False ->
-      case
-        string.starts_with(lowered, "create view")
-        || string.starts_with(lowered, "create or replace view")
-      {
-        True -> Ok(parse_create_view(statement, tables))
-        False -> Ok(None)
-      }
+fn is_create_view_tokens(tokens: List(lexer.Token)) -> Bool {
+  case tokens {
+    [
+      lexer.Keyword("create"),
+      lexer.Keyword("or"),
+      lexer.Keyword("replace"),
+      lexer.Keyword("view"),
+      ..
+    ] -> True
+    [lexer.Keyword("create"), lexer.Keyword("view"), ..] -> True
+    _ -> False
   }
 }
 
-fn parse_create_view(
-  statement: String,
+fn parse_create_view_from_tokens(
+  tokens: List(lexer.Token),
   tables: List(model.Table),
 ) -> Option(model.Table) {
-  let lowered =
-    statement
-    |> string.lowercase
-    |> string.replace("\n", " ")
-    |> string.replace("\r", " ")
-    |> string.replace("\t", " ")
+  let remaining = case tokens {
+    [
+      lexer.Keyword("create"),
+      lexer.Keyword("or"),
+      lexer.Keyword("replace"),
+      lexer.Keyword("view"),
+      ..rest
+    ] -> rest
+    [lexer.Keyword("create"), lexer.Keyword("view"), ..rest] -> rest
+    _ -> []
+  }
 
-  // Extract view name: CREATE [OR REPLACE] VIEW <name> AS ...
-  case split_once_outside_parens(lowered, " as ") {
-    Error(_) -> None
-    Ok(#(header, select_part)) -> {
-      let view_name =
-        header
-        |> string.replace("create or replace view", "")
-        |> string.replace("create view", "")
-        |> string.trim
-        |> naming.normalize_identifier
+  // Extract view name
+  let #(view_name, after_name) = case remaining {
+    [lexer.Ident(n), ..rest] -> #(string.lowercase(n), rest)
+    [lexer.QuotedIdent(n), ..rest] -> #(string.lowercase(n), rest)
+    _ -> #("", [])
+  }
 
-      // Extract column names from the SELECT clause
-      case string.split_once(select_part, " from ") {
-        Error(_) -> None
-        Ok(#(select_cols_text, from_part)) -> {
-          let select_cols =
-            select_cols_text
-            |> string.replace("select", "")
-            |> string.trim
+  case view_name {
+    "" -> None
+    _ -> {
+      // Skip to AS keyword
+      let after_as = skip_to_keyword(after_name, "as")
+      // Skip past SELECT keyword
+      let after_select = case after_as {
+        [lexer.Keyword("select"), ..rest] -> rest
+        _ -> []
+      }
 
-          // Extract the first table name from FROM clause
-          let source_table =
-            from_part
-            |> string.split(" ")
-            |> list.map(string.trim)
-            |> list.filter(fn(t) { t != "" })
-            |> list.first
-            |> result.map(naming.normalize_identifier)
+      case after_select {
+        [] -> None
+        _ -> {
+          // Find FROM keyword at depth 0 to split SELECT columns from FROM clause
+          let #(select_tokens, from_tokens) = split_at_from(after_select, 0, [])
 
-          case select_cols, source_table {
-            "*", Ok(table_name) ->
-              case list.find(tables, fn(t) { t.name == table_name }) {
-                Ok(table) ->
-                  Some(model.Table(name: view_name, columns: table.columns))
-                Error(_) -> None
-              }
-            _, Ok(_) -> {
-              let col_names =
-                select_cols
-                |> string.split(",")
-                |> list.map(fn(c) {
-                  let trimmed = string.trim(c)
-                  // Handle aliases: "col AS alias" → use alias
-                  case split_once_outside_parens(trimmed, " as ") {
-                    Ok(#(_, alias)) -> string.trim(alias)
-                    Error(_) ->
-                      // Handle table.column → use column
-                      case string.split_once(trimmed, ".") {
-                        Ok(#(_, col)) -> string.trim(col)
-                        Error(_) -> trimmed
-                      }
+          // Extract table names from FROM clause
+          let source_tables = extract_view_source_tables(from_tokens)
+
+          case select_tokens {
+            [lexer.Star] ->
+              case source_tables {
+                [table_name, ..] ->
+                  case list.find(tables, fn(t) { t.name == table_name }) {
+                    Ok(table) ->
+                      Some(model.Table(name: view_name, columns: table.columns))
+                    Error(_) -> None
                   }
-                })
-
+                [] -> None
+              }
+            _ -> {
+              let col_names = extract_view_column_names(select_tokens)
               let columns =
                 list.filter_map(col_names, fn(col_name) {
                   let normalized = naming.normalize_identifier(col_name)
@@ -273,17 +250,130 @@ fn parse_create_view(
                     }
                   }
                 })
-
               case columns {
                 [] -> None
                 _ -> Some(model.Table(name: view_name, columns:))
               }
             }
-            _, _ -> None
           }
         }
       }
     }
+  }
+}
+
+fn skip_to_keyword(
+  tokens: List(lexer.Token),
+  keyword: String,
+) -> List(lexer.Token) {
+  case tokens {
+    [] -> []
+    [lexer.Keyword(k), ..rest] if k == keyword -> rest
+    [_, ..rest] -> skip_to_keyword(rest, keyword)
+  }
+}
+
+fn split_at_from(
+  tokens: List(lexer.Token),
+  depth: Int,
+  acc: List(lexer.Token),
+) -> #(List(lexer.Token), List(lexer.Token)) {
+  case tokens {
+    [] -> #(list.reverse(acc), [])
+    [lexer.LParen, ..rest] ->
+      split_at_from(rest, depth + 1, [lexer.LParen, ..acc])
+    [lexer.RParen, ..rest] ->
+      split_at_from(rest, depth - 1, [lexer.RParen, ..acc])
+    [lexer.Keyword("from"), ..rest] if depth == 0 -> #(list.reverse(acc), rest)
+    [token, ..rest] -> split_at_from(rest, depth, [token, ..acc])
+  }
+}
+
+fn extract_view_source_tables(tokens: List(lexer.Token)) -> List(String) {
+  case tokens {
+    [lexer.Ident(_schema), lexer.Dot, lexer.Ident(name), ..] -> [
+      string.lowercase(name),
+    ]
+    [lexer.Ident(name), ..] -> [string.lowercase(name)]
+    [lexer.QuotedIdent(name), ..] -> [string.lowercase(name)]
+    _ -> []
+  }
+}
+
+fn extract_view_column_names(tokens: List(lexer.Token)) -> List(String) {
+  let groups = tok_split_select_columns(tokens, 0, [], [])
+  list.map(groups, fn(col_tokens) {
+    // Check for AS alias (last two tokens: Keyword("as"), Ident/QuotedIdent)
+    let reversed = list.reverse(col_tokens)
+    case reversed {
+      [lexer.Ident(alias), lexer.Keyword("as"), ..] -> alias
+      [lexer.QuotedIdent(alias), lexer.Keyword("as"), ..] -> alias
+      _ -> {
+        // Check for table.column → use column
+        case list.reverse(reversed) {
+          [lexer.Ident(_table), lexer.Dot, lexer.Ident(col)] -> col
+          _ ->
+            // Use the last identifier
+            case reversed {
+              [lexer.Ident(name), ..] -> name
+              [lexer.QuotedIdent(name), ..] -> name
+              _ -> ""
+            }
+        }
+      }
+    }
+  })
+  |> list.filter(fn(n) { n != "" })
+}
+
+fn tok_split_select_columns(
+  tokens: List(lexer.Token),
+  depth: Int,
+  current: List(lexer.Token),
+  acc: List(List(lexer.Token)),
+) -> List(List(lexer.Token)) {
+  case tokens {
+    [] ->
+      case current {
+        [] -> list.reverse(acc)
+        _ -> list.reverse([list.reverse(current), ..acc])
+      }
+    [lexer.Comma, ..rest] if depth == 0 ->
+      tok_split_select_columns(rest, 0, [], [list.reverse(current), ..acc])
+    [lexer.LParen, ..rest] ->
+      tok_split_select_columns(rest, depth + 1, [lexer.LParen, ..current], acc)
+    [lexer.RParen, ..rest] ->
+      tok_split_select_columns(rest, depth - 1, [lexer.RParen, ..current], acc)
+    [token, ..rest] ->
+      tok_split_select_columns(rest, depth, [token, ..current], acc)
+  }
+}
+
+fn tokens_to_string(tokens: List(lexer.Token)) -> String {
+  lexer.tokens_to_string(
+    tokens,
+    lexer.TokenRenderOptions(uppercase_keywords: True, preserve_quotes: True),
+  )
+}
+
+fn parse_statement(
+  statement: String,
+  enums: List(model.EnumDef),
+) -> Result(Option(model.Table), ParseError) {
+  let lowered = string.lowercase(statement)
+
+  case
+    string.starts_with(lowered, "create table")
+    || string.starts_with(lowered, "create temporary table")
+    || string.starts_with(lowered, "create temp table")
+    || string.starts_with(lowered, "create unlogged table")
+    || string.starts_with(lowered, "create table if not exists")
+    || string.starts_with(lowered, "create temporary table if not exists")
+    || string.starts_with(lowered, "create temp table if not exists")
+    || string.starts_with(lowered, "create unlogged table if not exists")
+  {
+    True -> parse_create_table(statement, enums)
+    False -> Ok(None)
   }
 }
 
@@ -467,51 +557,6 @@ fn find_enum(type_text: String, enums: List(model.EnumDef)) -> Option(String) {
   case list.find(enums, fn(e) { e.name == lowered }) {
     Ok(e) -> Some(e.name)
     Error(_) -> None
-  }
-}
-
-/// Split a string on the first occurrence of `delimiter` that is not inside
-/// parentheses.  Returns the same shape as `string.split_once`.
-fn split_once_outside_parens(
-  input: String,
-  delimiter: String,
-) -> Result(#(String, String), Nil) {
-  let graphemes = string.to_graphemes(input)
-  let delim_len = string.length(delimiter)
-  do_split_outside_parens(graphemes, delimiter, delim_len, 0, "")
-}
-
-fn do_split_outside_parens(
-  remaining: List(String),
-  delimiter: String,
-  delim_len: Int,
-  depth: Int,
-  acc: String,
-) -> Result(#(String, String), Nil) {
-  case remaining {
-    [] -> Error(Nil)
-    ["(", ..rest] ->
-      do_split_outside_parens(rest, delimiter, delim_len, depth + 1, acc <> "(")
-    [")", ..rest] -> {
-      let new_depth = case depth > 0 {
-        True -> depth - 1
-        False -> 0
-      }
-      do_split_outside_parens(rest, delimiter, delim_len, new_depth, acc <> ")")
-    }
-    [char, ..rest] -> {
-      let new_acc = acc <> char
-      case depth == 0 && string.ends_with(new_acc, delimiter) {
-        True -> {
-          let before =
-            string.slice(new_acc, 0, string.length(new_acc) - delim_len)
-          let after = string.concat(rest)
-          Ok(#(before, after))
-        }
-        False ->
-          do_split_outside_parens(rest, delimiter, delim_len, depth, new_acc)
-      }
-    }
   }
 }
 
