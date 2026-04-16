@@ -40,7 +40,7 @@ sql:
     engine: "postgresql"
     gen:
       gleam:
-        package: "db"
+
         out: "$INTEGRATION_DIR/src/db"
         runtime: "raw"
 YAML
@@ -80,7 +80,7 @@ sql:
     engine: "postgresql"
     gen:
       gleam:
-        package: "db"
+
         out: "$INTEGRATION_DIR/src/db"
         runtime: "raw"
 YAML
@@ -120,7 +120,7 @@ sql:
     engine: "postgresql"
     gen:
       gleam:
-        package: "db"
+
         out: "$INTEGRATION_DIR/src/db"
         runtime: "raw"
 YAML
