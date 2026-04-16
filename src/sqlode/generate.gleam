@@ -257,10 +257,18 @@ fn load_catalog(
     }),
   )
 
-  schema_parser.parse_files_with_engine(entries, engine)
-  |> result.map_error(fn(error) {
-    SchemaParseError(detail: schema_parser.error_to_string(error))
+  use #(catalog, warnings) <- result.try(
+    schema_parser.parse_files_with_engine(entries, engine)
+    |> result.map_error(fn(error) {
+      SchemaParseError(detail: schema_parser.error_to_string(error))
+    }),
+  )
+
+  list.each(warnings, fn(w) {
+    io.println_error(schema_parser.warning_to_string(w))
   })
+
+  Ok(catalog)
 }
 
 fn load_queries(

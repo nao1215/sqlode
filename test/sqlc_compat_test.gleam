@@ -679,7 +679,7 @@ pub fn distinct_top_scores_test() {
 
 fn load_catalog(path: String) -> model.Catalog {
   let assert Ok(content) = simplifile.read(path)
-  let assert Ok(catalog) = schema_parser.parse_files([#(path, content)])
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#(path, content)])
   catalog
 }
 
