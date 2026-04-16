@@ -727,6 +727,18 @@ pub fn schema_only_keyword_create_does_not_panic_test() {
   schema_parser_test.schema_only_keyword_create_does_not_panic_test()
 }
 
+pub fn schema_duplicate_table_across_files_test() {
+  schema_parser_test.schema_duplicate_table_across_files_test()
+}
+
+pub fn load_named_sql_blocks_test() {
+  config_test.load_named_sql_blocks_test()
+}
+
+pub fn default_block_name_is_none_test() {
+  config_test.default_block_name_is_none_test()
+}
+
 pub fn sqlc_arg_in_string_literal_ignored_test() {
   query_parser_test.sqlc_arg_in_string_literal_ignored_test()
 }

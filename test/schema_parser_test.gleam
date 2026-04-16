@@ -493,3 +493,18 @@ pub fn schema_only_keyword_create_does_not_panic_test() {
     schema_parser.parse_files([#("create.sql", "CREATE")])
   catalog.tables |> should.equal([])
 }
+
+pub fn schema_duplicate_table_across_files_test() {
+  // Current behavior: both definitions are kept, last one wins during
+  // column lookup (list.find takes first match but append order makes the
+  // earlier file's table be found first). Whatever the exact semantics,
+  // the parser should not panic and the catalog should contain entries.
+  let file1 = "CREATE TABLE shared (id BIGSERIAL PRIMARY KEY);"
+  let file2 =
+    "CREATE TABLE shared (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);"
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("one.sql", file1), #("two.sql", file2)])
+  // Both definitions currently coexist — this test pins the behavior so
+  // future changes (dedup, error, or merge) surface as a test failure.
+  list.length(catalog.tables) |> should.equal(2)
+}
