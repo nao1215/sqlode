@@ -691,6 +691,42 @@ pub fn nested_dollar_quoted_tags_postgresql_test() {
   lexer_test.nested_dollar_quoted_tags_postgresql_test()
 }
 
+pub fn lexer_empty_input_test() {
+  lexer_test.empty_input_test()
+}
+
+pub fn lexer_whitespace_only_input_test() {
+  lexer_test.whitespace_only_input_test()
+}
+
+pub fn lexer_unterminated_string_literal_does_not_panic_test() {
+  lexer_test.unterminated_string_literal_does_not_panic_test()
+}
+
+pub fn lexer_unterminated_block_comment_does_not_panic_test() {
+  lexer_test.unterminated_block_comment_does_not_panic_test()
+}
+
+pub fn lexer_unterminated_dollar_quoted_string_does_not_panic_test() {
+  lexer_test.unterminated_dollar_quoted_string_does_not_panic_test()
+}
+
+pub fn lexer_only_operators_input_does_not_panic_test() {
+  lexer_test.only_operators_input_does_not_panic_test()
+}
+
+pub fn schema_empty_input_produces_empty_catalog_test() {
+  schema_parser_test.schema_empty_input_produces_empty_catalog_test()
+}
+
+pub fn schema_truncated_create_table_test() {
+  schema_parser_test.schema_truncated_create_table_test()
+}
+
+pub fn schema_only_keyword_create_does_not_panic_test() {
+  schema_parser_test.schema_only_keyword_create_does_not_panic_test()
+}
+
 pub fn sqlc_arg_in_string_literal_ignored_test() {
   query_parser_test.sqlc_arg_in_string_literal_ignored_test()
 }

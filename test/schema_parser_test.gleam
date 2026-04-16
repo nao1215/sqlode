@@ -472,3 +472,24 @@ pub fn view_star_with_join_test() {
   let col_names = list.map(view.columns, fn(c) { c.name })
   col_names |> should.equal(["a", "b", "c", "d"])
 }
+
+// --- Malformed DDL robustness ---
+
+pub fn schema_empty_input_produces_empty_catalog_test() {
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("empty.sql", "")])
+  catalog.tables |> should.equal([])
+  catalog.enums |> should.equal([])
+}
+
+pub fn schema_truncated_create_table_test() {
+  let assert Error(_) =
+    schema_parser.parse_files([#("trunc.sql", "CREATE TABLE")])
+}
+
+pub fn schema_only_keyword_create_does_not_panic_test() {
+  // "CREATE" alone is not a recognized DDL statement; the parser should
+  // silently produce an empty catalog rather than panic.
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("create.sql", "CREATE")])
+  catalog.tables |> should.equal([])
+}

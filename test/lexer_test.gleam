@@ -1,3 +1,4 @@
+import gleam/list
 import gleeunit
 import gleeunit/should
 import sqlode/lexer.{
@@ -390,4 +391,37 @@ pub fn table_alias_tokens_test() {
     Ident("users"),
     Ident("u"),
   ])
+}
+
+// --- Malformed input robustness ---
+// These tests verify the lexer does not panic on malformed SQL. Exact
+// tokenization of invalid input is not specified; we only require that
+// tokenize returns a list without crashing.
+
+pub fn empty_input_test() {
+  lexer.tokenize("", model.PostgreSQL) |> should.equal([])
+}
+
+pub fn whitespace_only_input_test() {
+  lexer.tokenize("   \n\t  ", model.PostgreSQL) |> should.equal([])
+}
+
+pub fn unterminated_string_literal_does_not_panic_test() {
+  let tokens = lexer.tokenize("SELECT 'unclosed", model.PostgreSQL)
+  tokens |> list.is_empty |> should.be_false
+}
+
+pub fn unterminated_block_comment_does_not_panic_test() {
+  let tokens = lexer.tokenize("SELECT 1 /* no end", model.PostgreSQL)
+  tokens |> list.is_empty |> should.be_false
+}
+
+pub fn unterminated_dollar_quoted_string_does_not_panic_test() {
+  let tokens = lexer.tokenize("SELECT $$no end", model.PostgreSQL)
+  tokens |> list.is_empty |> should.be_false
+}
+
+pub fn only_operators_input_does_not_panic_test() {
+  let tokens = lexer.tokenize("= > < <= >= <>", model.PostgreSQL)
+  tokens |> list.is_empty |> should.be_false
 }
