@@ -393,3 +393,25 @@ pub fn view_with_literal_expression_test() {
     list.find(view.columns, fn(c) { c.name == "greeting" })
   greeting.scalar_type |> should.equal(model.StringType)
 }
+
+pub fn serial_types_are_implicitly_not_null_test() {
+  let content =
+    "CREATE TABLE t (\n"
+    <> "  a SERIAL,\n"
+    <> "  b BIGSERIAL,\n"
+    <> "  c SMALLSERIAL,\n"
+    <> "  d INTEGER\n"
+    <> ");\n"
+
+  let assert Ok(catalog) = schema_parser.parse_files([#("serial.sql", content)])
+
+  let assert [table] = catalog.tables
+  let assert [a, b, c, d] = table.columns
+
+  // SERIAL/BIGSERIAL/SMALLSERIAL should be implicitly NOT NULL
+  a.nullable |> should.equal(False)
+  b.nullable |> should.equal(False)
+  c.nullable |> should.equal(False)
+  // Plain INTEGER without NOT NULL should be nullable
+  d.nullable |> should.equal(True)
+}
