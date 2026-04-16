@@ -501,6 +501,26 @@ pub fn view_nonexistent_table_test() {
   schema_parser_test.view_nonexistent_table_test()
 }
 
+pub fn view_with_count_expression_test() {
+  schema_parser_test.view_with_count_expression_test()
+}
+
+pub fn view_with_sum_expression_test() {
+  schema_parser_test.view_with_sum_expression_test()
+}
+
+pub fn view_with_avg_expression_test() {
+  schema_parser_test.view_with_avg_expression_test()
+}
+
+pub fn view_with_coalesce_expression_test() {
+  schema_parser_test.view_with_coalesce_expression_test()
+}
+
+pub fn view_with_literal_expression_test() {
+  schema_parser_test.view_with_literal_expression_test()
+}
+
 // query_analyzer error tests
 
 pub fn table_not_found_error_test() {

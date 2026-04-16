@@ -162,10 +162,15 @@ pub fn view_with_cast_expression_test() {
   let assert Ok(catalog) =
     schema_parser.parse_files([#("cast_view.sql", content)])
 
-  // Aliased expression columns (col_a, col_b) cannot be resolved from source
-  // tables, so they are skipped with a warning. The view is omitted if empty.
-  let view_found = list.find(catalog.tables, fn(tbl) { tbl.name == "v" })
-  view_found |> should.be_error()
+  let assert Ok(view) = list.find(catalog.tables, fn(tbl) { tbl.name == "v" })
+  let col_names = list.map(view.columns, fn(c) { c.name })
+  col_names |> should.equal(["col_a", "col_b"])
+
+  let assert Ok(col_a) = list.find(view.columns, fn(c) { c.name == "col_a" })
+  col_a.scalar_type |> should.equal(model.StringType)
+
+  let assert Ok(col_b) = list.find(view.columns, fn(c) { c.name == "col_b" })
+  col_b.scalar_type |> should.equal(model.StringType)
 }
 
 pub fn view_basic_select_test() {
@@ -191,9 +196,12 @@ pub fn view_with_alias_test() {
   let assert Ok(view) =
     list.find(catalog.tables, fn(tbl) { tbl.name == "user_names" })
   let col_names = list.map(view.columns, fn(c) { c.name })
-  // "display_name" alias cannot be resolved from source tables, so it is
-  // skipped. Only "id" (which matches a real column) is retained.
-  col_names |> should.equal(["id"])
+  col_names |> should.equal(["id", "display_name"])
+
+  let assert Ok(display) =
+    list.find(view.columns, fn(c) { c.name == "display_name" })
+  display.scalar_type |> should.equal(model.StringType)
+  display.nullable |> should.be_false
 }
 
 pub fn view_star_test() {
@@ -309,4 +317,77 @@ ALTER TABLE users ADD CONSTRAINT unique_email UNIQUE (email);"
   let assert [table] = catalog.tables
   // ADD CONSTRAINT should not add a column
   list.length(table.columns) |> should.equal(2)
+}
+
+pub fn view_with_count_expression_test() {
+  let content =
+    "CREATE TABLE authors (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);\n"
+    <> "CREATE VIEW author_counts AS SELECT COUNT(*) AS total FROM authors;"
+  let assert Ok(catalog) =
+    schema_parser.parse_files([#("count_view.sql", content)])
+
+  let assert Ok(view) =
+    list.find(catalog.tables, fn(tbl) { tbl.name == "author_counts" })
+  let assert Ok(total) = list.find(view.columns, fn(c) { c.name == "total" })
+  total.scalar_type |> should.equal(model.IntType)
+  total.nullable |> should.be_false
+}
+
+pub fn view_with_sum_expression_test() {
+  let content =
+    "CREATE TABLE orders (id BIGSERIAL PRIMARY KEY, amount INTEGER NOT NULL);\n"
+    <> "CREATE VIEW order_totals AS SELECT SUM(amount) AS total_amount FROM orders;"
+  let assert Ok(catalog) =
+    schema_parser.parse_files([#("sum_view.sql", content)])
+
+  let assert Ok(view) =
+    list.find(catalog.tables, fn(tbl) { tbl.name == "order_totals" })
+  let assert Ok(total) =
+    list.find(view.columns, fn(c) { c.name == "total_amount" })
+  total.scalar_type |> should.equal(model.IntType)
+  total.nullable |> should.be_true
+}
+
+pub fn view_with_avg_expression_test() {
+  let content =
+    "CREATE TABLE products (id BIGSERIAL PRIMARY KEY, price REAL NOT NULL);\n"
+    <> "CREATE VIEW avg_prices AS SELECT AVG(price) AS avg_price FROM products;"
+  let assert Ok(catalog) =
+    schema_parser.parse_files([#("avg_view.sql", content)])
+
+  let assert Ok(view) =
+    list.find(catalog.tables, fn(tbl) { tbl.name == "avg_prices" })
+  let assert Ok(avg) = list.find(view.columns, fn(c) { c.name == "avg_price" })
+  avg.scalar_type |> should.equal(model.FloatType)
+  avg.nullable |> should.be_true
+}
+
+pub fn view_with_coalesce_expression_test() {
+  let content =
+    "CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, bio TEXT);\n"
+    <> "CREATE VIEW user_display AS SELECT id, COALESCE(bio, 'N/A') AS bio_text FROM users;"
+  let assert Ok(catalog) =
+    schema_parser.parse_files([#("coalesce_view.sql", content)])
+
+  let assert Ok(view) =
+    list.find(catalog.tables, fn(tbl) { tbl.name == "user_display" })
+  let assert Ok(bio) = list.find(view.columns, fn(c) { c.name == "bio_text" })
+  bio.scalar_type |> should.equal(model.StringType)
+  bio.nullable |> should.be_false
+}
+
+pub fn view_with_literal_expression_test() {
+  let content =
+    "CREATE TABLE t (id BIGSERIAL PRIMARY KEY);\n"
+    <> "CREATE VIEW v AS SELECT 42 AS magic, 'hello' AS greeting FROM t;"
+  let assert Ok(catalog) =
+    schema_parser.parse_files([#("literal_view.sql", content)])
+
+  let assert Ok(view) = list.find(catalog.tables, fn(tbl) { tbl.name == "v" })
+  let assert Ok(magic) = list.find(view.columns, fn(c) { c.name == "magic" })
+  magic.scalar_type |> should.equal(model.IntType)
+
+  let assert Ok(greeting) =
+    list.find(view.columns, fn(c) { c.name == "greeting" })
+  greeting.scalar_type |> should.equal(model.StringType)
 }

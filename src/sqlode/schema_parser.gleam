@@ -17,6 +17,10 @@ type ParsedSchema {
   ParsedSchema(tables: List(model.Table), enums: List(model.EnumDef))
 }
 
+type ViewColumn {
+  ViewColumn(name: String, expr_tokens: List(lexer.Token))
+}
+
 pub fn parse_files(
   entries: List(#(String, String)),
 ) -> Result(model.Catalog, ParseError) {
@@ -240,21 +244,44 @@ fn parse_create_view_from_tokens(
                 [] -> None
               }
             _ -> {
-              let col_names = extract_view_column_names(select_tokens)
+              let view_cols = extract_view_columns(select_tokens)
               let columns =
-                list.filter_map(col_names, fn(col_name) {
-                  let normalized = naming.normalize_identifier(col_name)
+                list.filter_map(view_cols, fn(view_col) {
+                  let normalized = naming.normalize_identifier(view_col.name)
                   case find_column_in_tables(tables, normalized) {
                     Some(col) -> Ok(model.Column(..col, name: normalized))
-                    None -> {
-                      io.println_error(
-                        "Warning: view column \""
-                        <> normalized
-                        <> "\" could not be resolved from source tables"
-                        <> " — skipping column.",
-                      )
-                      Error(Nil)
-                    }
+                    None ->
+                      case
+                        resolve_column_from_expr_tokens(
+                          view_col.expr_tokens,
+                          tables,
+                        )
+                      {
+                        Some(col) -> Ok(model.Column(..col, name: normalized))
+                        None ->
+                          case
+                            infer_view_expression_type(
+                              view_col.expr_tokens,
+                              tables,
+                            )
+                          {
+                            Some(#(scalar_type, nullable)) ->
+                              Ok(model.Column(
+                                name: normalized,
+                                scalar_type: scalar_type,
+                                nullable: nullable,
+                              ))
+                            None -> {
+                              io.println_error(
+                                "Warning: view column \""
+                                <> normalized
+                                <> "\" could not be resolved from source tables"
+                                <> " — skipping column.",
+                              )
+                              Error(Nil)
+                            }
+                          }
+                      }
                   }
                 })
               case columns {
@@ -307,30 +334,131 @@ fn extract_view_source_tables(tokens: List(lexer.Token)) -> List(String) {
   }
 }
 
-fn extract_view_column_names(tokens: List(lexer.Token)) -> List(String) {
+fn extract_view_columns(tokens: List(lexer.Token)) -> List(ViewColumn) {
   let groups = tok_split_select_columns(tokens, 0, [], [])
-  list.map(groups, fn(col_tokens) {
+  list.filter_map(groups, fn(col_tokens) {
     // Check for AS alias (last two tokens: Keyword("as"), Ident/QuotedIdent)
     let reversed = list.reverse(col_tokens)
     case reversed {
-      [lexer.Ident(alias), lexer.Keyword("as"), ..] -> alias
-      [lexer.QuotedIdent(alias), lexer.Keyword("as"), ..] -> alias
+      [lexer.Ident(alias), lexer.Keyword("as"), ..rest] ->
+        Ok(ViewColumn(name: alias, expr_tokens: list.reverse(rest)))
+      [lexer.QuotedIdent(alias), lexer.Keyword("as"), ..rest] ->
+        Ok(ViewColumn(name: alias, expr_tokens: list.reverse(rest)))
       _ -> {
         // Check for table.column → use column
         case list.reverse(reversed) {
-          [lexer.Ident(_table), lexer.Dot, lexer.Ident(col)] -> col
+          [lexer.Ident(_table), lexer.Dot, lexer.Ident(col)] ->
+            Ok(ViewColumn(name: col, expr_tokens: col_tokens))
           _ ->
             // Use the last identifier
             case reversed {
-              [lexer.Ident(name), ..] -> name
-              [lexer.QuotedIdent(name), ..] -> name
-              _ -> ""
+              [lexer.Ident(name), ..] ->
+                Ok(ViewColumn(name: name, expr_tokens: col_tokens))
+              [lexer.QuotedIdent(name), ..] ->
+                Ok(ViewColumn(name: name, expr_tokens: col_tokens))
+              _ -> Error(Nil)
             }
         }
       }
     }
   })
-  |> list.filter(fn(n) { n != "" })
+}
+
+fn resolve_column_from_expr_tokens(
+  expr_tokens: List(lexer.Token),
+  tables: List(model.Table),
+) -> Option(model.Column) {
+  case expr_tokens {
+    [lexer.Ident(name)] -> find_column_in_tables(tables, string.lowercase(name))
+    [lexer.QuotedIdent(name)] ->
+      find_column_in_tables(tables, string.lowercase(name))
+    [lexer.Ident(_table), lexer.Dot, lexer.Ident(col)] ->
+      find_column_in_tables(tables, string.lowercase(col))
+    [lexer.QuotedIdent(_table), lexer.Dot, lexer.Ident(col)] ->
+      find_column_in_tables(tables, string.lowercase(col))
+    _ -> None
+  }
+}
+
+fn infer_view_expression_type(
+  expr_tokens: List(lexer.Token),
+  tables: List(model.Table),
+) -> Option(#(model.ScalarType, Bool)) {
+  case expr_tokens {
+    [lexer.Keyword("count"), lexer.LParen, ..] -> Some(#(model.IntType, False))
+    [lexer.Keyword("avg"), lexer.LParen, ..rest] ->
+      Some(#(
+        case extract_aggregate_inner_type(rest, tables) {
+          Some(col) ->
+            case col.scalar_type {
+              model.IntType | model.FloatType -> model.FloatType
+              other -> other
+            }
+          None -> model.FloatType
+        },
+        True,
+      ))
+    [lexer.Keyword("sum"), lexer.LParen, ..rest] ->
+      case extract_aggregate_inner_type(rest, tables) {
+        Some(col) -> Some(#(col.scalar_type, True))
+        None -> Some(#(model.FloatType, True))
+      }
+    [lexer.Keyword(fn_name), lexer.LParen, ..rest]
+      if fn_name == "min" || fn_name == "max"
+    ->
+      case extract_aggregate_inner_type(rest, tables) {
+        Some(col) -> Some(#(col.scalar_type, True))
+        None -> None
+      }
+    [lexer.Keyword("coalesce"), lexer.LParen, ..rest] ->
+      case extract_aggregate_inner_type(rest, tables) {
+        Some(col) -> Some(#(col.scalar_type, False))
+        None -> None
+      }
+    [lexer.Keyword("cast"), lexer.LParen, ..rest] -> infer_cast_type(rest)
+    [lexer.Keyword(fn_name), lexer.LParen, ..]
+      if fn_name == "row_number" || fn_name == "rank" || fn_name == "dense_rank"
+    -> Some(#(model.IntType, False))
+    [lexer.StringLit(_), ..] -> Some(#(model.StringType, False))
+    [lexer.NumberLit(n), ..] ->
+      case string.contains(n, ".") {
+        True -> Some(#(model.FloatType, False))
+        False -> Some(#(model.IntType, False))
+      }
+    _ -> None
+  }
+}
+
+fn extract_aggregate_inner_type(
+  tokens: List(lexer.Token),
+  tables: List(model.Table),
+) -> Option(model.Column) {
+  case tokens {
+    [lexer.Ident(name), lexer.RParen, ..] | [lexer.Ident(name), lexer.Comma, ..] ->
+      find_column_in_tables(tables, string.lowercase(name))
+    [lexer.Ident(_table), lexer.Dot, lexer.Ident(col), lexer.RParen, ..]
+    | [lexer.Ident(_table), lexer.Dot, lexer.Ident(col), lexer.Comma, ..] ->
+      find_column_in_tables(tables, string.lowercase(col))
+    [lexer.Keyword("distinct"), lexer.Ident(name), lexer.RParen, ..]
+    | [lexer.Keyword("distinct"), lexer.Ident(name), lexer.Comma, ..] ->
+      find_column_in_tables(tables, string.lowercase(name))
+    _ -> None
+  }
+}
+
+fn infer_cast_type(
+  tokens: List(lexer.Token),
+) -> Option(#(model.ScalarType, Bool)) {
+  case tokens {
+    [] -> None
+    [lexer.Keyword("as"), lexer.Ident(type_name), ..]
+    | [lexer.Keyword("as"), lexer.Keyword(type_name), ..] ->
+      case model.parse_sql_type(type_name) {
+        Ok(scalar_type) -> Some(#(scalar_type, True))
+        Error(_) -> None
+      }
+    [_, ..rest] -> infer_cast_type(rest)
+  }
 }
 
 fn tok_split_select_columns(
