@@ -739,6 +739,22 @@ pub fn default_block_name_is_none_test() {
   config_test.default_block_name_is_none_test()
 }
 
+pub fn row_number_window_function_infers_int_test() {
+  query_analyzer_test.row_number_window_function_infers_int_test()
+}
+
+pub fn percent_rank_window_function_infers_float_test() {
+  query_analyzer_test.percent_rank_window_function_infers_float_test()
+}
+
+pub fn lag_window_function_infers_first_arg_type_test() {
+  query_analyzer_test.lag_window_function_infers_first_arg_type_test()
+}
+
+pub fn ntile_window_function_infers_int_test() {
+  query_analyzer_test.ntile_window_function_infers_int_test()
+}
+
 pub fn sqlc_arg_in_string_literal_ignored_test() {
   query_parser_test.sqlc_arg_in_string_literal_ignored_test()
 }

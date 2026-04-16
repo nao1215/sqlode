@@ -1289,3 +1289,86 @@ pub fn unsupported_expression_error_message_test() {
   string.contains(msg, "unsupported expression") |> should.be_true()
   string.contains(msg, "BadQuery") |> should.be_true()
 }
+
+// --- Window function type inference ---
+
+pub fn row_number_window_function_infers_int_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: RankedAuthors :many\nSELECT id, ROW_NUMBER() OVER (ORDER BY id) AS rank FROM authors;"
+  let assert Ok(queries) =
+    query_parser.parse_file("rn.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  let assert [_id, model.ScalarResult(rank_col)] = query.result_columns
+  rank_col.name |> should.equal("rank")
+  rank_col.scalar_type |> should.equal(model.IntType)
+  rank_col.nullable |> should.equal(False)
+}
+
+pub fn percent_rank_window_function_infers_float_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: Percentiles :many\nSELECT id, PERCENT_RANK() OVER (ORDER BY id) AS pct FROM authors;"
+  let assert Ok(queries) =
+    query_parser.parse_file("pct.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  let assert [_id, model.ScalarResult(pct_col)] = query.result_columns
+  pct_col.scalar_type |> should.equal(model.FloatType)
+}
+
+pub fn lag_window_function_infers_first_arg_type_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: PrevName :many\nSELECT id, LAG(name) OVER (ORDER BY id) AS prev_name FROM authors;"
+  let assert Ok(queries) =
+    query_parser.parse_file("lag.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  let assert [_id, model.ScalarResult(prev_col)] = query.result_columns
+  prev_col.name |> should.equal("prev_name")
+  prev_col.scalar_type |> should.equal(model.StringType)
+  // lag can produce NULL when there is no preceding row
+  prev_col.nullable |> should.equal(True)
+}
+
+pub fn ntile_window_function_infers_int_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: Quartile :many\nSELECT id, NTILE(4) OVER (ORDER BY id) AS q FROM authors;"
+  let assert Ok(queries) =
+    query_parser.parse_file("ntile.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  let assert [_id, model.ScalarResult(q_col)] = query.result_columns
+  q_col.scalar_type |> should.equal(model.IntType)
+}
