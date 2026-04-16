@@ -170,30 +170,40 @@ fn singularize_regular(word: String, lower: String) -> String {
 }
 
 fn singularize_by_suffix(word: String, lower: String) -> String {
-  case string.ends_with(lower, "ies") {
-    True -> string.drop_end(word, 3) <> apply_suffix_case(word, "y")
-    False ->
-      case string.ends_with(lower, "ves") {
-        True -> string.drop_end(word, 3) <> apply_suffix_case(word, "f")
-        False ->
-          case
-            string.ends_with(lower, "sses")
-            || string.ends_with(lower, "shes")
-            || string.ends_with(lower, "ches")
-            || string.ends_with(lower, "xes")
-            || string.ends_with(lower, "zes")
-          {
-            True -> string.drop_end(word, 2)
-            False ->
-              case string.ends_with(lower, "ss") {
-                True -> word
-                False ->
-                  case string.ends_with(lower, "s") {
-                    True -> string.drop_end(word, 1)
-                    False -> word
-                  }
+  let suffix_rules = [
+    #("ies", 3, "y"),
+    #("ves", 3, "f"),
+    #("sses", 2, ""),
+    #("shes", 2, ""),
+    #("ches", 2, ""),
+    #("xes", 2, ""),
+    #("zes", 2, ""),
+    #("ss", 0, ""),
+    #("s", 1, ""),
+  ]
+  apply_first_suffix_rule(word, lower, suffix_rules)
+}
+
+fn apply_first_suffix_rule(
+  word: String,
+  lower: String,
+  rules: List(#(String, Int, String)),
+) -> String {
+  case rules {
+    [] -> word
+    [#(suffix, drop, replacement), ..rest] ->
+      case string.ends_with(lower, suffix) {
+        True ->
+          case drop {
+            0 -> word
+            _ ->
+              string.drop_end(word, drop)
+              <> case replacement {
+                "" -> ""
+                r -> apply_suffix_case(word, r)
               }
           }
+        False -> apply_first_suffix_rule(word, lower, rest)
       }
   }
 }
