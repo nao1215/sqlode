@@ -4,6 +4,7 @@ import gleeunit
 import gleeunit/should
 import sqlode/model
 import sqlode/runtime
+import sqlode/type_mapping
 
 pub fn main() {
   gleeunit.main()
@@ -134,21 +135,29 @@ pub fn query_command_to_string_test() {
 
 pub fn scalar_type_to_gleam_type_string_mapping_test() {
   let m = model.StringMapping
-  model.scalar_type_to_gleam_type(model.IntType, m) |> should.equal("Int")
-  model.scalar_type_to_gleam_type(model.FloatType, m) |> should.equal("Float")
-  model.scalar_type_to_gleam_type(model.BoolType, m) |> should.equal("Bool")
-  model.scalar_type_to_gleam_type(model.StringType, m) |> should.equal("String")
-  model.scalar_type_to_gleam_type(model.BytesType, m)
-  |> should.equal("BitArray")
-  model.scalar_type_to_gleam_type(model.DateTimeType, m)
+  type_mapping.scalar_type_to_gleam_type(model.IntType, m)
+  |> should.equal("Int")
+  type_mapping.scalar_type_to_gleam_type(model.FloatType, m)
+  |> should.equal("Float")
+  type_mapping.scalar_type_to_gleam_type(model.BoolType, m)
+  |> should.equal("Bool")
+  type_mapping.scalar_type_to_gleam_type(model.StringType, m)
   |> should.equal("String")
-  model.scalar_type_to_gleam_type(model.DateType, m) |> should.equal("String")
-  model.scalar_type_to_gleam_type(model.TimeType, m) |> should.equal("String")
-  model.scalar_type_to_gleam_type(model.UuidType, m) |> should.equal("String")
-  model.scalar_type_to_gleam_type(model.JsonType, m) |> should.equal("String")
-  model.scalar_type_to_gleam_type(model.EnumType("status"), m)
+  type_mapping.scalar_type_to_gleam_type(model.BytesType, m)
+  |> should.equal("BitArray")
+  type_mapping.scalar_type_to_gleam_type(model.DateTimeType, m)
+  |> should.equal("String")
+  type_mapping.scalar_type_to_gleam_type(model.DateType, m)
+  |> should.equal("String")
+  type_mapping.scalar_type_to_gleam_type(model.TimeType, m)
+  |> should.equal("String")
+  type_mapping.scalar_type_to_gleam_type(model.UuidType, m)
+  |> should.equal("String")
+  type_mapping.scalar_type_to_gleam_type(model.JsonType, m)
+  |> should.equal("String")
+  type_mapping.scalar_type_to_gleam_type(model.EnumType("status"), m)
   |> should.equal("Status")
-  model.scalar_type_to_gleam_type(
+  type_mapping.scalar_type_to_gleam_type(
     model.CustomType("UserId", option.None, model.IntType),
     m,
   )
@@ -157,48 +166,51 @@ pub fn scalar_type_to_gleam_type_string_mapping_test() {
 
 pub fn scalar_type_to_gleam_type_rich_mapping_test() {
   let m = model.RichMapping
-  model.scalar_type_to_gleam_type(model.IntType, m) |> should.equal("Int")
-  model.scalar_type_to_gleam_type(model.FloatType, m) |> should.equal("Float")
-  model.scalar_type_to_gleam_type(model.StringType, m) |> should.equal("String")
-  model.scalar_type_to_gleam_type(model.DateTimeType, m)
+  type_mapping.scalar_type_to_gleam_type(model.IntType, m)
+  |> should.equal("Int")
+  type_mapping.scalar_type_to_gleam_type(model.FloatType, m)
+  |> should.equal("Float")
+  type_mapping.scalar_type_to_gleam_type(model.StringType, m)
+  |> should.equal("String")
+  type_mapping.scalar_type_to_gleam_type(model.DateTimeType, m)
   |> should.equal("SqlTimestamp")
-  model.scalar_type_to_gleam_type(model.DateType, m)
+  type_mapping.scalar_type_to_gleam_type(model.DateType, m)
   |> should.equal("SqlDate")
-  model.scalar_type_to_gleam_type(model.TimeType, m)
+  type_mapping.scalar_type_to_gleam_type(model.TimeType, m)
   |> should.equal("SqlTime")
-  model.scalar_type_to_gleam_type(model.UuidType, m)
+  type_mapping.scalar_type_to_gleam_type(model.UuidType, m)
   |> should.equal("SqlUuid")
-  model.scalar_type_to_gleam_type(model.JsonType, m)
+  type_mapping.scalar_type_to_gleam_type(model.JsonType, m)
   |> should.equal("SqlJson")
-  model.scalar_type_to_gleam_type(model.EnumType("status"), m)
+  type_mapping.scalar_type_to_gleam_type(model.EnumType("status"), m)
   |> should.equal("Status")
 }
 
 pub fn custom_type_delegates_to_underlying_test() {
   let custom = model.CustomType("UserId", option.None, model.IntType)
-  model.scalar_type_to_runtime_function(custom)
+  type_mapping.scalar_type_to_runtime_function(custom)
   |> should.equal("runtime.int")
-  model.scalar_type_to_db_name(custom) |> should.equal("int")
-  model.scalar_type_to_value_function(model.PostgreSQL, custom)
+  type_mapping.scalar_type_to_db_name(custom) |> should.equal("int")
+  type_mapping.scalar_type_to_value_function(model.PostgreSQL, custom)
   |> should.equal("int")
-  model.scalar_type_to_decoder(model.PostgreSQL, custom)
+  type_mapping.scalar_type_to_decoder(model.PostgreSQL, custom)
   |> should.equal("decode.int")
 }
 
 // scalar_type_to_runtime_function tests
 
 pub fn scalar_type_to_runtime_function_test() {
-  model.scalar_type_to_runtime_function(model.IntType)
+  type_mapping.scalar_type_to_runtime_function(model.IntType)
   |> should.equal("runtime.int")
-  model.scalar_type_to_runtime_function(model.FloatType)
+  type_mapping.scalar_type_to_runtime_function(model.FloatType)
   |> should.equal("runtime.float")
-  model.scalar_type_to_runtime_function(model.BoolType)
+  type_mapping.scalar_type_to_runtime_function(model.BoolType)
   |> should.equal("runtime.bool")
-  model.scalar_type_to_runtime_function(model.StringType)
+  type_mapping.scalar_type_to_runtime_function(model.StringType)
   |> should.equal("runtime.string")
-  model.scalar_type_to_runtime_function(model.BytesType)
+  type_mapping.scalar_type_to_runtime_function(model.BytesType)
   |> should.equal("runtime.bytes")
-  model.scalar_type_to_runtime_function(model.EnumType("status"))
+  type_mapping.scalar_type_to_runtime_function(model.EnumType("status"))
   |> should.equal("runtime.string")
 }
 
@@ -224,86 +236,91 @@ pub fn parse_type_mapping_invalid_test() {
 }
 
 pub fn strong_type_uses_same_names_as_rich_test() {
-  model.scalar_type_to_gleam_type(model.UuidType, model.StrongMapping)
+  type_mapping.scalar_type_to_gleam_type(model.UuidType, model.StrongMapping)
   |> should.equal("SqlUuid")
-  model.scalar_type_to_gleam_type(model.DateTimeType, model.StrongMapping)
+  type_mapping.scalar_type_to_gleam_type(
+    model.DateTimeType,
+    model.StrongMapping,
+  )
   |> should.equal("SqlTimestamp")
 }
 
 pub fn strong_type_unwrap_fn_test() {
-  model.strong_type_unwrap_fn(model.UuidType)
+  type_mapping.strong_type_unwrap_fn(model.UuidType)
   |> should.equal(option.Some("sql_uuid_to_string"))
-  model.strong_type_unwrap_fn(model.JsonType)
+  type_mapping.strong_type_unwrap_fn(model.JsonType)
   |> should.equal(option.Some("sql_json_to_string"))
-  model.strong_type_unwrap_fn(model.IntType)
+  type_mapping.strong_type_unwrap_fn(model.IntType)
   |> should.equal(option.None)
-  model.strong_type_unwrap_fn(model.StringType)
+  type_mapping.strong_type_unwrap_fn(model.StringType)
   |> should.equal(option.None)
 }
 
 // is_rich_type tests
 
 pub fn is_rich_type_datetime_test() {
-  model.is_rich_type(model.DateTimeType) |> should.be_true()
-  model.is_rich_type(model.DateType) |> should.be_true()
-  model.is_rich_type(model.TimeType) |> should.be_true()
-  model.is_rich_type(model.UuidType) |> should.be_true()
-  model.is_rich_type(model.JsonType) |> should.be_true()
+  type_mapping.is_rich_type(model.DateTimeType) |> should.be_true()
+  type_mapping.is_rich_type(model.DateType) |> should.be_true()
+  type_mapping.is_rich_type(model.TimeType) |> should.be_true()
+  type_mapping.is_rich_type(model.UuidType) |> should.be_true()
+  type_mapping.is_rich_type(model.JsonType) |> should.be_true()
 }
 
 pub fn is_rich_type_non_rich_test() {
-  model.is_rich_type(model.IntType) |> should.be_false()
-  model.is_rich_type(model.FloatType) |> should.be_false()
-  model.is_rich_type(model.BoolType) |> should.be_false()
-  model.is_rich_type(model.StringType) |> should.be_false()
-  model.is_rich_type(model.BytesType) |> should.be_false()
-  model.is_rich_type(model.EnumType("status")) |> should.be_false()
+  type_mapping.is_rich_type(model.IntType) |> should.be_false()
+  type_mapping.is_rich_type(model.FloatType) |> should.be_false()
+  type_mapping.is_rich_type(model.BoolType) |> should.be_false()
+  type_mapping.is_rich_type(model.StringType) |> should.be_false()
+  type_mapping.is_rich_type(model.BytesType) |> should.be_false()
+  type_mapping.is_rich_type(model.EnumType("status")) |> should.be_false()
 }
 
 // scalar_type_to_decoder tests
 
 pub fn scalar_type_to_decoder_sqlite_bool_test() {
-  model.scalar_type_to_decoder(model.SQLite, model.BoolType)
+  type_mapping.scalar_type_to_decoder(model.SQLite, model.BoolType)
   |> string.contains("decode.then")
   |> should.be_true()
 }
 
 pub fn scalar_type_to_decoder_postgresql_bool_test() {
-  model.scalar_type_to_decoder(model.PostgreSQL, model.BoolType)
+  type_mapping.scalar_type_to_decoder(model.PostgreSQL, model.BoolType)
   |> should.equal("decode.bool")
 }
 
 // scalar_type_to_value_function tests
 
 pub fn scalar_type_to_value_function_bytes_postgresql_test() {
-  model.scalar_type_to_value_function(model.PostgreSQL, model.BytesType)
+  type_mapping.scalar_type_to_value_function(model.PostgreSQL, model.BytesType)
   |> should.equal("bytea")
 }
 
 pub fn scalar_type_to_value_function_bytes_sqlite_test() {
-  model.scalar_type_to_value_function(model.SQLite, model.BytesType)
+  type_mapping.scalar_type_to_value_function(model.SQLite, model.BytesType)
   |> should.equal("blob")
 }
 
 // enum helper function tests
 
 pub fn enum_type_name_test() {
-  model.enum_type_name("status") |> should.equal("Status")
-  model.enum_type_name("user_role") |> should.equal("UserRole")
+  type_mapping.enum_type_name("status") |> should.equal("Status")
+  type_mapping.enum_type_name("user_role") |> should.equal("UserRole")
 }
 
 pub fn enum_value_name_test() {
-  model.enum_value_name("active") |> should.equal("Active")
-  model.enum_value_name("in_progress") |> should.equal("InProgress")
+  type_mapping.enum_value_name("active") |> should.equal("Active")
+  type_mapping.enum_value_name("in_progress") |> should.equal("InProgress")
 }
 
 pub fn enum_to_string_fn_test() {
-  model.enum_to_string_fn("status") |> should.equal("status_to_string")
-  model.enum_to_string_fn("UserRole") |> should.equal("userrole_to_string")
+  type_mapping.enum_to_string_fn("status") |> should.equal("status_to_string")
+  type_mapping.enum_to_string_fn("UserRole")
+  |> should.equal("userrole_to_string")
 }
 
 pub fn enum_from_string_fn_test() {
-  model.enum_from_string_fn("status") |> should.equal("status_from_string")
+  type_mapping.enum_from_string_fn("status")
+  |> should.equal("status_from_string")
 }
 
 // array type tests
@@ -329,13 +346,13 @@ pub fn parse_sql_type_array_uuid_test() {
 }
 
 pub fn scalar_type_to_gleam_type_array_test() {
-  model.scalar_type_to_gleam_type(
+  type_mapping.scalar_type_to_gleam_type(
     model.ArrayType(model.IntType),
     model.StringMapping,
   )
   |> should.equal("List(Int)")
 
-  model.scalar_type_to_gleam_type(
+  type_mapping.scalar_type_to_gleam_type(
     model.ArrayType(model.StringType),
     model.StringMapping,
   )
@@ -343,10 +360,13 @@ pub fn scalar_type_to_gleam_type_array_test() {
 }
 
 pub fn scalar_type_to_decoder_array_test() {
-  model.scalar_type_to_decoder(model.PostgreSQL, model.ArrayType(model.IntType))
+  type_mapping.scalar_type_to_decoder(
+    model.PostgreSQL,
+    model.ArrayType(model.IntType),
+  )
   |> should.equal("decode.list(decode.int)")
 
-  model.scalar_type_to_decoder(
+  type_mapping.scalar_type_to_decoder(
     model.PostgreSQL,
     model.ArrayType(model.StringType),
   )
@@ -354,13 +374,13 @@ pub fn scalar_type_to_decoder_array_test() {
 }
 
 pub fn scalar_type_to_value_function_array_test() {
-  model.scalar_type_to_value_function(
+  type_mapping.scalar_type_to_value_function(
     model.PostgreSQL,
     model.ArrayType(model.IntType),
   )
   |> should.equal("array(pog.int)")
 
-  model.scalar_type_to_value_function(
+  type_mapping.scalar_type_to_value_function(
     model.PostgreSQL,
     model.ArrayType(model.StringType),
   )
@@ -368,7 +388,7 @@ pub fn scalar_type_to_value_function_array_test() {
 }
 
 pub fn scalar_type_to_db_name_array_test() {
-  model.scalar_type_to_db_name(model.ArrayType(model.IntType))
+  type_mapping.scalar_type_to_db_name(model.ArrayType(model.IntType))
   |> should.equal("int[]")
 }
 

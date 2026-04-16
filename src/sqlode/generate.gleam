@@ -19,6 +19,7 @@ import sqlode/query_analyzer
 import sqlode/query_parser
 import sqlode/runtime
 import sqlode/schema_parser
+import sqlode/type_mapping
 import sqlode/writer
 
 pub type GenerateError {
@@ -388,7 +389,7 @@ fn find_db_type_override(
   is_nullable: Bool,
   overrides: List(model.TypeOverride),
 ) -> Result(String, Nil) {
-  let type_name = model.scalar_type_to_db_name(scalar_type)
+  let type_name = type_mapping.scalar_type_to_db_name(scalar_type)
 
   list.find_map(overrides, fn(ovr) {
     case ovr {
@@ -423,7 +424,7 @@ fn gleam_type_to_scalar(
     _ -> {
       let #(module, type_name) = parse_module_qualified_type(gleam_type)
       let underlying_name =
-        model.scalar_type_to_gleam_type(underlying, model.StringMapping)
+        type_mapping.scalar_type_to_gleam_type(underlying, model.StringMapping)
       io.println_error(
         "Warning: custom gleam_type \""
         <> gleam_type

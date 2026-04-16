@@ -6,6 +6,7 @@ import sqlode/codegen/common
 import sqlode/model
 import sqlode/naming
 import sqlode/runtime
+import sqlode/type_mapping
 
 type AdapterConfig {
   AdapterConfig(
@@ -79,8 +80,11 @@ fn pog_adapter_config() -> AdapterConfig {
     library_import: "import pog",
     connection_type: "pog.Connection",
     error_type: "pog.QueryError",
-    value_function: model.scalar_type_to_value_function(model.PostgreSQL, _),
-    decoder_function: model.scalar_type_to_decoder(model.PostgreSQL, _),
+    value_function: type_mapping.scalar_type_to_value_function(
+      model.PostgreSQL,
+      _,
+    ),
+    decoder_function: type_mapping.scalar_type_to_decoder(model.PostgreSQL, _),
     render_params: render_pog_params,
     render_query_call: render_pog_query_call,
     render_one_result: render_pog_one_result,
@@ -96,8 +100,8 @@ fn sqlight_adapter_config() -> AdapterConfig {
     library_import: "import sqlight",
     connection_type: "sqlight.Connection",
     error_type: "sqlight.Error",
-    value_function: model.scalar_type_to_value_function(model.SQLite, _),
-    decoder_function: model.scalar_type_to_decoder(model.SQLite, _),
+    value_function: type_mapping.scalar_type_to_value_function(model.SQLite, _),
+    decoder_function: type_mapping.scalar_type_to_decoder(model.SQLite, _),
     render_params: render_sqlight_params,
     render_query_call: render_sqlight_query_call,
     render_one_result: render_sqlight_one_result,
@@ -329,17 +333,21 @@ fn render_base_decoder(
   case scalar_type {
     model.EnumType(enum_name) ->
       "decode.then(decode.string, fn(s) { case models."
-      <> model.enum_from_string_fn(enum_name)
+      <> type_mapping.enum_from_string_fn(enum_name)
       <> "(s) { Ok(v) -> decode.success(v) Error(_) -> decode.failure(s, \"valid "
       <> enum_name
       <> " value\") } })"
     _ ->
       case
-        type_mapping == model.StrongMapping && model.is_rich_type(scalar_type)
+        type_mapping == model.StrongMapping
+        && type_mapping.is_rich_type(scalar_type)
       {
         True -> {
           let constructor =
-            model.scalar_type_to_gleam_type(scalar_type, model.StrongMapping)
+            type_mapping.scalar_type_to_gleam_type(
+              scalar_type,
+              model.StrongMapping,
+            )
           "decode.map("
           <> config.decoder_function(scalar_type)
           <> ", models."
@@ -666,7 +674,10 @@ fn render_pog_params_simple(params: List(model.QueryParam)) -> String {
   params
   |> list.map(fn(param) {
     let value_fn =
-      model.scalar_type_to_value_function(model.PostgreSQL, param.scalar_type)
+      type_mapping.scalar_type_to_value_function(
+        model.PostgreSQL,
+        param.scalar_type,
+      )
     "  |> pog.parameter("
     <> render_param_value_expr("pog", value_fn, param)
     <> ")"
@@ -678,7 +689,10 @@ fn render_pog_params_with_slices(params: List(model.QueryParam)) -> String {
   params
   |> list.map(fn(param) {
     let value_fn =
-      model.scalar_type_to_value_function(model.PostgreSQL, param.scalar_type)
+      type_mapping.scalar_type_to_value_function(
+        model.PostgreSQL,
+        param.scalar_type,
+      )
     case param.is_list {
       True -> {
         let mapper = render_list_param_value_expr("pog", value_fn, param)
@@ -800,7 +814,10 @@ fn render_sqlight_params_simple(params: List(model.QueryParam)) -> String {
         params
         |> list.map(fn(param) {
           let value_fn =
-            model.scalar_type_to_value_function(model.SQLite, param.scalar_type)
+            type_mapping.scalar_type_to_value_function(
+              model.SQLite,
+              param.scalar_type,
+            )
           render_param_value_expr("sqlight", value_fn, param)
         })
         |> string.join(", ")
@@ -818,7 +835,10 @@ fn render_sqlight_params_with_slices(params: List(model.QueryParam)) -> String {
         params
         |> list.map(fn(param) {
           let value_fn =
-            model.scalar_type_to_value_function(model.SQLite, param.scalar_type)
+            type_mapping.scalar_type_to_value_function(
+              model.SQLite,
+              param.scalar_type,
+            )
           case param.is_list {
             True -> {
               let mapper =
@@ -953,7 +973,7 @@ fn render_param_value_expr(
       let field_expr = case param.scalar_type {
         model.EnumType(name) ->
           "models."
-          <> model.enum_to_string_fn(name)
+          <> type_mapping.enum_to_string_fn(name)
           <> "("
           <> field_accessor
           <> ")"
@@ -970,7 +990,7 @@ fn render_param_value_expr(
           <> "."
           <> value_fn
           <> "(models."
-          <> model.enum_to_string_fn(name)
+          <> type_mapping.enum_to_string_fn(name)
           <> "(v)) }, "
           <> field_accessor
           <> ")"
@@ -999,7 +1019,7 @@ fn render_list_param_value_expr(
       <> "."
       <> value_fn
       <> "(models."
-      <> model.enum_to_string_fn(name)
+      <> type_mapping.enum_to_string_fn(name)
       <> "(v)) }"
     _ -> lib <> "." <> value_fn
   }

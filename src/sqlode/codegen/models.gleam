@@ -5,6 +5,7 @@ import gleam/string
 import sqlode/codegen/common
 import sqlode/model
 import sqlode/naming
+import sqlode/type_mapping
 
 pub fn render(
   naming_ctx: naming.NamingContext,
@@ -102,26 +103,26 @@ pub fn render(
 }
 
 fn render_enum_type(enum_def: model.EnumDef) -> String {
-  let type_name = model.enum_type_name(enum_def.name)
-  let to_string_fn = model.enum_to_string_fn(enum_def.name)
-  let from_string_fn = model.enum_from_string_fn(enum_def.name)
+  let type_name = type_mapping.enum_type_name(enum_def.name)
+  let to_string_fn = type_mapping.enum_to_string_fn(enum_def.name)
+  let from_string_fn = type_mapping.enum_from_string_fn(enum_def.name)
 
   let constructors =
     enum_def.values
-    |> list.map(fn(v) { "  " <> model.enum_value_name(v) })
+    |> list.map(fn(v) { "  " <> type_mapping.enum_value_name(v) })
     |> string.join("\n")
 
   let to_string_cases =
     enum_def.values
     |> list.map(fn(v) {
-      "    " <> model.enum_value_name(v) <> " -> \"" <> v <> "\""
+      "    " <> type_mapping.enum_value_name(v) <> " -> \"" <> v <> "\""
     })
     |> string.join("\n")
 
   let from_string_cases =
     enum_def.values
     |> list.map(fn(v) {
-      "    \"" <> v <> "\" -> Ok(" <> model.enum_value_name(v) <> ")"
+      "    \"" <> v <> "\" -> Ok(" <> type_mapping.enum_value_name(v) <> ")"
     })
     |> string.join("\n")
 
@@ -161,7 +162,7 @@ fn render_semantic_type_aliases(
   all_types
   |> list.map(fn(scalar_type) {
     let alias_name =
-      model.scalar_type_to_gleam_type(scalar_type, model.RichMapping)
+      type_mapping.scalar_type_to_gleam_type(scalar_type, model.RichMapping)
     "pub type " <> alias_name <> " =\n  String"
   })
   |> string.join("\n\n")
@@ -176,8 +177,8 @@ fn render_strong_type_wrappers(
   all_types
   |> list.map(fn(scalar_type) {
     let type_name =
-      model.scalar_type_to_gleam_type(scalar_type, model.StrongMapping)
-    let unwrap_fn = case model.strong_type_unwrap_fn(scalar_type) {
+      type_mapping.scalar_type_to_gleam_type(scalar_type, model.StrongMapping)
+    let unwrap_fn = case type_mapping.strong_type_unwrap_fn(scalar_type) {
       option.Some(fn_name) -> fn_name
       option.None -> type_name <> "_to_string"
     }
@@ -204,7 +205,7 @@ fn collect_rich_scalar_types(
     catalog.tables
     |> list.flat_map(fn(table) {
       list.filter_map(table.columns, fn(col) {
-        case model.is_rich_type(col.scalar_type) {
+        case type_mapping.is_rich_type(col.scalar_type) {
           True -> Ok(col.scalar_type)
           False -> Error(Nil)
         }
@@ -217,7 +218,7 @@ fn collect_rich_scalar_types(
       list.filter_map(query.result_columns, fn(col) {
         case col {
           model.ResultColumn(scalar_type:, ..) ->
-            case model.is_rich_type(scalar_type) {
+            case type_mapping.is_rich_type(scalar_type) {
               True -> Ok(scalar_type)
               False -> Error(Nil)
             }
@@ -230,8 +231,8 @@ fn collect_rich_scalar_types(
   |> list.unique
   |> list.sort(fn(a, b) {
     string.compare(
-      model.scalar_type_to_gleam_type(a, model.RichMapping),
-      model.scalar_type_to_gleam_type(b, model.RichMapping),
+      type_mapping.scalar_type_to_gleam_type(a, model.RichMapping),
+      type_mapping.scalar_type_to_gleam_type(b, model.RichMapping),
     )
   })
 }
@@ -296,9 +297,13 @@ fn render_table_type(
       let gleam_type = case col.nullable {
         True ->
           "Option("
-          <> model.scalar_type_to_gleam_type(col.scalar_type, type_mapping)
+          <> type_mapping.scalar_type_to_gleam_type(
+            col.scalar_type,
+            type_mapping,
+          )
           <> ")"
-        False -> model.scalar_type_to_gleam_type(col.scalar_type, type_mapping)
+        False ->
+          type_mapping.scalar_type_to_gleam_type(col.scalar_type, type_mapping)
       }
       naming.to_snake_case(naming_ctx, col.name) <> ": " <> gleam_type
     })
@@ -351,10 +356,16 @@ fn render_row_type(
               let gleam_type = case nullable {
                 True ->
                   "Option("
-                  <> model.scalar_type_to_gleam_type(scalar_type, type_mapping)
+                  <> type_mapping.scalar_type_to_gleam_type(
+                    scalar_type,
+                    type_mapping,
+                  )
                   <> ")"
                 False ->
-                  model.scalar_type_to_gleam_type(scalar_type, type_mapping)
+                  type_mapping.scalar_type_to_gleam_type(
+                    scalar_type,
+                    type_mapping,
+                  )
               }
               naming.to_snake_case(naming_ctx, name) <> ": " <> gleam_type
             }

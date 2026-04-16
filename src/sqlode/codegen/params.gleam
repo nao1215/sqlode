@@ -4,6 +4,7 @@ import gleam/string
 import sqlode/codegen/common
 import sqlode/model
 import sqlode/naming
+import sqlode/type_mapping
 
 pub fn render(
   naming_ctx: naming.NamingContext,
@@ -24,7 +25,7 @@ pub fn render(
   let needs_models_for_strong =
     type_mapping == model.StrongMapping
     && list.any(queries, fn(q) {
-      list.any(q.params, fn(p) { model.is_rich_type(p.scalar_type) })
+      list.any(q.params, fn(p) { type_mapping.is_rich_type(p.scalar_type) })
     })
 
   let imports = case needs_option_import(queries) {
@@ -155,7 +156,7 @@ fn param_fields(
   params
   |> list.map(fn(param) {
     let base_type =
-      model.scalar_type_to_gleam_type(param.scalar_type, type_mapping)
+      type_mapping.scalar_type_to_gleam_type(param.scalar_type, type_mapping)
     let typed = case param.is_list {
       True -> "List(" <> base_type <> ")"
       False ->
@@ -181,11 +182,12 @@ fn render_param_value(
   type_mapping: model.TypeMapping,
 ) -> String {
   let value_expr = "params." <> param.field_name
-  let runtime_fn = model.scalar_type_to_runtime_function(param.scalar_type)
+  let runtime_fn =
+    type_mapping.scalar_type_to_runtime_function(param.scalar_type)
 
   case param.scalar_type {
     model.EnumType(name) -> {
-      let to_string_fn = "models." <> model.enum_to_string_fn(name)
+      let to_string_fn = "models." <> type_mapping.enum_to_string_fn(name)
       let encode_fn =
         "fn(v) { " <> runtime_fn <> "(" <> to_string_fn <> "(v)) }"
       case param.nullable {
@@ -235,7 +237,7 @@ fn strong_unwrap_expr(
 ) -> option.Option(String) {
   case type_mapping {
     model.StrongMapping ->
-      case model.strong_type_unwrap_fn(scalar_type) {
+      case type_mapping.strong_type_unwrap_fn(scalar_type) {
         option.Some(fn_name) -> option.Some("models." <> fn_name)
         option.None -> option.None
       }
@@ -247,10 +249,10 @@ fn render_array_element_mapper(
   element: model.ScalarType,
   type_mapping: model.TypeMapping,
 ) -> String {
-  let runtime_fn = model.scalar_type_to_runtime_function(element)
+  let runtime_fn = type_mapping.scalar_type_to_runtime_function(element)
   case element {
     model.EnumType(name) -> {
-      let to_str = "models." <> model.enum_to_string_fn(name)
+      let to_str = "models." <> type_mapping.enum_to_string_fn(name)
       "fn(v) { " <> runtime_fn <> "(" <> to_str <> "(v)) }"
     }
     _ -> {
