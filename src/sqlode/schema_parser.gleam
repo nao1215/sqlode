@@ -192,6 +192,35 @@ fn parse_create_view_from_tokens(
   tokens: List(lexer.Token),
   tables: List(model.Table),
 ) -> Option(model.Table) {
+  use #(view_name, after_name) <- extract_view_name(tokens)
+  let after_as = skip_to_keyword(after_name, "as")
+  use after_select <- extract_after_select(after_as)
+
+  let #(select_tokens, from_tokens) = split_at_from(after_select, 0, [])
+  let source_tables =
+    token_utils.extract_table_names([lexer.Keyword("from"), ..from_tokens])
+
+  let columns = case select_tokens {
+    [lexer.Star] ->
+      list.flat_map(source_tables, fn(table_name) {
+        case list.find(tables, fn(t) { t.name == table_name }) {
+          Ok(table) -> table.columns
+          Error(_) -> []
+        }
+      })
+    _ -> resolve_view_columns(select_tokens, tables)
+  }
+
+  case columns {
+    [] -> None
+    _ -> Some(model.Table(name: view_name, columns:))
+  }
+}
+
+fn extract_view_name(
+  tokens: List(lexer.Token),
+  cont: fn(#(String, List(lexer.Token))) -> Option(model.Table),
+) -> Option(model.Table) {
   let remaining = case tokens {
     [
       lexer.Keyword("create"),
@@ -203,103 +232,63 @@ fn parse_create_view_from_tokens(
     [lexer.Keyword("create"), lexer.Keyword("view"), ..rest] -> rest
     _ -> []
   }
-
-  // Extract view name
-  let #(view_name, after_name) = case remaining {
-    [lexer.Ident(n), ..rest] -> #(string.lowercase(n), rest)
-    [lexer.QuotedIdent(n), ..rest] -> #(string.lowercase(n), rest)
-    _ -> #("", [])
+  case remaining {
+    [lexer.Ident(n), ..rest] -> cont(#(string.lowercase(n), rest))
+    [lexer.QuotedIdent(n), ..rest] -> cont(#(string.lowercase(n), rest))
+    _ -> None
   }
+}
 
-  case view_name {
-    "" -> None
-    _ -> {
-      // Skip to AS keyword
-      let after_as = skip_to_keyword(after_name, "as")
-      // Skip past SELECT keyword
-      let after_select = case after_as {
-        [lexer.Keyword("select"), ..rest] -> rest
-        _ -> []
-      }
-
-      case after_select {
+fn extract_after_select(
+  tokens: List(lexer.Token),
+  cont: fn(List(lexer.Token)) -> Option(model.Table),
+) -> Option(model.Table) {
+  case tokens {
+    [lexer.Keyword("select"), ..rest] ->
+      case rest {
         [] -> None
-        _ -> {
-          // Find FROM keyword at depth 0 to split SELECT columns from FROM clause
-          let #(select_tokens, from_tokens) = split_at_from(after_select, 0, [])
+        _ -> cont(rest)
+      }
+    _ -> None
+  }
+}
 
-          // Extract table names from FROM clause (prepend "from" keyword
-          // because split_at_from already consumed it)
-          let source_tables =
-            token_utils.extract_table_names([
-              lexer.Keyword("from"),
-              ..from_tokens
-            ])
+fn resolve_view_columns(
+  select_tokens: List(lexer.Token),
+  tables: List(model.Table),
+) -> List(model.Column) {
+  let view_cols = extract_view_columns(select_tokens)
+  list.filter_map(view_cols, fn(view_col) {
+    let normalized = naming.normalize_identifier(view_col.name)
+    resolve_single_view_column(normalized, view_col.expr_tokens, tables)
+  })
+}
 
-          case select_tokens {
-            [lexer.Star] -> {
-              let columns =
-                list.flat_map(source_tables, fn(table_name) {
-                  case list.find(tables, fn(t) { t.name == table_name }) {
-                    Ok(table) -> table.columns
-                    Error(_) -> []
-                  }
-                })
-              case columns {
-                [] -> None
-                _ -> Some(model.Table(name: view_name, columns: columns))
-              }
-            }
-            _ -> {
-              let view_cols = extract_view_columns(select_tokens)
-              let columns =
-                list.filter_map(view_cols, fn(view_col) {
-                  let normalized = naming.normalize_identifier(view_col.name)
-                  case find_column_in_tables(tables, normalized) {
-                    Some(col) -> Ok(model.Column(..col, name: normalized))
-                    None ->
-                      case
-                        resolve_column_from_expr_tokens(
-                          view_col.expr_tokens,
-                          tables,
-                        )
-                      {
-                        Some(col) -> Ok(model.Column(..col, name: normalized))
-                        None ->
-                          case
-                            infer_view_expression_type(
-                              view_col.expr_tokens,
-                              tables,
-                            )
-                          {
-                            Some(#(scalar_type, nullable)) ->
-                              Ok(model.Column(
-                                name: normalized,
-                                scalar_type: scalar_type,
-                                nullable: nullable,
-                              ))
-                            None -> {
-                              io.println_error(
-                                "Warning: view column \""
-                                <> normalized
-                                <> "\" could not be resolved from source tables"
-                                <> " — skipping column.",
-                              )
-                              Error(Nil)
-                            }
-                          }
-                      }
-                  }
-                })
-              case columns {
-                [] -> None
-                _ -> Some(model.Table(name: view_name, columns:))
-              }
+fn resolve_single_view_column(
+  name: String,
+  expr_tokens: List(lexer.Token),
+  tables: List(model.Table),
+) -> Result(model.Column, Nil) {
+  case find_column_in_tables(tables, name) {
+    Some(col) -> Ok(model.Column(..col, name:))
+    None ->
+      case resolve_column_from_expr_tokens(expr_tokens, tables) {
+        Some(col) -> Ok(model.Column(..col, name:))
+        None ->
+          case infer_view_expression_type(expr_tokens, tables) {
+            Some(#(scalar_type, nullable)) ->
+              Ok(model.Column(name:, scalar_type:, nullable:))
+            None -> {
+              io.println_error(
+                "Warning: view column \""
+                <> name
+                <> "\" could not be resolved from source tables"
+                <> " — skipping column.",
+              )
+              Error(Nil)
             }
           }
-        }
       }
-    }
   }
 }
 
