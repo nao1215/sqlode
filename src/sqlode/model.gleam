@@ -289,7 +289,11 @@ type ScalarTypeInfo {
 type TypeResolution {
   LeafType(ScalarTypeInfo)
   EnumResolution(name: String)
-  CustomResolution(name: String, module: option.Option(String), underlying: ScalarType)
+  CustomResolution(
+    name: String,
+    module: option.Option(String),
+    underlying: ScalarType,
+  )
   ArrayResolution(element: ScalarType)
 }
 
