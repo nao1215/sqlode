@@ -72,14 +72,21 @@ fn parse_content(
             None -> tables
           })
         }
-        False -> {
-          let statement = tokens_to_string(stmt_tokens)
-          use maybe_table <- result.try(parse_statement(statement, all_enums))
-          Ok(case maybe_table {
-            Some(table) -> [table, ..tables]
-            None -> tables
-          })
-        }
+        False ->
+          case is_alter_table_add_column_tokens(stmt_tokens) {
+            True -> apply_alter_table_add_column(stmt_tokens, all_enums, tables)
+            False -> {
+              let statement = tokens_to_string(stmt_tokens)
+              use maybe_table <- result.try(parse_statement(
+                statement,
+                all_enums,
+              ))
+              Ok(case maybe_table {
+                Some(table) -> [table, ..tables]
+                None -> tables
+              })
+            }
+          }
       }
     })
     |> result.map(list.reverse),
@@ -346,6 +353,106 @@ fn tok_split_select_columns(
       tok_split_select_columns(rest, depth - 1, [lexer.RParen, ..current], acc)
     [token, ..rest] ->
       tok_split_select_columns(rest, depth, [token, ..current], acc)
+  }
+}
+
+/// Detect ALTER TABLE ... ADD [COLUMN] pattern.
+fn is_alter_table_add_column_tokens(tokens: List(lexer.Token)) -> Bool {
+  case tokens {
+    [
+      lexer.Keyword("alter"),
+      lexer.Keyword("table"),
+      _,
+      lexer.Keyword("add"),
+      lexer.Keyword("column"),
+      ..
+    ] -> True
+    [
+      lexer.Keyword("alter"),
+      lexer.Keyword("table"),
+      _,
+      lexer.Keyword("add"),
+      ..rest
+    ] ->
+      case rest {
+        [lexer.Keyword(k), ..]
+          if k == "constraint"
+          || k == "primary"
+          || k == "unique"
+          || k == "foreign"
+          || k == "check"
+          || k == "index"
+        -> False
+        _ -> True
+      }
+    _ -> False
+  }
+}
+
+/// Parse ALTER TABLE <name> ADD [COLUMN] <col_def> and apply to existing tables.
+fn apply_alter_table_add_column(
+  tokens: List(lexer.Token),
+  enums: List(model.EnumDef),
+  tables: List(model.Table),
+) -> Result(List(model.Table), ParseError) {
+  let #(table_name, col_tokens) = extract_alter_table_parts(tokens)
+
+  case table_name {
+    "" -> Ok(tables)
+    _ -> {
+      let col_str =
+        lexer.tokens_to_string(
+          col_tokens,
+          lexer.TokenRenderOptions(
+            uppercase_keywords: True,
+            preserve_quotes: True,
+          ),
+        )
+      use maybe_col <- result.try(parse_column(table_name, col_str, enums))
+      case maybe_col {
+        None -> Ok(tables)
+        Some(col) ->
+          Ok(
+            list.map(tables, fn(t) {
+              case t.name == table_name {
+                True -> model.Table(..t, columns: list.append(t.columns, [col]))
+                False -> t
+              }
+            }),
+          )
+      }
+    }
+  }
+}
+
+fn extract_alter_table_parts(
+  tokens: List(lexer.Token),
+) -> #(String, List(lexer.Token)) {
+  case tokens {
+    [
+      lexer.Keyword("alter"),
+      lexer.Keyword("table"),
+      name_tok,
+      lexer.Keyword("add"),
+      lexer.Keyword("column"),
+      ..rest
+    ] -> #(extract_ident(name_tok), rest)
+    [
+      lexer.Keyword("alter"),
+      lexer.Keyword("table"),
+      name_tok,
+      lexer.Keyword("add"),
+      ..rest
+    ] -> #(extract_ident(name_tok), rest)
+    _ -> #("", [])
+  }
+}
+
+fn extract_ident(token: lexer.Token) -> String {
+  case token {
+    lexer.Ident(n) -> naming.normalize_identifier(n)
+    lexer.QuotedIdent(n) -> naming.normalize_identifier(n)
+    _ -> ""
   }
 }
 
