@@ -2,50 +2,35 @@ import gleam/dict
 import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
-import gleam/regexp
 import gleam/string
 import sqlode/lexer
 import sqlode/model
-import sqlode/naming
 import sqlode/query_analyzer/context.{type AnalyzerContext}
 import sqlode/query_analyzer/placeholder
 import sqlode/query_analyzer/token_utils
 
 pub fn infer_insert_params(
-  ctx: AnalyzerContext,
+  _ctx: AnalyzerContext,
   engine: model.Engine,
   query: model.ParsedQuery,
   catalog: model.Catalog,
 ) -> List(#(Int, model.Column)) {
-  let normalized = context.normalize_sql(ctx, query.sql)
+  let tokens = lexer.tokenize(query.sql, engine)
 
-  case regexp.scan(ctx.insert_re, normalized) {
-    [match, ..] ->
-      case match.submatches {
-        [Some(table_name), Some(columns_text), Some(values_text)] -> {
-          let columns =
-            context.split_csv(columns_text)
-            |> list.map(naming.normalize_identifier)
-
-          let values =
-            context.split_csv(values_text)
-            |> list.map(string.trim)
-
-          map_insert_columns(
-            engine,
-            catalog,
-            table_name,
-            columns,
-            values,
-            1,
-            dict.new(),
-            [],
-          )
-          |> list.reverse
-        }
-        _ -> []
-      }
-    [] -> []
+  case token_utils.find_insert_parts(tokens) {
+    Some(parts) ->
+      map_insert_columns(
+        engine,
+        catalog,
+        parts.table_name,
+        parts.columns,
+        parts.values,
+        1,
+        dict.new(),
+        [],
+      )
+      |> list.reverse
+    None -> []
   }
 }
 
@@ -54,19 +39,25 @@ fn map_insert_columns(
   catalog: model.Catalog,
   table_name: String,
   columns: List(String),
-  values: List(String),
+  values: List(List(lexer.Token)),
   occurrence: Int,
   seen: dict.Dict(String, Int),
   acc: List(#(Int, model.Column)),
 ) -> List(#(Int, model.Column)) {
   case columns, values {
     [], _ | _, [] -> acc
-    [column_name, ..rest_columns], [value, ..rest_values] -> {
+    [column_name, ..rest_columns], [value_tokens, ..rest_values] -> {
+      // Check if value is a single placeholder token
+      let value_placeholder = case value_tokens {
+        [lexer.Placeholder(p)] -> Some(p)
+        _ -> None
+      }
+
       let #(maybe_index, next_occurrence, updated_seen) = case
-        placeholder.is_placeholder_token(value)
+        value_placeholder
       {
-        True -> placeholder.resolve_index(engine, value, occurrence, seen)
-        False -> #(None, occurrence, seen)
+        Some(p) -> placeholder.resolve_index(engine, p, occurrence, seen)
+        None -> #(None, occurrence, seen)
       }
 
       let acc = case maybe_index {
@@ -93,172 +84,142 @@ fn map_insert_columns(
 }
 
 pub fn infer_equality_params(
-  ctx: AnalyzerContext,
+  _ctx: AnalyzerContext,
   engine: model.Engine,
   query: model.ParsedQuery,
   catalog: model.Catalog,
 ) -> List(#(Int, model.Column)) {
-  let normalized = context.normalize_sql(ctx, query.sql)
   let tokens = lexer.tokenize(query.sql, engine)
   let all_tables = token_utils.extract_table_names(tokens)
 
   case all_tables {
     [] -> []
-    [primary, ..] ->
-      scan_equality_matches(
+    [primary, ..] -> {
+      let matches = token_utils.find_equality_patterns(tokens)
+      scan_token_matches(
         engine,
         catalog,
         primary,
         all_tables,
-        regexp.scan(ctx.equality_re, normalized),
+        matches,
         1,
         dict.new(),
         [],
       )
       |> list.reverse
+    }
   }
 }
 
-fn scan_equality_matches(
+fn scan_token_matches(
   engine: model.Engine,
   catalog: model.Catalog,
   primary_table: String,
   all_tables: List(String),
-  matches: List(regexp.Match),
+  matches: List(token_utils.EqualityMatch),
   occurrence: Int,
   seen: dict.Dict(String, Int),
   acc: List(#(Int, model.Column)),
 ) -> List(#(Int, model.Column)) {
   case matches {
     [] -> acc
-    [match, ..rest] ->
-      case match.submatches {
-        [Some(column_ref), Some(token)] -> {
-          // Handle table.column qualified references
-          let #(search_table, col_name) = case
-            string.split_once(column_ref, ".")
-          {
-            Ok(#(table_prefix, column)) -> #(
-              Some(string.trim(table_prefix)),
-              string.trim(column),
-            )
-            Error(_) -> #(None, column_ref)
+    [match, ..rest] -> {
+      let #(maybe_index, next_occurrence, updated_seen) =
+        placeholder.resolve_index(engine, match.placeholder, occurrence, seen)
+
+      let acc = case maybe_index {
+        Some(index) -> {
+          let found = case match.table_qualifier {
+            Some(table) ->
+              context.find_column(catalog, table, match.column_name)
+            None ->
+              option.map(
+                context.find_column_in_tables(
+                  catalog,
+                  all_tables,
+                  match.column_name,
+                ),
+                fn(pair) { pair.1 },
+              )
           }
-          let normalized_col = naming.normalize_identifier(col_name)
-
-          let #(maybe_index, next_occurrence, updated_seen) =
-            placeholder.resolve_index(engine, token, occurrence, seen)
-
-          let acc = case maybe_index {
-            Some(index) -> {
-              let found = case search_table {
-                Some(table) ->
-                  context.find_column(catalog, table, normalized_col)
-                None ->
-                  option.map(
-                    context.find_column_in_tables(
-                      catalog,
-                      all_tables,
-                      normalized_col,
-                    ),
-                    fn(pair) { pair.1 },
-                  )
-              }
-              case found {
+          case found {
+            Some(column) -> [#(index, column), ..acc]
+            None ->
+              // Fallback: try primary table
+              case
+                context.find_column(catalog, primary_table, match.column_name)
+              {
                 Some(column) -> [#(index, column), ..acc]
-                None ->
-                  // Fallback: try primary table
-                  case
-                    context.find_column(catalog, primary_table, normalized_col)
-                  {
-                    Some(column) -> [#(index, column), ..acc]
-                    None -> acc
-                  }
+                None -> acc
               }
-            }
-            None -> acc
           }
-
-          scan_equality_matches(
-            engine,
-            catalog,
-            primary_table,
-            all_tables,
-            rest,
-            next_occurrence,
-            updated_seen,
-            acc,
-          )
         }
-        _ ->
-          scan_equality_matches(
-            engine,
-            catalog,
-            primary_table,
-            all_tables,
-            rest,
-            occurrence,
-            seen,
-            acc,
-          )
+        None -> acc
       }
+
+      scan_token_matches(
+        engine,
+        catalog,
+        primary_table,
+        all_tables,
+        rest,
+        next_occurrence,
+        updated_seen,
+        acc,
+      )
+    }
   }
 }
 
 pub fn infer_in_params(
-  ctx: AnalyzerContext,
+  _ctx: AnalyzerContext,
   engine: model.Engine,
   query: model.ParsedQuery,
   catalog: model.Catalog,
 ) -> List(#(Int, model.Column)) {
-  let normalized = context.normalize_sql(ctx, query.sql)
   let tokens = lexer.tokenize(query.sql, engine)
   let all_tables = token_utils.extract_table_names(tokens)
 
   case all_tables {
     [] -> []
-    [primary, ..] ->
-      scan_equality_matches(
+    [primary, ..] -> {
+      let matches = token_utils.find_in_patterns(tokens)
+      scan_token_matches(
         engine,
         catalog,
         primary,
         all_tables,
-        regexp.scan(ctx.in_clause_re, normalized),
+        matches,
         1,
         dict.new(),
         [],
       )
       |> list.reverse
+    }
   }
 }
 
 pub fn extract_type_casts(
-  ctx: AnalyzerContext,
+  _ctx: AnalyzerContext,
   engine: model.Engine,
   sql: String,
 ) -> Result(dict.Dict(Int, model.ScalarType), #(Int, String)) {
   case engine {
     model.PostgreSQL -> {
-      let normalized = context.normalize_sql(ctx, sql)
-      regexp.scan(ctx.type_cast_re, normalized)
-      |> list.try_fold(dict.new(), fn(d, match) {
-        case match.submatches {
-          [Some(ph)] -> {
-            let cast_type = string.replace(match.content, ph <> "::", "")
-            case
-              ph
-              |> string.replace("$", "")
-              |> int.parse
-            {
-              Ok(index) ->
-                case cast_type_to_scalar(cast_type) {
-                  Ok(scalar_type) -> Ok(dict.insert(d, index, scalar_type))
-                  Error(Nil) -> Error(#(index, string.trim(cast_type)))
-                }
-              Error(_) -> Ok(d)
+      let tokens = lexer.tokenize(sql, engine)
+      let casts = token_utils.find_type_casts(tokens)
+      list.try_fold(casts, dict.new(), fn(d, cast) {
+        case
+          cast.placeholder
+          |> string.replace("$", "")
+          |> int.parse
+        {
+          Ok(index) ->
+            case cast_type_to_scalar(cast.cast_type) {
+              Ok(scalar_type) -> Ok(dict.insert(d, index, scalar_type))
+              Error(Nil) -> Error(#(index, string.trim(cast.cast_type)))
             }
-          }
-          _ -> Ok(d)
+          Error(_) -> Ok(d)
         }
       })
     }
@@ -269,4 +230,3 @@ pub fn extract_type_casts(
 fn cast_type_to_scalar(type_name: String) -> Result(model.ScalarType, Nil) {
   model.parse_sql_type(string.trim(type_name))
 }
-// --- Token-based helpers ---

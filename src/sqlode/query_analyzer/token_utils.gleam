@@ -1,7 +1,9 @@
+import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 import sqlode/lexer
+import sqlode/naming
 
 /// Extract all table names referenced in a token list (FROM, INTO, UPDATE, JOIN).
 pub fn extract_table_names(tokens: List(lexer.Token)) -> List(String) {
@@ -70,5 +72,479 @@ pub fn skip_parens(tokens: List(lexer.Token), depth: Int) -> List(lexer.Token) {
         [lexer.RParen, ..rest] -> skip_parens(rest, depth - 1)
         [_, ..rest] -> skip_parens(rest, depth)
       }
+  }
+}
+
+// ============================================================
+// Shared token utilities for token-first parsing (#342)
+// ============================================================
+
+/// Extract all placeholder token strings from a token list.
+pub fn extract_placeholders(tokens: List(lexer.Token)) -> List(String) {
+  list.filter_map(tokens, fn(token) {
+    case token {
+      lexer.Placeholder(p) -> Ok(p)
+      _ -> Error(Nil)
+    }
+  })
+}
+
+/// Collect tokens inside the next parenthesized group.
+/// Expects tokens starting right after the opening LParen.
+/// Returns #(inner_tokens, remaining_tokens_after_RParen).
+pub fn collect_paren_contents(
+  tokens: List(lexer.Token),
+) -> #(List(lexer.Token), List(lexer.Token)) {
+  collect_paren_loop(tokens, 1, [])
+}
+
+fn collect_paren_loop(
+  tokens: List(lexer.Token),
+  depth: Int,
+  acc: List(lexer.Token),
+) -> #(List(lexer.Token), List(lexer.Token)) {
+  case depth <= 0 {
+    True -> #(list.reverse(acc), tokens)
+    False ->
+      case tokens {
+        [] -> #(list.reverse(acc), [])
+        [lexer.LParen, ..rest] ->
+          collect_paren_loop(rest, depth + 1, [lexer.LParen, ..acc])
+        [lexer.RParen, ..rest] ->
+          case depth == 1 {
+            True -> #(list.reverse(acc), rest)
+            False -> collect_paren_loop(rest, depth - 1, [lexer.RParen, ..acc])
+          }
+        [token, ..rest] -> collect_paren_loop(rest, depth, [token, ..acc])
+      }
+  }
+}
+
+/// Split tokens on top-level commas (depth 0).
+pub fn split_on_commas(tokens: List(lexer.Token)) -> List(List(lexer.Token)) {
+  split_commas_loop(tokens, 0, [], [])
+}
+
+fn split_commas_loop(
+  tokens: List(lexer.Token),
+  depth: Int,
+  current: List(lexer.Token),
+  acc: List(List(lexer.Token)),
+) -> List(List(lexer.Token)) {
+  case tokens {
+    [] ->
+      case current {
+        [] -> list.reverse(acc)
+        _ -> list.reverse([list.reverse(current), ..acc])
+      }
+    [lexer.Comma, ..rest] if depth == 0 ->
+      case current {
+        [] -> split_commas_loop(rest, 0, [], acc)
+        _ -> split_commas_loop(rest, 0, [], [list.reverse(current), ..acc])
+      }
+    [lexer.LParen, ..rest] ->
+      split_commas_loop(rest, depth + 1, [lexer.LParen, ..current], acc)
+    [lexer.RParen, ..rest] ->
+      split_commas_loop(rest, depth - 1, [lexer.RParen, ..current], acc)
+    [token, ..rest] -> split_commas_loop(rest, depth, [token, ..current], acc)
+  }
+}
+
+// ============================================================
+// INSERT parsing helpers
+// ============================================================
+
+pub type InsertParts {
+  InsertParts(
+    table_name: String,
+    columns: List(String),
+    values: List(List(lexer.Token)),
+  )
+}
+
+/// Find INSERT INTO table (columns) VALUES (values) structure in tokens.
+pub fn find_insert_parts(tokens: List(lexer.Token)) -> Option(InsertParts) {
+  find_insert_loop(tokens)
+}
+
+fn find_insert_loop(tokens: List(lexer.Token)) -> Option(InsertParts) {
+  case tokens {
+    [] -> None
+    [lexer.Keyword("insert"), lexer.Keyword("into"), ..rest] ->
+      parse_insert_after_into(rest)
+    [_, ..rest] -> find_insert_loop(rest)
+  }
+}
+
+fn parse_insert_after_into(tokens: List(lexer.Token)) -> Option(InsertParts) {
+  // Read table name
+  let #(table_name_opt, rest) = read_table_name(tokens)
+  case table_name_opt {
+    None -> None
+    Some(table_name) ->
+      case rest {
+        [lexer.LParen, ..after_lparen] -> {
+          // Collect column names
+          let #(col_tokens, after_cols) = collect_paren_contents(after_lparen)
+          let columns =
+            split_on_commas(col_tokens)
+            |> list.filter_map(fn(group) {
+              case group {
+                [lexer.Ident(name)] -> Ok(naming.normalize_identifier(name))
+                [lexer.QuotedIdent(name)] ->
+                  Ok(naming.normalize_identifier(name))
+                _ -> Error(Nil)
+              }
+            })
+          // Skip to VALUES
+          case skip_to_values(after_cols) {
+            None -> None
+            Some(after_values_kw) ->
+              case after_values_kw {
+                [lexer.LParen, ..after_vlparen] -> {
+                  let #(val_tokens, _rest) =
+                    collect_paren_contents(after_vlparen)
+                  let values = split_on_commas(val_tokens)
+                  Some(InsertParts(table_name:, columns:, values:))
+                }
+                _ -> None
+              }
+          }
+        }
+        _ -> None
+      }
+  }
+}
+
+fn skip_to_values(tokens: List(lexer.Token)) -> Option(List(lexer.Token)) {
+  case tokens {
+    [] -> None
+    [lexer.Keyword("values"), ..rest] -> Some(rest)
+    [_, ..rest] -> skip_to_values(rest)
+  }
+}
+
+// ============================================================
+// Equality / comparison pattern helpers
+// ============================================================
+
+pub type EqualityMatch {
+  EqualityMatch(
+    column_name: String,
+    table_qualifier: Option(String),
+    placeholder: String,
+  )
+}
+
+/// Find all column [op] placeholder patterns in tokens.
+pub fn find_equality_patterns(tokens: List(lexer.Token)) -> List(EqualityMatch) {
+  find_equality_loop(tokens, [])
+  |> list.reverse
+}
+
+fn find_equality_loop(
+  tokens: List(lexer.Token),
+  acc: List(EqualityMatch),
+) -> List(EqualityMatch) {
+  case tokens {
+    [] -> acc
+
+    // table.column op placeholder (comparison operators)
+    [
+      lexer.Ident(t),
+      lexer.Dot,
+      lexer.Ident(c),
+      lexer.Operator(op),
+      lexer.Placeholder(p),
+      ..rest
+    ]
+      if op == "="
+      || op == "!="
+      || op == "<>"
+      || op == "<"
+      || op == ">"
+      || op == "<="
+      || op == ">="
+    ->
+      find_equality_loop(rest, [
+        EqualityMatch(
+          column_name: naming.normalize_identifier(c),
+          table_qualifier: Some(string.lowercase(t)),
+          placeholder: p,
+        ),
+        ..acc
+      ])
+
+    [
+      lexer.Ident(t),
+      lexer.Dot,
+      lexer.QuotedIdent(c),
+      lexer.Operator(op),
+      lexer.Placeholder(p),
+      ..rest
+    ]
+      if op == "="
+      || op == "!="
+      || op == "<>"
+      || op == "<"
+      || op == ">"
+      || op == "<="
+      || op == ">="
+    ->
+      find_equality_loop(rest, [
+        EqualityMatch(
+          column_name: naming.normalize_identifier(c),
+          table_qualifier: Some(string.lowercase(t)),
+          placeholder: p,
+        ),
+        ..acc
+      ])
+
+    // column op placeholder
+    [lexer.Ident(c), lexer.Operator(op), lexer.Placeholder(p), ..rest]
+      if op == "="
+      || op == "!="
+      || op == "<>"
+      || op == "<"
+      || op == ">"
+      || op == "<="
+      || op == ">="
+    ->
+      find_equality_loop(rest, [
+        EqualityMatch(
+          column_name: naming.normalize_identifier(c),
+          table_qualifier: None,
+          placeholder: p,
+        ),
+        ..acc
+      ])
+
+    [lexer.QuotedIdent(c), lexer.Operator(op), lexer.Placeholder(p), ..rest]
+      if op == "="
+      || op == "!="
+      || op == "<>"
+      || op == "<"
+      || op == ">"
+      || op == "<="
+      || op == ">="
+    ->
+      find_equality_loop(rest, [
+        EqualityMatch(
+          column_name: naming.normalize_identifier(c),
+          table_qualifier: None,
+          placeholder: p,
+        ),
+        ..acc
+      ])
+
+    // table.column LIKE/ILIKE placeholder
+    [
+      lexer.Ident(t),
+      lexer.Dot,
+      lexer.Ident(c),
+      lexer.Keyword(kw),
+      lexer.Placeholder(p),
+      ..rest
+    ]
+      if kw == "like" || kw == "ilike"
+    ->
+      find_equality_loop(rest, [
+        EqualityMatch(
+          column_name: naming.normalize_identifier(c),
+          table_qualifier: Some(string.lowercase(t)),
+          placeholder: p,
+        ),
+        ..acc
+      ])
+
+    // column LIKE/ILIKE placeholder
+    [lexer.Ident(c), lexer.Keyword(kw), lexer.Placeholder(p), ..rest]
+      if kw == "like" || kw == "ilike"
+    ->
+      find_equality_loop(rest, [
+        EqualityMatch(
+          column_name: naming.normalize_identifier(c),
+          table_qualifier: None,
+          placeholder: p,
+        ),
+        ..acc
+      ])
+
+    [_, ..rest] -> find_equality_loop(rest, acc)
+  }
+}
+
+// ============================================================
+// IN clause pattern helpers
+// ============================================================
+
+/// Find all column IN (placeholder) patterns in tokens.
+pub fn find_in_patterns(tokens: List(lexer.Token)) -> List(EqualityMatch) {
+  find_in_loop(tokens, [])
+  |> list.reverse
+}
+
+fn find_in_loop(
+  tokens: List(lexer.Token),
+  acc: List(EqualityMatch),
+) -> List(EqualityMatch) {
+  case tokens {
+    [] -> acc
+
+    // table.column IN (placeholder)
+    [
+      lexer.Ident(t),
+      lexer.Dot,
+      lexer.Ident(c),
+      lexer.Keyword("in"),
+      lexer.LParen,
+      lexer.Placeholder(p),
+      lexer.RParen,
+      ..rest
+    ] ->
+      find_in_loop(rest, [
+        EqualityMatch(
+          column_name: naming.normalize_identifier(c),
+          table_qualifier: Some(string.lowercase(t)),
+          placeholder: p,
+        ),
+        ..acc
+      ])
+
+    // column IN (placeholder)
+    [
+      lexer.Ident(c),
+      lexer.Keyword("in"),
+      lexer.LParen,
+      lexer.Placeholder(p),
+      lexer.RParen,
+      ..rest
+    ] ->
+      find_in_loop(rest, [
+        EqualityMatch(
+          column_name: naming.normalize_identifier(c),
+          table_qualifier: None,
+          placeholder: p,
+        ),
+        ..acc
+      ])
+
+    [
+      lexer.QuotedIdent(c),
+      lexer.Keyword("in"),
+      lexer.LParen,
+      lexer.Placeholder(p),
+      lexer.RParen,
+      ..rest
+    ] ->
+      find_in_loop(rest, [
+        EqualityMatch(
+          column_name: naming.normalize_identifier(c),
+          table_qualifier: None,
+          placeholder: p,
+        ),
+        ..acc
+      ])
+
+    [_, ..rest] -> find_in_loop(rest, acc)
+  }
+}
+
+// ============================================================
+// Type cast helpers (PostgreSQL $N::type)
+// ============================================================
+
+pub type TypeCast {
+  TypeCast(placeholder: String, cast_type: String)
+}
+
+/// Find all $N::type patterns in tokens (PostgreSQL only).
+pub fn find_type_casts(tokens: List(lexer.Token)) -> List(TypeCast) {
+  find_type_cast_loop(tokens, [])
+  |> list.reverse
+}
+
+fn find_type_cast_loop(
+  tokens: List(lexer.Token),
+  acc: List(TypeCast),
+) -> List(TypeCast) {
+  case tokens {
+    [] -> acc
+
+    // $N::type_name
+    [lexer.Placeholder(p), lexer.Operator("::"), lexer.Ident(t), ..rest] ->
+      find_type_cast_loop(rest, [
+        TypeCast(placeholder: p, cast_type: string.lowercase(t)),
+        ..acc
+      ])
+
+    // $N::keyword (e.g. $1::int where int is a keyword)
+    [lexer.Placeholder(p), lexer.Operator("::"), lexer.Keyword(t), ..rest] ->
+      find_type_cast_loop(rest, [TypeCast(placeholder: p, cast_type: t), ..acc])
+
+    [_, ..rest] -> find_type_cast_loop(rest, acc)
+  }
+}
+
+/// Parse a placeholder string like "$3" into its integer index.
+pub fn parse_placeholder_index(placeholder: String) -> Result(Int, Nil) {
+  placeholder
+  |> string.replace("$", "")
+  |> int.parse
+  |> option.from_result
+  |> option.to_result(Nil)
+}
+
+// ============================================================
+// SET clause pattern helpers (UPDATE ... SET col = placeholder)
+// ============================================================
+
+/// Find all column = placeholder patterns in SET clauses.
+pub fn find_set_patterns(tokens: List(lexer.Token)) -> List(EqualityMatch) {
+  find_set_clause(tokens, [])
+  |> list.reverse
+}
+
+fn find_set_clause(
+  tokens: List(lexer.Token),
+  acc: List(EqualityMatch),
+) -> List(EqualityMatch) {
+  case tokens {
+    [] -> acc
+    [lexer.Keyword("set"), ..rest] -> scan_set_assignments(rest, acc)
+    [_, ..rest] -> find_set_clause(rest, acc)
+  }
+}
+
+fn scan_set_assignments(
+  tokens: List(lexer.Token),
+  acc: List(EqualityMatch),
+) -> List(EqualityMatch) {
+  case tokens {
+    [] -> acc
+    // Stop at WHERE or other clauses
+    [lexer.Keyword(kw), ..]
+      if kw == "where" || kw == "returning" || kw == "from"
+    -> acc
+    // column = placeholder
+    [lexer.Ident(c), lexer.Operator("="), lexer.Placeholder(p), ..rest] ->
+      scan_set_assignments(rest, [
+        EqualityMatch(
+          column_name: naming.normalize_identifier(c),
+          table_qualifier: None,
+          placeholder: p,
+        ),
+        ..acc
+      ])
+    [lexer.QuotedIdent(c), lexer.Operator("="), lexer.Placeholder(p), ..rest] ->
+      scan_set_assignments(rest, [
+        EqualityMatch(
+          column_name: naming.normalize_identifier(c),
+          table_qualifier: None,
+          placeholder: p,
+        ),
+        ..acc
+      ])
+    [_, ..rest] -> scan_set_assignments(rest, acc)
   }
 }

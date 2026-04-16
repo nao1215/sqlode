@@ -2,11 +2,12 @@ import gleam/dict
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/regexp
 import gleam/string
+import sqlode/lexer
 import sqlode/model
 import sqlode/naming
 import sqlode/query_analyzer/context.{type AnalyzerContext}
+import sqlode/query_analyzer/token_utils
 
 pub type PlaceholderOccurrence {
   PlaceholderOccurrence(index: Int, token: String, default_name: String)
@@ -17,7 +18,7 @@ pub fn extract(
   engine: model.Engine,
   sql: String,
 ) -> List(PlaceholderOccurrence) {
-  let tokens = placeholder_tokens(ctx, engine, sql)
+  let tokens = placeholder_tokens(engine, sql)
   build_occurrences(ctx, engine, tokens, 1, dict.new(), [])
 }
 
@@ -170,24 +171,9 @@ fn build_occurrences(
   }
 }
 
-fn placeholder_tokens(
-  ctx: AnalyzerContext,
-  engine: model.Engine,
-  sql: String,
-) -> List(String) {
-  let re = case engine {
-    model.PostgreSQL -> ctx.postgresql_placeholder_re
-    model.MySQL -> ctx.mysql_placeholder_re
-    model.SQLite -> ctx.sqlite_placeholder_re
-  }
-
-  regexp.scan(re, sql)
-  |> list.filter_map(fn(match) {
-    case match.submatches {
-      [Some(token)] -> Ok(token)
-      _ -> Error(Nil)
-    }
-  })
+fn placeholder_tokens(engine: model.Engine, sql: String) -> List(String) {
+  lexer.tokenize(sql, engine)
+  |> token_utils.extract_placeholders
 }
 
 fn default_param_name(ctx: AnalyzerContext, token: String, index: Int) -> String {
