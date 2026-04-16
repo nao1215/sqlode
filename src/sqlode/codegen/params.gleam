@@ -17,6 +17,10 @@ pub fn render(
 
   let has_enums = common.queries_have_enum_params(queries)
 
+  let custom_imports =
+    common.param_scalar_types(queries)
+    |> common.custom_type_imports
+
   let needs_models_for_strong =
     type_mapping == model.StrongMapping
     && list.any(queries, fn(q) {
@@ -38,6 +42,7 @@ pub fn render(
           True -> ["import " <> module_path <> "/models"]
           False -> []
         },
+        custom_imports,
       ])
     False ->
       list.flatten([
@@ -50,6 +55,7 @@ pub fn render(
           True -> ["import " <> module_path <> "/models"]
           False -> []
         },
+        custom_imports,
       ])
   }
 

@@ -263,14 +263,20 @@ fn validate_gleam_type(gleam_type: String) -> Result(Nil, ConfigError) {
         detail: "must not be empty",
       ))
     False -> {
+      // For module-qualified types like "myapp/types.UserId",
+      // validate the type name part (after the last dot)
+      let type_name = case string.split_once(gleam_type, ".") {
+        Ok(#(_, name)) -> name
+        Error(_) -> gleam_type
+      }
       let first =
-        string.first(gleam_type)
+        string.first(type_name)
         |> result.unwrap("")
       case is_uppercase_letter(first) {
         False ->
           Error(InvalidValue(
             field: "overrides.types.gleam_type",
-            detail: "must start with an uppercase letter, got \""
+            detail: "type name must start with an uppercase letter, got \""
               <> gleam_type
               <> "\"",
           ))

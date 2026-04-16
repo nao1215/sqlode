@@ -238,6 +238,98 @@ pub fn no_custom_type_omits_alias_warning_comment_test() {
   cleanup()
 }
 
+pub fn module_qualified_custom_type_generates_import_test() {
+  cleanup()
+  let block =
+    base_block(
+      model.Overrides(
+        type_overrides: [
+          model.DbTypeOverride(
+            db_type: "int",
+            gleam_type: "myapp/types.UserId",
+            nullable: option.None,
+          ),
+        ],
+        column_renames: [],
+      ),
+    )
+
+  run_generate(block)
+  let models = read_generated("models.gleam")
+
+  // Should generate import for the module-qualified type
+  string.contains(models, "import myapp/types.{type UserId}")
+  |> should.be_true()
+  // Should use the bare type name in declarations
+  string.contains(models, "id: UserId") |> should.be_true()
+
+  cleanup()
+}
+
+pub fn module_qualified_custom_type_in_params_generates_import_test() {
+  cleanup()
+  let block =
+    model.SqlBlock(
+      name: option.None,
+      engine: model.PostgreSQL,
+      schema: ["test/fixtures/schema.sql"],
+      queries: ["test/fixtures/query.sql"],
+      gleam: model.GleamOutput(
+        out: test_out,
+        runtime: model.Raw,
+        type_mapping: model.StringMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: False,
+      ),
+      overrides: model.Overrides(
+        type_overrides: [
+          model.DbTypeOverride(
+            db_type: "int",
+            gleam_type: "myapp/types.UserId",
+            nullable: option.None,
+          ),
+        ],
+        column_renames: [],
+      ),
+    )
+
+  run_generate(block)
+  let params = read_generated("params.gleam")
+
+  // Params module should also import the module-qualified type
+  string.contains(params, "import myapp/types.{type UserId}")
+  |> should.be_true()
+
+  cleanup()
+}
+
+pub fn bare_custom_type_omits_module_import_test() {
+  cleanup()
+  let block =
+    base_block(
+      model.Overrides(
+        type_overrides: [
+          model.DbTypeOverride(
+            db_type: "int",
+            gleam_type: "UserId",
+            nullable: option.None,
+          ),
+        ],
+        column_renames: [],
+      ),
+    )
+
+  run_generate(block)
+  let models = read_generated("models.gleam")
+
+  // Bare custom type should NOT generate a module import
+  string.contains(models, "import myapp") |> should.be_false()
+  // But should still use the type name
+  string.contains(models, "id: UserId") |> should.be_true()
+
+  cleanup()
+}
+
 pub fn no_overrides_leaves_types_unchanged_test() {
   cleanup()
   let block = base_block(model.empty_overrides())

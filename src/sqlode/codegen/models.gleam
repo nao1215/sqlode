@@ -2,6 +2,7 @@ import gleam/dict.{type Dict}
 import gleam/list
 import gleam/option
 import gleam/string
+import sqlode/codegen/common
 import sqlode/model
 import sqlode/naming
 
@@ -44,13 +45,22 @@ pub fn render(
     ))
     |> string.join("\n\n")
 
-  let imports = case
+  let option_imports = case
     needs_option_import_for_results(queries)
     || needs_option_import_for_tables(catalog)
   {
     True -> ["import gleam/option.{type Option}"]
     False -> []
   }
+
+  let custom_imports =
+    list.flatten([
+      common.result_scalar_types(queries),
+      common.catalog_scalar_types(catalog),
+    ])
+    |> common.custom_type_imports
+
+  let imports = list.flatten([option_imports, custom_imports])
 
   let custom_type_warning = case has_custom_types_in_results(queries) {
     True -> [
