@@ -16,6 +16,7 @@ type ExtractedColumn {
     name: String,
     source_table: Option(String),
     expression: Option(String),
+    expression_tokens: Option(List(lexer.Token)),
   )
 }
 
@@ -93,7 +94,7 @@ fn tok_extract_returning_columns(
   case tok_find_returning_tokens(tokens) {
     Some(col_tokens) ->
       Some(
-        tok_split_on_commas(col_tokens)
+        token_utils.split_on_commas(col_tokens)
         |> list.map(tok_parse_column_item),
       )
     None -> None
@@ -199,10 +200,14 @@ fn resolve_select_columns(
                       ),
                     ])
                   None ->
-                    case extracted.expression {
-                      Some(expr) -> {
+                    case extracted.expression_tokens {
+                      Some(expr_tokens) -> {
                         let #(scalar_type, nullable) =
-                          infer_expression_type(expr, catalog, all_tables)
+                          infer_expression_type_from_tokens(
+                            expr_tokens,
+                            catalog,
+                            all_tables,
+                          )
                         Ok([
                           model.ResultColumn(
                             name: normalized_name,
@@ -239,10 +244,14 @@ fn resolve_select_columns(
                       ),
                     ])
                   None ->
-                    case extracted.expression {
-                      Some(expr) -> {
+                    case extracted.expression_tokens {
+                      Some(expr_tokens) -> {
                         let #(scalar_type, nullable) =
-                          infer_expression_type(expr, catalog, all_tables)
+                          infer_expression_type_from_tokens(
+                            expr_tokens,
+                            catalog,
+                            all_tables,
+                          )
                         Ok([
                           model.ResultColumn(
                             name: normalized_name,
@@ -268,225 +277,194 @@ fn resolve_select_columns(
   }
 }
 
-fn infer_expression_type(
-  expr: String,
-  catalog: model.Catalog,
-  table_names: List(String),
-) -> #(model.ScalarType, Bool) {
-  let lowered = string.lowercase(string.trim(expr))
-  infer_expression_type_dispatch(lowered, catalog, table_names)
-}
+// ============================================================
+// Token-based expression type inference (#342)
+// ============================================================
 
-fn infer_expression_type_dispatch(
-  lowered: String,
+fn infer_expression_type_from_tokens(
+  tokens: List(lexer.Token),
   catalog: model.Catalog,
   table_names: List(String),
 ) -> #(model.ScalarType, Bool) {
-  let prefixes = [
-    #("count(", InferCount),
-    #("sum(", InferSum),
-    #("avg(", InferAvg),
-    #("min(", InferMinMax),
-    #("max(", InferMinMax),
-    #("row_number(", InferRowNumber),
-    #("rank(", InferRowNumber),
-    #("dense_rank(", InferRowNumber),
-    #("coalesce(", InferCoalesce),
-    #("cast(", InferCast),
-    #("case ", InferCase),
-    #("'", InferStringLiteral),
-  ]
-  case find_matching_prefix(lowered, prefixes) {
-    Some(InferCount) -> #(model.IntType, False)
-    Some(InferSum) -> {
-      let inner_type = infer_aggregate_inner_type(lowered, catalog, table_names)
-      #(inner_type, True)
+  case tokens {
+    // count(...) -> IntType, not nullable
+    [lexer.Keyword("count"), lexer.LParen, ..] -> #(model.IntType, False)
+
+    // sum(...) -> inner type, nullable
+    [lexer.Keyword("sum"), lexer.LParen, ..rest] -> {
+      let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
+      let first_arg = tok_first_comma_group(inner_tokens)
+      let inner_type =
+        resolve_column_type_from_tokens(first_arg, catalog, table_names)
+      case inner_type {
+        Some(t) -> #(t, True)
+        None -> #(model.IntType, True)
+      }
     }
-    Some(InferAvg) -> #(model.FloatType, True)
-    Some(InferMinMax) -> {
-      let inner_type = infer_aggregate_inner_type(lowered, catalog, table_names)
-      #(inner_type, True)
+
+    // avg(...) -> FloatType, nullable
+    [lexer.Keyword("avg"), lexer.LParen, ..] -> #(model.FloatType, True)
+
+    // min/max(...) -> inner type, nullable
+    [lexer.Keyword(kw), lexer.LParen, ..rest] if kw == "min" || kw == "max" -> {
+      let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
+      let first_arg = tok_first_comma_group(inner_tokens)
+      let inner_type =
+        resolve_column_type_from_tokens(first_arg, catalog, table_names)
+      case inner_type {
+        Some(t) -> #(t, True)
+        None -> #(model.IntType, True)
+      }
     }
-    Some(InferRowNumber) -> #(model.IntType, False)
-    Some(InferCoalesce) -> {
-      let inner = extract_function_arg(lowered)
-      case resolve_column_type(string.trim(inner), catalog, table_names) {
+
+    // row_number(), rank(), dense_rank() -> IntType
+    [lexer.Keyword(kw), lexer.LParen, ..]
+      if kw == "row_number" || kw == "rank" || kw == "dense_rank"
+    -> #(model.IntType, False)
+
+    // coalesce(...) -> first arg type, not nullable
+    [lexer.Keyword("coalesce"), lexer.LParen, ..rest] -> {
+      let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
+      let first_arg = tok_first_comma_group(inner_tokens)
+      case resolve_column_type_from_tokens(first_arg, catalog, table_names) {
         Some(t) -> #(t, False)
         None -> #(model.StringType, False)
       }
     }
-    Some(InferCast) ->
-      case string.split_once(lowered, " as ") {
-        Ok(#(_, type_part)) -> {
-          let type_text = type_part |> string.replace(")", "") |> string.trim
-          case model.parse_sql_type(type_text) {
+
+    // cast(expr AS type) -> parsed type, nullable
+    [lexer.Keyword("cast"), lexer.LParen, ..rest] -> {
+      let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
+      case tok_find_as_type(inner_tokens) {
+        Some(type_name) ->
+          case model.parse_sql_type(type_name) {
             Ok(scalar_type) -> #(scalar_type, True)
             Error(_) -> #(model.StringType, True)
           }
-        }
-        Error(_) -> #(model.StringType, True)
+        None -> #(model.StringType, True)
       }
-    Some(InferCase) -> infer_case_type(lowered, catalog, table_names)
-    Some(InferStringLiteral) -> #(model.StringType, False)
-    None ->
-      case is_integer_literal(lowered) {
-        True -> #(model.IntType, False)
-        False ->
-          case lowered == "true" || lowered == "false" {
-            True -> #(model.BoolType, False)
-            False -> #(model.StringType, True)
-          }
-      }
-  }
-}
-
-type ExprKind {
-  InferCount
-  InferSum
-  InferAvg
-  InferMinMax
-  InferRowNumber
-  InferCoalesce
-  InferCast
-  InferCase
-  InferStringLiteral
-}
-
-fn find_matching_prefix(
-  lowered: String,
-  rules: List(#(String, ExprKind)),
-) -> Option(ExprKind) {
-  case rules {
-    [] -> None
-    [#(prefix, kind), ..rest] ->
-      case string.starts_with(lowered, prefix) {
-        True -> Some(kind)
-        False -> find_matching_prefix(lowered, rest)
-      }
-  }
-}
-
-fn infer_aggregate_inner_type(
-  func_expr: String,
-  catalog: model.Catalog,
-  table_names: List(String),
-) -> model.ScalarType {
-  let inner = extract_function_arg(func_expr)
-  case resolve_column_type(string.trim(inner), catalog, table_names) {
-    Some(t) -> t
-    None -> model.IntType
-  }
-}
-
-fn extract_function_arg(func_expr: String) -> String {
-  case string.split_once(func_expr, "(") {
-    Ok(#(_, rest)) -> {
-      let arg = extract_paren_content(string.to_graphemes(rest), 1, [])
-      // For multi-arg functions, take the first top-level arg
-      let first_arg = extract_first_csv_arg(string.to_graphemes(arg), 0, [])
-      string.trim(first_arg)
     }
-    Error(_) -> func_expr
-  }
-}
 
-/// Extract content between matched parentheses, tracking depth.
-fn extract_paren_content(
-  chars: List(String),
-  depth: Int,
-  acc: List(String),
-) -> String {
-  case depth <= 0 {
-    True -> acc |> list.reverse |> string.concat
-    False ->
-      case chars {
-        [] -> acc |> list.reverse |> string.concat
-        ["(", ..rest] -> extract_paren_content(rest, depth + 1, ["(", ..acc])
-        [")", ..rest] ->
-          case depth == 1 {
-            True -> acc |> list.reverse |> string.concat
-            False -> extract_paren_content(rest, depth - 1, [")", ..acc])
-          }
-        [c, ..rest] -> extract_paren_content(rest, depth, [c, ..acc])
+    // CASE WHEN ... THEN value ... -> examine first THEN branch
+    [lexer.Keyword("case"), ..rest] ->
+      infer_case_type_from_tokens(rest, catalog, table_names)
+
+    // String literal
+    [lexer.StringLit(_)] -> #(model.StringType, False)
+
+    // Number literal
+    [lexer.NumberLit(n)] ->
+      case string.contains(n, ".") {
+        True -> #(model.FloatType, False)
+        False -> #(model.IntType, False)
       }
+
+    // Boolean keywords
+    [lexer.Keyword("true")] | [lexer.Keyword("false")] -> #(
+      model.BoolType,
+      False,
+    )
+
+    // Fallback: StringType, nullable
+    _ -> #(model.StringType, True)
   }
 }
 
-/// Extract first comma-separated argument at top level (not inside parens).
-fn extract_first_csv_arg(
-  chars: List(String),
-  depth: Int,
-  acc: List(String),
-) -> String {
-  case chars {
-    [] -> acc |> list.reverse |> string.concat
-    ["(", ..rest] -> extract_first_csv_arg(rest, depth + 1, ["(", ..acc])
-    [")", ..rest] -> extract_first_csv_arg(rest, depth - 1, [")", ..acc])
-    [",", ..] if depth == 0 -> acc |> list.reverse |> string.concat
-    [c, ..rest] -> extract_first_csv_arg(rest, depth, [c, ..acc])
+/// Get the first comma-separated group of tokens (top-level only).
+fn tok_first_comma_group(tokens: List(lexer.Token)) -> List(lexer.Token) {
+  case token_utils.split_on_commas(tokens) {
+    [first, ..] -> first
+    [] -> []
+  }
+}
+
+/// Find the type name after AS in CAST tokens (e.g., [expr, AS, type_name]).
+fn tok_find_as_type(tokens: List(lexer.Token)) -> Option(String) {
+  case tokens {
+    [] -> None
+    [lexer.Keyword("as"), ..rest] -> {
+      let type_text =
+        rest
+        |> list.filter_map(fn(t) {
+          case t {
+            lexer.Ident(n) -> Ok(n)
+            lexer.Keyword(k) -> Ok(k)
+            _ -> Error(Nil)
+          }
+        })
+        |> string.join(" ")
+      case type_text {
+        "" -> None
+        _ -> Some(string.lowercase(type_text))
+      }
+    }
+    [_, ..rest] -> tok_find_as_type(rest)
   }
 }
 
 /// Infer type from CASE expression by examining the first THEN branch.
-fn infer_case_type(
-  lowered: String,
+fn infer_case_type_from_tokens(
+  tokens: List(lexer.Token),
   catalog: model.Catalog,
   table_names: List(String),
 ) -> #(model.ScalarType, Bool) {
-  // Extract the first THEN value from "case when ... then <value> ..."
-  case string.split_once(lowered, " then ") {
-    Ok(#(_, after_then)) -> {
-      // The value extends until WHEN, ELSE, or END
-      let value_text =
-        after_then
-        |> split_before_keyword([" when ", " else ", " end"])
-        |> string.trim
-      case value_text {
-        "" -> #(model.StringType, True)
-        _ ->
-          infer_expression_type_dispatch(value_text, catalog, table_names)
-          |> fn(result) { #(result.0, True) }
+  case tok_collect_then_value(tokens) {
+    Some(then_tokens) ->
+      case then_tokens {
+        [] -> #(model.StringType, True)
+        _ -> {
+          let #(scalar_type, _) =
+            infer_expression_type_from_tokens(then_tokens, catalog, table_names)
+          #(scalar_type, True)
+        }
       }
-    }
-    Error(_) -> #(model.StringType, True)
+    None -> #(model.StringType, True)
   }
 }
 
-/// Split string before the first occurrence of any keyword.
-fn split_before_keyword(s: String, keywords: List(String)) -> String {
-  case keywords {
-    [] -> s
-    [kw, ..rest] ->
-      case string.split_once(s, kw) {
-        Ok(#(before, _)) -> split_before_keyword(before, rest)
-        Error(_) -> split_before_keyword(s, rest)
-      }
+/// Collect tokens between first THEN and the next WHEN/ELSE/END at depth 0.
+fn tok_collect_then_value(
+  tokens: List(lexer.Token),
+) -> Option(List(lexer.Token)) {
+  case tokens {
+    [] -> None
+    [lexer.Keyword("then"), ..rest] -> Some(tok_until_case_boundary(rest, []))
+    [_, ..rest] -> tok_collect_then_value(rest)
   }
 }
 
-fn resolve_column_type(
-  name: String,
+fn tok_until_case_boundary(
+  tokens: List(lexer.Token),
+  acc: List(lexer.Token),
+) -> List(lexer.Token) {
+  case tokens {
+    [] -> list.reverse(acc)
+    [lexer.Keyword(kw), ..] if kw == "when" || kw == "else" || kw == "end" ->
+      list.reverse(acc)
+    [token, ..rest] -> tok_until_case_boundary(rest, [token, ..acc])
+  }
+}
+
+/// Resolve a column type from a token list (handles table.column and bare column).
+fn resolve_column_type_from_tokens(
+  tokens: List(lexer.Token),
   catalog: model.Catalog,
   table_names: List(String),
 ) -> Option(model.ScalarType) {
-  // Try table.column format
-  let col_name = case string.split_once(name, ".") {
-    Ok(#(_, col)) -> string.trim(col)
-    Error(_) -> name
+  case tokens {
+    [lexer.Ident(_table), lexer.Dot, lexer.Ident(col)] ->
+      case context.find_column_in_tables(catalog, table_names, col) {
+        Some(#(_, column)) -> Some(column.scalar_type)
+        None -> None
+      }
+    [lexer.Ident(col)] ->
+      case context.find_column_in_tables(catalog, table_names, col) {
+        Some(#(_, column)) -> Some(column.scalar_type)
+        None -> None
+      }
+    [lexer.Star] -> None
+    _ -> None
   }
-  case context.find_column_in_tables(catalog, table_names, col_name) {
-    Some(#(_, column)) -> Some(column.scalar_type)
-    None -> None
-  }
-}
-
-fn is_integer_literal(s: String) -> Bool {
-  !string.is_empty(s)
-  && string.to_utf_codepoints(s)
-  |> list.all(fn(cp) {
-    let value = string.utf_codepoint_to_int(cp)
-    value >= 48 && value <= 57
-  })
 }
 
 // ============================================================
@@ -574,7 +552,7 @@ fn validate_compound_column_counts(
 
 fn count_branch_columns(branch: List(lexer.Token)) -> Int {
   case tok_find_select_to_from(branch) {
-    Some(col_tokens) -> list.length(tok_split_on_commas(col_tokens))
+    Some(col_tokens) -> list.length(token_utils.split_on_commas(col_tokens))
     None -> 0
   }
 }
@@ -714,7 +692,7 @@ fn tok_extract_select_columns(
 ) -> List(ExtractedColumn) {
   case tok_find_select_to_from(tokens) {
     Some(col_tokens) ->
-      tok_split_on_commas(col_tokens)
+      token_utils.split_on_commas(col_tokens)
       |> list.map(tok_parse_column_item)
     None -> []
   }
@@ -764,37 +742,6 @@ fn tok_collect_until_from(
   }
 }
 
-/// Split tokens on top-level commas.
-fn tok_split_on_commas(tokens: List(lexer.Token)) -> List(List(lexer.Token)) {
-  tok_split_commas_loop(tokens, 0, [], [])
-}
-
-fn tok_split_commas_loop(
-  tokens: List(lexer.Token),
-  depth: Int,
-  current: List(lexer.Token),
-  acc: List(List(lexer.Token)),
-) -> List(List(lexer.Token)) {
-  case tokens {
-    [] ->
-      case current {
-        [] -> list.reverse(acc)
-        _ -> list.reverse([list.reverse(current), ..acc])
-      }
-    [lexer.Comma, ..rest] if depth == 0 ->
-      case current {
-        [] -> tok_split_commas_loop(rest, 0, [], acc)
-        _ -> tok_split_commas_loop(rest, 0, [], [list.reverse(current), ..acc])
-      }
-    [lexer.LParen, ..rest] ->
-      tok_split_commas_loop(rest, depth + 1, [lexer.LParen, ..current], acc)
-    [lexer.RParen, ..rest] ->
-      tok_split_commas_loop(rest, depth - 1, [lexer.RParen, ..current], acc)
-    [token, ..rest] ->
-      tok_split_commas_loop(rest, depth, [token, ..current], acc)
-  }
-}
-
 /// Parse a column item from tokens into ExtractedColumn.
 fn tok_parse_column_item(tokens: List(lexer.Token)) -> ExtractedColumn {
   // Check for sqlode.embed(table) pattern: Ident("sqlode") Dot Ident("embed") LParen ...
@@ -807,7 +754,12 @@ fn tok_parse_column_item(tokens: List(lexer.Token)) -> ExtractedColumn {
         True -> {
           // Reconstruct as "sqlode.embed(table_name)" without extra spaces
           let text = tok_reconstruct_macro_call(tokens)
-          ExtractedColumn(name: text, source_table: None, expression: None)
+          ExtractedColumn(
+            name: text,
+            source_table: None,
+            expression: None,
+            expression_tokens: None,
+          )
         }
         False -> tok_parse_regular_column(tokens)
       }
@@ -847,6 +799,7 @@ fn tok_parse_regular_column(tokens: List(lexer.Token)) -> ExtractedColumn {
         name: alias_name,
         source_table: table,
         expression: Some(expr_text),
+        expression_tokens: Some(expr_tokens),
       )
     }
     None ->
@@ -856,17 +809,29 @@ fn tok_parse_regular_column(tokens: List(lexer.Token)) -> ExtractedColumn {
             name: col,
             source_table: Some(string.lowercase(table)),
             expression: None,
+            expression_tokens: None,
           )
         [lexer.Ident(name)] ->
-          ExtractedColumn(name: name, source_table: None, expression: None)
+          ExtractedColumn(
+            name: name,
+            source_table: None,
+            expression: None,
+            expression_tokens: None,
+          )
         [lexer.Star] ->
-          ExtractedColumn(name: "*", source_table: None, expression: None)
+          ExtractedColumn(
+            name: "*",
+            source_table: None,
+            expression: None,
+            expression_tokens: None,
+          )
         _ -> {
           let text = tok_tokens_to_text(tokens)
           ExtractedColumn(
             name: text,
             source_table: None,
             expression: Some(text),
+            expression_tokens: Some(tokens),
           )
         }
       }

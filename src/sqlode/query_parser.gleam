@@ -2,7 +2,6 @@ import gleam/dict
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/regexp
 import gleam/result
 import gleam/string
 import sqlode/lexer
@@ -25,36 +24,14 @@ type PendingQuery {
   )
 }
 
-type ParserContext {
-  ParserContext(
-    naming: naming.NamingContext,
-    macro_re: regexp.Regexp,
-    masked_macro_re: regexp.Regexp,
-    at_name_re: regexp.Regexp,
-  )
-}
-
-fn new_parser_context(naming_ctx: naming.NamingContext) -> ParserContext {
-  let assert Ok(macro_re) =
-    regexp.from_string(
-      "sqlode\\.(arg|narg|slice)\\(('[^']*'|\"[^\"]*\"|[a-zA-Z_][a-zA-Z0-9_]*)\\)",
-    )
-  let assert Ok(masked_macro_re) =
-    regexp.from_string("sqlode\\.(arg|narg|slice)\\(([^)]+)\\)")
-  let assert Ok(at_name_re) = regexp.from_string("@([A-Za-z_][A-Za-z0-9_]*)")
-
-  ParserContext(naming: naming_ctx, macro_re:, masked_macro_re:, at_name_re:)
-}
-
 pub fn parse_file(
   path: String,
   engine: model.Engine,
   naming_ctx: naming.NamingContext,
   content: String,
 ) -> Result(List(model.ParsedQuery), ParseError) {
-  let ctx = new_parser_context(naming_ctx)
   parse_lines(
-    ctx,
+    naming_ctx,
     string.split(content, "\n"),
     path,
     engine,
@@ -67,7 +44,7 @@ pub fn parse_file(
 }
 
 fn parse_lines(
-  ctx: ParserContext,
+  naming_ctx: naming.NamingContext,
   lines: List(String),
   path: String,
   engine: model.Engine,
@@ -77,22 +54,21 @@ fn parse_lines(
   skip_next: Bool,
 ) -> Result(List(model.ParsedQuery), ParseError) {
   case lines {
-    [] -> finalize_pending(ctx, pending, path, engine, parsed_rev)
+    [] -> finalize_pending(naming_ctx, pending, path, engine, parsed_rev)
     [line, ..rest] -> {
       let trimmed = string.trim(line)
 
       case is_skip_annotation(trimmed) {
         True -> {
-          // Finalize any current pending query before entering skip mode
           use parsed_rev <- result.try(finalize_pending(
-            ctx,
+            naming_ctx,
             pending,
             path,
             engine,
             parsed_rev,
           ))
           parse_lines(
-            ctx,
+            naming_ctx,
             rest,
             path,
             engine,
@@ -103,10 +79,10 @@ fn parse_lines(
           )
         }
         False ->
-          case parse_annotation(ctx, trimmed, path, line_number) {
+          case parse_annotation(naming_ctx, trimmed, path, line_number) {
             Ok(Some(next_pending)) -> {
               use parsed_rev <- result.try(finalize_pending(
-                ctx,
+                naming_ctx,
                 pending,
                 path,
                 engine,
@@ -115,9 +91,8 @@ fn parse_lines(
 
               case skip_next {
                 True ->
-                  // Skip this query: don't set pending, clear skip flag
                   parse_lines(
-                    ctx,
+                    naming_ctx,
                     rest,
                     path,
                     engine,
@@ -128,7 +103,7 @@ fn parse_lines(
                   )
                 False ->
                   parse_lines(
-                    ctx,
+                    naming_ctx,
                     rest,
                     path,
                     engine,
@@ -161,7 +136,7 @@ fn parse_lines(
               }
 
               parse_lines(
-                ctx,
+                naming_ctx,
                 rest,
                 path,
                 engine,
@@ -179,7 +154,7 @@ fn parse_lines(
 }
 
 fn finalize_pending(
-  ctx: ParserContext,
+  _naming_ctx: naming.NamingContext,
   pending: Option(PendingQuery),
   path: String,
   engine: model.Engine,
@@ -199,9 +174,9 @@ fn finalize_pending(
         False -> {
           let masked = mask_sql(engine, sql)
           let #(at_expanded, at_masked, at_macros, next_idx) =
-            expand_at_name_shorthands(ctx, engine, sql, masked)
+            expand_at_name_shorthands(engine, sql, masked)
           let #(expanded_sql, expanded_macros) =
-            expand_macros(ctx, engine, at_expanded, at_masked, next_idx)
+            expand_macros(engine, at_expanded, at_masked, next_idx)
           let macros = list.append(at_macros, expanded_macros)
           Ok([
             model.ParsedQuery(
@@ -222,7 +197,7 @@ fn finalize_pending(
 }
 
 fn parse_annotation(
-  ctx: ParserContext,
+  naming_ctx: naming.NamingContext,
   line: String,
   path: String,
   line_number: Int,
@@ -253,7 +228,7 @@ fn parse_annotation(
             Some(
               PendingQuery(
                 name:,
-                function_name: naming.to_snake_case(ctx.naming, name),
+                function_name: naming.to_snake_case(naming_ctx, name),
                 command:,
                 start_line: line_number,
                 body_rev: [],
@@ -322,8 +297,13 @@ pub fn error_to_string(error: ParseError) -> String {
   }
 }
 
+// ============================================================
+// @name expansion (token-detected, string-replaced)
+// ============================================================
+
+/// Expand @name shorthands. Uses masked SQL for position-safe detection,
+/// original SQL for replacement to preserve formatting.
 fn expand_at_name_shorthands(
-  ctx: ParserContext,
   engine: model.Engine,
   sql: String,
   masked: String,
@@ -331,107 +311,227 @@ fn expand_at_name_shorthands(
   case engine {
     model.MySQL -> #(sql, masked, [], 1)
     _ -> {
-      let matches = regexp.scan(ctx.at_name_re, masked)
-      case matches {
+      let at_positions = find_at_names(masked)
+      case at_positions {
         [] -> #(sql, masked, [], 1)
-        _ -> {
-          let #(expanded, expanded_masked, macros, next_idx, _seen) =
-            list.fold(
-              matches,
-              #(sql, masked, [], 1, dict.new()),
-              fn(acc, match) {
-                let #(current_sql, current_masked, macro_acc, idx, seen) = acc
-                case match.submatches {
-                  [Some(name)] ->
-                    case engine, dict.get(seen, name) {
-                      model.SQLite, Ok(existing_idx) -> {
-                        let placeholder =
-                          engine_placeholder(engine, existing_idx)
-                        let #(new_sql, new_masked) =
-                          replace_first_in_masked(
-                            current_sql,
-                            current_masked,
-                            match.content,
-                            placeholder,
-                          )
-                        #(new_sql, new_masked, macro_acc, idx, seen)
-                      }
-                      _, _ -> {
-                        let placeholder = engine_placeholder(engine, idx)
-                        let #(new_sql, new_masked) =
-                          replace_first_in_masked(
-                            current_sql,
-                            current_masked,
-                            match.content,
-                            placeholder,
-                          )
-                        let new_seen = case engine {
-                          model.SQLite -> dict.insert(seen, name, idx)
-                          _ -> seen
-                        }
-                        #(
-                          new_sql,
-                          new_masked,
-                          [model.MacroArg(index: idx, name:), ..macro_acc],
-                          idx + 1,
-                          new_seen,
-                        )
-                      }
-                    }
-                  _ -> acc
-                }
-              },
-            )
-          #(expanded, expanded_masked, list.reverse(macros), next_idx)
-        }
+        _ ->
+          expand_at_positions(
+            engine,
+            sql,
+            masked,
+            at_positions,
+            1,
+            dict.new(),
+            [],
+          )
       }
     }
   }
 }
 
+/// Find all @name positions in masked SQL (no regex).
+fn find_at_names(masked: String) -> List(#(Int, String)) {
+  find_at_loop(string.to_graphemes(masked), 0, [])
+  |> list.reverse
+}
+
+fn find_at_loop(
+  chars: List(String),
+  pos: Int,
+  acc: List(#(Int, String)),
+) -> List(#(Int, String)) {
+  case chars {
+    [] -> acc
+    ["@", ..rest] ->
+      case read_identifier_chars(rest, []) {
+        #("", _) -> find_at_loop(rest, pos + 1, acc)
+        #(name, remaining) -> {
+          let full = "@" <> name
+          find_at_loop(remaining, pos + string.length(full), [
+            #(pos, name),
+            ..acc
+          ])
+        }
+      }
+    [c, ..rest] -> find_at_loop(rest, pos + string.length(c), acc)
+  }
+}
+
+fn read_identifier_chars(
+  chars: List(String),
+  acc: List(String),
+) -> #(String, List(String)) {
+  case chars {
+    [c, ..rest] ->
+      case is_ident_char(c) {
+        True -> read_identifier_chars(rest, [c, ..acc])
+        False -> #(acc |> list.reverse |> string.concat, chars)
+      }
+    [] -> #(acc |> list.reverse |> string.concat, [])
+  }
+}
+
+fn is_ident_char(c: String) -> Bool {
+  let cp = case string.to_utf_codepoints(c) {
+    [cp] -> string.utf_codepoint_to_int(cp)
+    _ -> 0
+  }
+  { cp >= 65 && cp <= 90 }
+  || { cp >= 97 && cp <= 122 }
+  || { cp >= 48 && cp <= 57 }
+  || c == "_"
+}
+
+fn expand_at_positions(
+  engine: model.Engine,
+  sql: String,
+  masked: String,
+  positions: List(#(Int, String)),
+  idx: Int,
+  seen: dict.Dict(String, Int),
+  macro_acc: List(model.Macro),
+) -> #(String, String, List(model.Macro), Int) {
+  case positions {
+    [] -> #(sql, masked, list.reverse(macro_acc), idx)
+    [#(_pos, name), ..rest] ->
+      case engine, dict.get(seen, name) {
+        model.SQLite, Ok(existing_idx) -> {
+          let placeholder = engine_placeholder(engine, existing_idx)
+          let pattern = "@" <> name
+          let #(new_sql, new_masked) =
+            replace_first_in_masked(sql, masked, pattern, placeholder)
+          expand_at_positions(
+            engine,
+            new_sql,
+            new_masked,
+            rest,
+            idx,
+            seen,
+            macro_acc,
+          )
+        }
+        _, _ -> {
+          let placeholder = engine_placeholder(engine, idx)
+          let pattern = "@" <> name
+          let #(new_sql, new_masked) =
+            replace_first_in_masked(sql, masked, pattern, placeholder)
+          let new_seen = case engine {
+            model.SQLite -> dict.insert(seen, name, idx)
+            _ -> seen
+          }
+          expand_at_positions(
+            engine,
+            new_sql,
+            new_masked,
+            rest,
+            idx + 1,
+            new_seen,
+            [model.MacroArg(index: idx, name:), ..macro_acc],
+          )
+        }
+      }
+  }
+}
+
+// ============================================================
+// Macro expansion (token-detected, string-replaced)
+// ============================================================
+
+/// Expand sqlode.arg/narg/slice macros. Detects patterns in masked SQL
+/// without regex, replaces in original SQL to preserve formatting.
 fn expand_macros(
-  ctx: ParserContext,
   engine: model.Engine,
   sql: String,
   masked: String,
   start_idx: Int,
 ) -> #(String, List(model.Macro)) {
-  let matches = regexp.scan(ctx.masked_macro_re, masked)
-
-  case matches {
+  let macro_positions = find_macro_patterns(masked)
+  case macro_positions {
     [] -> #(sql, [])
-    _ -> {
-      let #(expanded, _expanded_masked, macros, _) =
-        list.fold(matches, #(sql, masked, [], start_idx), fn(acc, match) {
-          let #(current_sql, current_masked, macro_acc, idx) = acc
+    _ ->
+      expand_macro_positions(
+        engine,
+        sql,
+        masked,
+        macro_positions,
+        start_idx,
+        [],
+      )
+  }
+}
 
-          case match.submatches {
-            [Some(kind), Some(captured_arg)] -> {
-              let name = case string.trim(captured_arg) {
-                "" ->
-                  extract_macro_arg(current_sql, current_masked, match.content)
-                trimmed -> strip_quotes(trimmed)
-              }
-              let placeholder = engine_placeholder(engine, idx)
-              let #(new_sql, new_masked) =
-                replace_first_in_masked(
-                  current_sql,
-                  current_masked,
-                  match.content,
-                  placeholder,
-                )
-              let macro_entry = case kind {
-                "narg" -> model.MacroNarg(index: idx, name:)
-                "slice" -> model.MacroSlice(index: idx, name:)
-                _ -> model.MacroArg(index: idx, name:)
-              }
-              #(new_sql, new_masked, [macro_entry, ..macro_acc], idx + 1)
+type MacroMatch {
+  MacroMatch(kind: String, full_pattern: String)
+}
+
+/// Find sqlode.arg|narg|slice(...) patterns in masked text (no regex).
+fn find_macro_patterns(masked: String) -> List(MacroMatch) {
+  find_macro_loop(masked, [])
+  |> list.reverse
+}
+
+fn find_macro_loop(masked: String, acc: List(MacroMatch)) -> List(MacroMatch) {
+  case string.split_once(masked, "sqlode.") {
+    Error(_) -> acc
+    Ok(#(_before, after)) -> {
+      // Check for arg|narg|slice after "sqlode."
+      case try_parse_macro_kind(after) {
+        Some(#(kind, after_kind)) ->
+          case string.split_once(after_kind, ")") {
+            Ok(#(arg_content, rest)) -> {
+              let full = "sqlode." <> kind <> "(" <> arg_content <> ")"
+              find_macro_loop(rest, [
+                MacroMatch(kind:, full_pattern: full),
+                ..acc
+              ])
             }
-            _ -> acc
+            Error(_) -> find_macro_loop(after, acc)
           }
-        })
+        None -> find_macro_loop(after, acc)
+      }
+    }
+  }
+}
 
-      #(expanded, list.reverse(macros))
+fn try_parse_macro_kind(s: String) -> Option(#(String, String)) {
+  case string.starts_with(s, "arg(") {
+    True -> Some(#("arg", string.drop_start(s, 4)))
+    False ->
+      case string.starts_with(s, "narg(") {
+        True -> Some(#("narg", string.drop_start(s, 5)))
+        False ->
+          case string.starts_with(s, "slice(") {
+            True -> Some(#("slice", string.drop_start(s, 6)))
+            False -> None
+          }
+      }
+  }
+}
+
+fn expand_macro_positions(
+  engine: model.Engine,
+  sql: String,
+  masked: String,
+  matches: List(MacroMatch),
+  idx: Int,
+  macro_acc: List(model.Macro),
+) -> #(String, List(model.Macro)) {
+  case matches {
+    [] -> #(sql, list.reverse(macro_acc))
+    [match, ..rest] -> {
+      let name = extract_macro_arg(sql, masked, match.full_pattern)
+      let placeholder = engine_placeholder(engine, idx)
+      let #(new_sql, new_masked) =
+        replace_first_in_masked(sql, masked, match.full_pattern, placeholder)
+      let macro_entry = case match.kind {
+        "narg" -> model.MacroNarg(index: idx, name:)
+        "slice" -> model.MacroSlice(index: idx, name:)
+        _ -> model.MacroArg(index: idx, name:)
+      }
+      expand_macro_positions(engine, new_sql, new_masked, rest, idx + 1, [
+        macro_entry,
+        ..macro_acc
+      ])
     }
   }
 }

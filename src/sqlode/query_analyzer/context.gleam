@@ -1,7 +1,6 @@
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/regexp
 import gleam/string
 import sqlode/model
 import sqlode/naming
@@ -60,63 +59,11 @@ pub fn analysis_error_to_string(error: AnalysisError) -> String {
 }
 
 pub type AnalyzerContext {
-  AnalyzerContext(
-    naming: naming.NamingContext,
-    insert_re: regexp.Regexp,
-    equality_re: regexp.Regexp,
-    postgresql_placeholder_re: regexp.Regexp,
-    mysql_placeholder_re: regexp.Regexp,
-    sqlite_placeholder_re: regexp.Regexp,
-    whitespace_re: regexp.Regexp,
-    returning_re: regexp.Regexp,
-    type_cast_re: regexp.Regexp,
-    in_clause_re: regexp.Regexp,
-  )
+  AnalyzerContext(naming: naming.NamingContext)
 }
 
 pub fn new(naming_ctx: naming.NamingContext) -> AnalyzerContext {
-  let assert Ok(insert_re) =
-    regexp.from_string(
-      "insert\\s+into\\s+(`[^`]+`|[a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(([^)]*)\\)\\s*values\\s*\\(([^)]*)\\)",
-    )
-  let assert Ok(equality_re) =
-    regexp.from_string(
-      "(`[^`]+`|[a-zA-Z_][a-zA-Z0-9_.]*)\\s*(?:<=|>=|!=|<>|=|<|>|\\blike\\b|\\bilike\\b)\\s*(\\$[0-9]+|\\?|:[A-Za-z_][A-Za-z0-9_]*|@[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*)",
-    )
-  let assert Ok(postgresql_placeholder_re) = regexp.from_string("(\\$[0-9]+)")
-  let assert Ok(mysql_placeholder_re) = regexp.from_string("(\\?)")
-  let assert Ok(sqlite_placeholder_re) =
-    regexp.from_string(
-      "(\\?[0-9]+|\\?|:[A-Za-z_][A-Za-z0-9_]*|@[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*)",
-    )
-  let assert Ok(whitespace_re) = regexp.from_string("\\s+")
-  let assert Ok(returning_re) =
-    regexp.from_string("returning\\s+(.+?)\\s*;?\\s*$")
-  let assert Ok(type_cast_re) =
-    regexp.from_string("(\\$[0-9]+)::[a-zA-Z_][a-zA-Z0-9_]*")
-  let assert Ok(in_clause_re) =
-    regexp.from_string(
-      "(`[^`]+`|[a-zA-Z_][a-zA-Z0-9_.]*)\\s+in\\s*\\(\\s*(\\$[0-9]+|\\?[0-9]*|:[A-Za-z_][A-Za-z0-9_]*|@[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*)\\s*\\)",
-    )
-
-  AnalyzerContext(
-    naming: naming_ctx,
-    insert_re:,
-    equality_re:,
-    postgresql_placeholder_re:,
-    mysql_placeholder_re:,
-    sqlite_placeholder_re:,
-    whitespace_re:,
-    returning_re:,
-    type_cast_re:,
-    in_clause_re:,
-  )
-}
-
-pub fn normalize_sql(ctx: AnalyzerContext, sql: String) -> String {
-  let lowered = string.lowercase(sql)
-  regexp.replace(ctx.whitespace_re, lowered, " ")
-  |> string.trim
+  AnalyzerContext(naming: naming_ctx)
 }
 
 pub fn find_column(
