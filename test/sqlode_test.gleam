@@ -639,6 +639,20 @@ pub fn compound_query_except_mismatch_test() {
   query_analyzer_test.compound_query_except_mismatch_test()
 }
 
+// --- skip annotation tests ---
+
+pub fn skip_annotation_skips_query_test() {
+  query_parser_test.skip_annotation_skips_query_test()
+}
+
+pub fn skip_annotation_all_queries_skipped_test() {
+  query_parser_test.skip_annotation_all_queries_skipped_test()
+}
+
+pub fn skip_annotation_middle_query_test() {
+  query_parser_test.skip_annotation_middle_query_test()
+}
+
 // --- CLI tests ---
 
 pub fn init_creates_config_file_test() {
