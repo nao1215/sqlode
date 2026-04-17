@@ -101,7 +101,36 @@ case_sqlite_advanced() {
     test_module_name="sqlite_advanced_test_test.gleam"
 }
 
-# Every case must be listed here to be picked up by run.sh.
+# Requires a running PostgreSQL server reachable through $DATABASE_URL.
+# Not included in ALL_INTEGRATION_CASES because most local runs do not
+# have Postgres available; invoke explicitly:
+#
+#   DATABASE_URL=postgresql://postgres:postgres@localhost:5432/sqlode_test \
+#     sh integration_test/run.sh case_postgresql_real
+#
+# In CI, `.github/workflows/ci.yml` provisions a postgres service
+# container and runs this case with DATABASE_URL pointing at it. The
+# gleeunit test module itself checks DATABASE_URL at startup and
+# prints a skip message if it is missing, so the case still exits 0
+# when executed without Postgres available (e.g. in a local "all
+# integration cases" run that accidentally picks it up).
+case_postgresql_real() {
+  run_integration_case \
+    label="PostgreSQL real database" \
+    project_name="postgresql_real_test" \
+    engine="postgresql" \
+    runtime="native" \
+    schema="$PROJECT_ROOT/test/fixtures/postgresql_schema.sql" \
+    queries="$PROJECT_ROOT/test/fixtures/postgresql_crud_query.sql" \
+    dev_deps="gleeunit+envoy" \
+    expected_files="params.gleam queries.gleam models.gleam pog_adapter.gleam" \
+    test_module_src="$PROJECT_ROOT/integration_test/fixtures/postgresql_real_test.gleam" \
+    test_module_name="postgresql_real_test_test.gleam"
+}
+
+# Every case listed here runs by default in `run.sh` without arguments.
+# `case_postgresql_real` is intentionally excluded because it needs a
+# live Postgres; pass it explicitly to `run.sh` when DATABASE_URL is set.
 ALL_INTEGRATION_CASES="
   case_compile_raw
   case_compile_complex

@@ -10,6 +10,22 @@ jobs:
   all:
     name: All checks
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: sqlode_integration
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v6
 
@@ -45,3 +61,8 @@ jobs:
 
       - name: ShellSpec tests
         run: shellspec
+
+      - name: PostgreSQL integration test
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/sqlode_integration
+        run: sh integration_test/run.sh case_postgresql_real

@@ -79,6 +79,9 @@ _integration_dev_deps_block() {
     gleeunit)
       printf '\n[dev-dependencies]\ngleeunit = ">= 1.0.0 and < 2.0.0"\n'
       ;;
+    gleeunit+envoy)
+      printf '\n[dev-dependencies]\ngleeunit = ">= 1.0.0 and < 2.0.0"\nenvoy = ">= 1.0.0 and < 2.0.0"\n'
+      ;;
     *)
       # Passed through verbatim as an entry list separated by newlines.
       printf '\n[dev-dependencies]\n%s\n' "$1"

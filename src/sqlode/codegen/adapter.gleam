@@ -739,8 +739,14 @@ fn render_pog_exec_last_id(
       |> list.filter(fn(l) { l != "" })
   }
 
+  // pog rows decode as positional arrays by default. Using `decode.int`
+  // at the row level tries to interpret the whole row as an integer and
+  // fails with UnexpectedResultType; decode the first column instead.
   let result_lines = [
-    "  |> pog.returning(decode.int)",
+    "  |> pog.returning({",
+    "    use id <- decode.field(0, decode.int)",
+    "    decode.success(id)",
+    "  })",
     "  |> pog.execute(db)",
     ..render_first_or_default("returned", "returned.rows", "0")
   ]
