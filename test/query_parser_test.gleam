@@ -86,7 +86,7 @@ pub fn expand_sqlc_arg_macro_test() {
   query.macros
   |> should.equal([model.MacroArg(index: 1, name: "author_name")])
   string.contains(query.sql, "sqlode.arg") |> should.be_false()
-  string.contains(query.sql, "$1") |> should.be_true()
+  string.contains(query.sql, "__sqlode_param_1__") |> should.be_true()
 }
 
 pub fn expand_sqlc_narg_macro_test() {
@@ -120,7 +120,7 @@ pub fn expand_sqlc_arg_mysql_test() {
   let assert [query] = queries
 
   query.param_count |> should.equal(1)
-  string.contains(query.sql, "?") |> should.be_true()
+  string.contains(query.sql, "__sqlode_param_1__") |> should.be_true()
 }
 
 // Quoted macro name tests
@@ -139,7 +139,7 @@ pub fn expand_sqlc_arg_single_quoted_test() {
   query.macros
   |> should.equal([model.MacroArg(index: 1, name: "author_name")])
   string.contains(query.sql, "sqlode.arg") |> should.be_false()
-  string.contains(query.sql, "$1") |> should.be_true()
+  string.contains(query.sql, "__sqlode_param_1__") |> should.be_true()
 }
 
 pub fn expand_sqlc_arg_double_quoted_test() {
@@ -205,7 +205,7 @@ pub fn expand_at_name_postgresql_test() {
   query.macros
   |> should.equal([model.MacroArg(index: 1, name: "author_name")])
   string.contains(query.sql, "@author_name") |> should.be_false()
-  string.contains(query.sql, "$1") |> should.be_true()
+  string.contains(query.sql, "__sqlode_param_1__") |> should.be_true()
 }
 
 pub fn expand_at_name_sqlite_test() {
@@ -222,7 +222,7 @@ pub fn expand_at_name_sqlite_test() {
   query.macros
   |> should.equal([model.MacroArg(index: 1, name: "author_name")])
   string.contains(query.sql, "@author_name") |> should.be_false()
-  string.contains(query.sql, "?1") |> should.be_true()
+  string.contains(query.sql, "__sqlode_param_1__") |> should.be_true()
 }
 
 pub fn expand_multiple_at_names_test() {
@@ -241,8 +241,8 @@ pub fn expand_multiple_at_names_test() {
     model.MacroArg(index: 1, name: "new_bio"),
     model.MacroArg(index: 2, name: "author_id"),
   ])
-  string.contains(query.sql, "$1") |> should.be_true()
-  string.contains(query.sql, "$2") |> should.be_true()
+  string.contains(query.sql, "__sqlode_param_1__") |> should.be_true()
+  string.contains(query.sql, "__sqlode_param_2__") |> should.be_true()
 }
 
 pub fn expand_at_name_mixed_with_sqlc_arg_test() {

@@ -317,6 +317,12 @@ fn is_skip_annotation(line: String) -> Bool {
 }
 
 /// Count parameters from an already-expanded token list.
+///
+/// After macro/`@name` expansion every parameter is represented by a
+/// `__sqlode_param_<idx>__` or `__sqlode_slice_<idx>__` marker, so the
+/// parameter count is the highest index that appears. Raw engine
+/// placeholders (`$1`, `?1`, bare `?`) written directly by the user are
+/// also counted for back-compat with handwritten SQL.
 fn count_parameters_from_tokens(
   engine: model.Engine,
   tokens: List(lexer.Token),
@@ -330,9 +336,24 @@ fn count_parameters_from_tokens(
       }
     })
 
-  case engine {
+  let #(markers, raw) =
+    list.partition(placeholders, fn(p) { is_marker_placeholder(p) })
+
+  // Marker placeholders count as distinct indices. The same marker may
+  // appear multiple times (e.g. SQLite's `@name` reused in two positions)
+  // but contributes one parameter slot per distinct index.
+  let marker_count =
+    markers
+    |> list.filter_map(extract_marker_index)
+    |> list.unique
+    |> list.length
+
+  // Raw engine placeholders written directly by the user keep the same
+  // engine-specific counting the parser has always used (max index for
+  // PostgreSQL, positional for MySQL, distinct-name-plus-bare-? for SQLite).
+  let raw_count = case engine {
     model.PostgreSQL ->
-      placeholders
+      raw
       |> list.filter_map(fn(p) { string.replace(p, "$", "") |> int.parse })
       |> list.fold(0, fn(max_idx, v) {
         case v > max_idx {
@@ -340,12 +361,35 @@ fn count_parameters_from_tokens(
           False -> max_idx
         }
       })
-    model.MySQL -> list.length(placeholders)
+    model.MySQL -> list.length(raw)
     model.SQLite -> {
-      let #(anon, named) = list.partition(placeholders, fn(p) { p == "?" })
+      let #(anon, named) = list.partition(raw, fn(p) { p == "?" })
       list.length(anon) + list.length(list.unique(named))
     }
   }
+
+  marker_count + raw_count
+}
+
+fn is_marker_placeholder(p: String) -> Bool {
+  string.starts_with(p, "__sqlode_param_")
+  || string.starts_with(p, "__sqlode_slice_")
+}
+
+fn extract_marker_index(p: String) -> Result(Int, Nil) {
+  let body = case string.starts_with(p, "__sqlode_param_") {
+    True -> string.drop_start(p, 15)
+    False ->
+      case string.starts_with(p, "__sqlode_slice_") {
+        True -> string.drop_start(p, 15)
+        False -> p
+      }
+  }
+  let without_suffix = case string.ends_with(body, "__") {
+    True -> string.drop_end(body, 2)
+    False -> body
+  }
+  int.parse(without_suffix)
 }
 
 pub fn error_to_string(error: ParseError) -> String {
@@ -477,7 +521,10 @@ fn expand_macro_loop(
       // Collect tokens inside parens to extract the argument name
       let #(arg_tokens, remaining) = collect_macro_arg_tokens(rest, 1, [])
       let name = extract_arg_name(arg_tokens)
-      let placeholder = engine_placeholder(engine, idx)
+      let placeholder = case kind {
+        "slice" -> engine_slice_placeholder(engine, idx)
+        _ -> engine_placeholder(engine, idx)
+      }
       let macro_entry = case kind {
         "narg" -> model.MacroNarg(index: idx, name:)
         "slice" -> model.MacroSlice(index: idx, name:)
@@ -543,10 +590,15 @@ fn extract_arg_name(tokens: List(lexer.Token)) -> String {
   }
 }
 
-fn engine_placeholder(engine: model.Engine, index: Int) -> String {
-  case engine {
-    model.PostgreSQL -> "$" <> int.to_string(index)
-    model.MySQL -> "?"
-    model.SQLite -> "?" <> int.to_string(index)
-  }
+fn engine_placeholder(_engine: model.Engine, index: Int) -> String {
+  // Emit an engine-agnostic marker for every parameter position. The
+  // runtime walks these markers and substitutes the engine-specific
+  // placeholder (e.g. `$3`, `?3`, `?`) at prepare-time, which fixes
+  // both MySQL's bare-`?` expansion and placeholder-like text inside
+  // string literals or comments being rewritten by string.replace.
+  runtime.param_marker(index)
+}
+
+fn engine_slice_placeholder(_engine: model.Engine, index: Int) -> String {
+  runtime.slice_marker(index)
 }

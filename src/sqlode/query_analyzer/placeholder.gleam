@@ -45,22 +45,47 @@ pub fn placeholder_index_for_token(
   token: String,
   occurrence: Int,
 ) -> Option(Int) {
-  case engine {
-    model.PostgreSQL ->
-      token
-      |> string.replace("$", "")
-      |> int.parse
-      |> option.from_result
-    model.MySQL -> Some(occurrence)
-    model.SQLite ->
-      case string.starts_with(token, "?") && token != "?" {
-        True ->
+  case marker_index(token) {
+    Some(_) as matched -> matched
+    None ->
+      case engine {
+        model.PostgreSQL ->
           token
-          |> string.replace("?", "")
+          |> string.replace("$", "")
           |> int.parse
           |> option.from_result
-        False -> Some(occurrence)
+        model.MySQL -> Some(occurrence)
+        model.SQLite ->
+          case string.starts_with(token, "?") && token != "?" {
+            True ->
+              token
+              |> string.replace("?", "")
+              |> int.parse
+              |> option.from_result
+            False -> Some(occurrence)
+          }
       }
+  }
+}
+
+fn marker_index(token: String) -> Option(Int) {
+  let rest = case string.starts_with(token, "__sqlode_param_") {
+    True -> Some(string.drop_start(token, 15))
+    False ->
+      case string.starts_with(token, "__sqlode_slice_") {
+        True -> Some(string.drop_start(token, 15))
+        False -> None
+      }
+  }
+  case rest {
+    None -> None
+    Some(body) -> {
+      let core = case string.ends_with(body, "__") {
+        True -> string.drop_end(body, 2)
+        False -> body
+      }
+      int.parse(core) |> option.from_result
+    }
   }
 }
 

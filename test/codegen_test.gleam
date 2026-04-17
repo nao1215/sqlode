@@ -155,7 +155,9 @@ pub fn render_pog_adapter_test() {
   string.contains(rendered, "import db/queries") |> should.be_true()
   string.contains(rendered, "pub fn get_author(db: pog.Connection")
   |> should.be_true()
-  string.contains(rendered, "pog.query(q.sql)") |> should.be_true()
+  string.contains(rendered, "runtime.expand_slice_placeholders(")
+  |> should.be_true()
+  string.contains(rendered, "pog.query(sql)") |> should.be_true()
   string.contains(rendered, "pog.parameter(pog.int(p.id))")
   |> should.be_true()
   string.contains(rendered, "decode.success(models.GetAuthorRow(")
@@ -288,15 +290,20 @@ pub fn render_sqlight_adapter_slice_test() {
 }
 
 pub fn expand_slice_placeholders_single_test() {
-  let sql = "SELECT id, name FROM authors WHERE id IN ($1)"
-  let result = runtime.expand_slice_placeholders(sql, [#(1, 3)], 1, "$")
+  let sql = "SELECT id, name FROM authors WHERE id IN (__sqlode_slice_1__)"
+  let result =
+    runtime.expand_slice_placeholders(sql, [#(1, 3)], 1, runtime.DollarNumbered)
   result
   |> should.equal("SELECT id, name FROM authors WHERE id IN ($1, $2, $3)")
 }
 
 pub fn expand_slice_placeholders_with_renumbering_test() {
-  let sql = "SELECT * FROM users WHERE name = $1 AND id IN ($2) AND status = $3"
-  let result = runtime.expand_slice_placeholders(sql, [#(2, 3)], 3, "$")
+  let sql =
+    "SELECT * FROM users WHERE name = __sqlode_param_1__"
+    <> " AND id IN (__sqlode_slice_2__)"
+    <> " AND status = __sqlode_param_3__"
+  let result =
+    runtime.expand_slice_placeholders(sql, [#(2, 3)], 3, runtime.DollarNumbered)
   result
   |> should.equal(
     "SELECT * FROM users WHERE name = $1 AND id IN ($2, $3, $4) AND status = $5",
@@ -304,27 +311,39 @@ pub fn expand_slice_placeholders_with_renumbering_test() {
 }
 
 pub fn expand_slice_placeholders_sqlite_test() {
-  let sql = "SELECT id, name FROM authors WHERE id IN (?1)"
-  let result = runtime.expand_slice_placeholders(sql, [#(1, 2)], 1, "?")
+  let sql = "SELECT id, name FROM authors WHERE id IN (__sqlode_slice_1__)"
+  let result =
+    runtime.expand_slice_placeholders(
+      sql,
+      [#(1, 2)],
+      1,
+      runtime.QuestionNumbered,
+    )
   result
   |> should.equal("SELECT id, name FROM authors WHERE id IN (?1, ?2)")
 }
 
 pub fn expand_slice_placeholders_no_slices_test() {
-  let sql = "SELECT * FROM users WHERE id = $1"
-  let result = runtime.expand_slice_placeholders(sql, [], 1, "$")
+  let sql = "SELECT * FROM users WHERE id = __sqlode_param_1__"
+  let result =
+    runtime.expand_slice_placeholders(sql, [], 1, runtime.DollarNumbered)
   result |> should.equal("SELECT * FROM users WHERE id = $1")
 }
 
 pub fn expand_slice_placeholders_empty_slice_test() {
-  let sql = "SELECT * FROM users WHERE id IN ($1)"
-  let result = runtime.expand_slice_placeholders(sql, [#(1, 0)], 1, "$")
+  let sql = "SELECT * FROM users WHERE id IN (__sqlode_slice_1__)"
+  let result =
+    runtime.expand_slice_placeholders(sql, [#(1, 0)], 1, runtime.DollarNumbered)
   result |> should.equal("SELECT * FROM users WHERE id IN (NULL)")
 }
 
 pub fn expand_slice_placeholders_empty_slice_with_other_params_test() {
-  let sql = "SELECT * FROM users WHERE name = $1 AND id IN ($2) AND status = $3"
-  let result = runtime.expand_slice_placeholders(sql, [#(2, 0)], 3, "$")
+  let sql =
+    "SELECT * FROM users WHERE name = __sqlode_param_1__"
+    <> " AND id IN (__sqlode_slice_2__)"
+    <> " AND status = __sqlode_param_3__"
+  let result =
+    runtime.expand_slice_placeholders(sql, [#(2, 0)], 3, runtime.DollarNumbered)
   result
   |> should.equal(
     "SELECT * FROM users WHERE name = $1 AND id IN (NULL) AND status = $2",
@@ -332,8 +351,14 @@ pub fn expand_slice_placeholders_empty_slice_with_other_params_test() {
 }
 
 pub fn expand_slice_placeholders_empty_slice_sqlite_test() {
-  let sql = "SELECT * FROM users WHERE id IN (?1)"
-  let result = runtime.expand_slice_placeholders(sql, [#(1, 0)], 1, "?")
+  let sql = "SELECT * FROM users WHERE id IN (__sqlode_slice_1__)"
+  let result =
+    runtime.expand_slice_placeholders(
+      sql,
+      [#(1, 0)],
+      1,
+      runtime.QuestionNumbered,
+    )
   result |> should.equal("SELECT * FROM users WHERE id IN (NULL)")
 }
 
