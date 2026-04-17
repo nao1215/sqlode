@@ -122,10 +122,9 @@ pub fn all_types_result_columns_star_test() {
 
   // :one with SELECT * should return all columns
   list.length(get_all.result_columns) |> should.equal(23)
-  let assert [id_col, ..] = get_all.result_columns
+  let assert [model.ScalarResult(id_col), ..] = get_all.result_columns
   id_col.name |> should.equal("id")
-  let assert model.ResultColumn(scalar_type: id_col_type, ..) = id_col
-  id_col_type |> should.equal(model.IntType)
+  id_col.scalar_type |> should.equal(model.IntType)
 
   // :many with SELECT * should also return all columns
   list.length(list_all.result_columns) |> should.equal(23)
@@ -227,15 +226,16 @@ pub fn complex_query_basic_crud_test() {
     list.find(analyzed, fn(q) { q.base.name == "GetPost" })
   get_post.base.command |> should.equal(runtime.QueryOne)
   list.length(get_post.result_columns) |> should.equal(4)
-  let assert [id, title, body, published] = get_post.result_columns
-  let assert model.ResultColumn(scalar_type: id_type, ..) = id
-  id_type |> should.equal(model.IntType)
-  let assert model.ResultColumn(scalar_type: title_type, ..) = title
-  title_type |> should.equal(model.StringType)
-  let assert model.ResultColumn(scalar_type: body_type, ..) = body
-  body_type |> should.equal(model.StringType)
-  let assert model.ResultColumn(scalar_type: published_type, ..) = published
-  published_type |> should.equal(model.BoolType)
+  let assert [
+    model.ScalarResult(id),
+    model.ScalarResult(title),
+    model.ScalarResult(body),
+    model.ScalarResult(published),
+  ] = get_post.result_columns
+  id.scalar_type |> should.equal(model.IntType)
+  title.scalar_type |> should.equal(model.StringType)
+  body.scalar_type |> should.equal(model.StringType)
+  published.scalar_type |> should.equal(model.BoolType)
 
   // CreatePost :exec - no result columns
   let assert Ok(create_post) =
@@ -272,13 +272,12 @@ pub fn complex_query_single_join_test() {
     list.find(analyzed, fn(q) { q.base.name == "GetPostWithAuthor" })
   list.length(post_with_author.result_columns) |> should.equal(2)
 
-  let assert [title, username] = post_with_author.result_columns
+  let assert [model.ScalarResult(title), model.ScalarResult(username)] =
+    post_with_author.result_columns
   title.name |> should.equal("title")
-  let assert model.ResultColumn(scalar_type: title_type, ..) = title
-  title_type |> should.equal(model.StringType)
+  title.scalar_type |> should.equal(model.StringType)
   username.name |> should.equal("username")
-  let assert model.ResultColumn(scalar_type: username_type, ..) = username
-  username_type |> should.equal(model.StringType)
+  username.scalar_type |> should.equal(model.StringType)
 }
 
 pub fn complex_query_multi_join_test() {
@@ -302,7 +301,11 @@ pub fn complex_query_multi_join_test() {
     list.find(analyzed, fn(q) { q.base.name == "GetPostWithAuthorAndCategory" })
   list.length(post_full.result_columns) |> should.equal(3)
 
-  let assert [title, username, cat_name] = post_full.result_columns
+  let assert [
+    model.ScalarResult(title),
+    model.ScalarResult(username),
+    model.ScalarResult(cat_name),
+  ] = post_full.result_columns
   title.name |> should.equal("title")
   username.name |> should.equal("username")
   cat_name.name |> should.equal("name")
@@ -330,10 +333,10 @@ pub fn complex_query_returning_clause_test() {
     list.find(analyzed, fn(q) { q.base.name == "CreatePostReturning" })
   create_returning.base.command |> should.equal(runtime.QueryOne)
   list.length(create_returning.result_columns) |> should.equal(2)
-  let assert [id, title] = create_returning.result_columns
+  let assert [model.ScalarResult(id), model.ScalarResult(title)] =
+    create_returning.result_columns
   id.name |> should.equal("id")
-  let assert model.ResultColumn(scalar_type: id_type, ..) = id
-  id_type |> should.equal(model.IntType)
+  id.scalar_type |> should.equal(model.IntType)
   title.name |> should.equal("title")
 
   // DELETE ... RETURNING
@@ -347,10 +350,10 @@ pub fn complex_query_returning_clause_test() {
     list.find(analyzed, fn(q) { q.base.name == "UpdatePostReturning" })
   update_returning.base.command |> should.equal(runtime.QueryOne)
   list.length(update_returning.result_columns) |> should.equal(3)
-  let assert [_, _, published] = update_returning.result_columns
+  let assert [_, _, model.ScalarResult(published)] =
+    update_returning.result_columns
   published.name |> should.equal("published")
-  let assert model.ResultColumn(scalar_type: published_type, ..) = published
-  published_type |> should.equal(model.BoolType)
+  published.scalar_type |> should.equal(model.BoolType)
 }
 
 pub fn complex_query_update_params_test() {

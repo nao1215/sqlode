@@ -1,0 +1,34 @@
+name: Integration
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Run release-path integration tests on main so tag-time failures surface
+# immediately on merge, not at release time. PRs are intentionally excluded
+# to preserve the Actions usage budget; the lightweight unit test suite in
+# ci.yml still runs on every PR.
+
+jobs:
+  integration:
+    name: Release-path integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          gleam-version: "1.15"
+
+      - name: Install rebar3
+        run: |
+          wget -q https://s3.amazonaws.com/rebar3/rebar3 -O /usr/local/bin/rebar3
+          chmod +x /usr/local/bin/rebar3
+
+      - name: Download dependencies
+        run: gleam deps download
+
+      - name: Run integration tests
+        run: bash integration_test/run.sh

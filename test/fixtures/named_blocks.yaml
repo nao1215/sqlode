@@ -1,0 +1,18 @@
+version: "2"
+sql:
+  - name: "api"
+    schema: "schema.sql"
+    queries: "query.sql"
+    engine: "postgresql"
+    gen:
+      gleam:
+        out: "../../test_output/api"
+        runtime: "raw"
+  - name: "worker"
+    schema: "schema.sql"
+    queries: "query.sql"
+    engine: "sqlite"
+    gen:
+      gleam:
+        out: "../../test_output/worker"
+        runtime: "raw"

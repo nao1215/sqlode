@@ -33,7 +33,10 @@ pub fn queries_have_enums(queries: List(model.AnalyzedQuery)) -> Bool {
     })
     || list.any(query.result_columns, fn(col) {
       case col {
-        model.ResultColumn(scalar_type: model.EnumType(_), ..) -> True
+        model.ScalarResult(model.ResultColumn(
+          scalar_type: model.EnumType(_),
+          ..,
+        )) -> True
         _ -> False
       }
     })
@@ -61,8 +64,9 @@ pub fn result_scalar_types(
   list.flat_map(queries, fn(query) {
     list.filter_map(query.result_columns, fn(col) {
       case col {
-        model.ResultColumn(scalar_type:, ..) -> Ok(scalar_type)
-        model.EmbeddedColumn(columns:, ..) ->
+        model.ScalarResult(model.ResultColumn(scalar_type:, ..)) ->
+          Ok(scalar_type)
+        model.EmbeddedResult(model.EmbeddedColumn(columns:, ..)) ->
           case
             list.find_map(columns, fn(c) {
               case c.scalar_type {
@@ -115,4 +119,37 @@ pub fn out_to_module_path(out: String) -> String {
       |> list.last
       |> result.unwrap(out)
   }
+}
+
+/// Render a single-constructor Gleam type declaration.
+///
+/// gleam_type("UserId", "Int") →
+///   "pub type UserId {
+///      UserId(Int)
+///    }"
+pub fn gleam_type(name: String, body: String) -> String {
+  "pub type " <> name <> " {\n  " <> name <> "(" <> body <> ")\n}"
+}
+
+/// Render a Gleam function declaration as a single string.
+///
+/// gleam_fn("double", "x: Int", "Int", "x * 2") →
+///   "pub fn double(x: Int) -> Int {
+///      x * 2
+///    }"
+pub fn gleam_fn(
+  name: String,
+  params: String,
+  return_type: String,
+  body: String,
+) -> String {
+  "pub fn "
+  <> name
+  <> "("
+  <> params
+  <> ") -> "
+  <> return_type
+  <> " {\n  "
+  <> body
+  <> "\n}"
 }

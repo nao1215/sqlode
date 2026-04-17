@@ -299,13 +299,21 @@ pub type ResultColumn {
     nullable: Bool,
     source_table: Option(String),
   )
+}
+
+pub type EmbeddedColumn {
   EmbeddedColumn(name: String, table_name: String, columns: List(Column))
+}
+
+pub type ResultItem {
+  ScalarResult(ResultColumn)
+  EmbeddedResult(EmbeddedColumn)
 }
 
 pub type AnalyzedQuery {
   AnalyzedQuery(
     base: ParsedQuery,
     params: List(QueryParam),
-    result_columns: List(ResultColumn),
+    result_columns: List(ResultItem),
   )
 }

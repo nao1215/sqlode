@@ -245,11 +245,34 @@ pub fn view_nonexistent_table_test() {
 
 pub fn error_to_string_invalid_column_test() {
   schema_parser.error_to_string(schema_parser.InvalidColumn(
+    path: "schema.sql",
     table: "users",
     detail: "missing type",
   ))
   |> string.contains("users")
   |> should.be_true()
+}
+
+pub fn error_to_string_includes_path_test() {
+  schema_parser.error_to_string(schema_parser.InvalidColumn(
+    path: "db/schema.sql",
+    table: "users",
+    detail: "missing type",
+  ))
+  |> string.contains("db/schema.sql")
+  |> should.be_true()
+}
+
+pub fn parse_error_carries_source_path_test() {
+  // Truncated CREATE TABLE surfaces with the originating file path so
+  // users with multiple schema files can locate the issue.
+  let assert Error(err) =
+    schema_parser.parse_files([#("db/main.sql", "CREATE TABLE")])
+  case err {
+    schema_parser.InvalidCreateTable(path:, ..) ->
+      path |> should.equal("db/main.sql")
+    _ -> should.fail()
+  }
 }
 
 pub fn unrecognized_sql_type_returns_error_test() {
@@ -471,4 +494,40 @@ pub fn view_star_with_join_test() {
   let assert Ok(view) = list.find(catalog.tables, fn(tbl) { tbl.name == "v" })
   let col_names = list.map(view.columns, fn(c) { c.name })
   col_names |> should.equal(["a", "b", "c", "d"])
+}
+
+// --- Malformed DDL robustness ---
+
+pub fn schema_empty_input_produces_empty_catalog_test() {
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("empty.sql", "")])
+  catalog.tables |> should.equal([])
+  catalog.enums |> should.equal([])
+}
+
+pub fn schema_truncated_create_table_test() {
+  let assert Error(_) =
+    schema_parser.parse_files([#("trunc.sql", "CREATE TABLE")])
+}
+
+pub fn schema_only_keyword_create_does_not_panic_test() {
+  // "CREATE" alone is not a recognized DDL statement; the parser should
+  // silently produce an empty catalog rather than panic.
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("create.sql", "CREATE")])
+  catalog.tables |> should.equal([])
+}
+
+pub fn schema_duplicate_table_across_files_test() {
+  // Current behavior: both definitions are kept, last one wins during
+  // column lookup (list.find takes first match but append order makes the
+  // earlier file's table be found first). Whatever the exact semantics,
+  // the parser should not panic and the catalog should contain entries.
+  let file1 = "CREATE TABLE shared (id BIGSERIAL PRIMARY KEY);"
+  let file2 =
+    "CREATE TABLE shared (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);"
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("one.sql", file1), #("two.sql", file2)])
+  // Both definitions currently coexist — this test pins the behavior so
+  // future changes (dedup, error, or merge) surface as a test failure.
+  list.length(catalog.tables) |> should.equal(2)
 }

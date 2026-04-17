@@ -1,4 +1,5 @@
 import gleam/list
+import gleam/option
 import gleam/string
 import gleeunit
 import gleeunit/should
@@ -168,4 +169,23 @@ pub fn error_to_string_missing_field_test() {
   config.error_to_string(config.MissingField(field: "engine"))
   |> string.contains("engine")
   |> should.be_true()
+}
+
+// Named SQL blocks
+
+pub fn load_named_sql_blocks_test() {
+  let assert Ok(cfg) = config.load("test/fixtures/named_blocks.yaml")
+  list.length(cfg.sql) |> should.equal(2)
+
+  let assert [api_block, worker_block] = cfg.sql
+  api_block.name |> should.equal(option.Some("api"))
+  api_block.engine |> should.equal(model.PostgreSQL)
+  worker_block.name |> should.equal(option.Some("worker"))
+  worker_block.engine |> should.equal(model.SQLite)
+}
+
+pub fn default_block_name_is_none_test() {
+  let assert Ok(cfg) = config.load("test/fixtures/sqlode.yaml")
+  let assert [block] = cfg.sql
+  block.name |> should.equal(option.None)
 }

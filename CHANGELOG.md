@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Initial sqlc-style code generator for Gleam
 - PostgreSQL, MySQL, and SQLite engine support
 - Query annotations: `:one`, `:many`, `:exec`, `:execresult`, `:execrows`, `:execlastid`, `:batchone`, `:batchmany`, `:batchexec`, `:copyfrom`
-- sqlc macros: `sqlc.arg`, `sqlc.narg`, `sqlc.slice`, `sqlc.embed`
+- sqlode macros: `sqlode.arg`, `sqlode.narg`, `sqlode.slice`, `sqlode.embed`
 - Type mapping for INT, FLOAT, BOOL, TEXT, BYTEA, UUID, JSON, TIMESTAMP, DATE, TIME
 - PostgreSQL ENUM type support
 - Nullable column detection with `Option(T)` wrapping

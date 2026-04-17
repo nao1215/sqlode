@@ -387,6 +387,22 @@ pub fn execresult_allowed_on_raw_runtime_test() {
   generate_test.execresult_allowed_on_raw_runtime_test()
 }
 
+pub fn emit_sql_as_comment_includes_sql_in_output_test() {
+  generate_test.emit_sql_as_comment_includes_sql_in_output_test()
+}
+
+pub fn omits_sql_comment_by_default_test() {
+  generate_test.omits_sql_comment_by_default_test()
+}
+
+pub fn emit_exact_table_names_skips_singularization_test() {
+  generate_test.emit_exact_table_names_skips_singularization_test()
+}
+
+pub fn singularizes_table_names_by_default_test() {
+  generate_test.singularizes_table_names_by_default_test()
+}
+
 pub fn render_enum_from_string_returns_result_test() {
   codegen_test.render_enum_from_string_returns_result_test()
 }
@@ -563,6 +579,66 @@ pub fn singularize_compound_table_names_test() {
   naming_test.singularize_compound_table_names_test()
 }
 
+pub fn pascal_case_empty_string_test() {
+  naming_test.pascal_case_empty_string_test()
+}
+
+pub fn snake_case_empty_string_test() {
+  naming_test.snake_case_empty_string_test()
+}
+
+pub fn pascal_case_only_underscores_test() {
+  naming_test.pascal_case_only_underscores_test()
+}
+
+pub fn snake_case_only_underscores_test() {
+  naming_test.snake_case_only_underscores_test()
+}
+
+pub fn pascal_case_only_numbers_test() {
+  naming_test.pascal_case_only_numbers_test()
+}
+
+pub fn snake_case_only_numbers_test() {
+  naming_test.snake_case_only_numbers_test()
+}
+
+pub fn pascal_case_single_lower_char_test() {
+  naming_test.pascal_case_single_lower_char_test()
+}
+
+pub fn pascal_case_single_upper_char_test() {
+  naming_test.pascal_case_single_upper_char_test()
+}
+
+pub fn snake_case_single_upper_char_test() {
+  naming_test.snake_case_single_upper_char_test()
+}
+
+pub fn normalize_identifier_empty_test() {
+  naming_test.normalize_identifier_empty_test()
+}
+
+pub fn normalize_identifier_whitespace_only_test() {
+  naming_test.normalize_identifier_whitespace_only_test()
+}
+
+pub fn singularize_empty_test() {
+  naming_test.singularize_empty_test()
+}
+
+pub fn singularize_single_char_test() {
+  naming_test.singularize_single_char_test()
+}
+
+pub fn normalize_identifier_unicode_test() {
+  naming_test.normalize_identifier_unicode_test()
+}
+
+pub fn singularize_unicode_preserves_input_test() {
+  naming_test.singularize_unicode_preserves_input_test()
+}
+
 pub fn sqlite_repeated_colon_placeholder_dedup_test() {
   query_parser_test.sqlite_repeated_colon_placeholder_dedup_test()
 }
@@ -613,6 +689,90 @@ pub fn tagged_dollar_quoted_string_postgresql_test() {
 
 pub fn nested_dollar_quoted_tags_postgresql_test() {
   lexer_test.nested_dollar_quoted_tags_postgresql_test()
+}
+
+pub fn lexer_empty_input_test() {
+  lexer_test.empty_input_test()
+}
+
+pub fn lexer_whitespace_only_input_test() {
+  lexer_test.whitespace_only_input_test()
+}
+
+pub fn lexer_unterminated_string_literal_does_not_panic_test() {
+  lexer_test.unterminated_string_literal_does_not_panic_test()
+}
+
+pub fn lexer_unterminated_block_comment_does_not_panic_test() {
+  lexer_test.unterminated_block_comment_does_not_panic_test()
+}
+
+pub fn lexer_unterminated_dollar_quoted_string_does_not_panic_test() {
+  lexer_test.unterminated_dollar_quoted_string_does_not_panic_test()
+}
+
+pub fn lexer_only_operators_input_does_not_panic_test() {
+  lexer_test.only_operators_input_does_not_panic_test()
+}
+
+pub fn schema_empty_input_produces_empty_catalog_test() {
+  schema_parser_test.schema_empty_input_produces_empty_catalog_test()
+}
+
+pub fn schema_truncated_create_table_test() {
+  schema_parser_test.schema_truncated_create_table_test()
+}
+
+pub fn schema_only_keyword_create_does_not_panic_test() {
+  schema_parser_test.schema_only_keyword_create_does_not_panic_test()
+}
+
+pub fn schema_duplicate_table_across_files_test() {
+  schema_parser_test.schema_duplicate_table_across_files_test()
+}
+
+pub fn error_to_string_includes_path_test() {
+  schema_parser_test.error_to_string_includes_path_test()
+}
+
+pub fn parse_error_carries_source_path_test() {
+  schema_parser_test.parse_error_carries_source_path_test()
+}
+
+pub fn init_sqlite_engine_generates_sqlite_schema_test() {
+  cli_test.init_sqlite_engine_generates_sqlite_schema_test()
+}
+
+pub fn init_sqlite_native_runtime_test() {
+  cli_test.init_sqlite_native_runtime_test()
+}
+
+pub fn init_mysql_engine_generates_mysql_schema_test() {
+  cli_test.init_mysql_engine_generates_mysql_schema_test()
+}
+
+pub fn load_named_sql_blocks_test() {
+  config_test.load_named_sql_blocks_test()
+}
+
+pub fn default_block_name_is_none_test() {
+  config_test.default_block_name_is_none_test()
+}
+
+pub fn row_number_window_function_infers_int_test() {
+  query_analyzer_test.row_number_window_function_infers_int_test()
+}
+
+pub fn percent_rank_window_function_infers_float_test() {
+  query_analyzer_test.percent_rank_window_function_infers_float_test()
+}
+
+pub fn lag_window_function_infers_first_arg_type_test() {
+  query_analyzer_test.lag_window_function_infers_first_arg_type_test()
+}
+
+pub fn ntile_window_function_infers_int_test() {
+  query_analyzer_test.ntile_window_function_infers_int_test()
 }
 
 pub fn sqlc_arg_in_string_literal_ignored_test() {

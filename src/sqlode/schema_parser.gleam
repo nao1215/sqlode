@@ -8,8 +8,8 @@ import sqlode/naming
 import sqlode/query_analyzer/token_utils
 
 pub type ParseError {
-  InvalidCreateTable(detail: String)
-  InvalidColumn(table: String, detail: String)
+  InvalidCreateTable(path: String, detail: String)
+  InvalidColumn(path: String, table: String, detail: String)
 }
 
 pub type SchemaWarning {
@@ -42,8 +42,8 @@ pub fn parse_files_with_engine(
   |> list.try_fold(
     ParsedSchema(tables: [], enums: [], warnings: []),
     fn(acc, entry) {
-      let #(_path, content) = entry
-      use parsed <- result.try(parse_content(content, acc.enums, engine))
+      let #(path, content) = entry
+      use parsed <- result.try(parse_content(path, content, acc.enums, engine))
       Ok(ParsedSchema(
         tables: list.append(acc.tables, parsed.tables),
         enums: list.append(acc.enums, parsed.enums),
@@ -60,6 +60,7 @@ pub fn parse_files_with_engine(
 }
 
 fn parse_content(
+  path: String,
   content: String,
   known_enums: List(model.EnumDef),
   engine: model.Engine,
@@ -96,6 +97,7 @@ fn parse_content(
           case is_alter_table_add_column_tokens(stmt_tokens) {
             True -> {
               use new_tables <- result.try(apply_alter_table_add_column(
+                path,
                 stmt_tokens,
                 all_enums,
                 tables,
@@ -104,6 +106,7 @@ fn parse_content(
             }
             False -> {
               use maybe_table <- result.try(parse_statement_tokens(
+                path,
                 stmt_tokens,
                 all_enums,
               ))
@@ -540,6 +543,7 @@ fn is_alter_table_add_column_tokens(tokens: List(lexer.Token)) -> Bool {
 
 /// Parse ALTER TABLE <name> ADD [COLUMN] <col_def> and apply to existing tables.
 fn apply_alter_table_add_column(
+  path: String,
   tokens: List(lexer.Token),
   enums: List(model.EnumDef),
   tables: List(model.Table),
@@ -550,6 +554,7 @@ fn apply_alter_table_add_column(
     "" -> Ok(tables)
     _ -> {
       use maybe_col <- result.try(parse_column_tokens(
+        path,
         table_name,
         col_tokens,
         enums,
@@ -602,11 +607,12 @@ fn extract_ident(token: lexer.Token) -> String {
 }
 
 fn parse_statement_tokens(
+  path: String,
   tokens: List(lexer.Token),
   enums: List(model.EnumDef),
 ) -> Result(Option(model.Table), ParseError) {
   case is_create_table_tokens(tokens) {
-    True -> parse_create_table_tokens(tokens, enums)
+    True -> parse_create_table_tokens(path, tokens, enums)
     False -> Ok(None)
   }
 }
@@ -646,6 +652,7 @@ fn find_column_in_tables(
 }
 
 fn parse_create_table_tokens(
+  path: String,
   tokens: List(lexer.Token),
   enums: List(model.EnumDef),
 ) -> Result(Option(model.Table), ParseError) {
@@ -655,13 +662,14 @@ fn parse_create_table_tokens(
   case body {
     [] ->
       Error(InvalidCreateTable(
+        path:,
         detail: "missing opening parenthesis in CREATE TABLE statement",
       ))
     _ -> {
       use table_name <- result.try(
         find_last_ident(header)
         |> result.map_error(fn(_) {
-          InvalidCreateTable(detail: "missing table name")
+          InvalidCreateTable(path:, detail: "missing table name")
         }),
       )
 
@@ -669,6 +677,7 @@ fn parse_create_table_tokens(
       let body_tokens = strip_trailing_rparen(body)
 
       use columns <- result.try(parse_columns_tokens(
+        path,
         table_name,
         body_tokens,
         enums,
@@ -719,6 +728,7 @@ fn drop_trailing_rparens(rev_tokens: List(lexer.Token)) -> List(lexer.Token) {
 }
 
 fn parse_columns_tokens(
+  path: String,
   table_name: String,
   tokens: List(lexer.Token),
   enums: List(model.EnumDef),
@@ -726,6 +736,7 @@ fn parse_columns_tokens(
   split_tokens_by_comma(tokens)
   |> list.try_fold([], fn(columns, col_tokens) {
     use maybe_column <- result.try(parse_column_tokens(
+      path,
       table_name,
       col_tokens,
       enums,
@@ -780,6 +791,7 @@ fn split_tokens_by_comma_loop(
 }
 
 fn parse_column_tokens(
+  path: String,
   table_name: String,
   tokens: List(lexer.Token),
   enums: List(model.EnumDef),
@@ -800,6 +812,7 @@ fn parse_column_tokens(
           case type_toks {
             [] ->
               Error(InvalidColumn(
+                path:,
                 table: table_name,
                 detail: "missing type for column " <> name,
               ))
@@ -819,7 +832,7 @@ fn parse_column_tokens(
                 None ->
                   infer_scalar_type(type_text)
                   |> result.map_error(fn(detail) {
-                    InvalidColumn(table: table_name, detail:)
+                    InvalidColumn(path:, table: table_name, detail:)
                   })
               })
 
@@ -947,9 +960,21 @@ fn find_enum(type_text: String, enums: List(model.EnumDef)) -> Option(String) {
 
 pub fn error_to_string(error: ParseError) -> String {
   case error {
-    InvalidCreateTable(detail:) -> "Invalid CREATE TABLE statement: " <> detail
-    InvalidColumn(table:, detail:) ->
-      "Invalid column definition in table " <> table <> ": " <> detail
+    InvalidCreateTable(path:, detail:) ->
+      path_prefix(path) <> "Invalid CREATE TABLE statement: " <> detail
+    InvalidColumn(path:, table:, detail:) ->
+      path_prefix(path)
+      <> "Invalid column definition in table "
+      <> table
+      <> ": "
+      <> detail
+  }
+}
+
+fn path_prefix(path: String) -> String {
+  case path {
+    "" -> ""
+    _ -> path <> ": "
   }
 }
 

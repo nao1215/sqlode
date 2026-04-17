@@ -112,34 +112,34 @@ pub fn infer_result_columns_for_select_test() {
 
   get_author.result_columns
   |> should.equal([
-    model.ResultColumn(
+    model.ScalarResult(model.ResultColumn(
       name: "id",
       scalar_type: model.IntType,
       nullable: False,
       source_table: Some("authors"),
-    ),
-    model.ResultColumn(
+    )),
+    model.ScalarResult(model.ResultColumn(
       name: "name",
       scalar_type: model.StringType,
       nullable: False,
       source_table: Some("authors"),
-    ),
+    )),
   ])
 
   list_authors.result_columns
   |> should.equal([
-    model.ResultColumn(
+    model.ScalarResult(model.ResultColumn(
       name: "id",
       scalar_type: model.IntType,
       nullable: False,
       source_table: Some("authors"),
-    ),
-    model.ResultColumn(
+    )),
+    model.ScalarResult(model.ResultColumn(
       name: "name",
       scalar_type: model.StringType,
       nullable: False,
       source_table: Some("authors"),
-    ),
+    )),
   ])
 }
 
@@ -185,24 +185,24 @@ pub fn infer_result_columns_with_star_test() {
 
   get_all.result_columns
   |> should.equal([
-    model.ResultColumn(
+    model.ScalarResult(model.ResultColumn(
       name: "id",
       scalar_type: model.IntType,
       nullable: False,
       source_table: Some("authors"),
-    ),
-    model.ResultColumn(
+    )),
+    model.ScalarResult(model.ResultColumn(
       name: "name",
       scalar_type: model.StringType,
       nullable: False,
       source_table: Some("authors"),
-    ),
-    model.ResultColumn(
+    )),
+    model.ScalarResult(model.ResultColumn(
       name: "bio",
       scalar_type: model.StringType,
       nullable: True,
       source_table: Some("authors"),
-    ),
+    )),
   ])
 }
 
@@ -225,18 +225,18 @@ pub fn infer_result_columns_with_table_prefix_test() {
 
   get_author.result_columns
   |> should.equal([
-    model.ResultColumn(
+    model.ScalarResult(model.ResultColumn(
       name: "id",
       scalar_type: model.IntType,
       nullable: False,
       source_table: Some("authors"),
-    ),
-    model.ResultColumn(
+    )),
+    model.ScalarResult(model.ResultColumn(
       name: "name",
       scalar_type: model.StringType,
       nullable: False,
       source_table: Some("authors"),
-    ),
+    )),
   ])
 }
 
@@ -355,18 +355,18 @@ pub fn join_result_columns_test() {
 
   query.result_columns
   |> should.equal([
-    model.ResultColumn(
+    model.ScalarResult(model.ResultColumn(
       name: "title",
       scalar_type: model.StringType,
       nullable: False,
       source_table: Some("books"),
-    ),
-    model.ResultColumn(
+    )),
+    model.ScalarResult(model.ResultColumn(
       name: "name",
       scalar_type: model.StringType,
       nullable: False,
       source_table: Some("authors"),
-    ),
+    )),
   ])
 }
 
@@ -387,12 +387,11 @@ pub fn sqlc_embed_expands_table_columns_test() {
     )
   let assert [query] = analyzed
 
-  let assert [embed_col, title_col] = query.result_columns
-  let assert model.EmbeddedColumn(name: embed_name, table_name:, columns:) =
-    embed_col
-  embed_name |> should.equal("authors")
-  table_name |> should.equal("authors")
-  list.length(columns) |> should.equal(3)
+  let assert [model.EmbeddedResult(embed_col), model.ScalarResult(title_col)] =
+    query.result_columns
+  embed_col.name |> should.equal("authors")
+  embed_col.table_name |> should.equal("authors")
+  list.length(embed_col.columns) |> should.equal(3)
   title_col.name |> should.equal("title")
 }
 
@@ -415,18 +414,18 @@ pub fn returning_clause_result_columns_test() {
 
   query.result_columns
   |> should.equal([
-    model.ResultColumn(
+    model.ScalarResult(model.ResultColumn(
       name: "id",
       scalar_type: model.IntType,
       nullable: False,
       source_table: Some("authors"),
-    ),
-    model.ResultColumn(
+    )),
+    model.ScalarResult(model.ResultColumn(
       name: "name",
       scalar_type: model.StringType,
       nullable: False,
       source_table: Some("authors"),
-    ),
+    )),
   ])
 }
 
@@ -449,20 +448,24 @@ pub fn returning_clause_with_function_expression_test() {
 
   let assert [id_col, display_col] = query.result_columns
   id_col
-  |> should.equal(model.ResultColumn(
-    name: "id",
-    scalar_type: model.IntType,
-    nullable: False,
-    source_table: Some("authors"),
-  ))
+  |> should.equal(
+    model.ScalarResult(model.ResultColumn(
+      name: "id",
+      scalar_type: model.IntType,
+      nullable: False,
+      source_table: Some("authors"),
+    )),
+  )
   // COALESCE(bio, name) should resolve to StringType
   display_col
-  |> should.equal(model.ResultColumn(
-    name: "display",
-    scalar_type: model.StringType,
-    nullable: False,
-    source_table: None,
-  ))
+  |> should.equal(
+    model.ScalarResult(model.ResultColumn(
+      name: "display",
+      scalar_type: model.StringType,
+      nullable: False,
+      source_table: None,
+    )),
+  )
 }
 
 pub fn cte_select_from_real_table_test() {
@@ -482,10 +485,10 @@ pub fn cte_select_from_real_table_test() {
     )
   let assert [query] = analyzed
 
-  let assert [id_col, name_col] = query.result_columns
+  let assert [model.ScalarResult(id_col), model.ScalarResult(name_col)] =
+    query.result_columns
   id_col.name |> should.equal("id")
-  let assert model.ResultColumn(scalar_type: id_scalar_type, ..) = id_col
-  id_scalar_type |> should.equal(model.IntType)
+  id_col.scalar_type |> should.equal(model.IntType)
   name_col.name |> should.equal("name")
 }
 
@@ -715,18 +718,18 @@ pub fn left_join_makes_right_table_nullable_test() {
 
   query.result_columns
   |> should.equal([
-    model.ResultColumn(
+    model.ScalarResult(model.ResultColumn(
       name: "title",
       scalar_type: model.StringType,
       nullable: False,
       source_table: Some("books"),
-    ),
-    model.ResultColumn(
+    )),
+    model.ScalarResult(model.ResultColumn(
       name: "name",
       scalar_type: model.StringType,
       nullable: True,
       source_table: Some("authors"),
-    ),
+    )),
   ])
 }
 
@@ -749,18 +752,18 @@ pub fn right_join_makes_left_table_nullable_test() {
 
   query.result_columns
   |> should.equal([
-    model.ResultColumn(
+    model.ScalarResult(model.ResultColumn(
       name: "title",
       scalar_type: model.StringType,
       nullable: True,
       source_table: Some("books"),
-    ),
-    model.ResultColumn(
+    )),
+    model.ScalarResult(model.ResultColumn(
       name: "name",
       scalar_type: model.StringType,
       nullable: False,
       source_table: Some("authors"),
-    ),
+    )),
   ])
 }
 
@@ -783,18 +786,18 @@ pub fn full_join_makes_both_tables_nullable_test() {
 
   query.result_columns
   |> should.equal([
-    model.ResultColumn(
+    model.ScalarResult(model.ResultColumn(
       name: "title",
       scalar_type: model.StringType,
       nullable: True,
       source_table: Some("books"),
-    ),
-    model.ResultColumn(
+    )),
+    model.ScalarResult(model.ResultColumn(
       name: "name",
       scalar_type: model.StringType,
       nullable: True,
       source_table: Some("authors"),
-    ),
+    )),
   ])
 }
 
@@ -889,9 +892,13 @@ pub fn count_expression_infers_int_type_test() {
 
   // CountAuthors: COUNT(*) AS total → Int, not nullable
   let assert [count_query, ..] = analyzed
-  let assert [total_col] = count_query.result_columns
-  let assert model.ResultColumn(name: "total", scalar_type: model.IntType, ..) =
-    total_col
+  let assert [
+    model.ScalarResult(model.ResultColumn(
+      name: "total",
+      scalar_type: model.IntType,
+      ..,
+    )),
+  ] = count_query.result_columns
 }
 
 pub fn sum_avg_expression_test() {
@@ -915,19 +922,20 @@ pub fn sum_avg_expression_test() {
 
   // SumAndAvg: SUM(id) AS id_sum → Int(nullable), AVG(id) AS id_avg → Float(nullable)
   let assert [_, sum_avg_query, ..] = analyzed
-  let assert [sum_col, avg_col] = sum_avg_query.result_columns
-  let assert model.ResultColumn(
-    name: "id_sum",
-    scalar_type: model.IntType,
-    nullable: True,
-    ..,
-  ) = sum_col
-  let assert model.ResultColumn(
-    name: "id_avg",
-    scalar_type: model.FloatType,
-    nullable: True,
-    ..,
-  ) = avg_col
+  let assert [
+    model.ScalarResult(model.ResultColumn(
+      name: "id_sum",
+      scalar_type: model.IntType,
+      nullable: True,
+      ..,
+    )),
+    model.ScalarResult(model.ResultColumn(
+      name: "id_avg",
+      scalar_type: model.FloatType,
+      nullable: True,
+      ..,
+    )),
+  ] = sum_avg_query.result_columns
 }
 
 pub fn coalesce_expression_test() {
@@ -951,7 +959,7 @@ pub fn coalesce_expression_test() {
 
   // CoalesceNullable: COALESCE(bio, 'N/A') AS bio_text → String, not nullable
   let assert [_, _, coalesce_query, ..] = analyzed
-  let assert [_, bio_col] = coalesce_query.result_columns
+  let assert [_, model.ScalarResult(bio_col)] = coalesce_query.result_columns
   let assert model.ResultColumn(
     name: "bio_text",
     scalar_type: model.StringType,
@@ -981,7 +989,7 @@ pub fn cast_expression_test() {
 
   // CastColumn: CAST(name AS TEXT) AS name_text → String
   let assert [_, _, _, cast_query, ..] = analyzed
-  let assert [_, name_col] = cast_query.result_columns
+  let assert [_, model.ScalarResult(name_col)] = cast_query.result_columns
   let assert model.ResultColumn(
     name: "name_text",
     scalar_type: model.StringType,
@@ -1010,7 +1018,8 @@ pub fn literal_expression_test() {
 
   // LiteralSelect: 1 AS one → Int, 'hello' AS greeting → String
   let assert [_, _, _, _, literal_query] = analyzed
-  let assert [one_col, greeting_col] = literal_query.result_columns
+  let assert [model.ScalarResult(one_col), model.ScalarResult(greeting_col)] =
+    literal_query.result_columns
   let assert model.ResultColumn(
     name: "one",
     scalar_type: model.IntType,
@@ -1043,7 +1052,7 @@ pub fn exists_subquery_infers_bool_type_test() {
     )
   let assert [query] = analyzed
 
-  let assert [col] = query.result_columns
+  let assert [model.ScalarResult(col)] = query.result_columns
   let assert model.ResultColumn(
     name: "present",
     scalar_type: model.BoolType,
@@ -1068,7 +1077,7 @@ pub fn boolean_comparison_infers_bool_type_test() {
     )
   let assert [query] = analyzed
 
-  let assert [col] = query.result_columns
+  let assert [model.ScalarResult(col)] = query.result_columns
   let assert model.ResultColumn(
     name: "is_positive",
     scalar_type: model.BoolType,
@@ -1093,7 +1102,7 @@ pub fn string_concat_infers_string_type_test() {
     )
   let assert [query] = analyzed
 
-  let assert [col] = query.result_columns
+  let assert [model.ScalarResult(col)] = query.result_columns
   let assert model.ResultColumn(
     name: "display",
     scalar_type: model.StringType,
@@ -1118,7 +1127,7 @@ pub fn arithmetic_expression_infers_int_type_test() {
     )
   let assert [query] = analyzed
 
-  let assert [col] = query.result_columns
+  let assert [model.ScalarResult(col)] = query.result_columns
   let assert model.ResultColumn(
     name: "next_id",
     scalar_type: model.IntType,
@@ -1143,7 +1152,7 @@ pub fn lower_function_infers_string_type_test() {
     )
   let assert [query] = analyzed
 
-  let assert [col] = query.result_columns
+  let assert [model.ScalarResult(col)] = query.result_columns
   let assert model.ResultColumn(
     name: "lower_name",
     scalar_type: model.StringType,
@@ -1168,7 +1177,7 @@ pub fn length_function_infers_int_type_test() {
     )
   let assert [query] = analyzed
 
-  let assert [col] = query.result_columns
+  let assert [model.ScalarResult(col)] = query.result_columns
   let assert model.ResultColumn(
     name: "name_len",
     scalar_type: model.IntType,
@@ -1193,7 +1202,7 @@ pub fn abs_function_resolves_inner_type_test() {
     )
   let assert [query] = analyzed
 
-  let assert [col] = query.result_columns
+  let assert [model.ScalarResult(col)] = query.result_columns
   let assert model.ResultColumn(
     name: "abs_id",
     scalar_type: model.IntType,
@@ -1236,7 +1245,7 @@ pub fn not_exists_infers_bool_type_test() {
     )
   let assert [query] = analyzed
 
-  let assert [col] = query.result_columns
+  let assert [model.ScalarResult(col)] = query.result_columns
   let assert model.ResultColumn(
     name: "no_match",
     scalar_type: model.BoolType,
@@ -1261,7 +1270,7 @@ pub fn greatest_infers_first_arg_type_nullable_test() {
     )
   let assert [query] = analyzed
 
-  let assert [col] = query.result_columns
+  let assert [model.ScalarResult(col)] = query.result_columns
   let assert model.ResultColumn(
     name: "max_id",
     scalar_type: model.IntType,
@@ -1279,4 +1288,87 @@ pub fn unsupported_expression_error_message_test() {
   let msg = query_analyzer.analysis_error_to_string(error)
   string.contains(msg, "unsupported expression") |> should.be_true()
   string.contains(msg, "BadQuery") |> should.be_true()
+}
+
+// --- Window function type inference ---
+
+pub fn row_number_window_function_infers_int_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: RankedAuthors :many\nSELECT id, ROW_NUMBER() OVER (ORDER BY id) AS rank FROM authors;"
+  let assert Ok(queries) =
+    query_parser.parse_file("rn.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  let assert [_id, model.ScalarResult(rank_col)] = query.result_columns
+  rank_col.name |> should.equal("rank")
+  rank_col.scalar_type |> should.equal(model.IntType)
+  rank_col.nullable |> should.equal(False)
+}
+
+pub fn percent_rank_window_function_infers_float_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: Percentiles :many\nSELECT id, PERCENT_RANK() OVER (ORDER BY id) AS pct FROM authors;"
+  let assert Ok(queries) =
+    query_parser.parse_file("pct.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  let assert [_id, model.ScalarResult(pct_col)] = query.result_columns
+  pct_col.scalar_type |> should.equal(model.FloatType)
+}
+
+pub fn lag_window_function_infers_first_arg_type_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: PrevName :many\nSELECT id, LAG(name) OVER (ORDER BY id) AS prev_name FROM authors;"
+  let assert Ok(queries) =
+    query_parser.parse_file("lag.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  let assert [_id, model.ScalarResult(prev_col)] = query.result_columns
+  prev_col.name |> should.equal("prev_name")
+  prev_col.scalar_type |> should.equal(model.StringType)
+  // lag can produce NULL when there is no preceding row
+  prev_col.nullable |> should.equal(True)
+}
+
+pub fn ntile_window_function_infers_int_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: Quartile :many\nSELECT id, NTILE(4) OVER (ORDER BY id) AS q FROM authors;"
+  let assert Ok(queries) =
+    query_parser.parse_file("ntile.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  let assert [_id, model.ScalarResult(q_col)] = query.result_columns
+  q_col.scalar_type |> should.equal(model.IntType)
 }

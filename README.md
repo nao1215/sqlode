@@ -60,6 +60,8 @@ sql:
         runtime: "raw"
 ```
 
+`schema` and `queries` accept either a single file path, a list of file paths, or a directory path. When given a directory, sqlode auto-discovers every `.sql` file inside it. An optional `name` field can be set on each `sql` block for diagnostics when multiple blocks are configured.
+
 ### Write SQL
 
 Schema (`db/schema.sql`):
@@ -143,9 +145,9 @@ pub type ListAuthorsRow {
 
 ### queries.gleam
 
-Each query function returns a typed `RawQuery(p)` descriptor that bundles the SQL text, command metadata, and a parameter encoder. The type parameter ties each query to its expected parameter type at compile time, preventing accidental misuse.
+Each query function returns a `RawQuery(p)`:
 
-`QueryInfo` and `all()` provide an untyped escape hatch for introspection (e.g. listing every query in a package).
+`QueryInfo` and `all()` list all queries in a module without type parameters.
 
 ```gleam
 pub type QueryInfo {
@@ -301,10 +303,8 @@ pub fn main() {
 | `:exec` | `Result(Nil, sqlight.Error)` | `Result(Nil, pog.QueryError)` |
 | `:execrows` | `Result(Int, sqlight.Error)` | `Result(Int, pog.QueryError)` |
 | `:execlastid` | `Result(Int, sqlight.Error)` | `Result(Int, pog.QueryError)` |
-| `:batchone` | `Result(Option(Row), sqlight.Error)` | `Result(Option(Row), pog.QueryError)` |
-| `:batchmany` | `Result(List(Row), sqlight.Error)` | `Result(List(Row), pog.QueryError)` |
-| `:batchexec` | `Result(Nil, sqlight.Error)` | `Result(Nil, pog.QueryError)` |
-| `:copyfrom` | `Result(Nil, sqlight.Error)` | `Result(Nil, pog.QueryError)` |
+
+`:batchone`, `:batchmany`, `:batchexec`, and `:copyfrom` are not yet implemented. Using them currently fails generation with an unsupported-annotation error. See the Planned annotations section below.
 
 `:execresult` is available with `raw` runtime only. It is rejected with `native` runtime because its semantics are not distinct from `:execrows`.
 
@@ -318,6 +318,13 @@ pub fn main() {
 | `:execresult` | Returns the execution result (raw runtime only) |
 | `:execrows` | Returns the number of affected rows |
 | `:execlastid` | Returns the last inserted ID |
+
+### Planned annotations
+
+The following annotations are reserved for future work. Using any of them currently fails generation with an unsupported-annotation error.
+
+| Annotation | Planned behavior |
+|---|---|
 | `:batchone` | Batch variant of `:one` |
 | `:batchmany` | Batch variant of `:many` |
 | `:batchexec` | Batch variant of `:exec` |
@@ -331,6 +338,17 @@ pub fn main() {
 | `sqlode.narg(name)` | Names a nullable parameter |
 | `sqlode.slice(name)` | Expands to a list parameter for IN clauses |
 | `sqlode.embed(table)` | Embeds all columns of a table into the result |
+| `@name` | Shorthand for `sqlode.arg(name)` |
+
+### Skipping a query
+
+Prefix a query block with `-- sqlode:skip` to exclude it from generation. Useful for queries that rely on syntax sqlode cannot yet parse:
+
+```sql
+-- sqlode:skip
+-- name: ComplexQuery :many
+SELECT ...;
+```
 
 ### sqlode.slice example
 
@@ -358,7 +376,7 @@ JOIN authors ON books.author_id = authors.id
 WHERE books.id = $1;
 ```
 
-The result type nests the embedded table as a typed field, preserving logical grouping:
+The embedded table becomes a nested field in the result type:
 
 ```gleam
 pub type GetBookWithAuthorRow {
@@ -414,15 +432,18 @@ JOIN filtered ON authors.id = filtered.id;
 | SQL type | Gleam type |
 |---|---|
 | INT, INTEGER, SMALLINT, BIGINT, SERIAL, BIGSERIAL | Int |
-| FLOAT, DOUBLE, REAL, NUMERIC, DECIMAL | Float |
+| FLOAT, DOUBLE, REAL, NUMERIC, DECIMAL, MONEY | Float |
 | BOOLEAN, BOOL | Bool |
 | TEXT, VARCHAR, CHAR | String |
 | BYTEA, BLOB, BINARY | BitArray |
 | TIMESTAMP, DATETIME | String |
 | DATE | String |
-| TIME, TIMETZ | String |
+| TIME, TIMETZ, INTERVAL | String |
 | UUID | String |
 | JSON, JSONB | String |
+| `TYPE[]`, `TYPE ARRAY` | `List(TYPE)` |
+| CITEXT, INET, CIDR, MACADDR, XML, BIT, TSVECTOR, TSQUERY | String |
+| POINT, LINE, LSEG, BOX, PATH, POLYGON, CIRCLE | String |
 | PostgreSQL ENUM | Generated custom type (with to_string/from_string helpers) |
 
 Nullable columns (without `NOT NULL`) are wrapped in `Option(T)`.
@@ -462,13 +483,13 @@ Column-level overrides take precedence over `db_type` overrides.
 
 When you specify a non-primitive `gleam_type` (e.g., `UserId` instead of `Int`), sqlode preserves the type name in generated record fields but uses the underlying primitive type for encoding and decoding.
 
-This means your custom type **must be a transparent type alias**, not an opaque type:
+The custom type must be a transparent type alias, not an opaque type:
 
 ```gleam
-// ✅ Works — transparent type alias
+// OK — transparent type alias
 pub type UserId = Int
 
-// ❌ Does NOT work — opaque type
+// Error — opaque type
 pub opaque type UserId {
   UserId(Int)
 }
@@ -489,7 +510,7 @@ gen:
     type_mapping: "rich"
 ```
 
-When `type_mapping: "rich"` is set, sqlode generates transparent type aliases in `models.gleam` that preserve the semantic meaning of database types:
+sqlode emits type aliases for database types in `models.gleam`:
 
 | SQL type | `string` (default) | `rich` | `strong` |
 |----------|-------------------|--------|----------|
@@ -499,9 +520,9 @@ When `type_mapping: "rich"` is set, sqlode generates transparent type aliases in
 | UUID | `String` | `SqlUuid` | `SqlUuid(String)` |
 | JSON / JSONB | `String` | `SqlJson` | `SqlJson(String)` |
 
-**`rich`**: Transparent aliases over `String` — type-level documentation without compile-time enforcement.
+**`rich`**: Type aliases over `String`. Readable in signatures but not enforced by the compiler.
 
-**`strong`**: Single-constructor wrapper types with unwrap helpers (e.g. `sql_uuid_to_string`). A `SqlUuid` and a plain `String` are distinct at compile time, preventing accidental misuse. Generated adapters automatically wrap decoded values and unwrap encoded values.
+**`strong`**: Single-constructor wrapper types with unwrap helpers (e.g. `sql_uuid_to_string`). `SqlUuid` and `String` are distinct at compile time. Generated adapters wrap decoded values and unwrap encoded values automatically.
 
 Example with `type_mapping: "strong"`:
 

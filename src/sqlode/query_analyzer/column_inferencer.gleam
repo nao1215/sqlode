@@ -25,7 +25,7 @@ pub fn infer_result_columns(
   engine: model.Engine,
   query: model.ParsedQuery,
   catalog: model.Catalog,
-) -> Result(List(model.ResultColumn), AnalysisError) {
+) -> Result(List(model.ResultItem), AnalysisError) {
   case query.command {
     runtime.QueryExec
     | runtime.QueryExecResult
@@ -131,7 +131,7 @@ fn resolve_select_columns(
   primary_table: String,
   all_tables: List(String),
   nullable_tables: List(String),
-) -> Result(List(model.ResultColumn), AnalysisError) {
+) -> Result(List(model.ResultItem), AnalysisError) {
   case columns {
     [ExtractedColumn(name: "*", ..)] -> {
       let result_columns =
@@ -140,13 +140,13 @@ fn resolve_select_columns(
           case list.find(catalog.tables, fn(t) { t.name == table_name }) {
             Ok(table) ->
               list.map(table.columns, fn(col) {
-                model.ResultColumn(
+                model.ScalarResult(model.ResultColumn(
                   name: col.name,
                   scalar_type: col.scalar_type,
                   nullable: col.nullable
                     || list.contains(nullable_tables, table_name),
                   source_table: Some(table_name),
-                )
+                ))
               })
             Error(_) -> []
           }
@@ -174,11 +174,11 @@ fn resolve_select_columns(
             {
               Ok(table) ->
                 Ok([
-                  model.EmbeddedColumn(
+                  model.EmbeddedResult(model.EmbeddedColumn(
                     name: embed_name,
                     table_name: embed_name,
                     columns: table.columns,
-                  ),
+                  )),
                 ])
               Error(_) ->
                 Error(TableNotFound(query_name:, table_name: embed_name))
@@ -191,13 +191,13 @@ fn resolve_select_columns(
                 case context.find_column(catalog, table, normalized_name) {
                   Some(column) ->
                     Ok([
-                      model.ResultColumn(
+                      model.ScalarResult(model.ResultColumn(
                         name: column.name,
                         scalar_type: column.scalar_type,
                         nullable: column.nullable
                           || list.contains(nullable_tables, table),
                         source_table: Some(table),
-                      ),
+                      )),
                     ])
                   None ->
                     case extracted.expression_tokens {
@@ -211,12 +211,12 @@ fn resolve_select_columns(
                           ),
                         )
                         Ok([
-                          model.ResultColumn(
+                          model.ScalarResult(model.ResultColumn(
                             name: normalized_name,
                             scalar_type:,
                             nullable:,
                             source_table: None,
-                          ),
+                          )),
                         ])
                       }
                       None ->
@@ -237,13 +237,13 @@ fn resolve_select_columns(
                 {
                   Some(#(found_table, column)) ->
                     Ok([
-                      model.ResultColumn(
+                      model.ScalarResult(model.ResultColumn(
                         name: column.name,
                         scalar_type: column.scalar_type,
                         nullable: column.nullable
                           || list.contains(nullable_tables, found_table),
                         source_table: Some(found_table),
-                      ),
+                      )),
                     ])
                   None ->
                     case extracted.expression_tokens {
@@ -257,12 +257,12 @@ fn resolve_select_columns(
                           ),
                         )
                         Ok([
-                          model.ResultColumn(
+                          model.ScalarResult(model.ResultColumn(
                             name: normalized_name,
                             scalar_type:,
                             nullable:,
                             source_table: None,
-                          ),
+                          )),
                         ])
                       }
                       None ->
@@ -299,9 +299,17 @@ fn infer_expression_type_from_tokens(
         Some(type_name) ->
           case model.parse_sql_type(type_name) {
             Ok(scalar_type) -> Ok(#(scalar_type, True))
-            Error(_) -> Ok(#(model.StringType, True))
+            Error(_) ->
+              Error(UnsupportedExpression(
+                query_name:,
+                expression: tok_tokens_to_text(tokens),
+              ))
           }
-        None -> Ok(#(model.StringType, True))
+        None ->
+          Error(UnsupportedExpression(
+            query_name:,
+            expression: tok_tokens_to_text(tokens),
+          ))
       }
     }
 
@@ -335,7 +343,25 @@ fn infer_expression_type_from_tokens(
             None -> Ok(#(model.IntType, True))
           }
         }
-        FnWindow -> Ok(#(model.IntType, False))
+        FnWindowInt -> Ok(#(model.IntType, False))
+        FnWindowFloat -> Ok(#(model.FloatType, False))
+        FnWindowFirstArg -> {
+          let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
+          let first_arg = tok_first_comma_group(inner_tokens)
+          case
+            resolve_column_type_from_tokens(first_arg, catalog, table_names)
+          {
+            Some(t) -> Ok(#(t, True))
+            None ->
+              infer_expression_type_from_tokens(
+                first_arg,
+                catalog,
+                table_names,
+                query_name,
+              )
+              |> result.map(fn(pair) { #(pair.0, True) })
+          }
+        }
         FnCoalesce -> {
           let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
           let first_arg = tok_first_comma_group(inner_tokens)
@@ -343,7 +369,14 @@ fn infer_expression_type_from_tokens(
             resolve_column_type_from_tokens(first_arg, catalog, table_names)
           {
             Some(t) -> Ok(#(t, False))
-            None -> Ok(#(model.StringType, False))
+            None ->
+              infer_expression_type_from_tokens(
+                first_arg,
+                catalog,
+                table_names,
+                query_name,
+              )
+              |> result.map(fn(pair) { #(pair.0, False) })
           }
         }
         FnGreatestLeast -> {
@@ -353,7 +386,14 @@ fn infer_expression_type_from_tokens(
             resolve_column_type_from_tokens(first_arg, catalog, table_names)
           {
             Some(t) -> Ok(#(t, True))
-            None -> Ok(#(model.StringType, True))
+            None ->
+              infer_expression_type_from_tokens(
+                first_arg,
+                catalog,
+                table_names,
+                query_name,
+              )
+              |> result.map(fn(pair) { #(pair.0, True) })
           }
         }
         FnString -> Ok(#(model.StringType, False))
@@ -376,7 +416,14 @@ fn infer_expression_type_from_tokens(
             resolve_column_type_from_tokens(first_arg, catalog, table_names)
           {
             Some(t) -> Ok(#(t, True))
-            None -> Ok(#(model.StringType, True))
+            None ->
+              infer_expression_type_from_tokens(
+                first_arg,
+                catalog,
+                table_names,
+                query_name,
+              )
+              |> result.map(fn(pair) { #(pair.0, True) })
           }
         }
         FnUnknown ->
@@ -410,7 +457,11 @@ fn infer_expression_type_from_tokens(
     [lexer.Keyword("true")] | [lexer.Keyword("false")] ->
       Ok(#(model.BoolType, False))
 
-    [lexer.Keyword("null")] -> Ok(#(model.StringType, True))
+    [lexer.Keyword("null")] ->
+      Error(UnsupportedExpression(
+        query_name:,
+        expression: tok_tokens_to_text(tokens),
+      ))
 
     // --- Scan-based inference for compound expressions ---
     _ -> infer_by_scanning(tokens, query_name)
@@ -425,7 +476,9 @@ type FunctionClass {
   FnCount
   FnAggregateInner
   FnAvg
-  FnWindow
+  FnWindowInt
+  FnWindowFloat
+  FnWindowFirstArg
   FnCoalesce
   FnGreatestLeast
   FnString
@@ -441,15 +494,10 @@ fn classify_function(lowered_name: String) -> FunctionClass {
     "count" -> FnCount
     "sum" | "min" | "max" -> FnAggregateInner
     "avg" -> FnAvg
-    "row_number"
-    | "rank"
-    | "dense_rank"
-    | "ntile"
-    | "lag"
-    | "lead"
-    | "first_value"
-    | "last_value"
-    | "nth_value" -> FnWindow
+    "row_number" | "rank" | "dense_rank" | "ntile" -> FnWindowInt
+    "percent_rank" | "cume_dist" -> FnWindowFloat
+    "lag" | "lead" | "first_value" | "last_value" | "nth_value" ->
+      FnWindowFirstArg
     "coalesce" -> FnCoalesce
     "greatest" | "least" -> FnGreatestLeast
     "replace"
@@ -685,7 +733,11 @@ fn infer_case_type_from_tokens(
   case tok_collect_then_value(tokens) {
     Some(then_tokens) ->
       case then_tokens {
-        [] -> Ok(#(model.StringType, True))
+        [] ->
+          Error(UnsupportedExpression(
+            query_name:,
+            expression: tok_tokens_to_text(tokens),
+          ))
         _ -> {
           use #(scalar_type, _) <- result.try(infer_expression_type_from_tokens(
             then_tokens,
@@ -696,7 +748,11 @@ fn infer_case_type_from_tokens(
           Ok(#(scalar_type, True))
         }
       }
-    None -> Ok(#(model.StringType, True))
+    None ->
+      Error(UnsupportedExpression(
+        query_name:,
+        expression: tok_tokens_to_text(tokens),
+      ))
   }
 }
 

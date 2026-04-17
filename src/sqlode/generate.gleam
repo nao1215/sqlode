@@ -96,9 +96,30 @@ fn generate_sql_block(
   block: model.SqlBlock,
 ) -> Result(List(writer.GeneratedFile), GenerateError) {
   use Nil <- result.try(validate_out_path(block.gleam.out))
+  use catalog <- result.try(load_and_prepare_catalog(block))
+  use #(queries, analyzed) <- result.try(load_and_analyze_queries(
+    naming_ctx,
+    block,
+    catalog,
+  ))
+  render_output_files(naming_ctx, block, catalog, queries, analyzed)
+}
+
+fn load_and_prepare_catalog(
+  block: model.SqlBlock,
+) -> Result(model.Catalog, GenerateError) {
   use raw_catalog <- result.try(load_catalog(block.schema, block.engine))
-  let catalog =
-    apply_type_overrides(raw_catalog, block.overrides.type_overrides)
+  Ok(apply_type_overrides(raw_catalog, block.overrides.type_overrides))
+}
+
+fn load_and_analyze_queries(
+  naming_ctx: naming.NamingContext,
+  block: model.SqlBlock,
+  catalog: model.Catalog,
+) -> Result(
+  #(List(model.ParsedQuery), List(model.AnalyzedQuery)),
+  GenerateError,
+) {
   use queries <- result.try(load_queries(naming_ctx, block))
   use analyzed <- result.try(
     query_analyzer.analyze_queries(block.engine, catalog, naming_ctx, queries)
@@ -108,17 +129,18 @@ fn generate_sql_block(
   )
   use Nil <- result.try(validate_unsupported_annotations(analyzed))
   let analyzed = apply_column_renames(analyzed, block.overrides.column_renames)
+  Ok(#(queries, analyzed))
+}
 
+fn render_output_files(
+  naming_ctx: naming.NamingContext,
+  block: model.SqlBlock,
+  catalog: model.Catalog,
+  queries: List(model.ParsedQuery),
+  analyzed: List(model.AnalyzedQuery),
+) -> Result(List(writer.GeneratedFile), GenerateError) {
   let model.SqlBlock(gleam:, ..) = block
   let model.GleamOutput(out:, ..) = gleam
-
-  let table_matches =
-    compute_table_matches(
-      naming_ctx,
-      catalog,
-      analyzed,
-      gleam.emit_exact_table_names,
-    )
 
   case analyzed {
     [] ->
@@ -130,57 +152,23 @@ fn generate_sql_block(
         schema_paths: block.schema,
       ))
     _ -> {
-      let has_row_types =
-        list.any(analyzed, fn(query) {
-          model.is_result_command(query.base.command)
-          && !list.is_empty(query.result_columns)
-        })
+      let table_matches =
+        compute_table_matches(
+          naming_ctx,
+          catalog,
+          analyzed,
+          gleam.emit_exact_table_names,
+        )
 
-      let has_models = has_row_types || !list.is_empty(catalog.tables)
-
-      let base_files = [
-        writer.GeneratedFile(
-          directory: out,
-          path: "params.gleam",
-          content: params.render(
-            naming_ctx,
-            analyzed,
-            gleam.type_mapping,
-            common.out_to_module_path(out),
-          ),
-        ),
-        writer.GeneratedFile(
-          directory: out,
-          path: "queries.gleam",
-          content: queries.render(naming_ctx, block, analyzed),
-        ),
-      ]
-
-      let files = case has_models {
-        True ->
-          list.append(base_files, [
-            writer.GeneratedFile(
-              directory: out,
-              path: "models.gleam",
-              content: models.render(
-                naming_ctx,
-                catalog,
-                analyzed,
-                table_matches,
-                gleam.type_mapping,
-                gleam.emit_exact_table_names,
-              ),
-            ),
-          ])
-        False -> base_files
-      }
+      let base_files =
+        base_output_files(naming_ctx, block, analyzed, catalog, table_matches)
 
       case gleam.runtime {
-        model.Raw -> Ok(files)
+        model.Raw -> Ok(base_files)
         model.Native -> {
           use Nil <- result.try(validate_native_annotations(analyzed))
           Ok(
-            list.append(files, [
+            list.append(base_files, [
               writer.GeneratedFile(
                 directory: out,
                 path: adapter_filename(block.engine),
@@ -196,6 +184,61 @@ fn generate_sql_block(
         }
       }
     }
+  }
+}
+
+fn base_output_files(
+  naming_ctx: naming.NamingContext,
+  block: model.SqlBlock,
+  analyzed: List(model.AnalyzedQuery),
+  catalog: model.Catalog,
+  table_matches: Dict(String, String),
+) -> List(writer.GeneratedFile) {
+  let model.SqlBlock(gleam:, ..) = block
+  let model.GleamOutput(out:, ..) = gleam
+
+  let has_row_types =
+    list.any(analyzed, fn(query) {
+      model.is_result_command(query.base.command)
+      && !list.is_empty(query.result_columns)
+    })
+  let has_models = has_row_types || !list.is_empty(catalog.tables)
+
+  let files = [
+    writer.GeneratedFile(
+      directory: out,
+      path: "params.gleam",
+      content: params.render(
+        naming_ctx,
+        analyzed,
+        gleam.type_mapping,
+        common.out_to_module_path(out),
+      ),
+    ),
+    writer.GeneratedFile(
+      directory: out,
+      path: "queries.gleam",
+      content: queries.render(naming_ctx, block, analyzed),
+    ),
+  ]
+
+  case has_models {
+    True ->
+      list.append(files, [
+        writer.GeneratedFile(
+          directory: out,
+          path: "models.gleam",
+          content: models.render(
+            naming_ctx,
+            catalog,
+            analyzed,
+            table_matches,
+            gleam.type_mapping,
+            gleam.emit_exact_table_names,
+          ),
+        ),
+      ])
+    False -> files
   }
 }
 
@@ -469,14 +512,17 @@ fn apply_column_renames(
     _ ->
       list.map(queries, fn(query) {
         let result_columns =
-          list.map(query.result_columns, fn(col) {
-            case col {
-              model.ResultColumn(name:, source_table:, ..) ->
-                case find_column_rename(name, source_table, renames) {
-                  Ok(new_name) -> model.ResultColumn(..col, name: new_name)
-                  Error(_) -> col
+          list.map(query.result_columns, fn(item) {
+            case item {
+              model.ScalarResult(col) ->
+                case find_column_rename(col.name, col.source_table, renames) {
+                  Ok(new_name) ->
+                    model.ScalarResult(
+                      model.ResultColumn(..col, name: new_name),
+                    )
+                  Error(_) -> item
                 }
-              model.EmbeddedColumn(..) -> col
+              model.EmbeddedResult(..) -> item
             }
           })
         model.AnalyzedQuery(..query, result_columns:)
@@ -597,15 +643,18 @@ fn try_match_query_to_table(
   let has_embed =
     list.any(query.result_columns, fn(col) {
       case col {
-        model.EmbeddedColumn(..) -> True
-        _ -> False
+        model.EmbeddedResult(..) -> True
+        model.ScalarResult(..) -> False
       }
     })
   use <- guard_result(!has_embed)
 
   // Extract the source table from the first result column
   use table_name <- result.try(case query.result_columns {
-    [model.ResultColumn(source_table: option.Some(name), ..), ..] -> Ok(name)
+    [
+      model.ScalarResult(model.ResultColumn(source_table: option.Some(name), ..)),
+      ..
+    ] -> Ok(name)
     _ -> Error(Nil)
   })
 
@@ -613,9 +662,9 @@ fn try_match_query_to_table(
   let all_same_table =
     list.all(query.result_columns, fn(col) {
       case col {
-        model.ResultColumn(source_table: src, ..) ->
+        model.ScalarResult(model.ResultColumn(source_table: src, ..)) ->
           src == option.Some(table_name)
-        model.EmbeddedColumn(..) -> False
+        model.EmbeddedResult(..) -> False
       }
     })
   use <- guard_result(all_same_table)
@@ -647,7 +696,7 @@ fn find_table(
 }
 
 fn columns_match(
-  result_columns: List(model.ResultColumn),
+  result_columns: List(model.ResultItem),
   table_columns: List(model.Column),
 ) -> Bool {
   case list.length(result_columns) == list.length(table_columns) {
@@ -657,11 +706,16 @@ fn columns_match(
       |> list.all(fn(pair) {
         let #(rc, tc) = pair
         case rc {
-          model.ResultColumn(name:, scalar_type:, nullable:, ..) ->
+          model.ScalarResult(model.ResultColumn(
+            name:,
+            scalar_type:,
+            nullable:,
+            ..,
+          )) ->
             string.lowercase(name) == string.lowercase(tc.name)
             && scalar_type == tc.scalar_type
             && nullable == tc.nullable
-          model.EmbeddedColumn(..) -> False
+          model.EmbeddedResult(..) -> False
         }
       })
   }
