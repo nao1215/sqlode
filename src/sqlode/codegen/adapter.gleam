@@ -133,12 +133,6 @@ fn render_adapter(
       && !list.is_empty(query.result_columns)
     })
 
-  let has_exec_rows =
-    list.any(queries, fn(query) {
-      query.base.command == runtime.QueryExecRows
-      || query.base.command == runtime.QueryExecResult
-    })
-
   let has_slices = common.queries_have_slices(queries)
 
   let has_enums = common.queries_have_enums(queries)
@@ -150,7 +144,7 @@ fn render_adapter(
         "",
         "import gleam/dynamic/decode",
       ],
-      case has_exec_rows || has_slices {
+      case has_slices {
         True -> ["import gleam/list"]
         False -> []
       },
@@ -160,10 +154,10 @@ fn render_adapter(
         False -> []
       },
       [config.library_import],
-      case has_slices {
-        True -> ["import sqlode/runtime"]
-        False -> []
-      },
+      // Every generated adapter now calls `runtime.expand_slice_placeholders`
+      // to substitute the placeholder markers emitted by the query parser,
+      // so the import is always required (not only when slices are used).
+      ["import sqlode/runtime"],
       case has_results || has_enums {
         True -> ["import " <> module_path <> "/models"]
         False -> []
