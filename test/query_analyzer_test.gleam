@@ -1410,3 +1410,96 @@ pub fn ntile_window_function_infers_int_test() {
   let assert [_id, model.ScalarResult(q_col)] = query.result_columns
   q_col.scalar_type |> should.equal(model.IntType)
 }
+
+// --- Batch 1: GROUP BY ROLLUP / CUBE / GROUPING SETS, FILTER, DISTINCT ON,
+//     ANY/ALL subquery operators ---
+
+fn analyze_one(sql: String, catalog: model.Catalog) -> model.AnalyzedQuery {
+  let naming_ctx = naming.new()
+  let assert Ok(queries) =
+    query_parser.parse_file("b1.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  query
+}
+
+pub fn group_by_rollup_does_not_break_select_inference_test() {
+  let sql =
+    "-- name: AuthorsByName :many\nSELECT name, COUNT(*) AS total FROM authors GROUP BY ROLLUP(name);"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(name_col), model.ScalarResult(total_col)] =
+    query.result_columns
+  name_col.name |> should.equal("name")
+  name_col.scalar_type |> should.equal(model.StringType)
+  total_col.name |> should.equal("total")
+  total_col.scalar_type |> should.equal(model.IntType)
+}
+
+pub fn group_by_cube_does_not_break_select_inference_test() {
+  let sql =
+    "-- name: AuthorsByCube :many\nSELECT name, COUNT(*) AS total FROM authors GROUP BY CUBE(name);"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(name_col), model.ScalarResult(total_col)] =
+    query.result_columns
+  name_col.scalar_type |> should.equal(model.StringType)
+  total_col.scalar_type |> should.equal(model.IntType)
+}
+
+pub fn group_by_grouping_sets_does_not_break_select_inference_test() {
+  let sql =
+    "-- name: AuthorsByGS :many\nSELECT name, COUNT(*) AS total FROM authors GROUP BY GROUPING SETS ((name), ());"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(name_col), model.ScalarResult(total_col)] =
+    query.result_columns
+  name_col.scalar_type |> should.equal(model.StringType)
+  total_col.scalar_type |> should.equal(model.IntType)
+}
+
+pub fn filter_clause_after_aggregate_test() {
+  // SUM(...) FILTER (WHERE ...) — the FILTER clause must not break
+  // result column extraction or aggregate type inference.
+  let sql =
+    "-- name: SumPositive :one\nSELECT SUM(id) FILTER (WHERE id > 0) AS positive FROM authors;"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(col)] = query.result_columns
+  col.name |> should.equal("positive")
+  col.scalar_type |> should.equal(model.IntType)
+}
+
+pub fn distinct_on_skips_column_list_test() {
+  // DISTINCT ON (col) prefix must not be picked up as a result column.
+  let sql =
+    "-- name: LatestPerName :many\nSELECT DISTINCT ON (name) id, name FROM authors ORDER BY name, id DESC;"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(id_col), model.ScalarResult(name_col)] =
+    query.result_columns
+  id_col.name |> should.equal("id")
+  name_col.name |> should.equal("name")
+}
+
+pub fn any_subquery_in_where_test() {
+  // `id = ANY (SELECT ...)` should not derail SELECT inference.
+  let sql =
+    "-- name: AuthorsAnyId :many\nSELECT id, name FROM authors WHERE id = ANY (SELECT id FROM authors);"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(id_col), model.ScalarResult(name_col)] =
+    query.result_columns
+  id_col.name |> should.equal("id")
+  name_col.name |> should.equal("name")
+}
+
+pub fn all_subquery_in_where_test() {
+  let sql =
+    "-- name: AuthorsAllId :many\nSELECT id, name FROM authors WHERE id > ALL (SELECT id FROM authors);"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(id_col), model.ScalarResult(name_col)] =
+    query.result_columns
+  id_col.name |> should.equal("id")
+  name_col.name |> should.equal("name")
+}

@@ -1057,8 +1057,14 @@ fn tok_find_select_to_from(
   case tokens {
     [] -> None
     [lexer.Keyword("select"), ..rest] -> {
-      // Skip DISTINCT/ALL
+      // Skip DISTINCT / DISTINCT ON (...) / ALL
       let rest2 = case rest {
+        [
+          lexer.Keyword("distinct"),
+          lexer.Keyword("on"),
+          lexer.LParen,
+          ..after_on
+        ] -> token_utils.skip_parens(after_on, 1)
         [lexer.Keyword("distinct"), ..r] -> r
         [lexer.Keyword("all"), ..r] -> r
         _ -> rest

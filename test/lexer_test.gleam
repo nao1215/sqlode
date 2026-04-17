@@ -211,6 +211,20 @@ pub fn bracket_identifier_no_escape_sqlite_test() {
   }
 }
 
+pub fn rollup_cube_sets_are_keywords_test() {
+  lexer.tokenize("GROUP BY ROLLUP, CUBE, GROUPING SETS", model.PostgreSQL)
+  |> should.equal([
+    Keyword("group"),
+    Keyword("by"),
+    Keyword("rollup"),
+    Comma,
+    Keyword("cube"),
+    Comma,
+    Ident("GROUPING"),
+    Keyword("sets"),
+  ])
+}
+
 // --- Placeholder tests ---
 
 pub fn postgresql_placeholder_test() {
