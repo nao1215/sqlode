@@ -1,5 +1,8 @@
 # sqlode
 
+[![Hex](https://img.shields.io/hexpm/v/sqlode)](https://hex.pm/packages/sqlode)
+[![Hex Downloads](https://img.shields.io/hexpm/dt/sqlode)](https://hex.pm/packages/sqlode)
+[![CI](https://github.com/nao1215/sqlode/actions/workflows/ci.yml/badge.svg)](https://github.com/nao1215/sqlode/actions/workflows/ci.yml)
 [![license](https://img.shields.io/github/license/nao1215/sqlode)](./LICENSE)
 
 sqlode reads SQL schema and query files, then generates typed Gleam code. The workflow follows [sqlc](https://sqlc.dev/) conventions: write SQL, run the generator, get type-safe functions.
@@ -10,15 +13,20 @@ Supported engines: PostgreSQL, MySQL (parsing only), SQLite.
 
 ### Install
 
-There are two ways to install sqlode:
+sqlode ships as an Erlang escript. Every install path therefore needs an Erlang/OTP runtime on the host (`escript` on PATH). The easiest way to cover both downloading the escript and detecting a missing runtime is the one-line installer:
 
-#### Option A: Standalone CLI (escript)
-
-Download the pre-built escript from [GitHub Releases](https://github.com/nao1215/sqlode/releases) and place it on your PATH. Requires Erlang/OTP runtime on the host machine.
+#### Option A: One-line install (recommended)
 
 ```console
-chmod +x sqlode
-./sqlode generate --config=sqlode.yaml
+curl -fsSL https://raw.githubusercontent.com/nao1215/sqlode/main/scripts/install.sh | sh
+```
+
+The script downloads the latest release's escript into `$HOME/.local/bin/sqlode`, makes it executable, and warns if Erlang/OTP is missing (with a per-distro install hint). Override the target with `SQLODE_INSTALL_DIR=/usr/local/bin` or pin a version with `SQLODE_VERSION=v0.1.0`.
+
+If `$HOME/.local/bin` is not on your `PATH`, add it to your shell config:
+
+```console
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 You still need sqlode as a project dependency because generated code imports `sqlode/runtime`:
@@ -27,9 +35,18 @@ You still need sqlode as a project dependency because generated code imports `sq
 gleam add sqlode
 ```
 
-#### Option B: Run via Gleam
+#### Option B: Manual escript download
 
-Add sqlode as a dependency and invoke the CLI through `gleam run`:
+Download the pre-built escript from [GitHub Releases](https://github.com/nao1215/sqlode/releases) and place it on your `PATH`:
+
+```console
+chmod +x sqlode
+./sqlode generate --config=sqlode.yaml
+```
+
+#### Option C: Run via Gleam
+
+If you already have a Gleam project, you can invoke the CLI through `gleam run` without downloading a separate binary:
 
 ```console
 gleam add sqlode
