@@ -2,6 +2,7 @@ import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
 import gleam/string
+import sqlode/codegen/builder
 import sqlode/codegen/common
 import sqlode/model
 import sqlode/naming
@@ -363,13 +364,19 @@ fn render_decoder(
         })
         |> string.join(", ")
 
-      "{\n"
-      <> string.join(field_lines, "\n")
-      <> "\n    decode.success(models."
-      <> type_name
-      <> "("
-      <> constructor_fields
-      <> "))\n  }"
+      builder.concat([
+        builder.line("{"),
+        builder.lines(field_lines),
+        builder.line(
+          "    decode.success(models."
+          <> type_name
+          <> "("
+          <> constructor_fields
+          <> "))",
+        ),
+        builder.line("  }"),
+      ])
+      |> builder.render
     }
   }
 }
@@ -530,36 +537,50 @@ fn render_adapter_query_result(
   let params_arg = render_params_arg(ctx.naming_ctx, query, has_params)
   let params_str = ctx.config.render_params(query.params, "p")
   let decoder = render_decoder(ctx, query, constructor_name)
+  let return_type = return_type_wrapper <> "(models." <> type_name <> ")"
 
-  string.join(
-    list.flatten([
-      [
-        "pub fn "
-          <> fn_name
-          <> "(db: "
-          <> ctx.config.connection_type
-          <> params_arg
-          <> ") -> Result("
-          <> return_type_wrapper
-          <> "(models."
-          <> type_name
-          <> "), "
-          <> ctx.config.error_type
-          <> ") {",
-        "  let q = queries." <> fn_name <> "()",
-      ],
-      ctx.config.render_query_call(
-        fn_name,
-        params_str,
-        decoder,
-        "q.sql",
-        query.params,
-      ),
-      render_result(),
-      ["}"],
-    ]),
-    "\n",
-  )
+  builder.concat([
+    builder.line(query_fn_signature(
+      fn_name,
+      ctx.config.connection_type,
+      params_arg,
+      return_type,
+      ctx.config.error_type,
+    )),
+    builder.line("  let q = queries." <> fn_name <> "()"),
+    builder.lines(ctx.config.render_query_call(
+      fn_name,
+      params_str,
+      decoder,
+      "q.sql",
+      query.params,
+    )),
+    builder.lines(render_result()),
+    builder.line("}"),
+  ])
+  |> builder.render
+}
+
+/// Render the `pub fn name(db: Conn, p: Params) -> Result(R, E) {` line
+/// shared by every adapter query function. Keeping the signature in a
+/// dedicated helper keeps the callers free of deep `<>` chains.
+fn query_fn_signature(
+  fn_name: String,
+  connection_type: String,
+  params_arg: String,
+  return_type: String,
+  error_type: String,
+) -> String {
+  "pub fn "
+  <> fn_name
+  <> "(db: "
+  <> connection_type
+  <> params_arg
+  <> ") -> Result("
+  <> return_type
+  <> ", "
+  <> error_type
+  <> ") {"
 }
 
 fn render_adapter_exec(
@@ -572,33 +593,26 @@ fn render_adapter_exec(
   let params_arg = render_params_arg(naming_ctx, query, has_params)
   let params_str = config.render_params(query.params, "p")
 
-  string.join(
-    list.flatten([
-      [
-        "pub fn "
-          <> fn_name
-          <> "(db: "
-          <> config.connection_type
-          <> params_arg
-          <> ") -> Result(Nil, "
-          <> config.error_type
-          <> ") {",
-        "  let q = queries." <> fn_name <> "()",
-      ],
-      config.render_query_call(
-        fn_name,
-        params_str,
-        "decode.success(Nil)",
-        "q.sql",
-        query.params,
-      ),
-      [
-        "  |> result.map(fn(_) { Nil })",
-        "}",
-      ],
-    ]),
-    "\n",
-  )
+  builder.concat([
+    builder.line(query_fn_signature(
+      fn_name,
+      config.connection_type,
+      params_arg,
+      "Nil",
+      config.error_type,
+    )),
+    builder.line("  let q = queries." <> fn_name <> "()"),
+    builder.lines(config.render_query_call(
+      fn_name,
+      params_str,
+      "decode.success(Nil)",
+      "q.sql",
+      query.params,
+    )),
+    builder.line("  |> result.map(fn(_) { Nil })"),
+    builder.line("}"),
+  ])
+  |> builder.render
 }
 
 fn render_adapter_exec_rows(
@@ -611,31 +625,26 @@ fn render_adapter_exec_rows(
   let params_arg = render_params_arg(naming_ctx, query, has_params)
   let params_str = config.render_params(query.params, "p")
 
-  string.join(
-    list.flatten([
-      [
-        "pub fn "
-          <> fn_name
-          <> "(db: "
-          <> config.connection_type
-          <> params_arg
-          <> ") -> Result(Int, "
-          <> config.error_type
-          <> ") {",
-        "  let q = queries." <> fn_name <> "()",
-      ],
-      config.render_query_call(
-        fn_name,
-        params_str,
-        "decode.success(Nil)",
-        "q.sql",
-        query.params,
-      ),
-      config.render_exec_rows_result(),
-      ["}"],
-    ]),
-    "\n",
-  )
+  builder.concat([
+    builder.line(query_fn_signature(
+      fn_name,
+      config.connection_type,
+      params_arg,
+      "Int",
+      config.error_type,
+    )),
+    builder.line("  let q = queries." <> fn_name <> "()"),
+    builder.lines(config.render_query_call(
+      fn_name,
+      params_str,
+      "decode.success(Nil)",
+      "q.sql",
+      query.params,
+    )),
+    builder.lines(config.render_exec_rows_result()),
+    builder.line("}"),
+  ])
+  |> builder.render
 }
 
 fn render_adapter_exec_last_id(
@@ -648,24 +657,24 @@ fn render_adapter_exec_last_id(
   let params_arg = render_params_arg(naming_ctx, query, has_params)
   let params_str = config.render_params(query.params, "p")
 
-  string.join(
-    list.flatten([
-      [
-        "pub fn "
-          <> fn_name
-          <> "(db: "
-          <> config.connection_type
-          <> params_arg
-          <> ") -> Result(Int, "
-          <> config.error_type
-          <> ") {",
-        "  let q = queries." <> fn_name <> "()",
-      ],
-      config.render_exec_last_id(fn_name, params_str, "q.sql", query.params),
-      ["}"],
-    ]),
-    "\n",
-  )
+  builder.concat([
+    builder.line(query_fn_signature(
+      fn_name,
+      config.connection_type,
+      params_arg,
+      "Int",
+      config.error_type,
+    )),
+    builder.line("  let q = queries." <> fn_name <> "()"),
+    builder.lines(config.render_exec_last_id(
+      fn_name,
+      params_str,
+      "q.sql",
+      query.params,
+    )),
+    builder.line("}"),
+  ])
+  |> builder.render
 }
 
 // ============================================================
