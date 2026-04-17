@@ -583,7 +583,7 @@ sqlode follows sqlc conventions, so most SQL files work without changes. Key dif
 | | sqlc | sqlode |
 |---|---|---|
 | Install | Standalone binary (`brew install sqlc`) | Escript or `gleam add sqlode` |
-| Config | `sqlc.yaml` / `sqlc.json` | `sqlode.yaml` (v2 format only) |
+| Config | `sqlc.yaml` / `sqlc.json` | `sqlode.yaml` (v2 format only), also accepts `sqlc.yaml` / `sqlc.yml` / `sqlc.json` on autodiscovery |
 | Generate | `sqlc generate` | `sqlode generate` |
 | Init | `sqlc init` | `sqlode init` |
 | Vet/Verify | `sqlc vet`, `sqlc verify` | Not supported |
@@ -593,7 +593,7 @@ sqlode follows sqlc conventions, so most SQL files work without changes. Key dif
 ### Migration steps
 
 1. Install sqlode (see [Install](#install) above).
-2. Copy your `sqlc.yaml` to `sqlode.yaml`. Keep `version: "2"` and the `sql` blocks. Replace the `gen` section:
+2. Keep your existing `sqlc.yaml` / `sqlc.yml` / `sqlc.json` in place — `sqlode generate` auto-discovers them in the current directory when `--config` is not passed. (The search order is `sqlode.yaml`, `sqlode.yml`, `sqlc.yaml`, `sqlc.yml`, `sqlc.json`; if more than one exists, pass `--config=<path>` to pick explicitly.) If you prefer a dedicated file, copy the config to `sqlode.yaml`. Either way keep `version: "2"` and the `sql` blocks. Replace the `gen` section:
 
    ```yaml
    gen:
