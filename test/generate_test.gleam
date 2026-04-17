@@ -27,6 +27,7 @@ fn base_block(overrides: model.Overrides) -> model.SqlBlock {
       emit_exact_table_names: False,
       omit_unused_models: False,
       vendor_runtime: False,
+      strict_views: False,
     ),
     overrides: overrides,
   )
@@ -284,6 +285,7 @@ pub fn module_qualified_custom_type_in_params_generates_import_test() {
         emit_exact_table_names: False,
         omit_unused_models: False,
         vendor_runtime: False,
+        strict_views: False,
       ),
       overrides: model.Overrides(
         type_overrides: [
@@ -365,6 +367,7 @@ pub fn rich_type_mapping_emits_semantic_aliases_test() {
         emit_exact_table_names: False,
         omit_unused_models: False,
         vendor_runtime: False,
+        strict_views: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -404,6 +407,7 @@ pub fn strong_type_mapping_emits_wrapper_types_test() {
         emit_exact_table_names: False,
         omit_unused_models: False,
         vendor_runtime: False,
+        strict_views: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -486,6 +490,7 @@ pub fn exact_table_match_produces_alias_test() {
         emit_exact_table_names: False,
         omit_unused_models: False,
         vendor_runtime: False,
+        strict_views: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -638,6 +643,7 @@ fn join_rename_block(renames: List(model.ColumnRename)) -> model.SqlBlock {
       emit_exact_table_names: False,
       omit_unused_models: False,
       vendor_runtime: False,
+      strict_views: False,
     ),
     overrides: model.Overrides(type_overrides: [], column_renames: renames),
   )
@@ -788,6 +794,7 @@ fn nullable_block(overrides: model.Overrides) -> model.SqlBlock {
       emit_exact_table_names: False,
       omit_unused_models: False,
       vendor_runtime: False,
+      strict_views: False,
     ),
     overrides: overrides,
   )
@@ -895,6 +902,7 @@ fn all_commands_block(
       emit_exact_table_names: False,
       omit_unused_models: False,
       vendor_runtime: False,
+      strict_views: False,
     ),
     overrides: model.empty_overrides(),
   )
@@ -1030,6 +1038,7 @@ pub fn run_with_missing_schema_file_test() {
         emit_exact_table_names: False,
         omit_unused_models: False,
         vendor_runtime: False,
+        strict_views: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1056,6 +1065,7 @@ pub fn run_with_missing_query_file_test() {
         emit_exact_table_names: False,
         omit_unused_models: False,
         vendor_runtime: False,
+        strict_views: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1083,6 +1093,7 @@ pub fn run_with_no_queries_in_file_test() {
         emit_exact_table_names: False,
         omit_unused_models: False,
         vendor_runtime: False,
+        strict_views: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1110,6 +1121,7 @@ pub fn execresult_rejected_on_native_runtime_test() {
         emit_exact_table_names: False,
         omit_unused_models: False,
         vendor_runtime: False,
+        strict_views: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1136,6 +1148,7 @@ pub fn execresult_allowed_on_raw_runtime_test() {
         emit_exact_table_names: False,
         omit_unused_models: False,
         vendor_runtime: False,
+        strict_views: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1161,6 +1174,7 @@ fn unsupported_annotation_block(query_file: String) -> model.SqlBlock {
       emit_exact_table_names: False,
       omit_unused_models: False,
       vendor_runtime: False,
+      strict_views: False,
     ),
     overrides: model.empty_overrides(),
   )
@@ -1224,6 +1238,7 @@ fn compound_block() -> model.SqlBlock {
       emit_exact_table_names: False,
       omit_unused_models: False,
       vendor_runtime: False,
+      strict_views: False,
     ),
     overrides: model.empty_overrides(),
   )
@@ -1305,6 +1320,7 @@ fn view_block() -> model.SqlBlock {
       emit_exact_table_names: False,
       omit_unused_models: False,
       vendor_runtime: False,
+      strict_views: False,
     ),
     overrides: model.empty_overrides(),
   )
@@ -1383,6 +1399,7 @@ pub fn invalid_out_path_rejected_test() {
         emit_exact_table_names: False,
         omit_unused_models: False,
         vendor_runtime: False,
+        strict_views: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1416,6 +1433,7 @@ pub fn accept_directory_for_schema_and_queries_test() {
         emit_exact_table_names: False,
         omit_unused_models: False,
         vendor_runtime: False,
+        strict_views: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1447,6 +1465,7 @@ pub fn mixed_file_and_directory_inputs_test() {
         emit_exact_table_names: False,
         omit_unused_models: False,
         vendor_runtime: False,
+        strict_views: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1474,6 +1493,7 @@ pub fn reject_empty_schema_directory_test() {
         emit_exact_table_names: False,
         omit_unused_models: False,
         vendor_runtime: False,
+        strict_views: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1501,6 +1521,7 @@ pub fn reject_empty_query_directory_test() {
         emit_exact_table_names: False,
         omit_unused_models: False,
         vendor_runtime: False,
+        strict_views: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1530,6 +1551,7 @@ pub fn reject_duplicate_query_names_test() {
         emit_exact_table_names: False,
         omit_unused_models: False,
         vendor_runtime: False,
+        strict_views: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1560,6 +1582,7 @@ pub fn emit_sql_as_comment_includes_sql_in_output_test() {
         emit_exact_table_names: False,
         omit_unused_models: False,
         vendor_runtime: False,
+        strict_views: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1602,6 +1625,7 @@ pub fn emit_exact_table_names_skips_singularization_test() {
         emit_exact_table_names: True,
         omit_unused_models: False,
         vendor_runtime: False,
+        strict_views: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1646,6 +1670,7 @@ fn multi_table_block(omit_unused_models: Bool) -> model.SqlBlock {
       emit_exact_table_names: False,
       omit_unused_models: omit_unused_models,
       vendor_runtime: False,
+      strict_views: False,
     ),
     overrides: model.empty_overrides(),
   )
@@ -1697,6 +1722,7 @@ fn vendor_runtime_block(vendor_runtime: Bool) -> model.SqlBlock {
       emit_exact_table_names: False,
       omit_unused_models: False,
       vendor_runtime: vendor_runtime,
+      strict_views: False,
     ),
     overrides: model.empty_overrides(),
   )
@@ -1744,5 +1770,54 @@ pub fn vendor_runtime_emits_local_copy_and_rewrites_imports_test() {
   // inside the runtime file itself.
   runtime |> should.equal(actual_runtime)
 
+  cleanup()
+}
+
+// strict_views tests
+
+fn strict_views_block(strict_views: Bool) -> model.SqlBlock {
+  model.SqlBlock(
+    name: option.None,
+    engine: model.PostgreSQL,
+    schema: ["test/fixtures/strict_views_schema.sql"],
+    queries: ["test/fixtures/strict_views_query.sql"],
+    gleam: model.GleamOutput(
+      out: test_out,
+      runtime: model.Raw,
+      type_mapping: model.StringMapping,
+      emit_sql_as_comment: False,
+      emit_exact_table_names: False,
+      omit_unused_models: False,
+      vendor_runtime: False,
+      strict_views: strict_views,
+    ),
+    overrides: model.empty_overrides(),
+  )
+}
+
+pub fn strict_views_true_rejects_unresolvable_view_test() {
+  cleanup()
+  let cfg = model.Config(version: 2, sql: [strict_views_block(True)])
+  case generate.generate_config(cfg) {
+    Error(generate.SchemaParseError(detail)) -> {
+      string.contains(detail, "strict_views") |> should.be_true
+      string.contains(detail, "unknown_column") |> should.be_true
+    }
+    Error(other) -> {
+      // Any other error means the strict_views gate did not fire first.
+      panic as { "expected SchemaParseError, got " <> string.inspect(other) }
+    }
+    Ok(_) -> panic as "expected SchemaParseError when strict_views is True"
+  }
+  cleanup()
+}
+
+pub fn strict_views_false_preserves_legacy_silent_drop_test() {
+  cleanup()
+  // With strict_views disabled, the unresolvable view is silently dropped
+  // and generation proceeds. generate_config must succeed for the
+  // resolvable parts of the schema.
+  let cfg = model.Config(version: 2, sql: [strict_views_block(False)])
+  let assert Ok(_) = generate.generate_config(cfg)
   cleanup()
 }

@@ -108,7 +108,11 @@ fn generate_sql_block(
 fn load_and_prepare_catalog(
   block: model.SqlBlock,
 ) -> Result(model.Catalog, GenerateError) {
-  use raw_catalog <- result.try(load_catalog(block.schema, block.engine))
+  use raw_catalog <- result.try(load_catalog(
+    block.schema,
+    block.engine,
+    block.gleam.strict_views,
+  ))
   Ok(apply_type_overrides(raw_catalog, block.overrides.type_overrides))
 }
 
@@ -409,6 +413,7 @@ fn expand_sql_paths(
 fn load_catalog(
   paths: List(String),
   engine: model.Engine,
+  strict_views: Bool,
 ) -> Result(model.Catalog, GenerateError) {
   use expanded <- result.try(
     expand_sql_paths(paths, fn(path, detail) { SchemaReadError(path:, detail:) }),
@@ -435,11 +440,23 @@ fn load_catalog(
     }),
   )
 
-  list.each(warnings, fn(w) {
-    io.println_error(schema_parser.warning_to_string(w))
-  })
-
-  Ok(catalog)
+  case strict_views, warnings {
+    True, [_, ..] -> {
+      let detail =
+        "strict_views is enabled but the schema produced resolution warnings:\n  "
+        <> string.join(
+          list.map(warnings, schema_parser.warning_to_string),
+          "\n  ",
+        )
+      Error(SchemaParseError(detail:))
+    }
+    _, _ -> {
+      list.each(warnings, fn(w) {
+        io.println_error(schema_parser.warning_to_string(w))
+      })
+      Ok(catalog)
+    }
+  }
 }
 
 fn load_queries(

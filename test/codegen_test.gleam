@@ -198,6 +198,7 @@ pub fn render_sqlight_adapter_test() {
         emit_exact_table_names: False,
         omit_unused_models: False,
         vendor_runtime: False,
+        strict_views: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -266,6 +267,7 @@ pub fn render_pog_adapter_slice_test() {
         emit_exact_table_names: False,
         omit_unused_models: False,
         vendor_runtime: False,
+        strict_views: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -304,6 +306,7 @@ pub fn render_sqlight_adapter_slice_test() {
         emit_exact_table_names: False,
         omit_unused_models: False,
         vendor_runtime: False,
+        strict_views: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -465,6 +468,7 @@ pub fn render_adapter_uses_table_constructor_for_match_test() {
         emit_exact_table_names: False,
         omit_unused_models: False,
         vendor_runtime: False,
+        strict_views: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -510,6 +514,7 @@ fn test_block() -> model.SqlBlock {
       emit_exact_table_names: False,
       omit_unused_models: False,
       vendor_runtime: False,
+      strict_views: False,
     ),
     overrides: model.empty_overrides(),
   )
@@ -529,6 +534,7 @@ fn test_block_native() -> model.SqlBlock {
       emit_exact_table_names: False,
       omit_unused_models: False,
       vendor_runtime: False,
+      strict_views: False,
     ),
     overrides: model.empty_overrides(),
   )
@@ -612,6 +618,7 @@ pub fn render_enum_decoder_uses_decode_then_test() {
         emit_exact_table_names: False,
         omit_unused_models: False,
         vendor_runtime: False,
+        strict_views: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -684,6 +691,7 @@ pub fn render_pog_adapter_enum_slice_converts_to_string_test() {
         emit_exact_table_names: False,
         omit_unused_models: False,
         vendor_runtime: False,
+        strict_views: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -737,6 +745,7 @@ pub fn render_sqlight_adapter_enum_slice_converts_to_string_test() {
         emit_exact_table_names: False,
         omit_unused_models: False,
         vendor_runtime: False,
+        strict_views: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -897,6 +906,7 @@ fn readme_test_block() -> model.SqlBlock {
       emit_exact_table_names: False,
       omit_unused_models: False,
       vendor_runtime: False,
+      strict_views: False,
     ),
     overrides: model.empty_overrides(),
   )
@@ -1016,6 +1026,7 @@ pub fn render_pog_adapter_with_array_columns_test() {
         emit_exact_table_names: False,
         omit_unused_models: False,
         vendor_runtime: False,
+        strict_views: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1123,4 +1134,28 @@ pub fn escape_string_carriage_return_test() {
 
 pub fn escape_string_no_special_chars_test() {
   common.escape_string("hello world") |> should.equal("hello world")
+}
+
+// --- README runtime example snapshot tests ---
+// The README documents `runtime.prepare` and related runtime calls in code
+// fences. These tests read the README file and lock in that the examples
+// stay in sync with the actual runtime signatures, so a reader who
+// copy-pastes the README does not hit an immediate compile error.
+
+pub fn readme_runtime_prepare_is_two_arg_test() {
+  // runtime.prepare signature: pub fn prepare(query, params) -> #(String, List(Value))
+  // README must call it with exactly two arguments — the third "placeholder"
+  // argument was removed because the dialect is baked into RawQuery itself.
+  let assert Ok(readme) = simplifile.read("README.md")
+
+  // The example explicitly uses the 2-arg call shape.
+  string.contains(readme, "let #(sql, values) = runtime.prepare(")
+  |> should.be_true()
+
+  // Fail fast if anyone regresses the example back to a 3-arg call with the
+  // placeholder prefix string ("$" or "?").
+  string.contains(readme, "runtime.prepare(\n  q,\n  params.")
+  |> should.be_true()
+  string.contains(readme, "\"$\",  // \"$\" for PostgreSQL")
+  |> should.be_false()
 }
