@@ -223,14 +223,9 @@ fn parse_annotation(
   path: String,
   line_number: Int,
 ) -> Result(Option(PendingQuery), ParseError) {
-  case string.starts_with(line, "-- name:") {
-    False -> Ok(None)
-    True -> {
-      let rest =
-        line
-        |> string.replace("-- name:", "")
-        |> string.trim
-
+  case extract_annotation_payload(line) {
+    None -> Ok(None)
+    Some(rest) -> {
       let parts =
         string.split(rest, " ")
         |> list.map(string.trim)
@@ -261,8 +256,57 @@ fn parse_annotation(
           Error(InvalidAnnotation(
             path:,
             line: line_number,
-            detail: "expected '-- name: <Name> <command>' where command is one of: :one, :many, :exec, :execresult, :execrows, :execlastid",
+            detail: "expected '-- name: <Name> <command>' or '/* name: <Name> <command> */' where command is one of: :one, :many, :exec, :execresult, :execrows, :execlastid, :batchone, :batchmany, :batchexec, :copyfrom",
           ))
+      }
+    }
+  }
+}
+
+/// Extracts the annotation payload (the text after `name:` and before any
+/// terminator) from a trimmed line. Supports both `-- name: ...` and
+/// `/* name: ... */` forms. Returns None for non-annotation lines so callers
+/// can treat them as SQL body.
+fn extract_annotation_payload(line: String) -> Option(String) {
+  case extract_line_annotation(line) {
+    Some(payload) -> Some(payload)
+    None -> extract_block_annotation(line)
+  }
+}
+
+fn extract_line_annotation(line: String) -> Option(String) {
+  case string.starts_with(line, "-- name:") {
+    False -> None
+    True ->
+      line
+      |> string.replace("-- name:", "")
+      |> string.trim
+      |> Some
+  }
+}
+
+fn extract_block_annotation(line: String) -> Option(String) {
+  case string.starts_with(line, "/*") && string.ends_with(line, "*/") {
+    False -> None
+    True -> {
+      let inner =
+        line
+        |> string.drop_start(2)
+        |> string.drop_end(2)
+
+      case string.contains(inner, "*/") {
+        True -> None
+        False -> {
+          let inner_trimmed = string.trim(inner)
+          case string.starts_with(inner_trimmed, "name:") {
+            False -> None
+            True ->
+              inner_trimmed
+              |> string.replace("name:", "")
+              |> string.trim
+              |> Some
+          }
+        }
       }
     }
   }
