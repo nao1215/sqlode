@@ -445,3 +445,141 @@ pub fn parse_sql_type_bit_test() {
   model.parse_sql_type("BIT VARYING")
   |> should.equal(Ok(model.StringType))
 }
+
+// Normalized-type-parser regression tests (Issue #361)
+
+pub fn parse_sql_type_bigint_test() {
+  model.parse_sql_type("BIGINT")
+  |> should.equal(Ok(model.IntType))
+  model.parse_sql_type("bigint")
+  |> should.equal(Ok(model.IntType))
+}
+
+pub fn parse_sql_type_smallint_test() {
+  model.parse_sql_type("SMALLINT")
+  |> should.equal(Ok(model.IntType))
+}
+
+pub fn parse_sql_type_serial_family_test() {
+  model.parse_sql_type("SERIAL")
+  |> should.equal(Ok(model.IntType))
+  model.parse_sql_type("BIGSERIAL")
+  |> should.equal(Ok(model.IntType))
+  model.parse_sql_type("SMALLSERIAL")
+  |> should.equal(Ok(model.IntType))
+}
+
+pub fn parse_sql_type_numeric_with_precision_test() {
+  model.parse_sql_type("NUMERIC(10,2)")
+  |> should.equal(Ok(model.FloatType))
+  model.parse_sql_type("numeric ( 10 , 2 )")
+  |> should.equal(Ok(model.FloatType))
+}
+
+pub fn parse_sql_type_decimal_with_precision_test() {
+  model.parse_sql_type("DECIMAL(5)")
+  |> should.equal(Ok(model.FloatType))
+}
+
+pub fn parse_sql_type_double_precision_test() {
+  model.parse_sql_type("DOUBLE PRECISION")
+  |> should.equal(Ok(model.FloatType))
+}
+
+pub fn parse_sql_type_varchar_with_length_test() {
+  model.parse_sql_type("VARCHAR(32)")
+  |> should.equal(Ok(model.StringType))
+  model.parse_sql_type("varchar ( 32 )")
+  |> should.equal(Ok(model.StringType))
+}
+
+pub fn parse_sql_type_character_varying_test() {
+  model.parse_sql_type("CHARACTER VARYING")
+  |> should.equal(Ok(model.StringType))
+  model.parse_sql_type("character varying(100)")
+  |> should.equal(Ok(model.StringType))
+}
+
+pub fn parse_sql_type_timestamp_test() {
+  model.parse_sql_type("TIMESTAMP")
+  |> should.equal(Ok(model.DateTimeType))
+}
+
+pub fn parse_sql_type_timestamptz_test() {
+  model.parse_sql_type("TIMESTAMPTZ")
+  |> should.equal(Ok(model.DateTimeType))
+  model.parse_sql_type("TIMESTAMP WITH TIME ZONE")
+  |> should.equal(Ok(model.DateTimeType))
+  model.parse_sql_type("timestamp without time zone")
+  |> should.equal(Ok(model.DateTimeType))
+}
+
+pub fn parse_sql_type_time_with_time_zone_test() {
+  model.parse_sql_type("TIME WITH TIME ZONE")
+  |> should.equal(Ok(model.TimeType))
+  model.parse_sql_type("TIMETZ")
+  |> should.equal(Ok(model.TimeType))
+}
+
+pub fn parse_sql_type_boolean_test() {
+  model.parse_sql_type("BOOLEAN")
+  |> should.equal(Ok(model.BoolType))
+  model.parse_sql_type("BOOL")
+  |> should.equal(Ok(model.BoolType))
+}
+
+pub fn parse_sql_type_json_test() {
+  model.parse_sql_type("JSON")
+  |> should.equal(Ok(model.JsonType))
+  model.parse_sql_type("JSONB")
+  |> should.equal(Ok(model.JsonType))
+}
+
+pub fn parse_sql_type_whitespace_is_normalized_test() {
+  model.parse_sql_type("  TIMESTAMP   WITH   TIME ZONE  ")
+  |> should.equal(Ok(model.DateTimeType))
+}
+
+pub fn parse_sql_type_array_with_modifier_test() {
+  model.parse_sql_type("NUMERIC(10,2)[]")
+  |> should.equal(Ok(model.ArrayType(model.FloatType)))
+  model.parse_sql_type("VARCHAR(50)[]")
+  |> should.equal(Ok(model.ArrayType(model.StringType)))
+}
+
+pub fn parse_sql_type_array_keyword_suffix_test() {
+  model.parse_sql_type("INTEGER ARRAY")
+  |> should.equal(Ok(model.ArrayType(model.IntType)))
+}
+
+pub fn parse_sql_type_unknown_test() {
+  model.parse_sql_type("unknowntype")
+  |> should.equal(Error(Nil))
+  model.parse_sql_type("GEOMETRY")
+  |> should.equal(Error(Nil))
+}
+
+pub fn parse_sql_type_schema_qualified_is_unknown_test() {
+  model.parse_sql_type("public.my_enum")
+  |> should.equal(Error(Nil))
+}
+
+pub fn parse_sql_type_rejects_substring_false_positive_test() {
+  // "bigfloat" contains "float" but is not a real SQL type; under the
+  // substring matcher it resolved to FloatType. With normalized matching
+  // it is now correctly rejected.
+  model.parse_sql_type("bigfloat")
+  |> should.equal(Error(Nil))
+}
+
+pub fn parse_sql_type_point_is_string_not_int_test() {
+  // "point" contains "int" as a substring. The normalized parser must
+  // classify it as StringType without depending on rule ordering.
+  model.parse_sql_type("POINT")
+  |> should.equal(Ok(model.StringType))
+}
+
+pub fn parse_sql_type_interval_is_time_not_int_test() {
+  model.parse_sql_type("INTERVAL")
+  |> should.equal(Ok(model.TimeType))
+}

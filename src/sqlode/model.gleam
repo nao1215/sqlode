@@ -204,51 +204,19 @@ pub type EnumDef {
   EnumDef(name: String, values: List(String))
 }
 
-/// Parse a SQL type name into a ScalarType using substring matching.
-/// Used by both schema parsing (CREATE TABLE column types) and
-/// query analysis (PostgreSQL type casts like `$1::int`).
-/// Returns Error(Nil) for unrecognized types.
+/// Parse a SQL type name into a ScalarType by normalizing the type token
+/// (lowercasing, stripping modifiers and array markers, collapsing whitespace)
+/// and matching the base name against a fixed table of built-ins.
+///
+/// Used by both schema parsing (CREATE TABLE column types) and query analysis
+/// (PostgreSQL type casts like `$1::int`). Returns Error(Nil) for unrecognized
+/// types so callers can surface the original text in a precise diagnostic
+/// instead of guessing.
 pub fn parse_sql_type(type_text: String) -> Result(ScalarType, Nil) {
-  let lowered = string.lowercase(type_text)
-  // Detect PostgreSQL array syntax: TYPE[] or TYPE ARRAY
-  let #(base_type_text, is_array) = case string.ends_with(lowered, "[]") {
-    True -> #(string.drop_end(lowered, 2), True)
-    False ->
-      case string.ends_with(lowered, " array") {
-        True -> #(string.drop_end(lowered, 6), True)
-        False -> #(lowered, False)
-      }
-  }
-  // Order matters: check more specific patterns before general ones
-  // (e.g. "timestamp"/"datetime" before "time"/"date", "jsonb" before "json")
-  // Order matters: more specific patterns must come before general ones.
-  // "interval" before "int" (interval contains "int" as substring).
-  // "point" before "int" (point contains "int" as substring).
-  // "timestamp"/"datetime" before "time"/"date".
-  // "jsonb" before "json".
-  let type_rules = [
-    #(["double", "real", "float", "numeric", "decimal", "money"], FloatType),
-    #(["bool"], BoolType),
-    #(["bytea", "blob", "binary"], BytesType),
-    #(["uuid"], UuidType),
-    #(["jsonb", "json"], JsonType),
-    #(["timestamp", "datetime"], DateTimeType),
-    #(["date"], DateType),
-    #(["timetz", "interval"], TimeType),
-    #(
-      [
-        "citext", "inet", "cidr", "macaddr", "tsvector", "tsquery", "point",
-        "line", "lseg", "box", "path", "polygon", "circle", "xml", "bit",
-      ],
-      StringType,
-    ),
-    #(["int", "serial"], IntType),
-    #(["time"], TimeType),
-    #(["text", "char", "clob", "name", "string"], StringType),
-  ]
-  case find_matching_type(base_type_text, type_rules) {
+  let normalized = normalize_type_text(type_text)
+  case classify_normalized_base(normalized.base) {
     Ok(element_type) ->
-      case is_array {
+      case normalized.is_array {
         True -> Ok(ArrayType(element_type))
         False -> Ok(element_type)
       }
@@ -256,17 +224,168 @@ pub fn parse_sql_type(type_text: String) -> Result(ScalarType, Nil) {
   }
 }
 
-fn find_matching_type(
-  lowered: String,
-  rules: List(#(List(String), ScalarType)),
-) -> Result(ScalarType, Nil) {
-  case rules {
-    [] -> Error(Nil)
-    [#(patterns, scalar_type), ..rest] ->
-      case list.any(patterns, fn(p) { string.contains(lowered, p) }) {
-        True -> Ok(scalar_type)
-        False -> find_matching_type(lowered, rest)
+/// Classify by exact compound name first (e.g. "timestamp with time zone"),
+/// then fall back to the first whitespace-separated token so trailing
+/// garbage from unsupported column clauses (GENERATED, PARTITION BY) does
+/// not block recognition of the primary type keyword.
+fn classify_normalized_base(base: String) -> Result(ScalarType, Nil) {
+  case classify_builtin_type(base) {
+    Ok(t) -> Ok(t)
+    Error(Nil) ->
+      case string.split_once(base, " ") {
+        Ok(#(first_word, _)) -> classify_builtin_type(first_word)
+        Error(Nil) -> Error(Nil)
       }
+  }
+}
+
+type NormalizedType {
+  NormalizedType(base: String, is_array: Bool)
+}
+
+fn normalize_type_text(type_text: String) -> NormalizedType {
+  let lowered =
+    type_text
+    |> string.lowercase
+    |> string.trim
+  let #(without_array, is_array) = strip_array_suffix(lowered, False)
+  let without_modifier = strip_modifier(without_array)
+  let base =
+    without_modifier
+    |> collapse_whitespace
+    |> string.trim
+  NormalizedType(base:, is_array:)
+}
+
+fn strip_array_suffix(text: String, seen: Bool) -> #(String, Bool) {
+  let trimmed = string.trim_end(text)
+  case string.ends_with(trimmed, "[]") {
+    True -> strip_array_suffix(string.drop_end(trimmed, 2), True)
+    False ->
+      case string.ends_with(trimmed, " array") {
+        True -> strip_array_suffix(string.drop_end(trimmed, 6), True)
+        False -> #(trimmed, seen)
+      }
+  }
+}
+
+fn strip_modifier(text: String) -> String {
+  // Drop from the first "(" or ")" so both modifiers like "numeric(10,2)"
+  // and trailing fragments from surrounding SQL (e.g. a PARTITION BY
+  // clause that leaked into the column's type tokens) are discarded
+  // before classification.
+  let after_open = case string.split_once(text, "(") {
+    Ok(#(head, _)) -> head
+    Error(Nil) -> text
+  }
+  case string.split_once(after_open, ")") {
+    Ok(#(head, _)) -> head
+    Error(Nil) -> after_open
+  }
+}
+
+fn collapse_whitespace(text: String) -> String {
+  text
+  |> string.split(" ")
+  |> list.filter(fn(part) { part != "" })
+  |> string.join(" ")
+}
+
+fn classify_builtin_type(base: String) -> Result(ScalarType, Nil) {
+  case base {
+    "int"
+    | "int2"
+    | "int4"
+    | "int8"
+    | "integer"
+    | "smallint"
+    | "bigint"
+    | "mediumint"
+    | "tinyint"
+    | "serial"
+    | "serial2"
+    | "serial4"
+    | "serial8"
+    | "smallserial"
+    | "bigserial"
+    | "year" -> Ok(IntType)
+
+    "float"
+    | "float4"
+    | "float8"
+    | "real"
+    | "double"
+    | "double precision"
+    | "numeric"
+    | "decimal"
+    | "dec"
+    | "money"
+    | "smallmoney" -> Ok(FloatType)
+
+    "bool" | "boolean" -> Ok(BoolType)
+
+    "bytea"
+    | "blob"
+    | "longblob"
+    | "mediumblob"
+    | "tinyblob"
+    | "binary"
+    | "varbinary" -> Ok(BytesType)
+
+    "uuid" | "uniqueidentifier" -> Ok(UuidType)
+
+    "json" | "jsonb" -> Ok(JsonType)
+
+    "timestamp"
+    | "timestamptz"
+    | "timestamp with time zone"
+    | "timestamp without time zone"
+    | "datetime"
+    | "datetime2" -> Ok(DateTimeType)
+
+    "date" -> Ok(DateType)
+
+    "time"
+    | "timetz"
+    | "time with time zone"
+    | "time without time zone"
+    | "interval" -> Ok(TimeType)
+
+    "text"
+    | "char"
+    | "character"
+    | "character varying"
+    | "varchar"
+    | "bpchar"
+    | "nchar"
+    | "nvarchar"
+    | "clob"
+    | "nclob"
+    | "longtext"
+    | "mediumtext"
+    | "tinytext"
+    | "string"
+    | "name"
+    | "citext"
+    | "inet"
+    | "cidr"
+    | "macaddr"
+    | "macaddr8"
+    | "tsvector"
+    | "tsquery"
+    | "point"
+    | "line"
+    | "lseg"
+    | "box"
+    | "path"
+    | "polygon"
+    | "circle"
+    | "xml"
+    | "bit"
+    | "bit varying"
+    | "varbit" -> Ok(StringType)
+
+    _ -> Error(Nil)
   }
 }
 
