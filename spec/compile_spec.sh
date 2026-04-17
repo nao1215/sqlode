@@ -3,154 +3,70 @@
 
 Describe 'generated code compilation'
   Include "$SHELLSPEC_SPECDIR/spec_helper.sh"
+  # shellcheck source=integration_test/lib.sh
+  Include "$PROJECT_ROOT/integration_test/lib.sh"
 
   INTEGRATION_DIR="$PROJECT_ROOT/test_integration_tmp"
+  SCHEMA="$PROJECT_ROOT/test/fixtures/schema.sql"
+  QUERIES="$PROJECT_ROOT/test/fixtures/query.sql"
 
   setup_raw_project() {
-    rm -rf "$INTEGRATION_DIR"
-    mkdir -p "$INTEGRATION_DIR/src/db"
-
-    cat > "$INTEGRATION_DIR/gleam.toml" << TOML
-name = "integration_test"
-version = "0.1.0"
-target = "erlang"
-
-[dependencies]
-gleam_stdlib = ">= 0.44.0 and < 2.0.0"
-sqlode = { path = "$PROJECT_ROOT" }
-TOML
-
-    cat > "$INTEGRATION_DIR/sqlode.yaml" << YAML
-version: "2"
-sql:
-  - schema: "$PROJECT_ROOT/test/fixtures/schema.sql"
-    queries: "$PROJECT_ROOT/test/fixtures/query.sql"
-    engine: "postgresql"
-    gen:
-      gleam:
-        out: "$INTEGRATION_DIR/src/db"
-        runtime: "raw"
-YAML
+    integration_clean "$INTEGRATION_DIR"
+    integration_write_project \
+      --dir "$INTEGRATION_DIR" \
+      --engine postgresql \
+      --runtime raw \
+      --schema "$SCHEMA" \
+      --queries "$QUERIES"
   }
 
   setup_sqlight_project() {
-    rm -rf "$INTEGRATION_DIR"
-    mkdir -p "$INTEGRATION_DIR/src/db"
-
-    cat > "$INTEGRATION_DIR/gleam.toml" << TOML
-name = "integration_test"
-version = "0.1.0"
-target = "erlang"
-
-[dependencies]
-gleam_stdlib = ">= 0.44.0 and < 2.0.0"
-sqlight = ">= 1.0.0 and < 2.0.0"
-sqlode = { path = "$PROJECT_ROOT" }
-TOML
-
-    cat > "$INTEGRATION_DIR/sqlode.yaml" << YAML
-version: "2"
-sql:
-  - schema: "$PROJECT_ROOT/test/fixtures/schema.sql"
-    queries: "$PROJECT_ROOT/test/fixtures/query.sql"
-    engine: "sqlite"
-    gen:
-      gleam:
-        out: "$INTEGRATION_DIR/src/db"
-        runtime: "native"
-YAML
+    integration_clean "$INTEGRATION_DIR"
+    integration_write_project \
+      --dir "$INTEGRATION_DIR" \
+      --engine sqlite \
+      --runtime native \
+      --schema "$SCHEMA" \
+      --queries "$QUERIES"
   }
 
   setup_pog_project() {
-    rm -rf "$INTEGRATION_DIR"
-    mkdir -p "$INTEGRATION_DIR/src/db"
-
-    cat > "$INTEGRATION_DIR/gleam.toml" << TOML
-name = "integration_test"
-version = "0.1.0"
-target = "erlang"
-
-[dependencies]
-gleam_stdlib = ">= 0.44.0 and < 2.0.0"
-pog = ">= 4.0.0 and < 5.0.0"
-sqlode = { path = "$PROJECT_ROOT" }
-TOML
-
-    cat > "$INTEGRATION_DIR/sqlode.yaml" << YAML
-version: "2"
-sql:
-  - schema: "$PROJECT_ROOT/test/fixtures/schema.sql"
-    queries: "$PROJECT_ROOT/test/fixtures/query.sql"
-    engine: "postgresql"
-    gen:
-      gleam:
-        out: "$INTEGRATION_DIR/src/db"
-        runtime: "native"
-YAML
-  }
-
-  cleanup_project() {
-    rm -rf "$INTEGRATION_DIR"
-  }
-
-  generate_and_build() {
-    cd "$PROJECT_ROOT" && gleam run -- generate --config="$INTEGRATION_DIR/sqlode.yaml" 2>&1
-    cd "$INTEGRATION_DIR" && gleam build 2>&1
+    integration_clean "$INTEGRATION_DIR"
+    integration_write_project \
+      --dir "$INTEGRATION_DIR" \
+      --engine postgresql \
+      --runtime native \
+      --schema "$SCHEMA" \
+      --queries "$QUERIES"
   }
 
   setup_mysql_raw_project() {
-    rm -rf "$INTEGRATION_DIR"
-    mkdir -p "$INTEGRATION_DIR/src/db"
-
-    cat > "$INTEGRATION_DIR/gleam.toml" << TOML
-name = "integration_test"
-version = "0.1.0"
-target = "erlang"
-
-[dependencies]
-gleam_stdlib = ">= 0.44.0 and < 2.0.0"
-sqlode = { path = "$PROJECT_ROOT" }
-TOML
-
-    cat > "$INTEGRATION_DIR/sqlode.yaml" << YAML
-version: "2"
-sql:
-  - schema: "$PROJECT_ROOT/test/fixtures/mysql_schema.sql"
-    queries: "$PROJECT_ROOT/test/fixtures/mysql_query.sql"
-    engine: "mysql"
-    gen:
-      gleam:
-        out: "$INTEGRATION_DIR/src/db"
-        runtime: "raw"
-YAML
+    integration_clean "$INTEGRATION_DIR"
+    integration_write_project \
+      --dir "$INTEGRATION_DIR" \
+      --engine mysql \
+      --runtime raw \
+      --schema "$PROJECT_ROOT/test/fixtures/mysql_schema.sql" \
+      --queries "$PROJECT_ROOT/test/fixtures/mysql_query.sql"
   }
 
   setup_all_commands_sqlight_project() {
-    rm -rf "$INTEGRATION_DIR"
-    mkdir -p "$INTEGRATION_DIR/src/db"
+    integration_clean "$INTEGRATION_DIR"
+    integration_write_project \
+      --dir "$INTEGRATION_DIR" \
+      --engine sqlite \
+      --runtime native \
+      --schema "$PROJECT_ROOT/test/fixtures/all_commands_schema.sql" \
+      --queries "$PROJECT_ROOT/test/fixtures/all_commands_query.sql"
+  }
 
-    cat > "$INTEGRATION_DIR/gleam.toml" << TOML
-name = "integration_test"
-version = "0.1.0"
-target = "erlang"
+  cleanup_project() {
+    integration_clean "$INTEGRATION_DIR"
+  }
 
-[dependencies]
-gleam_stdlib = ">= 0.44.0 and < 2.0.0"
-sqlight = ">= 1.0.0 and < 2.0.0"
-sqlode = { path = "$PROJECT_ROOT" }
-TOML
-
-    cat > "$INTEGRATION_DIR/sqlode.yaml" << YAML
-version: "2"
-sql:
-  - schema: "$PROJECT_ROOT/test/fixtures/all_commands_schema.sql"
-    queries: "$PROJECT_ROOT/test/fixtures/all_commands_query.sql"
-    engine: "sqlite"
-    gen:
-      gleam:
-        out: "$INTEGRATION_DIR/src/db"
-        runtime: "native"
-YAML
+  generate_and_build() {
+    integration_generate "$INTEGRATION_DIR" 2>&1
+    integration_build "$INTEGRATION_DIR" 2>&1
   }
 
   Describe 'raw mode (params + queries + models)'

@@ -6,36 +6,16 @@
 set -eu
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+export PROJECT_ROOT
 INTEGRATION_DIR="$PROJECT_ROOT/test_integration_tmp"
 
+# shellcheck source=integration_test/lib.sh
+. "$PROJECT_ROOT/integration_test/lib.sh"
+
 cleanup() {
-  rm -rf "$INTEGRATION_DIR"
+  integration_clean "$INTEGRATION_DIR"
 }
 trap cleanup EXIT
-
-# Render the per-case gleam.toml and sqlode.yaml from tracked templates.
-# Templates live under integration_test/fixtures/ and use placeholders
-# {{PROJECT_ROOT}} / {{INTEGRATION_DIR}} / {{SCHEMA}} / {{QUERIES}} that
-# this function substitutes via sed.
-render_project() {
-  schema_path="$1"
-  queries_path="$2"
-
-  mkdir -p "$INTEGRATION_DIR/src/db"
-
-  sed \
-    -e "s|{{PROJECT_ROOT}}|$PROJECT_ROOT|g" \
-    "$PROJECT_ROOT/integration_test/fixtures/compile_test_gleam.toml.tmpl" \
-    > "$INTEGRATION_DIR/gleam.toml"
-
-  sed \
-    -e "s|{{PROJECT_ROOT}}|$PROJECT_ROOT|g" \
-    -e "s|{{INTEGRATION_DIR}}|$INTEGRATION_DIR|g" \
-    -e "s|{{SCHEMA}}|$schema_path|g" \
-    -e "s|{{QUERIES}}|$queries_path|g" \
-    "$PROJECT_ROOT/integration_test/fixtures/compile_test_sqlode.yaml.tmpl" \
-    > "$INTEGRATION_DIR/sqlode.yaml"
-}
 
 run_case() {
   label="$1"
@@ -46,15 +26,18 @@ run_case() {
   echo "--- $label ---"
 
   cleanup
-  render_project "$schema_path" "$queries_path"
+  integration_write_project \
+    --dir "$INTEGRATION_DIR" \
+    --engine postgresql \
+    --runtime raw \
+    --schema "$schema_path" \
+    --queries "$queries_path"
 
   echo "Generating code..."
-  cd "$PROJECT_ROOT"
-  gleam run -- generate --config="$INTEGRATION_DIR/sqlode.yaml"
+  integration_generate "$INTEGRATION_DIR"
 
   echo "Building generated project..."
-  cd "$INTEGRATION_DIR"
-  gleam build
+  integration_build "$INTEGRATION_DIR"
 
   echo "PASS: $label"
 }
