@@ -1674,6 +1674,115 @@ pub fn sqlite_upsert_with_excluded_test() {
   query.params |> list.length |> should.equal(3)
 }
 
+// --- Batch 4: USING clause, window FRAME, UNION compound, VALUES in FROM ---
+
+pub fn join_using_clause_test() {
+  // JOIN ... USING (col) is the SQL-standard equivalent of
+  // ON a.col = b.col. The column list inside USING(...) must not
+  // confuse table extraction or result column resolution.
+  let naming_ctx = naming.new()
+  let catalog = join_catalog()
+  let sql =
+    "-- name: BookAuthors :many\nSELECT books.title, authors.name FROM books JOIN authors USING (id);"
+  let assert Ok(queries) =
+    query_parser.parse_file("u.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  let assert [model.ScalarResult(title), model.ScalarResult(name)] =
+    query.result_columns
+  title.name |> should.equal("title")
+  name.name |> should.equal("name")
+}
+
+pub fn window_function_with_frame_clause_test() {
+  // SUM(x) OVER (PARTITION BY y ORDER BY z ROWS BETWEEN N PRECEDING
+  // AND CURRENT ROW) — frame keywords (rows, between, preceding,
+  // following, current, unbounded) must not derail the analyzer.
+  let sql =
+    "-- name: RunningTotal :many\nSELECT id, SUM(id) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS running FROM authors;"
+  let query = analyze_one(sql, test_catalog())
+  let assert [_id, model.ScalarResult(running_col)] = query.result_columns
+  running_col.name |> should.equal("running")
+  running_col.scalar_type |> should.equal(model.IntType)
+}
+
+pub fn window_function_with_partition_and_range_test() {
+  // RANGE BETWEEN ... AND ... is the alternative frame mode.
+  let sql =
+    "-- name: GroupedRank :many\nSELECT id, RANK() OVER (PARTITION BY name ORDER BY id RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS grp_rank FROM authors;"
+  let query = analyze_one(sql, test_catalog())
+  let assert [_id, model.ScalarResult(rank_col)] = query.result_columns
+  rank_col.name |> should.equal("grp_rank")
+  rank_col.scalar_type |> should.equal(model.IntType)
+}
+
+pub fn union_takes_types_from_first_branch_test() {
+  // Compound queries (UNION / INTERSECT / EXCEPT) currently use the
+  // first branch's column types. Types in subsequent branches are not
+  // matched (SQL itself errors at execution time on mismatch).
+  let sql =
+    "-- name: AllNames :many\nSELECT name FROM authors UNION SELECT name FROM authors;"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(name_col)] = query.result_columns
+  name_col.name |> should.equal("name")
+  name_col.scalar_type |> should.equal(model.StringType)
+}
+
+pub fn union_all_works_test() {
+  let sql =
+    "-- name: AllNamesAll :many\nSELECT name FROM authors UNION ALL SELECT name FROM authors;"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(name_col)] = query.result_columns
+  name_col.name |> should.equal("name")
+}
+
+pub fn intersect_works_test() {
+  let sql =
+    "-- name: SharedNames :many\nSELECT name FROM authors INTERSECT SELECT name FROM authors;"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(name_col)] = query.result_columns
+  name_col.name |> should.equal("name")
+}
+
+pub fn compound_column_count_mismatch_errors_test() {
+  // Branches with different column counts must error out at analysis
+  // time, before code generation.
+  let naming_ctx = naming.new()
+  let sql =
+    "-- name: Bad :many\nSELECT id, name FROM authors UNION SELECT name FROM authors;"
+  let assert Ok(queries) =
+    query_parser.parse_file("bad.sql", model.PostgreSQL, naming_ctx, sql)
+  let result =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      test_catalog(),
+      naming_ctx,
+      queries,
+    )
+  case result {
+    Error(context.CompoundColumnCountMismatch(..)) -> Nil
+    _ -> panic as "expected CompoundColumnCountMismatch"
+  }
+}
+
+pub fn values_in_from_returns_empty_columns_test() {
+  // VALUES in FROM with `AS t(id, name)` is not yet inferred. The
+  // analyzer skips the parenthesised subquery and finds no real
+  // table, so result_columns ends up empty. This pin documents the
+  // current behavior; replace with proper inference (alias + column
+  // list + literal type inference from the first row) when added.
+  let sql =
+    "-- name: FromValues :many\nSELECT t.id, t.name FROM (VALUES (1, 'alice'), (2, 'bob')) AS t(id, name);"
+  let query = analyze_one(sql, test_catalog())
+  query.result_columns |> should.equal([])
+}
+
 pub fn mysql_on_duplicate_key_update_test() {
   // MySQL: INSERT ... ON DUPLICATE KEY UPDATE col = VALUES(col)
   // Param count should be 2 (from the INSERT VALUES); VALUES(col) on
