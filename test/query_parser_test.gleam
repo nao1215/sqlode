@@ -724,3 +724,222 @@ pub fn skip_annotation_middle_query_test() {
   let names = list.map(queries, fn(q) { q.name })
   names |> should.equal(["First", "Third"])
 }
+
+// Block-comment annotation tests (sqlc-style `/* name: ... */`)
+
+pub fn parse_block_annotation_one_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "/* name: GetAuthor :one */\nSELECT id FROM authors WHERE id = $1;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+  query.name |> should.equal("GetAuthor")
+  query.function_name |> should.equal("get_author")
+  query.command |> should.equal(runtime.QueryOne)
+  query.param_count |> should.equal(1)
+}
+
+pub fn parse_block_annotation_many_test() {
+  let naming_ctx = naming.new()
+  let content = "/* name: ListAll :many */\nSELECT * FROM authors;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+  query.name |> should.equal("ListAll")
+  query.command |> should.equal(runtime.QueryMany)
+}
+
+pub fn parse_block_annotation_exec_test() {
+  let naming_ctx = naming.new()
+  let content = "/* name: InsertRow :exec */\nINSERT INTO t (v) VALUES ($1);"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+  query.name |> should.equal("InsertRow")
+  query.command |> should.equal(runtime.QueryExec)
+}
+
+pub fn parse_block_annotation_whitespace_tolerance_test() {
+  let naming_ctx = naming.new()
+  let content = "/*    name:   Spaced   :one    */\nSELECT 1;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+  query.name |> should.equal("Spaced")
+  query.command |> should.equal(runtime.QueryOne)
+}
+
+pub fn parse_block_annotation_no_inner_space_test() {
+  let naming_ctx = naming.new()
+  let content = "/*name: Tight :one*/\nSELECT 1;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+  query.name |> should.equal("Tight")
+  query.command |> should.equal(runtime.QueryOne)
+}
+
+pub fn parse_mixed_line_and_block_annotations_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: First :one\n"
+    <> "SELECT 1;\n"
+    <> "\n"
+    <> "/* name: Second :many */\n"
+    <> "SELECT 2;\n"
+    <> "\n"
+    <> "-- name: Third :exec\n"
+    <> "INSERT INTO t VALUES (1);\n"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("mixed.sql", model.PostgreSQL, naming_ctx, content)
+  list.length(queries) |> should.equal(3)
+
+  let assert [q1, q2, q3] = queries
+  q1.name |> should.equal("First")
+  q1.command |> should.equal(runtime.QueryOne)
+  q2.name |> should.equal("Second")
+  q2.command |> should.equal(runtime.QueryMany)
+  q3.name |> should.equal("Third")
+  q3.command |> should.equal(runtime.QueryExec)
+}
+
+pub fn parse_block_annotation_multiline_body_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "/* name: BigQuery :many */\n"
+    <> "SELECT id,\n"
+    <> "       name,\n"
+    <> "       bio\n"
+    <> "FROM authors\n"
+    <> "WHERE id = $1;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+  query.name |> should.equal("BigQuery")
+  query.param_count |> should.equal(1)
+}
+
+pub fn parse_block_annotation_with_macro_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "/* name: Search :many */\n"
+    <> "SELECT id FROM authors WHERE name = sqlode.arg(author_name);"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+  query.param_count |> should.equal(1)
+  list.length(query.macros) |> should.equal(1)
+}
+
+pub fn parse_block_annotation_body_with_regular_block_comment_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "/* name: WithComment :one */\n"
+    <> "SELECT id\n"
+    <> "/* just a regular comment */\n"
+    <> "FROM authors WHERE id = $1;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+  query.name |> should.equal("WithComment")
+  query.param_count |> should.equal(1)
+}
+
+pub fn parse_block_comment_other_directive_ignored_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: Real :one\n" <> "/* other: bogus :many */\n" <> "SELECT 1;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+  query.name |> should.equal("Real")
+  query.command |> should.equal(runtime.QueryOne)
+}
+
+pub fn parse_block_annotation_inline_sql_not_annotation_test() {
+  let naming_ctx = naming.new()
+  // Line does not end with */, so it's not a valid annotation line.
+  let content = "/* name: X :one */ SELECT 1;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+  queries |> should.equal([])
+}
+
+pub fn parse_block_annotation_unclosed_ignored_test() {
+  let naming_ctx = naming.new()
+  let content = "/* name: NotReally :one\nSELECT 1;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+  queries |> should.equal([])
+}
+
+pub fn parse_block_annotation_multiline_not_annotation_test() {
+  let naming_ctx = naming.new()
+  // Annotation text split across lines is not supported.
+  let content = "/* name: Split\n" <> " :one */\n" <> "SELECT 1;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+  queries |> should.equal([])
+}
+
+pub fn parse_block_annotation_invalid_command_test() {
+  let naming_ctx = naming.new()
+  let content = "/* name: Q :bogus */\nSELECT 1;"
+
+  let assert Error(error) =
+    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+  let msg = query_parser.error_to_string(error)
+  string.contains(msg, "must be one of") |> should.be_true()
+}
+
+pub fn parse_block_annotation_missing_command_test() {
+  let naming_ctx = naming.new()
+  let content = "/* name: OnlyName */\nSELECT 1;"
+
+  let assert Error(error) =
+    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+  let msg = query_parser.error_to_string(error)
+  string.contains(msg, "/* name:") |> should.be_true()
+}
+
+pub fn parse_block_annotation_missing_sql_body_test() {
+  let naming_ctx = naming.new()
+  let content = "/* name: NoBody :one */\n"
+
+  let assert Error(error) =
+    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+
+  query_parser.error_to_string(error)
+  |> should.equal("block.sql:1: query NoBody is missing SQL body")
+}
+
+pub fn skip_annotation_applies_to_block_annotation_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- sqlode:skip\n"
+    <> "/* name: Skipped :one */\n"
+    <> "SELECT 1;\n"
+    <> "\n"
+    <> "-- name: Kept :many\n"
+    <> "SELECT 2;\n"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+  query.name |> should.equal("Kept")
+  query.command |> should.equal(runtime.QueryMany)
+}
