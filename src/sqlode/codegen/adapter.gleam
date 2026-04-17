@@ -30,6 +30,12 @@ type AdapterConfig {
     render_exec_last_id: fn(String, String, String, List(model.QueryParam)) ->
       List(String),
     placeholder_prefix: String,
+    /// Gleam source text for a `value_to_<driver>` helper that converts
+    /// a `runtime.Value` into this driver's parameter type. Emitted
+    /// once per adapter file; each generated query function folds
+    /// `runtime.prepare(q, p)` through this helper instead of
+    /// re-encoding parameters per call.
+    value_to_driver_helper: String,
   )
 }
 
@@ -92,6 +98,7 @@ fn pog_adapter_config() -> AdapterConfig {
     render_exec_rows_result: render_pog_exec_rows_result,
     render_exec_last_id: render_pog_exec_last_id,
     placeholder_prefix: "$",
+    value_to_driver_helper: pog_value_to_driver_helper(),
   )
 }
 
@@ -109,7 +116,36 @@ fn sqlight_adapter_config() -> AdapterConfig {
     render_exec_rows_result: render_sqlight_exec_rows_result,
     render_exec_last_id: render_sqlight_exec_last_id,
     placeholder_prefix: "?",
+    value_to_driver_helper: sqlight_value_to_driver_helper(),
   )
+}
+
+fn pog_value_to_driver_helper() -> String {
+  "fn value_to_pog(value: runtime.Value) -> pog.Value {
+  case value {
+    runtime.SqlNull -> pog.null()
+    runtime.SqlString(v) -> pog.text(v)
+    runtime.SqlInt(v) -> pog.int(v)
+    runtime.SqlFloat(v) -> pog.float(v)
+    runtime.SqlBool(v) -> pog.bool(v)
+    runtime.SqlBytes(v) -> pog.bytea(v)
+    runtime.SqlArray(vs) -> pog.array(value_to_pog, vs)
+  }
+}"
+}
+
+fn sqlight_value_to_driver_helper() -> String {
+  "fn value_to_sqlight(value: runtime.Value) -> sqlight.Value {
+  case value {
+    runtime.SqlNull -> sqlight.null()
+    runtime.SqlString(v) -> sqlight.text(v)
+    runtime.SqlInt(v) -> sqlight.int(v)
+    runtime.SqlFloat(v) -> sqlight.float(v)
+    runtime.SqlBool(v) -> sqlight.bool(v)
+    runtime.SqlBytes(v) -> sqlight.blob(v)
+    runtime.SqlArray(_) -> sqlight.null()
+  }
+}"
 }
 
 // ============================================================
@@ -133,10 +169,14 @@ fn render_adapter(
       && !list.is_empty(query.result_columns)
     })
 
-  let has_slices = common.queries_have_slices(queries)
+  let has_params = list.any(queries, fn(q) { !list.is_empty(q.params) })
 
   let has_enums = common.queries_have_enums(queries)
 
+  // `list.fold` / `list.map` are used in every query function that has
+  // parameters; sqlight adapters additionally use `list.map` to feed
+  // the `with:` argument. Whenever any query carries params, the
+  // generated adapter needs the list module.
   let imports =
     list.flatten([
       [
@@ -144,7 +184,7 @@ fn render_adapter(
         "",
         "import gleam/dynamic/decode",
       ],
-      case has_slices {
+      case has_params {
         True -> ["import gleam/list"]
         False -> []
       },
@@ -184,7 +224,17 @@ fn render_adapter(
     |> list.map(render_adapter_function(ctx, _))
     |> string.join("\n\n")
 
-  string.join(list.flatten([imports, ["", functions]]), "\n")
+  let helper = value_to_driver_helper(config)
+
+  string.join(list.flatten([imports, ["", helper, "", functions]]), "\n")
+}
+
+/// Render a single `value_to_pog` / `value_to_sqlight` function per
+/// adapter file. Generated query functions fold the `runtime.Value`
+/// list returned by `runtime.prepare` through this helper, so param
+/// encoding lives in one place instead of being inlined per-param.
+fn value_to_driver_helper(config: AdapterConfig) -> String {
+  config.value_to_driver_helper
 }
 
 fn render_adapter_function(
@@ -624,91 +674,53 @@ fn render_adapter_exec_last_id(
 
 fn render_pog_query_call(
   _fn_name: String,
-  params_str: String,
+  _params_str: String,
   decoder: String,
   _sql_expr: String,
   params: List(model.QueryParam),
 ) -> List(String) {
-  let has_slices = common.has_slices(params)
-
-  let param_lines = case params_str {
-    "" -> []
-    _ ->
-      params_str
-      |> string.split("\n")
-      |> list.filter(fn(l) { l != "" })
-  }
-
-  let slice_expansion =
-    render_slice_expansion_line(params, "runtime.DollarNumbered")
-
-  case has_slices {
-    True ->
-      list.flatten([
-        ["  " <> slice_expansion, "  let query = pog.query(sql)"],
-        param_lines,
-        [
-          "  query",
-          "  |> pog.returning(" <> decoder <> ")",
-          "  |> pog.execute(db)",
-        ],
-      ])
-    False ->
-      list.flatten([
-        ["  " <> slice_expansion, "  pog.query(sql)"],
-        param_lines,
-        ["  |> pog.returning(" <> decoder <> ")", "  |> pog.execute(db)"],
-      ])
-  }
+  list.flatten([
+    render_prepare_lines("pog", "value_to_pog", params),
+    ["  |> pog.returning(" <> decoder <> ")", "  |> pog.execute(db)"],
+  ])
 }
 
-fn render_pog_params(params: List(model.QueryParam), _prefix: String) -> String {
-  let has_slices = common.has_slices(params)
-  case has_slices {
-    True -> render_pog_params_with_slices(params)
-    False -> render_pog_params_simple(params)
+/// No longer generates per-param `pog.parameter(...)` lines. Every
+/// generated query now reuses `runtime.prepare(q, p)` and folds the
+/// returned values through `value_to_pog`, so the param-string is
+/// redundant. Kept for the `AdapterConfig.render_params` field so the
+/// wider shape of the config record does not shift in this change.
+fn render_pog_params(_params: List(model.QueryParam), _prefix: String) -> String {
+  ""
+}
+
+/// Shared prepare-and-fold block used by every pog/sqlight query
+/// function. Emits one of two shapes depending on whether the query
+/// takes parameters: when it does, unpack `runtime.prepare(q, p)` and
+/// fold the returned values into `<driver>.query(sql)` through
+/// `value_to_<driver>`. When it does not, call `prepare(q, Nil)` and
+/// skip the fold entirely.
+fn render_prepare_lines(
+  driver: String,
+  value_to_driver: String,
+  params: List(model.QueryParam),
+) -> List(String) {
+  case list.is_empty(params) {
+    True -> [
+      "  let #(sql, _values) = runtime.prepare(q, Nil)",
+      "  " <> driver <> ".query(sql)",
+    ]
+    False -> [
+      "  let #(sql, values) = runtime.prepare(q, p)",
+      "  let query = " <> driver <> ".query(sql)",
+      "  let query = list.fold(values, query, fn(acc, v) { "
+        <> driver
+        <> ".parameter(acc, "
+        <> value_to_driver
+        <> "(v)) })",
+      "  query",
+    ]
   }
-}
-
-fn render_pog_params_simple(params: List(model.QueryParam)) -> String {
-  params
-  |> list.map(fn(param) {
-    let value_fn =
-      type_mapping.scalar_type_to_value_function(
-        model.PostgreSQL,
-        param.scalar_type,
-      )
-    "  |> pog.parameter("
-    <> render_param_value_expr("pog", value_fn, param)
-    <> ")"
-  })
-  |> string.join("\n")
-}
-
-fn render_pog_params_with_slices(params: List(model.QueryParam)) -> String {
-  params
-  |> list.map(fn(param) {
-    let value_fn =
-      type_mapping.scalar_type_to_value_function(
-        model.PostgreSQL,
-        param.scalar_type,
-      )
-    case param.is_list {
-      True -> {
-        let mapper = render_list_param_value_expr("pog", value_fn, param)
-        "  let query = list.fold(p."
-        <> param.field_name
-        <> ", query, fn(acc, v) { pog.parameter(acc, "
-        <> mapper
-        <> "(v)) })"
-      }
-      False ->
-        "  let query = pog.parameter(query, "
-        <> render_param_value_expr("pog", value_fn, param)
-        <> ")"
-    }
-  })
-  |> string.join("\n")
 }
 
 fn render_pog_one_result() -> List(String) {
@@ -725,23 +737,14 @@ fn render_pog_exec_rows_result() -> List(String) {
 
 fn render_pog_exec_last_id(
   _fn_name: String,
-  params_str: String,
+  _params_str: String,
   _sql_expr: String,
   params: List(model.QueryParam),
 ) -> List(String) {
-  let has_slices = common.has_slices(params)
-
-  let param_lines = case params_str {
-    "" -> []
-    _ ->
-      params_str
-      |> string.split("\n")
-      |> list.filter(fn(l) { l != "" })
-  }
-
-  // pog rows decode as positional arrays by default. Using `decode.int`
-  // at the row level tries to interpret the whole row as an integer and
-  // fails with UnexpectedResultType; decode the first column instead.
+  // pog rows decode as positional arrays by default. Decoding
+  // `decode.int` directly at the row level tries to interpret the
+  // whole row as an integer and fails with UnexpectedResultType; we
+  // decode the first column instead.
   let result_lines = [
     "  |> pog.returning({",
     "    use id <- decode.field(0, decode.int)",
@@ -750,24 +753,10 @@ fn render_pog_exec_last_id(
     "  |> pog.execute(db)",
     ..render_first_or_default("returned", "returned.rows", "0")
   ]
-
-  let slice_expansion =
-    render_slice_expansion_line(params, "runtime.DollarNumbered")
-
-  case has_slices {
-    True ->
-      list.flatten([
-        ["  " <> slice_expansion, "  let query = pog.query(sql)"],
-        param_lines,
-        ["  query", ..result_lines],
-      ])
-    False ->
-      list.flatten([
-        ["  " <> slice_expansion, "  pog.query(sql)"],
-        param_lines,
-        result_lines,
-      ])
-  }
+  list.flatten([
+    render_prepare_lines("pog", "value_to_pog", params),
+    result_lines,
+  ])
 }
 
 // ============================================================
@@ -776,83 +765,33 @@ fn render_pog_exec_last_id(
 
 fn render_sqlight_query_call(
   _fn_name: String,
-  params_str: String,
+  _params_str: String,
   decoder: String,
   _sql_expr: String,
   params: List(model.QueryParam),
 ) -> List(String) {
-  let slice_expansion =
-    render_slice_expansion_line(params, "runtime.QuestionNumbered")
+  let prepare_line = case list.is_empty(params) {
+    True -> "  let #(sql, values) = runtime.prepare(q, Nil)"
+    False -> "  let #(sql, values) = runtime.prepare(q, p)"
+  }
   [
-    "  " <> slice_expansion,
+    prepare_line,
     "  sqlight.query(",
     "    sql,",
     "    on: db,",
-    "    with: " <> params_str <> ",",
+    "    with: list.map(values, value_to_sqlight),",
     "    expecting: " <> decoder <> ",",
     "  )",
   ]
 }
 
+/// Unused under the prepare-and-fold adapter shape; see
+/// `render_pog_params` for the rationale.
 fn render_sqlight_params(
-  params: List(model.QueryParam),
+  _params: List(model.QueryParam),
   _prefix: String,
 ) -> String {
-  let has_slices = common.has_slices(params)
-  case has_slices {
-    True -> render_sqlight_params_with_slices(params)
-    False -> render_sqlight_params_simple(params)
-  }
-}
-
-fn render_sqlight_params_simple(params: List(model.QueryParam)) -> String {
-  case params {
-    [] -> "[]"
-    _ ->
-      "["
-      <> {
-        params
-        |> list.map(fn(param) {
-          let value_fn =
-            type_mapping.scalar_type_to_value_function(
-              model.SQLite,
-              param.scalar_type,
-            )
-          render_param_value_expr("sqlight", value_fn, param)
-        })
-        |> string.join(", ")
-      }
-      <> "]"
-  }
-}
-
-fn render_sqlight_params_with_slices(params: List(model.QueryParam)) -> String {
-  case params {
-    [] -> "[]"
-    _ ->
-      "list.flatten(["
-      <> {
-        params
-        |> list.map(fn(param) {
-          let value_fn =
-            type_mapping.scalar_type_to_value_function(
-              model.SQLite,
-              param.scalar_type,
-            )
-          case param.is_list {
-            True -> {
-              let mapper =
-                render_list_param_value_expr("sqlight", value_fn, param)
-              "list.map(p." <> param.field_name <> ", " <> mapper <> ")"
-            }
-            False ->
-              "[" <> render_param_value_expr("sqlight", value_fn, param) <> "]"
-          }
-        })
-        |> string.join(", ")
-      }
-      <> "])"
-  }
+  ""
 }
 
 fn render_sqlight_one_result() -> List(String) {
@@ -881,19 +820,21 @@ fn render_sqlight_exec_rows_result() -> List(String) {
 
 fn render_sqlight_exec_last_id(
   _fn_name: String,
-  params_str: String,
+  _params_str: String,
   _sql_expr: String,
   params: List(model.QueryParam),
 ) -> List(String) {
-  let slice_expansion =
-    render_slice_expansion_line(params, "runtime.QuestionNumbered")
+  let prepare_line = case list.is_empty(params) {
+    True -> "  let #(sql, values) = runtime.prepare(q, Nil)"
+    False -> "  let #(sql, values) = runtime.prepare(q, p)"
+  }
   list.flatten([
     [
-      "  " <> slice_expansion,
+      prepare_line,
       "  sqlight.query(",
       "    sql,",
       "    on: db,",
-      "    with: " <> params_str <> ",",
+      "    with: list.map(values, value_to_sqlight),",
       "    expecting: decode.success(Nil),",
       "  )",
       "  |> result.try(fn(_) {",
@@ -953,94 +894,6 @@ fn render_first_or_default(
     "    }",
     "  })",
   ]
-}
-
-fn render_param_value_expr(
-  lib: String,
-  value_fn: String,
-  param: model.QueryParam,
-) -> String {
-  let field_accessor = "p." <> param.field_name
-  case param.nullable {
-    False -> {
-      let field_expr = case param.scalar_type {
-        model.EnumType(name) ->
-          "models."
-          <> type_mapping.enum_to_string_fn(name)
-          <> "("
-          <> field_accessor
-          <> ")"
-        _ -> field_accessor
-      }
-      lib <> "." <> value_fn <> "(" <> field_expr <> ")"
-    }
-    True ->
-      case param.scalar_type {
-        model.EnumType(name) ->
-          lib
-          <> ".nullable(fn(v) { "
-          <> lib
-          <> "."
-          <> value_fn
-          <> "(models."
-          <> type_mapping.enum_to_string_fn(name)
-          <> "(v)) }, "
-          <> field_accessor
-          <> ")"
-        _ ->
-          lib
-          <> ".nullable("
-          <> lib
-          <> "."
-          <> value_fn
-          <> ", "
-          <> field_accessor
-          <> ")"
-      }
-  }
-}
-
-fn render_list_param_value_expr(
-  lib: String,
-  value_fn: String,
-  param: model.QueryParam,
-) -> String {
-  case param.scalar_type {
-    model.EnumType(name) ->
-      "fn(v) { "
-      <> lib
-      <> "."
-      <> value_fn
-      <> "(models."
-      <> type_mapping.enum_to_string_fn(name)
-      <> "(v)) }"
-    _ -> lib <> "." <> value_fn
-  }
-}
-
-fn render_slice_expansion_line(
-  params: List(model.QueryParam),
-  _style_expr: String,
-) -> String {
-  let slice_entries =
-    params
-    |> list.filter(fn(p) { p.is_list })
-    |> list.map(fn(p) {
-      "#("
-      <> int.to_string(p.index)
-      <> ", list.length(p."
-      <> p.field_name
-      <> "))"
-    })
-    |> string.join(", ")
-
-  let total_params = list.length(params)
-
-  "let sql = runtime.expand_slice_placeholders(q.sql, ["
-  <> slice_entries
-  <> "], "
-  <> int.to_string(total_params)
-  <> ", q.placeholder_style)"
 }
 
 fn needs_option_import_for_adapter(queries: List(model.AnalyzedQuery)) -> Bool {
