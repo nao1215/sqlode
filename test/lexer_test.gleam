@@ -181,6 +181,175 @@ pub fn bracket_identifier_sqlite_test() {
   ])
 }
 
+pub fn double_quoted_identifier_with_escaped_quote_postgresql_test() {
+  lexer.tokenize("SELECT \"foo\"\"bar\"", model.PostgreSQL)
+  |> should.equal([Keyword("select"), QuotedIdent("foo\"bar")])
+}
+
+pub fn double_quoted_identifier_with_escaped_quote_sqlite_test() {
+  lexer.tokenize("SELECT \"foo\"\"bar\"", model.SQLite)
+  |> should.equal([Keyword("select"), QuotedIdent("foo\"bar")])
+}
+
+pub fn backtick_identifier_with_escaped_backtick_mysql_test() {
+  lexer.tokenize("SELECT `foo``bar`", model.MySQL)
+  |> should.equal([Keyword("select"), QuotedIdent("foo`bar")])
+}
+
+pub fn mysql_double_quoted_string_with_escaped_quote_test() {
+  lexer.tokenize("SELECT \"hi\"\"there\"", model.MySQL)
+  |> should.equal([Keyword("select"), StringLit("hi\"there")])
+}
+
+// Bracket identifiers in SQLite have no escape mechanism for ];
+// the first ] closes the identifier and any trailing ] is parsed separately.
+pub fn bracket_identifier_no_escape_sqlite_test() {
+  let tokens = lexer.tokenize("SELECT [a]]b]", model.SQLite)
+  case tokens {
+    [Keyword("select"), QuotedIdent("a"), ..] -> Nil
+    _ -> panic as "bracket identifier should terminate at first ]"
+  }
+}
+
+pub fn rollup_cube_sets_are_keywords_test() {
+  lexer.tokenize("GROUP BY ROLLUP, CUBE, GROUPING SETS", model.PostgreSQL)
+  |> should.equal([
+    Keyword("group"),
+    Keyword("by"),
+    Keyword("rollup"),
+    Comma,
+    Keyword("cube"),
+    Comma,
+    Ident("GROUPING"),
+    Keyword("sets"),
+  ])
+}
+
+// --- JSON / Array operator tokenization (PostgreSQL) ---
+
+pub fn json_arrow_extract_operators_test() {
+  lexer.tokenize("data->'a' #> '{b,c}' #>> '{d}'", model.PostgreSQL)
+  |> should.equal([
+    Ident("data"),
+    Operator("->"),
+    StringLit("a"),
+    Operator("#>"),
+    StringLit("{b,c}"),
+    Operator("#>>"),
+    StringLit("{d}"),
+  ])
+}
+
+pub fn json_containment_operators_test() {
+  lexer.tokenize("a @> b AND c <@ d", model.PostgreSQL)
+  |> should.equal([
+    Ident("a"),
+    Operator("@>"),
+    Ident("b"),
+    Keyword("and"),
+    Ident("c"),
+    Operator("<@"),
+    Ident("d"),
+  ])
+}
+
+pub fn jsonb_key_existence_operators_test() {
+  lexer.tokenize("a ?| b AND c ?& d", model.PostgreSQL)
+  |> should.equal([
+    Ident("a"),
+    Operator("?|"),
+    Ident("b"),
+    Keyword("and"),
+    Ident("c"),
+    Operator("?&"),
+    Ident("d"),
+  ])
+}
+
+pub fn array_overlap_operator_test() {
+  lexer.tokenize("a && b", model.PostgreSQL)
+  |> should.equal([Ident("a"), Operator("&&"), Ident("b")])
+}
+
+// `?` alone must still tokenize as a SQLite/MySQL placeholder when no
+// `|` or `&` follows.
+pub fn bare_question_mark_still_placeholder_test() {
+  lexer.tokenize("WHERE id = ?", model.SQLite)
+  |> should.equal([
+    Keyword("where"),
+    Ident("id"),
+    Operator("="),
+    Placeholder("?"),
+  ])
+}
+
+// --- Prefixed string literals: E'..', U&'..', B'..', X'..', N'..' ---
+
+pub fn pg_escape_string_literal_test() {
+  lexer.tokenize("SELECT E'hello'", model.PostgreSQL)
+  |> should.equal([Keyword("select"), StringLit("hello")])
+}
+
+pub fn pg_escape_string_lowercase_e_test() {
+  lexer.tokenize("SELECT e'hello'", model.PostgreSQL)
+  |> should.equal([Keyword("select"), StringLit("hello")])
+}
+
+pub fn bit_string_literal_test() {
+  lexer.tokenize("SELECT B'1010'", model.PostgreSQL)
+  |> should.equal([Keyword("select"), StringLit("1010")])
+}
+
+pub fn hex_string_literal_test() {
+  lexer.tokenize("SELECT X'ff'", model.PostgreSQL)
+  |> should.equal([Keyword("select"), StringLit("ff")])
+}
+
+pub fn unicode_string_literal_test() {
+  lexer.tokenize("SELECT U&'\\0061'", model.PostgreSQL)
+  |> should.equal([Keyword("select"), StringLit("\\0061")])
+}
+
+pub fn national_string_literal_test() {
+  // SQL standard N'...' for national character strings.
+  lexer.tokenize("SELECT N'hello'", model.MySQL)
+  |> should.equal([Keyword("select"), StringLit("hello")])
+}
+
+// `Email` (Ident starting with E) must still tokenize as Ident, not as
+// an E-prefixed string.
+pub fn ident_starting_with_e_is_still_ident_test() {
+  lexer.tokenize("SELECT Email FROM users", model.PostgreSQL)
+  |> should.equal([
+    Keyword("select"),
+    Ident("Email"),
+    Keyword("from"),
+    Ident("users"),
+  ])
+}
+
+pub fn mysql_hex_literal_0x_test() {
+  lexer.tokenize("SELECT 0xFF", model.MySQL)
+  |> should.equal([Keyword("select"), NumberLit("0xFF")])
+}
+
+pub fn mysql_hex_literal_lowercase_0x_test() {
+  lexer.tokenize("SELECT 0xabc", model.MySQL)
+  |> should.equal([Keyword("select"), NumberLit("0xabc")])
+}
+
+// 0 followed by a non-hex char is still a regular number followed by
+// whatever (here, a comma).
+pub fn zero_alone_is_number_test() {
+  lexer.tokenize("SELECT 0, 1", model.PostgreSQL)
+  |> should.equal([
+    Keyword("select"),
+    NumberLit("0"),
+    Comma,
+    NumberLit("1"),
+  ])
+}
+
 // --- Placeholder tests ---
 
 pub fn postgresql_placeholder_test() {

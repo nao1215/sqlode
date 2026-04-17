@@ -94,10 +94,18 @@ fn do_tokenize(
               let remaining = skip_line_comment(rest)
               do_tokenize(remaining, engine, acc)
             }
-            _ -> {
-              let #(op, remaining) = read_operator([g, ..rest])
-              do_tokenize(remaining, engine, [Operator(op), ..acc])
-            }
+            // PostgreSQL JSON path operators: #>> (text), #> (json)
+            _ ->
+              case rest {
+                [">", ">", ..after] ->
+                  do_tokenize(after, engine, [Operator("#>>"), ..acc])
+                [">", ..after] ->
+                  do_tokenize(after, engine, [Operator("#>"), ..acc])
+                _ -> {
+                  let #(op, remaining) = read_operator([g, ..rest])
+                  do_tokenize(remaining, engine, [Operator(op), ..acc])
+                }
+              }
           }
 
         // Single-quoted string literal
@@ -184,11 +192,20 @@ fn do_tokenize(
             _ -> do_tokenize(rest, engine, [Dot, ..acc])
           }
 
-        // Placeholder: ?, :name, @name
-        "?" -> {
-          let #(ph, remaining) = read_placeholder_question(rest, [g])
-          do_tokenize(remaining, engine, [Placeholder(ph), ..acc])
-        }
+        // Placeholder: ?, :name, @name. Also JSONB key-existence operators
+        // ?| (any) and ?& (all) take precedence over the SQLite/MySQL
+        // bare-`?` placeholder.
+        "?" ->
+          case rest {
+            ["|", ..after] ->
+              do_tokenize(after, engine, [Operator("?|"), ..acc])
+            ["&", ..after] ->
+              do_tokenize(after, engine, [Operator("?&"), ..acc])
+            _ -> {
+              let #(ph, remaining) = read_placeholder_question(rest, [g])
+              do_tokenize(remaining, engine, [Placeholder(ph), ..acc])
+            }
+          }
         ":" ->
           case rest {
             // PostgreSQL :: cast operator
@@ -206,6 +223,9 @@ fn do_tokenize(
           }
         "@" ->
           case rest {
+            // JSONB/Array containment: @>
+            [">", ..after] ->
+              do_tokenize(after, engine, [Operator("@>"), ..acc])
             [next, ..] ->
               case is_alpha_or_underscore(next) {
                 True -> {
@@ -220,17 +240,38 @@ fn do_tokenize(
         // Numbers
         _ ->
           case is_digit(g) {
-            True -> {
-              let #(num, remaining) = read_number(rest, [g])
-              do_tokenize(remaining, engine, [NumberLit(num), ..acc])
-            }
+            True ->
+              case g, rest {
+                // 0x/0X hex literal (MySQL, SQLite). Treat as a single
+                // numeric token so downstream sees one NumberLit, not
+                // 0 followed by an identifier.
+                "0", [x, ..hex_rest] if x == "x" || x == "X" -> {
+                  let #(digits, remaining) = read_hex_digits(hex_rest, [])
+                  do_tokenize(remaining, engine, [
+                    NumberLit("0" <> x <> digits),
+                    ..acc
+                  ])
+                }
+                _, _ -> {
+                  let #(num, remaining) = read_number(rest, [g])
+                  do_tokenize(remaining, engine, [NumberLit(num), ..acc])
+                }
+              }
             False ->
               case is_alpha_or_underscore(g) {
-                True -> {
-                  let #(word, remaining) = read_word(rest, [g])
-                  let token = classify_word(word)
-                  do_tokenize(remaining, engine, [token, ..acc])
-                }
+                True ->
+                  case detect_string_literal_prefix(g, rest) {
+                    option.Some(#(after_prefix, _kind)) -> {
+                      let #(content, remaining) =
+                        read_single_quoted_string(after_prefix, [])
+                      do_tokenize(remaining, engine, [StringLit(content), ..acc])
+                    }
+                    option.None -> {
+                      let #(word, remaining) = read_word(rest, [g])
+                      let token = classify_word(word)
+                      do_tokenize(remaining, engine, [token, ..acc])
+                    }
+                  }
                 // Operators and other characters
                 False -> {
                   let #(op, remaining) = read_operator([g, ..rest])
@@ -373,11 +414,58 @@ fn read_quoted(
 ) -> #(String, List(String)) {
   case input {
     [] -> #(acc |> list.reverse |> string.concat, [])
+    // SQL standard: a doubled closer inside the quotes is an escaped literal.
+    // SQLite bracket identifiers ([...]) have no escape mechanism for ].
+    [g, g2, ..rest] if g == closer && g2 == closer && closer != "]" ->
+      read_quoted(rest, closer, [g, ..acc])
     [g, ..rest] ->
       case g == closer {
         True -> #(acc |> list.reverse |> string.concat, rest)
         False -> read_quoted(rest, closer, [g, ..acc])
       }
+  }
+}
+
+/// Detect SQL prefixed string literals: E'..', U&'..', B'..', X'..', N'..'.
+/// Returns the tokens after the prefix and a tag describing the kind, so
+/// the caller can read the body via read_single_quoted_string. Case
+/// insensitive on the prefix character.
+fn detect_string_literal_prefix(
+  g: String,
+  rest: List(String),
+) -> option.Option(#(List(String), String)) {
+  case g, rest {
+    p, ["'", ..after] if p == "E" || p == "e" -> option.Some(#(after, "escape"))
+    p, ["'", ..after] if p == "B" || p == "b" -> option.Some(#(after, "bit"))
+    p, ["'", ..after] if p == "X" || p == "x" -> option.Some(#(after, "hex"))
+    p, ["'", ..after] if p == "N" || p == "n" ->
+      option.Some(#(after, "national"))
+    p, ["&", "'", ..after] if p == "U" || p == "u" ->
+      option.Some(#(after, "unicode"))
+    _, _ -> option.None
+  }
+}
+
+fn read_hex_digits(
+  input: List(String),
+  acc: List(String),
+) -> #(String, List(String)) {
+  case input {
+    [g, ..rest] ->
+      case is_hex_digit(g) {
+        True -> read_hex_digits(rest, [g, ..acc])
+        False -> #(acc |> list.reverse |> string.concat, input)
+      }
+    [] -> #(acc |> list.reverse |> string.concat, [])
+  }
+}
+
+fn is_hex_digit(g: String) -> Bool {
+  case g {
+    "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" -> True
+    "a" | "b" | "c" | "d" | "e" | "f" -> True
+    "A" | "B" | "C" | "D" | "E" | "F" -> True
+    _ -> False
   }
 }
 
@@ -427,6 +515,9 @@ fn is_sql_keyword(word: String) -> Bool {
     | "order"
     | "by"
     | "group"
+    | "rollup"
+    | "cube"
+    | "sets"
     | "having"
     | "limit"
     | "offset"
@@ -605,9 +696,11 @@ fn read_operator(input: List(String)) -> #(String, List(String)) {
     // Multi-char operators
     ["<", ">", ..rest] -> #("<>", rest)
     ["<", "=", ..rest] -> #("<=", rest)
+    ["<", "@", ..rest] -> #("<@", rest)
     [">", "=", ..rest] -> #(">=", rest)
     ["!", "=", ..rest] -> #("!=", rest)
     ["|", "|", ..rest] -> #("||", rest)
+    ["&", "&", ..rest] -> #("&&", rest)
     ["-", ">", ">", ..rest] -> #("->>", rest)
     ["-", ">", ..rest] -> #("->", rest)
     // Single-char operators

@@ -733,6 +733,44 @@ pub fn left_join_makes_right_table_nullable_test() {
   ])
 }
 
+pub fn aliased_qualified_column_with_left_join_test() {
+  // Regression: `authors.name AS author_name` with LEFT JOIN previously
+  // failed because the catalog was looked up by the alias "author_name"
+  // instead of the real column "name", then fell through to expression-
+  // based inference which lost the LEFT JOIN nullability.
+  let naming_ctx = naming.new()
+  let catalog = join_catalog()
+  let sql =
+    "-- name: GetBookWithAuthor :one\nSELECT books.title, authors.name AS author_name FROM books LEFT JOIN authors ON books.author_id = authors.id WHERE books.id = $1;"
+  let assert Ok(queries) =
+    query_parser.parse_file("alj.sql", model.PostgreSQL, naming_ctx, sql)
+
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+
+  query.result_columns
+  |> should.equal([
+    model.ScalarResult(model.ResultColumn(
+      name: "title",
+      scalar_type: model.StringType,
+      nullable: False,
+      source_table: Some("books"),
+    )),
+    model.ScalarResult(model.ResultColumn(
+      name: "author_name",
+      scalar_type: model.StringType,
+      nullable: True,
+      source_table: Some("authors"),
+    )),
+  ])
+}
+
 pub fn right_join_makes_left_table_nullable_test() {
   let naming_ctx = naming.new()
   let catalog = join_catalog()
@@ -1371,4 +1409,406 @@ pub fn ntile_window_function_infers_int_test() {
   let assert [query] = analyzed
   let assert [_id, model.ScalarResult(q_col)] = query.result_columns
   q_col.scalar_type |> should.equal(model.IntType)
+}
+
+// --- Batch 1: GROUP BY ROLLUP / CUBE / GROUPING SETS, FILTER, DISTINCT ON,
+//     ANY/ALL subquery operators ---
+
+fn analyze_one(sql: String, catalog: model.Catalog) -> model.AnalyzedQuery {
+  let naming_ctx = naming.new()
+  let assert Ok(queries) =
+    query_parser.parse_file("b1.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  query
+}
+
+pub fn group_by_rollup_does_not_break_select_inference_test() {
+  let sql =
+    "-- name: AuthorsByName :many\nSELECT name, COUNT(*) AS total FROM authors GROUP BY ROLLUP(name);"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(name_col), model.ScalarResult(total_col)] =
+    query.result_columns
+  name_col.name |> should.equal("name")
+  name_col.scalar_type |> should.equal(model.StringType)
+  total_col.name |> should.equal("total")
+  total_col.scalar_type |> should.equal(model.IntType)
+}
+
+pub fn group_by_cube_does_not_break_select_inference_test() {
+  let sql =
+    "-- name: AuthorsByCube :many\nSELECT name, COUNT(*) AS total FROM authors GROUP BY CUBE(name);"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(name_col), model.ScalarResult(total_col)] =
+    query.result_columns
+  name_col.scalar_type |> should.equal(model.StringType)
+  total_col.scalar_type |> should.equal(model.IntType)
+}
+
+pub fn group_by_grouping_sets_does_not_break_select_inference_test() {
+  let sql =
+    "-- name: AuthorsByGS :many\nSELECT name, COUNT(*) AS total FROM authors GROUP BY GROUPING SETS ((name), ());"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(name_col), model.ScalarResult(total_col)] =
+    query.result_columns
+  name_col.scalar_type |> should.equal(model.StringType)
+  total_col.scalar_type |> should.equal(model.IntType)
+}
+
+pub fn filter_clause_after_aggregate_test() {
+  // SUM(...) FILTER (WHERE ...) — the FILTER clause must not break
+  // result column extraction or aggregate type inference.
+  let sql =
+    "-- name: SumPositive :one\nSELECT SUM(id) FILTER (WHERE id > 0) AS positive FROM authors;"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(col)] = query.result_columns
+  col.name |> should.equal("positive")
+  col.scalar_type |> should.equal(model.IntType)
+}
+
+pub fn distinct_on_skips_column_list_test() {
+  // DISTINCT ON (col) prefix must not be picked up as a result column.
+  let sql =
+    "-- name: LatestPerName :many\nSELECT DISTINCT ON (name) id, name FROM authors ORDER BY name, id DESC;"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(id_col), model.ScalarResult(name_col)] =
+    query.result_columns
+  id_col.name |> should.equal("id")
+  name_col.name |> should.equal("name")
+}
+
+pub fn any_subquery_in_where_test() {
+  // `id = ANY (SELECT ...)` should not derail SELECT inference.
+  let sql =
+    "-- name: AuthorsAnyId :many\nSELECT id, name FROM authors WHERE id = ANY (SELECT id FROM authors);"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(id_col), model.ScalarResult(name_col)] =
+    query.result_columns
+  id_col.name |> should.equal("id")
+  name_col.name |> should.equal("name")
+}
+
+pub fn all_subquery_in_where_test() {
+  let sql =
+    "-- name: AuthorsAllId :many\nSELECT id, name FROM authors WHERE id > ALL (SELECT id FROM authors);"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(id_col), model.ScalarResult(name_col)] =
+    query.result_columns
+  id_col.name |> should.equal("id")
+  name_col.name |> should.equal("name")
+}
+
+// --- Batch 2: JSON / Array operator type inference ---
+
+fn extended_catalog() -> model.Catalog {
+  let assert Ok(content) = simplifile.read("test/fixtures/extended_schema.sql")
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([
+      #("test/fixtures/extended_schema.sql", content),
+    ])
+  catalog
+}
+
+pub fn json_arrow_extract_returns_json_test() {
+  let sql =
+    "-- name: GetMeta :one\nSELECT id, metadata->'foo' AS extracted FROM events WHERE id = $1;"
+  let query = analyze_one(sql, extended_catalog())
+  let assert [_id, model.ScalarResult(col)] = query.result_columns
+  col.name |> should.equal("extracted")
+  col.scalar_type |> should.equal(model.JsonType)
+  col.nullable |> should.equal(True)
+}
+
+pub fn json_double_arrow_extract_returns_text_test() {
+  let sql =
+    "-- name: GetMetaText :one\nSELECT id, metadata->>'foo' AS extracted FROM events WHERE id = $1;"
+  let query = analyze_one(sql, extended_catalog())
+  let assert [_id, model.ScalarResult(col)] = query.result_columns
+  col.scalar_type |> should.equal(model.StringType)
+  col.nullable |> should.equal(True)
+}
+
+pub fn json_path_extract_returns_json_test() {
+  let sql =
+    "-- name: GetMetaPath :one\nSELECT id, metadata#>'{a,b}' AS extracted FROM events WHERE id = $1;"
+  let query = analyze_one(sql, extended_catalog())
+  let assert [_id, model.ScalarResult(col)] = query.result_columns
+  col.scalar_type |> should.equal(model.JsonType)
+}
+
+pub fn json_path_extract_text_returns_text_test() {
+  let sql =
+    "-- name: GetMetaPathText :one\nSELECT id, metadata#>>'{a,b}' AS extracted FROM events WHERE id = $1;"
+  let query = analyze_one(sql, extended_catalog())
+  let assert [_id, model.ScalarResult(col)] = query.result_columns
+  col.scalar_type |> should.equal(model.StringType)
+}
+
+pub fn json_containment_returns_bool_test() {
+  let sql =
+    "-- name: HasKey :one\nSELECT id, metadata @> '{}' AS contains FROM events WHERE id = $1;"
+  let query = analyze_one(sql, extended_catalog())
+  let assert [_id, model.ScalarResult(col)] = query.result_columns
+  col.scalar_type |> should.equal(model.BoolType)
+}
+
+pub fn array_overlap_returns_bool_test() {
+  let sql =
+    "-- name: ArrayOverlap :one\nSELECT id, metadata && '{}' AS overlap FROM events WHERE id = $1;"
+  let query = analyze_one(sql, extended_catalog())
+  let assert [_id, model.ScalarResult(col)] = query.result_columns
+  col.scalar_type |> should.equal(model.BoolType)
+}
+
+pub fn jsonb_key_existence_returns_bool_test() {
+  let sql =
+    "-- name: HasAnyKey :one\nSELECT id, metadata ?| '{a,b}' AS any_key FROM events WHERE id = $1;"
+  let query = analyze_one(sql, extended_catalog())
+  let assert [_id, model.ScalarResult(col)] = query.result_columns
+  col.scalar_type |> should.equal(model.BoolType)
+}
+
+// --- Batch 3: UPSERT (INSERT ... ON CONFLICT ... [DO UPDATE SET ...] RETURNING) ---
+
+pub fn upsert_with_excluded_reference_test() {
+  // Pure ON CONFLICT DO UPDATE SET col = EXCLUDED.col flow.
+  // Params come from VALUES only; the EXCLUDED reference is not a
+  // placeholder so it must not derail param inference.
+  let sql =
+    "-- name: UpsertAuthor :one\nINSERT INTO authors (id, name, bio) VALUES ($1, $2, $3) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, bio = EXCLUDED.bio RETURNING id, name, bio;"
+  let query = analyze_one(sql, test_catalog())
+  // Result columns from RETURNING
+  let assert [
+    model.ScalarResult(id_col),
+    model.ScalarResult(name_col),
+    model.ScalarResult(bio_col),
+  ] = query.result_columns
+  id_col.name |> should.equal("id")
+  id_col.scalar_type |> should.equal(model.IntType)
+  name_col.scalar_type |> should.equal(model.StringType)
+  bio_col.scalar_type |> should.equal(model.StringType)
+  // Three params, all from VALUES
+  query.params
+  |> should.equal([
+    model.QueryParam(
+      index: 1,
+      field_name: "id",
+      scalar_type: model.IntType,
+      nullable: False,
+      is_list: False,
+    ),
+    model.QueryParam(
+      index: 2,
+      field_name: "name",
+      scalar_type: model.StringType,
+      nullable: False,
+      is_list: False,
+    ),
+    model.QueryParam(
+      index: 3,
+      field_name: "bio",
+      scalar_type: model.StringType,
+      nullable: True,
+      is_list: False,
+    ),
+  ])
+}
+
+pub fn upsert_do_nothing_test() {
+  // ON CONFLICT DO NOTHING — no UPDATE, just suppresses the error.
+  let sql =
+    "-- name: InsertOrIgnore :one\nINSERT INTO authors (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING RETURNING id, name;"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(id_col), model.ScalarResult(name_col)] =
+    query.result_columns
+  id_col.name |> should.equal("id")
+  name_col.name |> should.equal("name")
+  query.params |> list.length |> should.equal(2)
+}
+
+pub fn upsert_with_set_placeholder_test() {
+  // UPDATE SET name = $3 introduces a third placeholder beyond the
+  // two in VALUES.
+  let sql =
+    "-- name: UpsertNameOverride :one\nINSERT INTO authors (id, name) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET name = $3 RETURNING id, name;"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(id_col), model.ScalarResult(name_col)] =
+    query.result_columns
+  id_col.name |> should.equal("id")
+  name_col.name |> should.equal("name")
+  // Three placeholders end up in the param list. param_count from the
+  // parser counts placeholder tokens; the SET-clause $3 must be picked
+  // up here too.
+  query.params |> list.length |> should.equal(3)
+}
+
+pub fn sqlite_upsert_with_excluded_test() {
+  // SQLite syntax: ON CONFLICT(col) DO UPDATE SET col = excluded.col
+  let naming_ctx = naming.new()
+  let assert Ok(content) =
+    simplifile.read("test/fixtures/sqlite_extended_schema.sql")
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files_with_engine(
+      [#("schema.sql", content)],
+      model.SQLite,
+    )
+  let sql =
+    "-- name: UpsertAuthorSqlite :one\nINSERT INTO authors (id, name, bio) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET name = excluded.name RETURNING id, name, bio;"
+  let assert Ok(queries) =
+    query_parser.parse_file("u.sql", model.SQLite, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, queries)
+  let assert [query] = analyzed
+  let assert [
+    model.ScalarResult(id_col),
+    model.ScalarResult(_name),
+    model.ScalarResult(_bio),
+  ] = query.result_columns
+  id_col.name |> should.equal("id")
+  query.params |> list.length |> should.equal(3)
+}
+
+// --- Batch 4: USING clause, window FRAME, UNION compound, VALUES in FROM ---
+
+pub fn join_using_clause_test() {
+  // JOIN ... USING (col) is the SQL-standard equivalent of
+  // ON a.col = b.col. The column list inside USING(...) must not
+  // confuse table extraction or result column resolution.
+  let naming_ctx = naming.new()
+  let catalog = join_catalog()
+  let sql =
+    "-- name: BookAuthors :many\nSELECT books.title, authors.name FROM books JOIN authors USING (id);"
+  let assert Ok(queries) =
+    query_parser.parse_file("u.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  let assert [model.ScalarResult(title), model.ScalarResult(name)] =
+    query.result_columns
+  title.name |> should.equal("title")
+  name.name |> should.equal("name")
+}
+
+pub fn window_function_with_frame_clause_test() {
+  // SUM(x) OVER (PARTITION BY y ORDER BY z ROWS BETWEEN N PRECEDING
+  // AND CURRENT ROW) — frame keywords (rows, between, preceding,
+  // following, current, unbounded) must not derail the analyzer.
+  let sql =
+    "-- name: RunningTotal :many\nSELECT id, SUM(id) OVER (ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS running FROM authors;"
+  let query = analyze_one(sql, test_catalog())
+  let assert [_id, model.ScalarResult(running_col)] = query.result_columns
+  running_col.name |> should.equal("running")
+  running_col.scalar_type |> should.equal(model.IntType)
+}
+
+pub fn window_function_with_partition_and_range_test() {
+  // RANGE BETWEEN ... AND ... is the alternative frame mode.
+  let sql =
+    "-- name: GroupedRank :many\nSELECT id, RANK() OVER (PARTITION BY name ORDER BY id RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS grp_rank FROM authors;"
+  let query = analyze_one(sql, test_catalog())
+  let assert [_id, model.ScalarResult(rank_col)] = query.result_columns
+  rank_col.name |> should.equal("grp_rank")
+  rank_col.scalar_type |> should.equal(model.IntType)
+}
+
+pub fn union_takes_types_from_first_branch_test() {
+  // Compound queries (UNION / INTERSECT / EXCEPT) currently use the
+  // first branch's column types. Types in subsequent branches are not
+  // matched (SQL itself errors at execution time on mismatch).
+  let sql =
+    "-- name: AllNames :many\nSELECT name FROM authors UNION SELECT name FROM authors;"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(name_col)] = query.result_columns
+  name_col.name |> should.equal("name")
+  name_col.scalar_type |> should.equal(model.StringType)
+}
+
+pub fn union_all_works_test() {
+  let sql =
+    "-- name: AllNamesAll :many\nSELECT name FROM authors UNION ALL SELECT name FROM authors;"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(name_col)] = query.result_columns
+  name_col.name |> should.equal("name")
+}
+
+pub fn intersect_works_test() {
+  let sql =
+    "-- name: SharedNames :many\nSELECT name FROM authors INTERSECT SELECT name FROM authors;"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(name_col)] = query.result_columns
+  name_col.name |> should.equal("name")
+}
+
+pub fn compound_column_count_mismatch_errors_test() {
+  // Branches with different column counts must error out at analysis
+  // time, before code generation.
+  let naming_ctx = naming.new()
+  let sql =
+    "-- name: Bad :many\nSELECT id, name FROM authors UNION SELECT name FROM authors;"
+  let assert Ok(queries) =
+    query_parser.parse_file("bad.sql", model.PostgreSQL, naming_ctx, sql)
+  let result =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      test_catalog(),
+      naming_ctx,
+      queries,
+    )
+  case result {
+    Error(context.CompoundColumnCountMismatch(..)) -> Nil
+    _ -> panic as "expected CompoundColumnCountMismatch"
+  }
+}
+
+pub fn values_in_from_returns_empty_columns_test() {
+  // VALUES in FROM with `AS t(id, name)` is not yet inferred. The
+  // analyzer skips the parenthesised subquery and finds no real
+  // table, so result_columns ends up empty. This pin documents the
+  // current behavior; replace with proper inference (alias + column
+  // list + literal type inference from the first row) when added.
+  let sql =
+    "-- name: FromValues :many\nSELECT t.id, t.name FROM (VALUES (1, 'alice'), (2, 'bob')) AS t(id, name);"
+  let query = analyze_one(sql, test_catalog())
+  query.result_columns |> should.equal([])
+}
+
+pub fn mysql_on_duplicate_key_update_test() {
+  // MySQL: INSERT ... ON DUPLICATE KEY UPDATE col = VALUES(col)
+  // Param count should be 2 (from the INSERT VALUES); VALUES(col) on
+  // the right side is a MySQL function reference, not a placeholder.
+  // Use the catalog from authors-style fixture.
+  let naming_ctx = naming.new()
+  let catalog =
+    model.Catalog(
+      tables: [
+        model.Table(name: "items", columns: [
+          model.Column(name: "id", scalar_type: model.IntType, nullable: False),
+          model.Column(
+            name: "name",
+            scalar_type: model.StringType,
+            nullable: False,
+          ),
+        ]),
+      ],
+      enums: [],
+    )
+  let sql =
+    "-- name: UpsertItem :exec\nINSERT INTO items (id, name) VALUES (?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name);"
+  let assert Ok(queries) =
+    query_parser.parse_file("u.sql", model.MySQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(model.MySQL, catalog, naming_ctx, queries)
+  let assert [query] = analyzed
+  query.params |> list.length |> should.equal(2)
 }
