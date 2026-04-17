@@ -164,10 +164,17 @@ pub fn render_pog_adapter_test() {
   string.contains(rendered, "import db/queries") |> should.be_true()
   string.contains(rendered, "pub fn get_author(db: pog.Connection")
   |> should.be_true()
-  string.contains(rendered, "runtime.expand_slice_placeholders(")
+  string.contains(
+    rendered,
+    "fn value_to_pog(value: runtime.Value) -> pog.Value",
+  )
   |> should.be_true()
+  string.contains(rendered, "runtime.prepare(q, p)") |> should.be_true()
   string.contains(rendered, "pog.query(sql)") |> should.be_true()
-  string.contains(rendered, "pog.parameter(pog.int(p.id))")
+  string.contains(
+    rendered,
+    "list.fold(values, query, fn(acc, v) { pog.parameter(acc, value_to_pog(v)) })",
+  )
   |> should.be_true()
   string.contains(rendered, "decode.success(models.GetAuthorRow(")
   |> should.be_true()
@@ -265,14 +272,16 @@ pub fn render_pog_adapter_slice_test() {
   let analyzed = analyzed_slice_queries(model.PostgreSQL)
   let rendered = adapter.render(naming_ctx, block, analyzed, dict.new())
 
-  // Should import runtime for slice expansion
+  // Should import runtime for slice expansion via runtime.prepare
   string.contains(rendered, "import sqlode/runtime")
   |> should.be_true()
-  // Should call expand_slice_placeholders
-  string.contains(rendered, "runtime.expand_slice_placeholders(")
-  |> should.be_true()
-  // Should use list.fold for slice param binding
-  string.contains(rendered, "list.fold(p.ids")
+  // Should call runtime.prepare(q, p) to unpack sql + values
+  string.contains(rendered, "runtime.prepare(q, p)") |> should.be_true()
+  // Should fold the Value list into pog parameters via value_to_pog
+  string.contains(
+    rendered,
+    "list.fold(values, query, fn(acc, v) { pog.parameter(acc, value_to_pog(v)) })",
+  )
   |> should.be_true()
   // Should use let query = style
   string.contains(rendered, "let query = pog.query(sql)")
@@ -301,13 +310,16 @@ pub fn render_sqlight_adapter_slice_test() {
   let analyzed = analyzed_slice_queries(model.SQLite)
   let rendered = adapter.render(naming_ctx, block, analyzed, dict.new())
 
-  // Should call expand_slice_placeholders with "?" prefix
-  string.contains(rendered, "runtime.expand_slice_placeholders(")
+  // Should use runtime.prepare to get sql + values in one call
+  string.contains(rendered, "runtime.prepare(q, p)") |> should.be_true()
+  // Should convert runtime.Value list into sqlight.Value list
+  string.contains(rendered, "list.map(values, value_to_sqlight)")
   |> should.be_true()
-  // Should use list.flatten for sqlight params
-  string.contains(rendered, "list.flatten(")
-  |> should.be_true()
-  string.contains(rendered, "list.map(p.ids, sqlight.")
+  // Helper function is emitted once at the top of the file
+  string.contains(
+    rendered,
+    "fn value_to_sqlight(value: runtime.Value) -> sqlight.Value",
+  )
   |> should.be_true()
 }
 
@@ -677,11 +689,24 @@ pub fn render_pog_adapter_enum_slice_converts_to_string_test() {
     )
   let rendered = adapter.render(naming_ctx, block, analyzed, dict.new())
 
-  // Slice enum params should call to_string before pog.text
+  // Under the prepare-and-fold shape, enum conversion happens in the
+  // params module's `*_values` function, not in the adapter. The
+  // adapter just folds `runtime.Value`s through `value_to_pog`, so the
+  // adapter source should contain the helper and the fold, and must
+  // not contain per-param enum-to-string conversions (those have
+  // already happened upstream in `params.*_values`).
+  string.contains(
+    rendered,
+    "fn value_to_pog(value: runtime.Value) -> pog.Value",
+  )
+  |> should.be_true()
+  string.contains(
+    rendered,
+    "list.fold(values, query, fn(acc, v) { pog.parameter(acc, value_to_pog(v)) })",
+  )
+  |> should.be_true()
   string.contains(rendered, "models.status_to_string(v)")
-  |> should.be_true()
-  string.contains(rendered, "pog.text(models.status_to_string(v))")
-  |> should.be_true()
+  |> should.be_false()
 }
 
 pub fn render_sqlight_adapter_enum_slice_converts_to_string_test() {
@@ -717,14 +742,18 @@ pub fn render_sqlight_adapter_enum_slice_converts_to_string_test() {
     )
   let rendered = adapter.render(naming_ctx, block, analyzed, dict.new())
 
-  // Slice enum params should call to_string before sqlight.text
-  string.contains(rendered, "models.status_to_string(v)")
-  |> should.be_true()
+  // Same story as the pog side: enum conversion now happens in
+  // `params.*_values`, so the adapter has the sqlight helper and
+  // the list.map-to-driver step instead of per-param conversions.
   string.contains(
     rendered,
-    "fn(v) { sqlight.text(models.status_to_string(v)) }",
+    "fn value_to_sqlight(value: runtime.Value) -> sqlight.Value",
   )
   |> should.be_true()
+  string.contains(rendered, "list.map(values, value_to_sqlight)")
+  |> should.be_true()
+  string.contains(rendered, "models.status_to_string(v)")
+  |> should.be_false()
 }
 
 // --- README snapshot tests ---
@@ -999,11 +1028,16 @@ pub fn render_pog_adapter_with_array_columns_test() {
   string.contains(rendered, "decode.list(decode.int)")
   |> should.be_true()
 
-  // Parameter encoding should use pog.array for array params
-  string.contains(rendered, "pog.array(pog.text)")
-  |> should.be_true()
-  string.contains(rendered, "pog.array(pog.int)")
-  |> should.be_true()
+  // With `runtime.prepare`, parameter encoding of array columns lives
+  // in the `params.*_values` function (which emits `runtime.array`).
+  // The adapter just folds `runtime.Value`s through `value_to_pog`,
+  // whose SqlArray case recurses with `pog.array(value_to_pog, ...)`.
+  // So the adapter should contain the recursive helper, but not
+  // `pog.array(pog.text)` / `pog.array(pog.int)` calls produced
+  // per-param by the old codegen path.
+  string.contains(rendered, "pog.array(value_to_pog, vs)") |> should.be_true()
+  string.contains(rendered, "pog.array(pog.text)") |> should.be_false()
+  string.contains(rendered, "pog.array(pog.int)") |> should.be_false()
 }
 
 fn array_test_catalog() -> model.Catalog {
