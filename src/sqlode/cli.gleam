@@ -3,6 +3,7 @@ import gleam/int
 import gleam/io
 import gleam/list
 import gleam/result
+import gleam/string
 import glint
 import simplifile
 import sqlode/generate
@@ -22,31 +23,47 @@ fn global_help_text() -> String {
   "Generate type-safe Gleam code from SQL files using sqlc-style config.
 
 Usage:
-  sqlode generate [--config=./sqlode.yaml]
+  sqlode generate [--config=<path>]
   sqlode init [--output=./sqlode.yaml] [--engine=postgresql|sqlite|mysql] [--runtime=raw|native]
   sqlode version
 
+Without --config, generate auto-discovers sqlode.yaml, sqlode.yml,
+sqlc.yaml, sqlc.yml, or sqlc.json in the current directory.
+
 Run `sqlode <command> --help` for details on each command."
 }
+
+/// Candidate config filenames searched, in order, when --config is not
+/// given. The first match wins; if two or more files exist the command
+/// fails with a message listing them so the user picks explicitly.
+const config_candidates = [
+  "sqlode.yaml", "sqlode.yml", "sqlc.yaml", "sqlc.yml", "sqlc.json",
+]
 
 fn generate_command() -> glint.Command(Nil) {
   {
     use config_path <- glint.flag(
       glint.string_flag("config")
-      |> glint.flag_default("./sqlode.yaml")
-      |> glint.flag_help("Path to config file (default: ./sqlode.yaml)"),
+      |> glint.flag_default("")
+      |> glint.flag_help(
+        "Path to config file. Default: auto-discover sqlode.yaml, sqlode.yml, sqlc.yaml, sqlc.yml, or sqlc.json in the current directory.",
+      ),
     )
 
     glint.command_help(
-      "Read sqlode.yaml, parse SQL schema and queries, emit Gleam code.
+      "Parse SQL schema and queries, emit Gleam code.
+
+Without --config, generate auto-discovers sqlode.yaml, sqlode.yml,
+sqlc.yaml, sqlc.yml, or sqlc.json in the current directory and fails
+if more than one candidate exists.
 
 Examples:
   sqlode generate
   sqlode generate --config=./custom.yaml",
       fn() {
         glint.command(fn(_named_args, _args, flags) {
-          let config_path = config_path(flags) |> result.unwrap("./sqlode.yaml")
-          run_generate(config_path)
+          let flag_value = config_path(flags) |> result.unwrap("")
+          run_generate(flag_value)
         })
       },
     )
@@ -103,23 +120,64 @@ fn version_command() -> glint.Command(Nil) {
   })
 }
 
-fn run_generate(config_path: String) -> Nil {
-  io.println("Loading config from: " <> config_path)
-
-  case generate.run(config_path) {
-    Ok(written) -> {
-      io.println("")
-      io.println(
-        "Successfully generated "
-        <> int.to_string(list.length(written))
-        <> " files",
-      )
-      list.each(written, fn(path) { io.println("  Generated: " <> path) })
-    }
-    Error(error) -> {
-      io.println_error("Error: " <> generate.error_to_string(error))
+fn run_generate(flag_value: String) -> Nil {
+  case resolve_config_path(flag_value) {
+    Error(message) -> {
+      io.println_error("Error: " <> message)
       halt(1)
     }
+    Ok(config_path) -> {
+      io.println("Loading config from: " <> config_path)
+
+      case generate.run(config_path) {
+        Ok(written) -> {
+          io.println("")
+          io.println(
+            "Successfully generated "
+            <> int.to_string(list.length(written))
+            <> " files",
+          )
+          list.each(written, fn(path) { io.println("  Generated: " <> path) })
+        }
+        Error(error) -> {
+          io.println_error("Error: " <> generate.error_to_string(error))
+          halt(1)
+        }
+      }
+    }
+  }
+}
+
+fn resolve_config_path(flag_value: String) -> Result(String, String) {
+  case flag_value {
+    "" -> autodiscover_config()
+    explicit -> Ok(explicit)
+  }
+}
+
+fn autodiscover_config() -> Result(String, String) {
+  let found =
+    list.filter(config_candidates, fn(path) {
+      case simplifile.is_file(path) {
+        Ok(True) -> True
+        _ -> False
+      }
+    })
+
+  case found {
+    [] ->
+      Error(
+        "No config file found. Looked for: "
+        <> string.join(config_candidates, ", ")
+        <> ". Create one with `sqlode init` or pass --config=<path>.",
+      )
+    [single] -> Ok(single)
+    multiple ->
+      Error(
+        "Multiple config files found: "
+        <> string.join(multiple, ", ")
+        <> ". Pick one explicitly with --config=<path>.",
+      )
   }
 }
 
