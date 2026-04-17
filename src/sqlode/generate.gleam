@@ -223,14 +223,18 @@ fn base_output_files(
   ]
 
   case has_models {
-    True ->
+    True -> {
+      let effective_catalog = case gleam.omit_unused_models {
+        True -> prune_catalog_to_used(catalog, analyzed)
+        False -> catalog
+      }
       list.append(files, [
         writer.GeneratedFile(
           directory: out,
           path: "models.gleam",
           content: models.render(
             naming_ctx,
-            catalog,
+            effective_catalog,
             analyzed,
             table_matches,
             gleam.type_mapping,
@@ -238,7 +242,93 @@ fn base_output_files(
           ),
         ),
       ])
+    }
     False -> files
+  }
+}
+
+/// Drop tables and enums from the catalog that no generated query
+/// actually references. A table is "used" when at least one analysed
+/// query names it as a `source_table` on a scalar result column, lists
+/// it via `EmbeddedResult`, or is carried by a `table_matches` alias
+/// (SELECT * on an exact table). An enum is "used" when one of the
+/// retained tables owns a column of that enum type, or when a query
+/// result column / parameter has that enum type.
+fn prune_catalog_to_used(
+  catalog: model.Catalog,
+  queries: List(model.AnalyzedQuery),
+) -> model.Catalog {
+  let referenced_tables = collect_referenced_tables(queries)
+
+  let retained_tables =
+    list.filter(catalog.tables, fn(t) {
+      list.contains(referenced_tables, t.name)
+    })
+
+  let referenced_enums = collect_referenced_enums(retained_tables, queries)
+  let retained_enums =
+    list.filter(catalog.enums, fn(e) { list.contains(referenced_enums, e.name) })
+
+  model.Catalog(tables: retained_tables, enums: retained_enums)
+}
+
+fn collect_referenced_tables(queries: List(model.AnalyzedQuery)) -> List(String) {
+  queries
+  |> list.flat_map(fn(query) {
+    list.flat_map(query.result_columns, fn(item) {
+      case item {
+        model.ScalarResult(col) ->
+          case col.source_table {
+            option.Some(name) -> [name]
+            option.None -> []
+          }
+        model.EmbeddedResult(embed) -> [embed.table_name]
+      }
+    })
+  })
+  |> list.unique
+}
+
+fn collect_referenced_enums(
+  retained_tables: List(model.Table),
+  queries: List(model.AnalyzedQuery),
+) -> List(String) {
+  let from_tables =
+    retained_tables
+    |> list.flat_map(fn(t) { t.columns })
+    |> list.filter_map(fn(c) { enum_name(c.scalar_type) })
+
+  let from_query_columns =
+    queries
+    |> list.flat_map(fn(q) {
+      list.flat_map(q.result_columns, fn(item) {
+        case item {
+          model.ScalarResult(col) ->
+            case enum_name(col.scalar_type) {
+              Ok(name) -> [name]
+              Error(Nil) -> []
+            }
+          model.EmbeddedResult(embed) ->
+            list.filter_map(embed.columns, fn(c) { enum_name(c.scalar_type) })
+        }
+      })
+    })
+
+  let from_query_params =
+    queries
+    |> list.flat_map(fn(q) {
+      list.filter_map(q.params, fn(p) { enum_name(p.scalar_type) })
+    })
+
+  list.append(from_tables, list.append(from_query_columns, from_query_params))
+  |> list.unique
+}
+
+fn enum_name(scalar_type: model.ScalarType) -> Result(String, Nil) {
+  case scalar_type {
+    model.EnumType(name) -> Ok(name)
+    model.ArrayType(inner) -> enum_name(inner)
+    _ -> Error(Nil)
   }
 }
 

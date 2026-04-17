@@ -25,6 +25,7 @@ fn base_block(overrides: model.Overrides) -> model.SqlBlock {
       type_mapping: model.StringMapping,
       emit_sql_as_comment: False,
       emit_exact_table_names: False,
+      omit_unused_models: False,
     ),
     overrides: overrides,
   )
@@ -280,6 +281,7 @@ pub fn module_qualified_custom_type_in_params_generates_import_test() {
         type_mapping: model.StringMapping,
         emit_sql_as_comment: False,
         emit_exact_table_names: False,
+        omit_unused_models: False,
       ),
       overrides: model.Overrides(
         type_overrides: [
@@ -359,6 +361,7 @@ pub fn rich_type_mapping_emits_semantic_aliases_test() {
         type_mapping: model.RichMapping,
         emit_sql_as_comment: False,
         emit_exact_table_names: False,
+        omit_unused_models: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -396,6 +399,7 @@ pub fn strong_type_mapping_emits_wrapper_types_test() {
         type_mapping: model.StrongMapping,
         emit_sql_as_comment: False,
         emit_exact_table_names: False,
+        omit_unused_models: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -476,6 +480,7 @@ pub fn exact_table_match_produces_alias_test() {
         type_mapping: model.StringMapping,
         emit_sql_as_comment: False,
         emit_exact_table_names: False,
+        omit_unused_models: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -626,6 +631,7 @@ fn join_rename_block(renames: List(model.ColumnRename)) -> model.SqlBlock {
       type_mapping: model.StringMapping,
       emit_sql_as_comment: False,
       emit_exact_table_names: False,
+      omit_unused_models: False,
     ),
     overrides: model.Overrides(type_overrides: [], column_renames: renames),
   )
@@ -774,6 +780,7 @@ fn nullable_block(overrides: model.Overrides) -> model.SqlBlock {
       type_mapping: model.StringMapping,
       emit_sql_as_comment: False,
       emit_exact_table_names: False,
+      omit_unused_models: False,
     ),
     overrides: overrides,
   )
@@ -879,6 +886,7 @@ fn all_commands_block(
       type_mapping: model.StringMapping,
       emit_sql_as_comment: False,
       emit_exact_table_names: False,
+      omit_unused_models: False,
     ),
     overrides: model.empty_overrides(),
   )
@@ -1012,6 +1020,7 @@ pub fn run_with_missing_schema_file_test() {
         type_mapping: model.StringMapping,
         emit_sql_as_comment: False,
         emit_exact_table_names: False,
+        omit_unused_models: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1036,6 +1045,7 @@ pub fn run_with_missing_query_file_test() {
         type_mapping: model.StringMapping,
         emit_sql_as_comment: False,
         emit_exact_table_names: False,
+        omit_unused_models: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1061,6 +1071,7 @@ pub fn run_with_no_queries_in_file_test() {
         type_mapping: model.StringMapping,
         emit_sql_as_comment: False,
         emit_exact_table_names: False,
+        omit_unused_models: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1086,6 +1097,7 @@ pub fn execresult_rejected_on_native_runtime_test() {
         type_mapping: model.StringMapping,
         emit_sql_as_comment: False,
         emit_exact_table_names: False,
+        omit_unused_models: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1110,6 +1122,7 @@ pub fn execresult_allowed_on_raw_runtime_test() {
         type_mapping: model.StringMapping,
         emit_sql_as_comment: False,
         emit_exact_table_names: False,
+        omit_unused_models: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1133,6 +1146,7 @@ fn unsupported_annotation_block(query_file: String) -> model.SqlBlock {
       type_mapping: model.StringMapping,
       emit_sql_as_comment: False,
       emit_exact_table_names: False,
+      omit_unused_models: False,
     ),
     overrides: model.empty_overrides(),
   )
@@ -1194,6 +1208,7 @@ fn compound_block() -> model.SqlBlock {
       type_mapping: model.StringMapping,
       emit_sql_as_comment: False,
       emit_exact_table_names: False,
+      omit_unused_models: False,
     ),
     overrides: model.empty_overrides(),
   )
@@ -1273,6 +1288,7 @@ fn view_block() -> model.SqlBlock {
       type_mapping: model.StringMapping,
       emit_sql_as_comment: False,
       emit_exact_table_names: False,
+      omit_unused_models: False,
     ),
     overrides: model.empty_overrides(),
   )
@@ -1349,6 +1365,7 @@ pub fn invalid_out_path_rejected_test() {
         type_mapping: model.StringMapping,
         emit_sql_as_comment: False,
         emit_exact_table_names: False,
+        omit_unused_models: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1380,6 +1397,7 @@ pub fn accept_directory_for_schema_and_queries_test() {
         type_mapping: model.StringMapping,
         emit_sql_as_comment: False,
         emit_exact_table_names: False,
+        omit_unused_models: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1409,6 +1427,7 @@ pub fn mixed_file_and_directory_inputs_test() {
         type_mapping: model.StringMapping,
         emit_sql_as_comment: False,
         emit_exact_table_names: False,
+        omit_unused_models: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1434,6 +1453,7 @@ pub fn reject_empty_schema_directory_test() {
         type_mapping: model.StringMapping,
         emit_sql_as_comment: False,
         emit_exact_table_names: False,
+        omit_unused_models: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1459,6 +1479,7 @@ pub fn reject_empty_query_directory_test() {
         type_mapping: model.StringMapping,
         emit_sql_as_comment: False,
         emit_exact_table_names: False,
+        omit_unused_models: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1486,6 +1507,7 @@ pub fn reject_duplicate_query_names_test() {
         type_mapping: model.StringMapping,
         emit_sql_as_comment: False,
         emit_exact_table_names: False,
+        omit_unused_models: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1514,6 +1536,7 @@ pub fn emit_sql_as_comment_includes_sql_in_output_test() {
         type_mapping: model.StringMapping,
         emit_sql_as_comment: True,
         emit_exact_table_names: False,
+        omit_unused_models: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1554,6 +1577,7 @@ pub fn emit_exact_table_names_skips_singularization_test() {
         type_mapping: model.StringMapping,
         emit_sql_as_comment: False,
         emit_exact_table_names: True,
+        omit_unused_models: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1578,6 +1602,56 @@ pub fn singularizes_table_names_by_default_test() {
   models
   |> string.contains("pub type Author {")
   |> should.be_true
+
+  cleanup()
+}
+
+// omit_unused_models tests (Issue #364)
+
+fn multi_table_block(omit_unused_models: Bool) -> model.SqlBlock {
+  model.SqlBlock(
+    name: option.None,
+    engine: model.PostgreSQL,
+    schema: ["test/fixtures/multi_table_schema.sql"],
+    queries: ["test/fixtures/multi_table_query.sql"],
+    gleam: model.GleamOutput(
+      out: test_out,
+      runtime: model.Raw,
+      type_mapping: model.StringMapping,
+      emit_sql_as_comment: False,
+      emit_exact_table_names: False,
+      omit_unused_models: omit_unused_models,
+    ),
+    overrides: model.empty_overrides(),
+  )
+}
+
+pub fn omit_unused_models_default_keeps_all_tables_test() {
+  cleanup()
+  run_generate(multi_table_block(False))
+  let models = read_generated("models.gleam")
+
+  // Default behaviour: both tables and both enums remain in models.gleam.
+  string.contains(models, "pub type Author {") |> should.be_true
+  string.contains(models, "pub type UnusedTable {") |> should.be_true
+  string.contains(models, "pub type UsedStatus {") |> should.be_true
+  string.contains(models, "pub type UnusedStatus {") |> should.be_true
+
+  cleanup()
+}
+
+pub fn omit_unused_models_drops_unreferenced_tables_test() {
+  cleanup()
+  run_generate(multi_table_block(True))
+  let models = read_generated("models.gleam")
+
+  // The referenced table/enum stay.
+  string.contains(models, "pub type Author {") |> should.be_true
+  string.contains(models, "pub type UsedStatus {") |> should.be_true
+
+  // The unused table and its enum are dropped.
+  string.contains(models, "pub type UnusedTable {") |> should.be_false
+  string.contains(models, "pub type UnusedStatus {") |> should.be_false
 
   cleanup()
 }

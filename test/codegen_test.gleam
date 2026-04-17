@@ -182,6 +182,7 @@ pub fn render_sqlight_adapter_test() {
         type_mapping: model.StringMapping,
         emit_sql_as_comment: False,
         emit_exact_table_names: False,
+        omit_unused_models: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -241,6 +242,7 @@ pub fn render_pog_adapter_slice_test() {
         type_mapping: model.StringMapping,
         emit_sql_as_comment: False,
         emit_exact_table_names: False,
+        omit_unused_models: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -275,6 +277,7 @@ pub fn render_sqlight_adapter_slice_test() {
         type_mapping: model.StringMapping,
         emit_sql_as_comment: False,
         emit_exact_table_names: False,
+        omit_unused_models: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -431,6 +434,7 @@ pub fn render_adapter_uses_table_constructor_for_match_test() {
         type_mapping: model.StringMapping,
         emit_sql_as_comment: False,
         emit_exact_table_names: False,
+        omit_unused_models: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -474,6 +478,7 @@ fn test_block() -> model.SqlBlock {
       type_mapping: model.StringMapping,
       emit_sql_as_comment: False,
       emit_exact_table_names: False,
+      omit_unused_models: False,
     ),
     overrides: model.empty_overrides(),
   )
@@ -491,6 +496,7 @@ fn test_block_native() -> model.SqlBlock {
       type_mapping: model.StringMapping,
       emit_sql_as_comment: False,
       emit_exact_table_names: False,
+      omit_unused_models: False,
     ),
     overrides: model.empty_overrides(),
   )
@@ -572,6 +578,7 @@ pub fn render_enum_decoder_uses_decode_then_test() {
         type_mapping: model.StringMapping,
         emit_sql_as_comment: False,
         emit_exact_table_names: False,
+        omit_unused_models: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -642,6 +649,7 @@ pub fn render_pog_adapter_enum_slice_converts_to_string_test() {
         type_mapping: model.StringMapping,
         emit_sql_as_comment: False,
         emit_exact_table_names: False,
+        omit_unused_models: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -680,6 +688,7 @@ pub fn render_sqlight_adapter_enum_slice_converts_to_string_test() {
         type_mapping: model.StringMapping,
         emit_sql_as_comment: False,
         emit_exact_table_names: False,
+        omit_unused_models: False,
       ),
       overrides: model.empty_overrides(),
     )
@@ -827,6 +836,7 @@ fn readme_test_block() -> model.SqlBlock {
       type_mapping: model.StringMapping,
       emit_sql_as_comment: False,
       emit_exact_table_names: False,
+      omit_unused_models: False,
     ),
     overrides: model.empty_overrides(),
   )
@@ -930,6 +940,7 @@ pub fn render_pog_adapter_with_array_columns_test() {
         type_mapping: model.StringMapping,
         emit_sql_as_comment: False,
         emit_exact_table_names: False,
+        omit_unused_models: False,
       ),
       overrides: model.empty_overrides(),
     )

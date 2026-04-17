@@ -98,6 +98,12 @@ pub type GleamOutput {
     type_mapping: TypeMapping,
     emit_sql_as_comment: Bool,
     emit_exact_table_names: Bool,
+    /// When True, the generated `models.gleam` includes only tables and
+    /// enums that are referenced by at least one generated query
+    /// (directly via `source_table`, `embed`, or via enum types on used
+    /// tables / query columns / query params). Defaults to False to
+    /// preserve the existing full-catalog output.
+    omit_unused_models: Bool,
   )
 }
 
