@@ -56,7 +56,7 @@ Describe 'sqlode CLI'
     It 'init --help shows usage'
       When run init_cmd --help
       The status should be success
-      The output should include 'Create a sqlode.yaml config file'
+      The output should include 'Scaffold a sqlode.yaml'
     End
 
     It 'version --help shows usage'
