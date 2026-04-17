@@ -733,6 +733,44 @@ pub fn left_join_makes_right_table_nullable_test() {
   ])
 }
 
+pub fn aliased_qualified_column_with_left_join_test() {
+  // Regression: `authors.name AS author_name` with LEFT JOIN previously
+  // failed because the catalog was looked up by the alias "author_name"
+  // instead of the real column "name", then fell through to expression-
+  // based inference which lost the LEFT JOIN nullability.
+  let naming_ctx = naming.new()
+  let catalog = join_catalog()
+  let sql =
+    "-- name: GetBookWithAuthor :one\nSELECT books.title, authors.name AS author_name FROM books LEFT JOIN authors ON books.author_id = authors.id WHERE books.id = $1;"
+  let assert Ok(queries) =
+    query_parser.parse_file("alj.sql", model.PostgreSQL, naming_ctx, sql)
+
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+
+  query.result_columns
+  |> should.equal([
+    model.ScalarResult(model.ResultColumn(
+      name: "title",
+      scalar_type: model.StringType,
+      nullable: False,
+      source_table: Some("books"),
+    )),
+    model.ScalarResult(model.ResultColumn(
+      name: "author_name",
+      scalar_type: model.StringType,
+      nullable: True,
+      source_table: Some("authors"),
+    )),
+  ])
+}
+
 pub fn right_join_makes_left_table_nullable_test() {
   let naming_ctx = naming.new()
   let catalog = join_catalog()

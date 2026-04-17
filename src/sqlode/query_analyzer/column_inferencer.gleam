@@ -186,13 +186,30 @@ fn resolve_select_columns(
           }
           False -> {
             let normalized_name = string.lowercase(trimmed)
+            // For aliased qualified refs (`t.c AS x`), the alias becomes the
+            // result name but the catalog must be looked up by the real
+            // column. Pull that out of expression_tokens when present.
+            let qualified_lookup_column = case extracted.expression_tokens {
+              Some([lexer.Ident(_), lexer.Dot, lexer.Ident(c)]) -> Some(c)
+              _ -> None
+            }
             case extracted.source_table {
-              Some(table) ->
-                case context.find_column(catalog, table, normalized_name) {
+              Some(table) -> {
+                let catalog_column = case
+                  context.find_column(catalog, table, normalized_name)
+                {
+                  Some(c) -> Some(c)
+                  None ->
+                    case qualified_lookup_column {
+                      Some(name) -> context.find_column(catalog, table, name)
+                      None -> None
+                    }
+                }
+                case catalog_column {
                   Some(column) ->
                     Ok([
                       model.ScalarResult(model.ResultColumn(
-                        name: column.name,
+                        name: normalized_name,
                         scalar_type: column.scalar_type,
                         nullable: column.nullable
                           || list.contains(nullable_tables, table),
@@ -227,6 +244,7 @@ fn resolve_select_columns(
                         ))
                     }
                 }
+              }
               None ->
                 case
                   context.find_column_in_tables(
