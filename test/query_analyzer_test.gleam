@@ -1573,3 +1573,133 @@ pub fn jsonb_key_existence_returns_bool_test() {
   let assert [_id, model.ScalarResult(col)] = query.result_columns
   col.scalar_type |> should.equal(model.BoolType)
 }
+
+// --- Batch 3: UPSERT (INSERT ... ON CONFLICT ... [DO UPDATE SET ...] RETURNING) ---
+
+pub fn upsert_with_excluded_reference_test() {
+  // Pure ON CONFLICT DO UPDATE SET col = EXCLUDED.col flow.
+  // Params come from VALUES only; the EXCLUDED reference is not a
+  // placeholder so it must not derail param inference.
+  let sql =
+    "-- name: UpsertAuthor :one\nINSERT INTO authors (id, name, bio) VALUES ($1, $2, $3) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, bio = EXCLUDED.bio RETURNING id, name, bio;"
+  let query = analyze_one(sql, test_catalog())
+  // Result columns from RETURNING
+  let assert [
+    model.ScalarResult(id_col),
+    model.ScalarResult(name_col),
+    model.ScalarResult(bio_col),
+  ] = query.result_columns
+  id_col.name |> should.equal("id")
+  id_col.scalar_type |> should.equal(model.IntType)
+  name_col.scalar_type |> should.equal(model.StringType)
+  bio_col.scalar_type |> should.equal(model.StringType)
+  // Three params, all from VALUES
+  query.params
+  |> should.equal([
+    model.QueryParam(
+      index: 1,
+      field_name: "id",
+      scalar_type: model.IntType,
+      nullable: False,
+      is_list: False,
+    ),
+    model.QueryParam(
+      index: 2,
+      field_name: "name",
+      scalar_type: model.StringType,
+      nullable: False,
+      is_list: False,
+    ),
+    model.QueryParam(
+      index: 3,
+      field_name: "bio",
+      scalar_type: model.StringType,
+      nullable: True,
+      is_list: False,
+    ),
+  ])
+}
+
+pub fn upsert_do_nothing_test() {
+  // ON CONFLICT DO NOTHING — no UPDATE, just suppresses the error.
+  let sql =
+    "-- name: InsertOrIgnore :one\nINSERT INTO authors (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING RETURNING id, name;"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(id_col), model.ScalarResult(name_col)] =
+    query.result_columns
+  id_col.name |> should.equal("id")
+  name_col.name |> should.equal("name")
+  query.params |> list.length |> should.equal(2)
+}
+
+pub fn upsert_with_set_placeholder_test() {
+  // UPDATE SET name = $3 introduces a third placeholder beyond the
+  // two in VALUES.
+  let sql =
+    "-- name: UpsertNameOverride :one\nINSERT INTO authors (id, name) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET name = $3 RETURNING id, name;"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(id_col), model.ScalarResult(name_col)] =
+    query.result_columns
+  id_col.name |> should.equal("id")
+  name_col.name |> should.equal("name")
+  // Three placeholders end up in the param list. param_count from the
+  // parser counts placeholder tokens; the SET-clause $3 must be picked
+  // up here too.
+  query.params |> list.length |> should.equal(3)
+}
+
+pub fn sqlite_upsert_with_excluded_test() {
+  // SQLite syntax: ON CONFLICT(col) DO UPDATE SET col = excluded.col
+  let naming_ctx = naming.new()
+  let assert Ok(content) =
+    simplifile.read("test/fixtures/sqlite_extended_schema.sql")
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files_with_engine(
+      [#("schema.sql", content)],
+      model.SQLite,
+    )
+  let sql =
+    "-- name: UpsertAuthorSqlite :one\nINSERT INTO authors (id, name, bio) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET name = excluded.name RETURNING id, name, bio;"
+  let assert Ok(queries) =
+    query_parser.parse_file("u.sql", model.SQLite, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, queries)
+  let assert [query] = analyzed
+  let assert [
+    model.ScalarResult(id_col),
+    model.ScalarResult(_name),
+    model.ScalarResult(_bio),
+  ] = query.result_columns
+  id_col.name |> should.equal("id")
+  query.params |> list.length |> should.equal(3)
+}
+
+pub fn mysql_on_duplicate_key_update_test() {
+  // MySQL: INSERT ... ON DUPLICATE KEY UPDATE col = VALUES(col)
+  // Param count should be 2 (from the INSERT VALUES); VALUES(col) on
+  // the right side is a MySQL function reference, not a placeholder.
+  // Use the catalog from authors-style fixture.
+  let naming_ctx = naming.new()
+  let catalog =
+    model.Catalog(
+      tables: [
+        model.Table(name: "items", columns: [
+          model.Column(name: "id", scalar_type: model.IntType, nullable: False),
+          model.Column(
+            name: "name",
+            scalar_type: model.StringType,
+            nullable: False,
+          ),
+        ]),
+      ],
+      enums: [],
+    )
+  let sql =
+    "-- name: UpsertItem :exec\nINSERT INTO items (id, name) VALUES (?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name);"
+  let assert Ok(queries) =
+    query_parser.parse_file("u.sql", model.MySQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(model.MySQL, catalog, naming_ctx, queries)
+  let assert [query] = analyzed
+  query.params |> list.length |> should.equal(2)
+}
