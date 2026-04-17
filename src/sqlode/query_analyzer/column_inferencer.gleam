@@ -38,52 +38,151 @@ pub fn infer_result_columns(
     | runtime.QueryBatchOne
     | runtime.QueryBatchMany -> {
       let tokens = lexer.tokenize(query.sql, engine)
+      infer_columns_from_tokens(query.name, tokens, catalog)
+    }
+  }
+}
 
-      case tok_extract_returning_columns(tokens) {
-        Some(returning_cols) -> {
-          let table_names = token_utils.extract_table_names(tokens)
-          let nullable_tables = tok_extract_nullable_tables(tokens, table_names)
-          case table_names {
-            [] -> Ok([])
-            [primary, ..] ->
-              resolve_select_columns(
-                query.name,
-                returning_cols,
-                catalog,
-                primary,
-                table_names,
-                nullable_tables,
-              )
-          }
-        }
-        None -> {
-          let main_tokens = tok_strip_cte(tokens)
-          use _ <- result.try(validate_compound_column_counts(
-            query.name,
-            main_tokens,
-          ))
-          let main_tokens2 = tok_strip_compound(main_tokens)
-          let table_names = token_utils.extract_table_names(main_tokens2)
-          let nullable_tables =
-            tok_extract_nullable_tables(main_tokens2, table_names)
+/// Token-based column inference, exposed so callers (notably the CTE
+/// virtual-table builder in `query_analyzer`) can reuse the SELECT
+/// resolver without re-lexing or constructing a synthetic ParsedQuery.
+pub fn infer_columns_from_tokens(
+  query_name: String,
+  tokens: List(lexer.Token),
+  catalog: model.Catalog,
+) -> Result(List(model.ResultItem), AnalysisError) {
+  case tok_extract_returning_columns(tokens) {
+    Some(returning_cols) -> {
+      let table_names = token_utils.extract_table_names(tokens)
+      let nullable_tables = tok_extract_nullable_tables(tokens, table_names)
+      case table_names {
+        [] -> Ok([])
+        [primary, ..] ->
+          resolve_select_columns(
+            query_name,
+            returning_cols,
+            catalog,
+            primary,
+            table_names,
+            nullable_tables,
+          )
+      }
+    }
+    None -> {
+      let main_tokens = tok_strip_cte(tokens)
+      use _ <- result.try(validate_compound_column_counts(
+        query_name,
+        main_tokens,
+      ))
+      let main_tokens2 = tok_strip_compound(main_tokens)
+      let table_names = token_utils.extract_table_names(main_tokens2)
+      let nullable_tables =
+        tok_extract_nullable_tables(main_tokens2, table_names)
 
-          case table_names {
-            [] -> Ok([])
-            [primary, ..] -> {
-              let select_columns = tok_extract_select_columns(main_tokens2)
-              resolve_select_columns(
-                query.name,
-                select_columns,
-                catalog,
-                primary,
-                table_names,
-                nullable_tables,
-              )
-            }
-          }
+      case table_names {
+        [] -> Ok([])
+        [primary, ..] -> {
+          let select_columns = tok_extract_select_columns(main_tokens2)
+          resolve_select_columns(
+            query_name,
+            select_columns,
+            catalog,
+            primary,
+            table_names,
+            nullable_tables,
+          )
         }
       }
     }
+  }
+}
+
+/// Extract CTE definitions from a query's tokens and return the
+/// resulting virtual tables. Each `name AS (body)` (or
+/// `name(c1, c2) AS (body)`) becomes a Table whose columns come from
+/// running infer_columns_from_tokens on the body. RECURSIVE CTEs use
+/// the anchor (first) branch via the existing tok_strip_compound, so
+/// recursive self-references are not analysed.
+pub fn extract_cte_tables(
+  query_name: String,
+  tokens: List(lexer.Token),
+  catalog: model.Catalog,
+) -> Result(List(model.Table), AnalysisError) {
+  case tokens {
+    [lexer.Keyword("with"), lexer.Keyword("recursive"), ..rest] ->
+      parse_cte_defs(query_name, rest, catalog, [])
+    [lexer.Keyword("with"), ..rest] ->
+      parse_cte_defs(query_name, rest, catalog, [])
+    _ -> Ok([])
+  }
+}
+
+fn parse_cte_defs(
+  query_name: String,
+  tokens: List(lexer.Token),
+  catalog: model.Catalog,
+  acc: List(model.Table),
+) -> Result(List(model.Table), AnalysisError) {
+  case tokens {
+    [lexer.Ident(name), ..rest_after_name] -> {
+      // Optional explicit column list: name(c1, c2, ...) AS (...).
+      // We consume but ignore it; column names come from the body.
+      let after_optional_cols = case rest_after_name {
+        [lexer.LParen, ..after_lp] -> {
+          let #(_, after_cols) = token_utils.collect_paren_contents(after_lp)
+          after_cols
+        }
+        _ -> rest_after_name
+      }
+      case after_optional_cols {
+        [lexer.Keyword("as"), lexer.LParen, ..after_as_lp] -> {
+          let #(body, after_body) =
+            token_utils.collect_paren_contents(after_as_lp)
+          let augmented = augment_catalog_with(catalog, acc)
+          use cols <- result.try(infer_columns_from_tokens(
+            query_name,
+            body,
+            augmented,
+          ))
+          let columns =
+            list.filter_map(cols, fn(item) {
+              case item {
+                model.ScalarResult(rc) ->
+                  Ok(model.Column(
+                    name: rc.name,
+                    scalar_type: rc.scalar_type,
+                    nullable: rc.nullable,
+                  ))
+                _ -> Error(Nil)
+              }
+            })
+          let table =
+            model.Table(name: string.lowercase(name), columns: columns)
+          let new_acc = [table, ..acc]
+          case after_body {
+            [lexer.Comma, ..more] ->
+              parse_cte_defs(query_name, more, catalog, new_acc)
+            _ -> Ok(list.reverse(new_acc))
+          }
+        }
+        _ -> Ok(list.reverse(acc))
+      }
+    }
+    _ -> Ok(list.reverse(acc))
+  }
+}
+
+fn augment_catalog_with(
+  catalog: model.Catalog,
+  vtables: List(model.Table),
+) -> model.Catalog {
+  case vtables {
+    [] -> catalog
+    _ ->
+      model.Catalog(
+        tables: list.append(catalog.tables, vtables),
+        enums: catalog.enums,
+      )
   }
 }
 
@@ -333,6 +432,23 @@ fn infer_expression_type_from_tokens(
 
     // --- Boolean-producing patterns (SQL reserved syntax) ---
     [lexer.Keyword("exists"), lexer.LParen, ..] -> Ok(#(model.BoolType, False))
+
+    // --- Scalar / correlated subquery: ( SELECT ... ) ---
+    // The first column of the subquery's SELECT list determines the
+    // expression type. The result is nullable because the subquery
+    // may return zero rows.
+    [lexer.LParen, lexer.Keyword("select"), ..rest] -> {
+      let #(inner, _) =
+        token_utils.collect_paren_contents([lexer.Keyword("select"), ..rest])
+      case infer_columns_from_tokens(query_name, inner, catalog) {
+        Ok([model.ScalarResult(col), ..]) -> Ok(#(col.scalar_type, True))
+        _ ->
+          Error(UnsupportedExpression(
+            query_name:,
+            expression: tok_tokens_to_text(tokens),
+          ))
+      }
+    }
 
     [lexer.Keyword("not"), ..rest] ->
       infer_expression_type_from_tokens(rest, catalog, table_names, query_name)

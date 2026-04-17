@@ -2,6 +2,7 @@ import gleam/dict
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/result
+import sqlode/lexer
 import sqlode/model
 import sqlode/naming
 import sqlode/query_analyzer/column_inferencer
@@ -32,19 +33,36 @@ fn analyze_query(
   catalog: model.Catalog,
   query: model.ParsedQuery,
 ) -> Result(model.AnalyzedQuery, AnalysisError) {
+  // Build virtual tables from any leading WITH (CTE) clause so the
+  // main query can reference CTE names like real tables.
+  let tokens = lexer.tokenize(query.sql, engine)
+  use cte_tables <- result.try(column_inferencer.extract_cte_tables(
+    query.name,
+    tokens,
+    catalog,
+  ))
+  let augmented = case cte_tables {
+    [] -> catalog
+    _ ->
+      model.Catalog(
+        tables: list.append(catalog.tables, cte_tables),
+        enums: catalog.enums,
+      )
+  }
+
   let occurrences = placeholder.extract(ctx, engine, query.sql)
   use params <- result.try(build_params(
     ctx,
     engine,
     query,
-    catalog,
+    augmented,
     occurrences,
   ))
   use result_columns <- result.try(column_inferencer.infer_result_columns(
     ctx,
     engine,
     query,
-    catalog,
+    augmented,
   ))
 
   Ok(model.AnalyzedQuery(base: query, params:, result_columns:))

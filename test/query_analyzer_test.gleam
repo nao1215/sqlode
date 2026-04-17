@@ -1771,6 +1771,124 @@ pub fn compound_column_count_mismatch_errors_test() {
   }
 }
 
+// --- Batch 7: WITH (CTE) and WITH RECURSIVE result column inference ---
+
+pub fn with_cte_table_lookup_test() {
+  // Plain CTE: `WITH cte AS (SELECT ...) SELECT cols FROM cte`. The
+  // CTE name acts as a virtual table whose columns come from the
+  // CTE body's SELECT list.
+  let sql =
+    "-- name: ActiveAuthors :many\nWITH active AS (SELECT id, name FROM authors) SELECT id, name FROM active;"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(id_col), model.ScalarResult(name_col)] =
+    query.result_columns
+  id_col.name |> should.equal("id")
+  id_col.scalar_type |> should.equal(model.IntType)
+  name_col.name |> should.equal("name")
+  name_col.scalar_type |> should.equal(model.StringType)
+}
+
+pub fn with_recursive_anchor_columns_test() {
+  // RECURSIVE: column types come from the anchor (first) branch of
+  // the UNION ALL. The recursive branch references the CTE itself.
+  let sql =
+    "-- name: AuthorChain :many\nWITH RECURSIVE chain AS (SELECT id, name FROM authors WHERE id = 1 UNION ALL SELECT id, name FROM authors WHERE id > 1) SELECT id, name FROM chain;"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(id_col), model.ScalarResult(name_col)] =
+    query.result_columns
+  id_col.scalar_type |> should.equal(model.IntType)
+  name_col.scalar_type |> should.equal(model.StringType)
+}
+
+// --- Batch 8: LATERAL JOIN / correlated subqueries ---
+
+pub fn lateral_join_keyword_does_not_break_test() {
+  // `JOIN LATERAL (subquery)` — at minimum the LATERAL keyword and
+  // the subquery must not derail outer SELECT inference. The outer
+  // table's columns must still be resolved.
+  let naming_ctx = naming.new()
+  let catalog = join_catalog()
+  let sql =
+    "-- name: BookFirstAuthor :many\nSELECT books.title FROM books LEFT JOIN LATERAL (SELECT name FROM authors WHERE authors.id = books.author_id LIMIT 1) AS first_author ON true;"
+  let assert Ok(queries) =
+    query_parser.parse_file("l.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  let assert [model.ScalarResult(title_col)] = query.result_columns
+  title_col.name |> should.equal("title")
+}
+
+pub fn correlated_subquery_in_select_test() {
+  // Correlated scalar subquery in SELECT. The outer column reference
+  // (posts.author_id) inside the subquery must not break the outer
+  // analysis. Result type of the subquery is the subquery's column.
+  let naming_ctx = naming.new()
+  let catalog = join_catalog()
+  let sql =
+    "-- name: PostsWithAuthorName :many\nSELECT books.title, (SELECT name FROM authors WHERE authors.id = books.author_id) AS author_name FROM books;"
+  let assert Ok(queries) =
+    query_parser.parse_file("c.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  let assert [model.ScalarResult(title), model.ScalarResult(author_name)] =
+    query.result_columns
+  title.name |> should.equal("title")
+  author_name.name |> should.equal("author_name")
+  // Subquery results are nullable (zero rows possible).
+  author_name.scalar_type |> should.equal(model.StringType)
+  author_name.nullable |> should.equal(True)
+}
+
+pub fn cte_with_explicit_column_list_test() {
+  // `WITH name(c1, c2) AS (...)` — explicit column list is consumed
+  // but the column names still come from the body's SELECT list
+  // (minimum implementation).
+  let sql =
+    "-- name: AliasedCte :many\nWITH renamed(x, y) AS (SELECT id, name FROM authors) SELECT id, name FROM renamed;"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(id_col), model.ScalarResult(name_col)] =
+    query.result_columns
+  id_col.scalar_type |> should.equal(model.IntType)
+  name_col.scalar_type |> should.equal(model.StringType)
+}
+
+pub fn multiple_ctes_chain_test() {
+  // Multiple CTEs separated by commas; later CTEs may reference
+  // earlier ones.
+  let sql =
+    "-- name: ChainedCte :many\nWITH a AS (SELECT id, name FROM authors), b AS (SELECT id, name FROM a) SELECT id, name FROM b;"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(id_col), model.ScalarResult(name_col)] =
+    query.result_columns
+  id_col.scalar_type |> should.equal(model.IntType)
+  name_col.scalar_type |> should.equal(model.StringType)
+}
+
+pub fn exists_subquery_returns_bool_test() {
+  // EXISTS (SELECT ...) was already handled by the boolean pattern;
+  // pin it here so the subquery extension does not regress it. We
+  // include an outer FROM because result-column resolution needs a
+  // primary table.
+  let sql =
+    "-- name: HasAuthors :one\nSELECT id, EXISTS (SELECT 1 FROM authors WHERE id = 1) AS has_any FROM authors WHERE id = 1;"
+  let query = analyze_one(sql, test_catalog())
+  let assert [_id, model.ScalarResult(col)] = query.result_columns
+  col.name |> should.equal("has_any")
+  col.scalar_type |> should.equal(model.BoolType)
+}
+
 pub fn values_in_from_returns_empty_columns_test() {
   // VALUES in FROM with `AS t(id, name)` is not yet inferred. The
   // analyzer skips the parenthesised subquery and finds no real
