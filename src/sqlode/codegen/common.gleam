@@ -121,6 +121,18 @@ pub fn out_to_module_path(out: String) -> String {
   }
 }
 
+/// Import path used by generated modules for the sqlode runtime. When
+/// `gleam.vendor_runtime` is enabled, the runtime source is written
+/// into `<out>/runtime.gleam` and the generated code points at that
+/// local copy (e.g. `db/runtime`). Otherwise the shared
+/// `sqlode/runtime` dependency is used.
+pub fn runtime_import_path(gleam: model.GleamOutput) -> String {
+  case gleam.vendor_runtime {
+    True -> out_to_module_path(gleam.out) <> "/runtime"
+    False -> "sqlode/runtime"
+  }
+}
+
 /// Render a single-constructor Gleam type declaration.
 ///
 /// gleam_type("UserId", "Int") →

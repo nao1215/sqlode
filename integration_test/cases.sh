@@ -59,6 +59,59 @@ case_compile_all_types() {
     expected_files="params.gleam queries.gleam models.gleam"
 }
 
+# Verify the self-contained generation mode produces a project that
+# builds with no sqlode dependency. The generated gleam.toml created
+# below deliberately does NOT depend on sqlode (unlike every other
+# case), and the vendored runtime.gleam in src/db/ must provide
+# everything the other generated modules need.
+case_compile_vendor_runtime() {
+  _icv_label="raw mode with vendor_runtime"
+  _icv_dir="$INTEGRATION_TMP_BASE/integration_compile_vendor_runtime"
+
+  echo ""
+  echo "--- $_icv_label ---"
+
+  integration_clean "$_icv_dir"
+  mkdir -p "$_icv_dir/src/db"
+
+  cat > "$_icv_dir/gleam.toml" <<TOML
+name = "integration_compile_vendor_runtime"
+version = "0.1.0"
+target = "erlang"
+
+[dependencies]
+gleam_stdlib = ">= 0.44.0 and < 2.0.0"
+TOML
+
+  cat > "$_icv_dir/sqlode.yaml" <<YAML
+version: "2"
+sql:
+  - schema: "$PROJECT_ROOT/test/fixtures/schema.sql"
+    queries: "$PROJECT_ROOT/test/fixtures/query.sql"
+    engine: "postgresql"
+    gen:
+      gleam:
+        out: "$_icv_dir/src/db"
+        runtime: "raw"
+        vendor_runtime: true
+YAML
+
+  echo "Generating code..."
+  integration_generate "$_icv_dir"
+
+  for f in params.gleam queries.gleam models.gleam runtime.gleam; do
+    if [ ! -f "$_icv_dir/src/db/$f" ]; then
+      echo "FAIL: expected file $f not generated" >&2
+      return 1
+    fi
+  done
+
+  echo "Building generated project (no sqlode dependency)..."
+  integration_build "$_icv_dir"
+
+  echo "PASS: $_icv_label"
+}
+
 case_sqlite_basic() {
   run_integration_case \
     label="SQLite real database" \
@@ -135,6 +188,7 @@ ALL_INTEGRATION_CASES="
   case_compile_raw
   case_compile_complex
   case_compile_all_types
+  case_compile_vendor_runtime
   case_sqlite_basic
   case_sqlite_extended
   case_sqlite_advanced

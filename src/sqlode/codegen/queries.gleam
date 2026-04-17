@@ -46,7 +46,7 @@ pub fn render(
         True -> ["import gleam/list"]
         False -> []
       },
-      ["import sqlode/runtime"],
+      ["import " <> common.runtime_import_path(gleam)],
       case has_any_params {
         True -> ["import " <> module_path <> "/params"]
         False -> []

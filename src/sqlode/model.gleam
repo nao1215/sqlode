@@ -104,6 +104,12 @@ pub type GleamOutput {
     /// tables / query columns / query params). Defaults to False to
     /// preserve the existing full-catalog output.
     omit_unused_models: Bool,
+    /// When True, emit a copy of `sqlode/runtime` into the output
+    /// directory as `runtime.gleam` and rewrite the generated module
+    /// imports to point at the local copy. The target project no
+    /// longer needs `sqlode` as a runtime dependency. Defaults to
+    /// False so the shared-runtime path stays the default.
+    vendor_runtime: Bool,
   )
 }
 

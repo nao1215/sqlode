@@ -213,6 +213,7 @@ fn base_output_files(
         analyzed,
         gleam.type_mapping,
         common.out_to_module_path(out),
+        common.runtime_import_path(gleam),
       ),
     ),
     writer.GeneratedFile(
@@ -222,7 +223,7 @@ fn base_output_files(
     ),
   ]
 
-  case has_models {
+  let files_with_models = case has_models {
     True -> {
       let effective_catalog = case gleam.omit_unused_models {
         True -> prune_catalog_to_used(catalog, analyzed)
@@ -245,6 +246,43 @@ fn base_output_files(
     }
     False -> files
   }
+
+  case gleam.vendor_runtime {
+    True ->
+      case read_runtime_source() {
+        Ok(source) ->
+          list.append(files_with_models, [
+            writer.GeneratedFile(
+              directory: out,
+              path: "runtime.gleam",
+              content: source,
+            ),
+          ])
+        Error(_) -> files_with_models
+      }
+    False -> files_with_models
+  }
+}
+
+/// Return the `sqlode/runtime` module source. Tries known paths in
+/// order: a development checkout (when sqlode itself runs the
+/// generator), then the extracted hex package layout a user project
+/// would have after `gleam add sqlode`. When none are found, emit
+/// nothing rather than a broken file — the flag still defaults off,
+/// so a user who opted in will at least notice that the file they
+/// asked for is missing.
+fn read_runtime_source() -> Result(String, Nil) {
+  let candidates = [
+    "src/sqlode/runtime.gleam",
+    "build/packages/sqlode/src/sqlode/runtime.gleam",
+    "build/dev/erlang/sqlode/src/sqlode/runtime.gleam",
+  ]
+  list.find_map(candidates, fn(path) {
+    case simplifile.read(path) {
+      Ok(content) -> Ok(content)
+      Error(_) -> Error(Nil)
+    }
+  })
 }
 
 /// Drop tables and enums from the catalog that no generated query
