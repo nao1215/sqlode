@@ -16,9 +16,19 @@ BIN_NAME="sqlode"
 VERSION="${SQLODE_VERSION:-latest}"
 INSTALL_DIR="${SQLODE_INSTALL_DIR:-$HOME/.local/bin}"
 
+DOWNLOAD=""
+
 info() { printf '==> %s\n' "$*"; }
 warn() { printf 'warning: %s\n' "$*" >&2; }
 die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+# Clean up any half-downloaded temp file on early exit (ctrl-C, mkdir/mv
+# failure, etc). install_bin clears DOWNLOAD after a successful move so the
+# trap becomes a no-op.
+cleanup() {
+  [ -n "$DOWNLOAD" ] && [ -e "$DOWNLOAD" ] && rm -f "$DOWNLOAD"
+}
+trap cleanup EXIT INT HUP TERM
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
@@ -64,14 +74,27 @@ check_erlang() {
 }
 
 resolve_version() {
-  if [ "$VERSION" = "latest" ]; then
-    url="https://api.github.com/repos/${REPO}/releases/latest"
-    tag="$(curl -fsSL "$url" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1)"
-    if [ -z "$tag" ]; then
-      die "could not determine latest release tag. Set SQLODE_VERSION=vX.Y.Z to pin a version."
-    fi
-    VERSION="$tag"
+  [ "$VERSION" = "latest" ] || return 0
+
+  # Prefer the JSON API because it gives a clean tag name, but it is rate
+  # limited to 60 req/h for unauthenticated clients. Fall back to parsing
+  # the Location header from /releases/latest, which is not subject to the
+  # same limit.
+  api_url="https://api.github.com/repos/${REPO}/releases/latest"
+  tag="$(curl -fsSL "$api_url" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1)"
+
+  if [ -z "$tag" ]; then
+    redirect_url="https://github.com/${REPO}/releases/latest"
+    tag="$(curl -fsSI "$redirect_url" \
+      | sed -n 's/^[Ll]ocation: .*\/releases\/tag\/\([^[:space:]]*\).*/\1/p' \
+      | tr -d '\r' \
+      | tail -n1)"
   fi
+
+  if [ -z "$tag" ]; then
+    die "could not determine latest release tag (GitHub API rate limit or no releases yet). Set SQLODE_VERSION=vX.Y.Z to pin a version."
+  fi
+  VERSION="$tag"
 }
 
 download() {
@@ -86,11 +109,22 @@ download() {
 }
 
 install_bin() {
-  mkdir -p "$INSTALL_DIR"
+  # Detect non-writable targets up front so the user sees an actionable
+  # hint instead of a raw `mv: Permission denied` from `set -e`.
+  if ! mkdir -p "$INSTALL_DIR" 2>/dev/null; then
+    die "cannot create $INSTALL_DIR. Re-run with sudo (e.g. 'sudo SQLODE_INSTALL_DIR=$INSTALL_DIR sh') or pick a user-writable path like \$HOME/.local/bin."
+  fi
+  if [ ! -w "$INSTALL_DIR" ]; then
+    die "$INSTALL_DIR is not writable. Re-run with sudo (e.g. 'sudo SQLODE_INSTALL_DIR=$INSTALL_DIR sh') or pick a user-writable path like \$HOME/.local/bin."
+  fi
+
   dest="$INSTALL_DIR/$BIN_NAME"
   mv "$DOWNLOAD" "$dest"
   chmod +x "$dest"
   INSTALLED="$dest"
+  # Successful move: the temp file no longer exists, so clear the trap
+  # state to avoid a stray `rm -f` on EXIT.
+  DOWNLOAD=""
 }
 
 verify() {

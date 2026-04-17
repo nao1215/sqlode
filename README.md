@@ -21,7 +21,19 @@ sqlode ships as an Erlang escript. Every install path therefore needs an Erlang/
 curl -fsSL https://raw.githubusercontent.com/nao1215/sqlode/main/scripts/install.sh | sh
 ```
 
-The script downloads the latest release's escript into `$HOME/.local/bin/sqlode`, makes it executable, and warns if Erlang/OTP is missing (with a per-distro install hint). Override the target with `SQLODE_INSTALL_DIR=/usr/local/bin` or pin a version with `SQLODE_VERSION=v0.1.0`.
+Prefer to inspect the script before executing it? Download it first, read it, then run it:
+
+```console
+curl -fsSL -o install.sh https://raw.githubusercontent.com/nao1215/sqlode/main/scripts/install.sh
+sh install.sh
+```
+
+The installer writes the latest release's escript to `$HOME/.local/bin/sqlode`, makes it executable, and warns if Erlang/OTP is missing (with a per-distro install hint).
+
+Environment variables:
+
+- `SQLODE_VERSION=v0.1.0` — pin a specific release tag instead of `latest`.
+- `SQLODE_INSTALL_DIR=/path/to/bin` — install into a different directory. System paths such as `/usr/local/bin` require elevated privileges, e.g. `curl -fsSL ... | sudo SQLODE_INSTALL_DIR=/usr/local/bin sh`.
 
 If `$HOME/.local/bin` is not on your `PATH`, add it to your shell config:
 
