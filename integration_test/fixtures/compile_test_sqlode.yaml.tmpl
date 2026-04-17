@@ -1,0 +1,9 @@
+version: "2"
+sql:
+  - schema: "{{SCHEMA}}"
+    queries: "{{QUERIES}}"
+    engine: "postgresql"
+    gen:
+      gleam:
+        out: "{{INTEGRATION_DIR}}/src/db"
+        runtime: "raw"
