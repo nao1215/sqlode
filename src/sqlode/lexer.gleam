@@ -94,10 +94,18 @@ fn do_tokenize(
               let remaining = skip_line_comment(rest)
               do_tokenize(remaining, engine, acc)
             }
-            _ -> {
-              let #(op, remaining) = read_operator([g, ..rest])
-              do_tokenize(remaining, engine, [Operator(op), ..acc])
-            }
+            // PostgreSQL JSON path operators: #>> (text), #> (json)
+            _ ->
+              case rest {
+                [">", ">", ..after] ->
+                  do_tokenize(after, engine, [Operator("#>>"), ..acc])
+                [">", ..after] ->
+                  do_tokenize(after, engine, [Operator("#>"), ..acc])
+                _ -> {
+                  let #(op, remaining) = read_operator([g, ..rest])
+                  do_tokenize(remaining, engine, [Operator(op), ..acc])
+                }
+              }
           }
 
         // Single-quoted string literal
@@ -184,11 +192,20 @@ fn do_tokenize(
             _ -> do_tokenize(rest, engine, [Dot, ..acc])
           }
 
-        // Placeholder: ?, :name, @name
-        "?" -> {
-          let #(ph, remaining) = read_placeholder_question(rest, [g])
-          do_tokenize(remaining, engine, [Placeholder(ph), ..acc])
-        }
+        // Placeholder: ?, :name, @name. Also JSONB key-existence operators
+        // ?| (any) and ?& (all) take precedence over the SQLite/MySQL
+        // bare-`?` placeholder.
+        "?" ->
+          case rest {
+            ["|", ..after] ->
+              do_tokenize(after, engine, [Operator("?|"), ..acc])
+            ["&", ..after] ->
+              do_tokenize(after, engine, [Operator("?&"), ..acc])
+            _ -> {
+              let #(ph, remaining) = read_placeholder_question(rest, [g])
+              do_tokenize(remaining, engine, [Placeholder(ph), ..acc])
+            }
+          }
         ":" ->
           case rest {
             // PostgreSQL :: cast operator
@@ -206,6 +223,9 @@ fn do_tokenize(
           }
         "@" ->
           case rest {
+            // JSONB/Array containment: @>
+            [">", ..after] ->
+              do_tokenize(after, engine, [Operator("@>"), ..acc])
             [next, ..] ->
               case is_alpha_or_underscore(next) {
                 True -> {
@@ -612,9 +632,11 @@ fn read_operator(input: List(String)) -> #(String, List(String)) {
     // Multi-char operators
     ["<", ">", ..rest] -> #("<>", rest)
     ["<", "=", ..rest] -> #("<=", rest)
+    ["<", "@", ..rest] -> #("<@", rest)
     [">", "=", ..rest] -> #(">=", rest)
     ["!", "=", ..rest] -> #("!=", rest)
     ["|", "|", ..rest] -> #("||", rest)
+    ["&", "&", ..rest] -> #("&&", rest)
     ["-", ">", ">", ..rest] -> #("->>", rest)
     ["-", ">", ..rest] -> #("->", rest)
     // Single-char operators

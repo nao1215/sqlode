@@ -1503,3 +1503,73 @@ pub fn all_subquery_in_where_test() {
   id_col.name |> should.equal("id")
   name_col.name |> should.equal("name")
 }
+
+// --- Batch 2: JSON / Array operator type inference ---
+
+fn extended_catalog() -> model.Catalog {
+  let assert Ok(content) = simplifile.read("test/fixtures/extended_schema.sql")
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([
+      #("test/fixtures/extended_schema.sql", content),
+    ])
+  catalog
+}
+
+pub fn json_arrow_extract_returns_json_test() {
+  let sql =
+    "-- name: GetMeta :one\nSELECT id, metadata->'foo' AS extracted FROM events WHERE id = $1;"
+  let query = analyze_one(sql, extended_catalog())
+  let assert [_id, model.ScalarResult(col)] = query.result_columns
+  col.name |> should.equal("extracted")
+  col.scalar_type |> should.equal(model.JsonType)
+  col.nullable |> should.equal(True)
+}
+
+pub fn json_double_arrow_extract_returns_text_test() {
+  let sql =
+    "-- name: GetMetaText :one\nSELECT id, metadata->>'foo' AS extracted FROM events WHERE id = $1;"
+  let query = analyze_one(sql, extended_catalog())
+  let assert [_id, model.ScalarResult(col)] = query.result_columns
+  col.scalar_type |> should.equal(model.StringType)
+  col.nullable |> should.equal(True)
+}
+
+pub fn json_path_extract_returns_json_test() {
+  let sql =
+    "-- name: GetMetaPath :one\nSELECT id, metadata#>'{a,b}' AS extracted FROM events WHERE id = $1;"
+  let query = analyze_one(sql, extended_catalog())
+  let assert [_id, model.ScalarResult(col)] = query.result_columns
+  col.scalar_type |> should.equal(model.JsonType)
+}
+
+pub fn json_path_extract_text_returns_text_test() {
+  let sql =
+    "-- name: GetMetaPathText :one\nSELECT id, metadata#>>'{a,b}' AS extracted FROM events WHERE id = $1;"
+  let query = analyze_one(sql, extended_catalog())
+  let assert [_id, model.ScalarResult(col)] = query.result_columns
+  col.scalar_type |> should.equal(model.StringType)
+}
+
+pub fn json_containment_returns_bool_test() {
+  let sql =
+    "-- name: HasKey :one\nSELECT id, metadata @> '{}' AS contains FROM events WHERE id = $1;"
+  let query = analyze_one(sql, extended_catalog())
+  let assert [_id, model.ScalarResult(col)] = query.result_columns
+  col.scalar_type |> should.equal(model.BoolType)
+}
+
+pub fn array_overlap_returns_bool_test() {
+  let sql =
+    "-- name: ArrayOverlap :one\nSELECT id, metadata && '{}' AS overlap FROM events WHERE id = $1;"
+  let query = analyze_one(sql, extended_catalog())
+  let assert [_id, model.ScalarResult(col)] = query.result_columns
+  col.scalar_type |> should.equal(model.BoolType)
+}
+
+pub fn jsonb_key_existence_returns_bool_test() {
+  let sql =
+    "-- name: HasAnyKey :one\nSELECT id, metadata ?| '{a,b}' AS any_key FROM events WHERE id = $1;"
+  let query = analyze_one(sql, extended_catalog())
+  let assert [_id, model.ScalarResult(col)] = query.result_columns
+  col.scalar_type |> should.equal(model.BoolType)
+}

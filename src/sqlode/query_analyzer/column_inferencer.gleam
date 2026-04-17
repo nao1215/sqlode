@@ -624,6 +624,8 @@ type TopLevelPattern {
   PatBool
   PatConcat
   PatArithmetic
+  PatJson
+  PatJsonText
   PatNone
 }
 
@@ -635,6 +637,11 @@ fn infer_by_scanning(
     PatBool -> Ok(#(model.BoolType, False))
     PatConcat -> Ok(#(model.StringType, False))
     PatArithmetic -> Ok(#(model.IntType, False))
+    // `->` / `#>` extract a JSON value; the result is JSON. `->>` / `#>>`
+    // extract the same path but coerce to text. Both are nullable because
+    // the path/key may be absent.
+    PatJson -> Ok(#(model.JsonType, True))
+    PatJsonText -> Ok(#(model.StringType, True))
     PatNone ->
       Error(UnsupportedExpression(
         query_name:,
@@ -659,6 +666,16 @@ fn find_pattern_loop(
     [token, ..rest] if depth == 0 -> {
       case classify_top_level_token(token) {
         PatBool -> PatBool
+        PatJson ->
+          find_pattern_loop(rest, depth, case found {
+            PatNone -> PatJson
+            _ -> found
+          })
+        PatJsonText ->
+          find_pattern_loop(rest, depth, case found {
+            PatNone -> PatJsonText
+            _ -> found
+          })
         PatConcat ->
           find_pattern_loop(rest, depth, case found {
             PatNone -> PatConcat
@@ -686,6 +703,11 @@ fn classify_top_level_token(token: lexer.Token) -> TopLevelPattern {
       || op == ">"
       || op == "<="
       || op == ">="
+      || op == "@>"
+      || op == "<@"
+      || op == "?|"
+      || op == "?&"
+      || op == "&&"
     -> PatBool
     lexer.Keyword(kw)
       if kw == "and"
@@ -698,6 +720,8 @@ fn classify_top_level_token(token: lexer.Token) -> TopLevelPattern {
       || kw == "not"
       || kw == "exists"
     -> PatBool
+    lexer.Operator(op) if op == "->>" || op == "#>>" -> PatJsonText
+    lexer.Operator(op) if op == "->" || op == "#>" -> PatJson
     lexer.Operator("||") -> PatConcat
     lexer.Operator(op) if op == "+" || op == "-" || op == "*" || op == "/" ->
       PatArithmetic

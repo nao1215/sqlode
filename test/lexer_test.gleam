@@ -225,6 +225,64 @@ pub fn rollup_cube_sets_are_keywords_test() {
   ])
 }
 
+// --- JSON / Array operator tokenization (PostgreSQL) ---
+
+pub fn json_arrow_extract_operators_test() {
+  lexer.tokenize("data->'a' #> '{b,c}' #>> '{d}'", model.PostgreSQL)
+  |> should.equal([
+    Ident("data"),
+    Operator("->"),
+    StringLit("a"),
+    Operator("#>"),
+    StringLit("{b,c}"),
+    Operator("#>>"),
+    StringLit("{d}"),
+  ])
+}
+
+pub fn json_containment_operators_test() {
+  lexer.tokenize("a @> b AND c <@ d", model.PostgreSQL)
+  |> should.equal([
+    Ident("a"),
+    Operator("@>"),
+    Ident("b"),
+    Keyword("and"),
+    Ident("c"),
+    Operator("<@"),
+    Ident("d"),
+  ])
+}
+
+pub fn jsonb_key_existence_operators_test() {
+  lexer.tokenize("a ?| b AND c ?& d", model.PostgreSQL)
+  |> should.equal([
+    Ident("a"),
+    Operator("?|"),
+    Ident("b"),
+    Keyword("and"),
+    Ident("c"),
+    Operator("?&"),
+    Ident("d"),
+  ])
+}
+
+pub fn array_overlap_operator_test() {
+  lexer.tokenize("a && b", model.PostgreSQL)
+  |> should.equal([Ident("a"), Operator("&&"), Ident("b")])
+}
+
+// `?` alone must still tokenize as a SQLite/MySQL placeholder when no
+// `|` or `&` follows.
+pub fn bare_question_mark_still_placeholder_test() {
+  lexer.tokenize("WHERE id = ?", model.SQLite)
+  |> should.equal([
+    Keyword("where"),
+    Ident("id"),
+    Operator("="),
+    Placeholder("?"),
+  ])
+}
+
 // --- Placeholder tests ---
 
 pub fn postgresql_placeholder_test() {
