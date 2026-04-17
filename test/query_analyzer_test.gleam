@@ -2071,3 +2071,166 @@ pub fn mysql_on_duplicate_key_update_test() {
   let assert [query] = analyzed
   query.params |> list.length |> should.equal(2)
 }
+
+// ------------------------------------------------------------
+// Branch-aware arithmetic and CASE inference tests (Issue #363)
+// ------------------------------------------------------------
+
+fn pricing_catalog() -> model.Catalog {
+  model.Catalog(
+    tables: [
+      model.Table(name: "items", columns: [
+        model.Column(name: "id", scalar_type: model.IntType, nullable: False),
+        model.Column(
+          name: "price",
+          scalar_type: model.FloatType,
+          nullable: False,
+        ),
+        model.Column(
+          name: "discount",
+          scalar_type: model.FloatType,
+          nullable: True,
+        ),
+        model.Column(
+          name: "quantity",
+          scalar_type: model.IntType,
+          nullable: False,
+        ),
+      ]),
+    ],
+    enums: [],
+  )
+}
+
+fn analyze_single(sql: String, catalog: model.Catalog) -> model.AnalyzedQuery {
+  let naming_ctx = naming.new()
+  let assert Ok(queries) =
+    query_parser.parse_file("t.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  query
+}
+
+pub fn arithmetic_promotes_int_to_float_test() {
+  let query =
+    analyze_single(
+      "-- name: Total :one\nSELECT id + 1.5 AS total FROM authors WHERE id = $1;",
+      test_catalog(),
+    )
+  let assert [model.ScalarResult(col)] = query.result_columns
+  col.scalar_type |> should.equal(model.FloatType)
+  col.nullable |> should.be_false()
+}
+
+pub fn arithmetic_price_math_stays_float_test() {
+  let query =
+    analyze_single(
+      "-- name: LineTotal :many\nSELECT price * quantity AS line_total FROM items;",
+      pricing_catalog(),
+    )
+  let assert [model.ScalarResult(col)] = query.result_columns
+  col.scalar_type |> should.equal(model.FloatType)
+  col.nullable |> should.be_false()
+}
+
+pub fn arithmetic_propagates_nullable_operand_test() {
+  let query =
+    analyze_single(
+      "-- name: NetPrice :many\nSELECT price - discount AS net FROM items;",
+      pricing_catalog(),
+    )
+  let assert [model.ScalarResult(col)] = query.result_columns
+  col.scalar_type |> should.equal(model.FloatType)
+  col.nullable |> should.be_true()
+}
+
+pub fn arithmetic_int_operands_stay_int_test() {
+  let query =
+    analyze_single(
+      "-- name: Doubled :many\nSELECT quantity * 2 AS doubled FROM items;",
+      pricing_catalog(),
+    )
+  let assert [model.ScalarResult(col)] = query.result_columns
+  col.scalar_type |> should.equal(model.IntType)
+  col.nullable |> should.be_false()
+}
+
+pub fn case_unifies_int_and_float_branches_test() {
+  let query =
+    analyze_single(
+      "-- name: Mixed :many\n"
+        <> "SELECT CASE WHEN id = 1 THEN 1 WHEN id = 2 THEN 2.5 ELSE 3 END AS value FROM items;",
+      pricing_catalog(),
+    )
+  let assert [model.ScalarResult(col)] = query.result_columns
+  col.scalar_type |> should.equal(model.FloatType)
+  col.nullable |> should.be_false()
+}
+
+pub fn case_without_else_is_nullable_test() {
+  let query =
+    analyze_single(
+      "-- name: Opt :many\n"
+        <> "SELECT CASE WHEN id = 1 THEN 10 END AS maybe FROM items;",
+      pricing_catalog(),
+    )
+  let assert [model.ScalarResult(col)] = query.result_columns
+  col.scalar_type |> should.equal(model.IntType)
+  col.nullable |> should.be_true()
+}
+
+pub fn case_with_else_not_null_is_not_nullable_test() {
+  let query =
+    analyze_single(
+      "-- name: Strict :many\n"
+        <> "SELECT CASE WHEN id = 1 THEN 10 ELSE 20 END AS value FROM items;",
+      pricing_catalog(),
+    )
+  let assert [model.ScalarResult(col)] = query.result_columns
+  col.scalar_type |> should.equal(model.IntType)
+  col.nullable |> should.be_false()
+}
+
+pub fn case_with_null_branch_is_nullable_test() {
+  let query =
+    analyze_single(
+      "-- name: WithNull :many\n"
+        <> "SELECT CASE WHEN id = 1 THEN NULL ELSE 42 END AS value FROM items;",
+      pricing_catalog(),
+    )
+  let assert [model.ScalarResult(col)] = query.result_columns
+  col.scalar_type |> should.equal(model.IntType)
+  col.nullable |> should.be_true()
+}
+
+pub fn case_nested_inherits_unified_type_test() {
+  let query =
+    analyze_single(
+      "-- name: Nested :many\n"
+        <> "SELECT CASE WHEN id = 1"
+        <> " THEN CASE WHEN quantity > 0 THEN 1.0 ELSE 2 END"
+        <> " ELSE 3 END AS value FROM items;",
+      pricing_catalog(),
+    )
+  let assert [model.ScalarResult(col)] = query.result_columns
+  col.scalar_type |> should.equal(model.FloatType)
+  col.nullable |> should.be_false()
+}
+
+pub fn case_nullable_column_branch_propagates_test() {
+  let query =
+    analyze_single(
+      "-- name: MaybeDiscount :many\n"
+        <> "SELECT CASE WHEN id = 1 THEN discount ELSE 0.0 END AS value FROM items;",
+      pricing_catalog(),
+    )
+  let assert [model.ScalarResult(col)] = query.result_columns
+  col.scalar_type |> should.equal(model.FloatType)
+  col.nullable |> should.be_true()
+}

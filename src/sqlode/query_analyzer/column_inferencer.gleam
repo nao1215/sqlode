@@ -896,7 +896,7 @@ fn infer_expression_type_from_tokens(
         }
         FnUnknown ->
           // Unknown function call — fall through to scan-based inference
-          infer_by_scanning(tokens, query_name)
+          infer_by_scanning(tokens, catalog, table_names, query_name)
       }
     }
 
@@ -932,7 +932,7 @@ fn infer_expression_type_from_tokens(
       ))
 
     // --- Scan-based inference for compound expressions ---
-    _ -> infer_by_scanning(tokens, query_name)
+    _ -> infer_by_scanning(tokens, catalog, table_names, query_name)
   }
 }
 
@@ -1081,12 +1081,15 @@ type TopLevelPattern {
 
 fn infer_by_scanning(
   tokens: List(lexer.Token),
+  catalog: model.Catalog,
+  table_names: List(String),
   query_name: String,
 ) -> Result(#(model.ScalarType, Bool), AnalysisError) {
   case find_top_level_pattern(tokens) {
     PatBool -> Ok(#(model.BoolType, False))
     PatConcat -> Ok(#(model.StringType, False))
-    PatArithmetic -> Ok(#(model.IntType, False))
+    PatArithmetic ->
+      infer_arithmetic_from_tokens(tokens, catalog, table_names, query_name)
     // `->` / `#>` extract a JSON value; the result is JSON. `->>` / `#>>`
     // extract the same path but coerce to text. Both are nullable because
     // the path/key may be absent.
@@ -1097,6 +1100,200 @@ fn infer_by_scanning(
         query_name:,
         expression: tok_tokens_to_text(tokens),
       ))
+  }
+}
+
+/// Infer the type of an arithmetic expression by looking at each operand
+/// instead of assuming `IntType`. Integer/float mixing promotes to
+/// `FloatType`; any operand being nullable makes the result nullable.
+fn infer_arithmetic_from_tokens(
+  tokens: List(lexer.Token),
+  catalog: model.Catalog,
+  table_names: List(String),
+  query_name: String,
+) -> Result(#(model.ScalarType, Bool), AnalysisError) {
+  let operands = split_arithmetic_operands(tokens)
+  use atom_types <- result.try(
+    list.try_map(operands, fn(operand_tokens) {
+      infer_atom_type(operand_tokens, catalog, table_names, query_name)
+    }),
+  )
+  case unify_types_nullable(atom_types) {
+    Ok(Some(result_type)) -> Ok(result_type)
+    Ok(None) ->
+      Error(UnsupportedExpression(
+        query_name:,
+        expression: tok_tokens_to_text(tokens),
+      ))
+    Error(Nil) ->
+      Error(UnsupportedExpression(
+        query_name:,
+        expression: tok_tokens_to_text(tokens),
+      ))
+  }
+}
+
+/// Split tokens at top-level `+`, `-`, `*`, `/` operators, respecting
+/// parentheses and skipping unary `-` / `+` that appear at the start of
+/// the expression or directly after another operator/keyword/`(`.
+fn split_arithmetic_operands(
+  tokens: List(lexer.Token),
+) -> List(List(lexer.Token)) {
+  split_arithmetic_loop(tokens, 0, None, [], [])
+  |> list.reverse
+  |> list.filter(fn(operand) { operand != [] })
+}
+
+fn split_arithmetic_loop(
+  tokens: List(lexer.Token),
+  depth: Int,
+  prev: Option(lexer.Token),
+  current: List(lexer.Token),
+  acc: List(List(lexer.Token)),
+) -> List(List(lexer.Token)) {
+  case tokens {
+    [] -> [list.reverse(current), ..acc]
+    [lexer.LParen as t, ..rest] ->
+      split_arithmetic_loop(rest, depth + 1, Some(t), [t, ..current], acc)
+    [lexer.RParen as t, ..rest] ->
+      split_arithmetic_loop(rest, depth - 1, Some(t), [t, ..current], acc)
+    [lexer.Operator(op) as t, ..rest]
+      if depth == 0 && { op == "+" || op == "-" || op == "*" || op == "/" }
+    -> {
+      case is_unary_context(prev) {
+        True -> split_arithmetic_loop(rest, depth, Some(t), [t, ..current], acc)
+        False ->
+          split_arithmetic_loop(rest, depth, Some(t), [], [
+            list.reverse(current),
+            ..acc
+          ])
+      }
+    }
+    [lexer.Star as t, ..rest] if depth == 0 ->
+      split_arithmetic_loop(rest, depth, Some(t), [], [
+        list.reverse(current),
+        ..acc
+      ])
+    [t, ..rest] ->
+      split_arithmetic_loop(rest, depth, Some(t), [t, ..current], acc)
+  }
+}
+
+fn is_unary_context(prev: Option(lexer.Token)) -> Bool {
+  case prev {
+    None -> True
+    Some(lexer.LParen) -> True
+    Some(lexer.Operator(_)) -> True
+    Some(lexer.Keyword(_)) -> True
+    Some(lexer.Comma) -> True
+    _ -> False
+  }
+}
+
+/// Infer a single operand's type+nullability. A `NULL` literal contributes
+/// no type but does make the result nullable, so we return `Option(Type)`
+/// so the caller can unify with other operands.
+fn infer_atom_type(
+  tokens: List(lexer.Token),
+  catalog: model.Catalog,
+  table_names: List(String),
+  query_name: String,
+) -> Result(#(Option(model.ScalarType), Bool), AnalysisError) {
+  case tokens {
+    [lexer.Keyword("null")] -> Ok(#(None, True))
+    _ ->
+      case
+        resolve_column_type_nullable_from_tokens(tokens, catalog, table_names)
+      {
+        Some(#(t, nullable)) -> Ok(#(Some(t), nullable))
+        None ->
+          infer_expression_type_from_tokens(
+            tokens,
+            catalog,
+            table_names,
+            query_name,
+          )
+          |> result.map(fn(pair) { #(Some(pair.0), pair.1) })
+      }
+  }
+}
+
+/// Combine a list of operand types into a single result type+nullability.
+/// Numeric operands promote `Int` + `Float` to `Float`. Any other type
+/// mismatch returns `Error(Nil)` so the caller can surface it as an
+/// unsupported expression. `Ok(None)` means every operand was `NULL` and
+/// no concrete type could be inferred.
+fn unify_types_nullable(
+  items: List(#(Option(model.ScalarType), Bool)),
+) -> Result(Option(#(model.ScalarType, Bool)), Nil) {
+  case items {
+    [] -> Ok(None)
+    [#(t, nullable), ..rest] ->
+      unify_types_loop(rest, t, nullable)
+      |> result.map(fn(pair) {
+        case pair.0 {
+          Some(scalar_type) -> Some(#(scalar_type, pair.1))
+          None -> None
+        }
+      })
+  }
+}
+
+fn unify_types_loop(
+  items: List(#(Option(model.ScalarType), Bool)),
+  acc_type: Option(model.ScalarType),
+  acc_nullable: Bool,
+) -> Result(#(Option(model.ScalarType), Bool), Nil) {
+  case items {
+    [] -> Ok(#(acc_type, acc_nullable))
+    [#(next_type, next_nullable), ..rest] -> {
+      let merged_nullable = acc_nullable || next_nullable
+      case merge_scalar_types(acc_type, next_type) {
+        Ok(merged_type) -> unify_types_loop(rest, merged_type, merged_nullable)
+        Error(Nil) -> Error(Nil)
+      }
+    }
+  }
+}
+
+fn merge_scalar_types(
+  a: Option(model.ScalarType),
+  b: Option(model.ScalarType),
+) -> Result(Option(model.ScalarType), Nil) {
+  case a, b {
+    None, other -> Ok(other)
+    other, None -> Ok(other)
+    Some(model.IntType), Some(model.IntType) -> Ok(Some(model.IntType))
+    Some(model.FloatType), Some(model.FloatType) -> Ok(Some(model.FloatType))
+    Some(model.IntType), Some(model.FloatType) -> Ok(Some(model.FloatType))
+    Some(model.FloatType), Some(model.IntType) -> Ok(Some(model.FloatType))
+    Some(x), Some(y) ->
+      case x == y {
+        True -> Ok(Some(x))
+        False -> Error(Nil)
+      }
+  }
+}
+
+/// Like `resolve_column_type_from_tokens` but also returns the column's
+/// nullability so callers can propagate `NULL`-ness through expressions.
+fn resolve_column_type_nullable_from_tokens(
+  tokens: List(lexer.Token),
+  catalog: model.Catalog,
+  table_names: List(String),
+) -> Option(#(model.ScalarType, Bool)) {
+  case tokens {
+    [lexer.Ident(_table), lexer.Dot, lexer.Ident(col)] ->
+      case context.find_column_in_tables(catalog, table_names, col) {
+        Some(#(_, column)) -> Some(#(column.scalar_type, column.nullable))
+        None -> None
+      }
+    [lexer.Ident(col)] ->
+      case context.find_column_in_tables(catalog, table_names, col) {
+        Some(#(_, column)) -> Some(#(column.scalar_type, column.nullable))
+        None -> None
+      }
+    _ -> None
   }
 }
 
@@ -1175,6 +1372,11 @@ fn classify_top_level_token(token: lexer.Token) -> TopLevelPattern {
     lexer.Operator("||") -> PatConcat
     lexer.Operator(op) if op == "+" || op == "-" || op == "*" || op == "/" ->
       PatArithmetic
+    // The lexer emits `Star` (not `Operator("*")`) for `*`, so an
+    // expression like `price * quantity` reaches here with a Star token.
+    // Inside an expression context the wildcard has already been
+    // stripped away, so any Star at this point is multiplication.
+    lexer.Star -> PatArithmetic
     _ -> PatNone
   }
 }
@@ -1215,59 +1417,214 @@ fn tok_find_as_type(tokens: List(lexer.Token)) -> Option(String) {
   }
 }
 
-/// Infer type from CASE expression by examining the first THEN branch.
+/// Infer the type of a CASE expression by inspecting every THEN branch and
+/// the ELSE clause (if present), unifying the branch types, and honoring
+/// the nullability of each branch. `tokens` must start right after the
+/// outer `CASE` keyword. Nested CASE expressions and parenthesized
+/// sub-expressions inside branches are handled by tracking independent
+/// `case_depth` and `paren_depth` counters.
 fn infer_case_type_from_tokens(
   tokens: List(lexer.Token),
   catalog: model.Catalog,
   table_names: List(String),
   query_name: String,
 ) -> Result(#(model.ScalarType, Bool), AnalysisError) {
-  case tok_collect_then_value(tokens) {
-    Some(then_tokens) ->
-      case then_tokens {
-        [] ->
-          Error(UnsupportedExpression(
-            query_name:,
-            expression: tok_tokens_to_text(tokens),
-          ))
-        _ -> {
-          use #(scalar_type, _) <- result.try(infer_expression_type_from_tokens(
-            then_tokens,
-            catalog,
-            table_names,
-            query_name,
-          ))
-          Ok(#(scalar_type, True))
-        }
-      }
-    None ->
+  let #(then_branches, else_branch) = collect_case_branches(tokens)
+  case then_branches {
+    [] ->
       Error(UnsupportedExpression(
         query_name:,
         expression: tok_tokens_to_text(tokens),
       ))
+    _ -> {
+      let branch_tokens = case else_branch {
+        Some(e) -> list.append(then_branches, [e])
+        None -> then_branches
+      }
+      use atom_types <- result.try(
+        list.try_map(branch_tokens, fn(branch) {
+          infer_atom_type(branch, catalog, table_names, query_name)
+        }),
+      )
+      case unify_types_nullable(atom_types) {
+        Ok(Some(#(scalar_type, branches_nullable))) -> {
+          let nullable = case else_branch {
+            Some(_) -> branches_nullable
+            None -> True
+          }
+          Ok(#(scalar_type, nullable))
+        }
+        Ok(None) ->
+          Error(UnsupportedExpression(
+            query_name:,
+            expression: tok_tokens_to_text(tokens),
+          ))
+        Error(Nil) ->
+          Error(UnsupportedExpression(
+            query_name:,
+            expression: tok_tokens_to_text(tokens),
+          ))
+      }
+    }
   }
 }
 
-/// Collect tokens between first THEN and the next WHEN/ELSE/END at depth 0.
-fn tok_collect_then_value(
-  tokens: List(lexer.Token),
-) -> Option(List(lexer.Token)) {
-  case tokens {
-    [] -> None
-    [lexer.Keyword("then"), ..rest] -> Some(tok_until_case_boundary(rest, []))
-    [_, ..rest] -> tok_collect_then_value(rest)
-  }
+type CaseCollectorMode {
+  Scanning
+  InThen
+  InElse
 }
 
-fn tok_until_case_boundary(
+/// Walk tokens that start right after the outer `CASE` keyword, returning
+/// the raw token list of each top-level THEN branch and the ELSE branch
+/// (if any). Independent counters track parentheses and nested CASE
+/// expressions so that `WHEN`/`THEN`/`ELSE`/`END` are only treated as
+/// boundaries at the outermost level.
+fn collect_case_branches(
   tokens: List(lexer.Token),
+) -> #(List(List(lexer.Token)), Option(List(lexer.Token))) {
+  collect_case_loop(tokens, 0, 0, Scanning, [], [], None)
+}
+
+fn collect_case_loop(
+  tokens: List(lexer.Token),
+  paren_depth: Int,
+  case_depth: Int,
+  mode: CaseCollectorMode,
   acc: List(lexer.Token),
-) -> List(lexer.Token) {
+  then_branches_rev: List(List(lexer.Token)),
+  else_branch: Option(List(lexer.Token)),
+) -> #(List(List(lexer.Token)), Option(List(lexer.Token))) {
   case tokens {
-    [] -> list.reverse(acc)
-    [lexer.Keyword(kw), ..] if kw == "when" || kw == "else" || kw == "end" ->
-      list.reverse(acc)
-    [token, ..rest] -> tok_until_case_boundary(rest, [token, ..acc])
+    [] -> {
+      let #(then_branches_rev, else_branch) =
+        flush_current_branch(mode, acc, then_branches_rev, else_branch)
+      #(list.reverse(then_branches_rev), else_branch)
+    }
+    [first, ..rest] -> {
+      let in_branch = case mode {
+        Scanning -> False
+        _ -> True
+      }
+      let at_top = paren_depth == 0 && case_depth == 0
+      case first {
+        lexer.LParen ->
+          collect_case_loop(
+            rest,
+            paren_depth + 1,
+            case_depth,
+            mode,
+            append_if_in_branch(first, acc, in_branch),
+            then_branches_rev,
+            else_branch,
+          )
+        lexer.RParen ->
+          collect_case_loop(
+            rest,
+            paren_depth - 1,
+            case_depth,
+            mode,
+            append_if_in_branch(first, acc, in_branch),
+            then_branches_rev,
+            else_branch,
+          )
+        lexer.Keyword("case") ->
+          collect_case_loop(
+            rest,
+            paren_depth,
+            case_depth + 1,
+            mode,
+            append_if_in_branch(first, acc, in_branch),
+            then_branches_rev,
+            else_branch,
+          )
+        lexer.Keyword("end") if at_top -> {
+          let #(then_branches_rev, else_branch) =
+            flush_current_branch(mode, acc, then_branches_rev, else_branch)
+          #(list.reverse(then_branches_rev), else_branch)
+        }
+        lexer.Keyword("end") ->
+          collect_case_loop(
+            rest,
+            paren_depth,
+            case_depth - 1,
+            mode,
+            append_if_in_branch(first, acc, in_branch),
+            then_branches_rev,
+            else_branch,
+          )
+        lexer.Keyword("when") if at_top -> {
+          let #(then_branches_rev, else_branch) =
+            flush_current_branch(mode, acc, then_branches_rev, else_branch)
+          collect_case_loop(
+            rest,
+            paren_depth,
+            case_depth,
+            Scanning,
+            [],
+            then_branches_rev,
+            else_branch,
+          )
+        }
+        lexer.Keyword("then") if at_top ->
+          collect_case_loop(
+            rest,
+            paren_depth,
+            case_depth,
+            InThen,
+            [],
+            then_branches_rev,
+            else_branch,
+          )
+        lexer.Keyword("else") if at_top -> {
+          let #(then_branches_rev, else_branch) =
+            flush_current_branch(mode, acc, then_branches_rev, else_branch)
+          collect_case_loop(
+            rest,
+            paren_depth,
+            case_depth,
+            InElse,
+            [],
+            then_branches_rev,
+            else_branch,
+          )
+        }
+        _ ->
+          collect_case_loop(
+            rest,
+            paren_depth,
+            case_depth,
+            mode,
+            append_if_in_branch(first, acc, in_branch),
+            then_branches_rev,
+            else_branch,
+          )
+      }
+    }
+  }
+}
+
+fn append_if_in_branch(
+  token: lexer.Token,
+  acc: List(lexer.Token),
+  in_branch: Bool,
+) -> List(lexer.Token) {
+  case in_branch {
+    True -> [token, ..acc]
+    False -> acc
+  }
+}
+
+fn flush_current_branch(
+  mode: CaseCollectorMode,
+  acc: List(lexer.Token),
+  then_branches_rev: List(List(lexer.Token)),
+  else_branch: Option(List(lexer.Token)),
+) -> #(List(List(lexer.Token)), Option(List(lexer.Token))) {
+  case mode {
+    InThen -> #([list.reverse(acc), ..then_branches_rev], else_branch)
+    InElse -> #(then_branches_rev, Some(list.reverse(acc)))
+    Scanning -> #(then_branches_rev, else_branch)
   }
 }
 
