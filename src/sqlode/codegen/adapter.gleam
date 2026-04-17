@@ -157,7 +157,7 @@ fn render_adapter(
       // Every generated adapter now calls `runtime.expand_slice_placeholders`
       // to substitute the placeholder markers emitted by the query parser,
       // so the import is always required (not only when slices are used).
-      ["import sqlode/runtime"],
+      ["import " <> common.runtime_import_path(gleam)],
       case has_results || has_enums {
         True -> ["import " <> module_path <> "/models"]
         False -> []

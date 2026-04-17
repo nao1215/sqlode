@@ -199,6 +199,27 @@ gleam add pog       # for PostgreSQL with native runtime
 gleam add sqlight   # for SQLite with native runtime
 ```
 
+### Self-contained generation (`vendor_runtime`)
+
+Setting `gen.gleam.vendor_runtime: true` asks sqlode to copy the
+`sqlode/runtime` module into the output directory as `runtime.gleam`
+and rewrite the generated imports to point at the local copy. The
+generated package no longer needs sqlode as a runtime dependency,
+only as a dev dependency (the tool you invoke with `sqlode generate`).
+Native adapters still need their driver package (`pog` / `sqlight`).
+
+```yaml
+gen:
+  gleam:
+    out: "src/db"
+    runtime: "raw"
+    vendor_runtime: true
+```
+
+Trade-offs: shared-runtime code is smaller and auto-updates with
+`gleam update sqlode`; vendored code is self-contained at the cost of
+re-running `sqlode generate` to pick up runtime changes.
+
 ## Adapter generation
 
 When `runtime` is set to `native`, sqlode generates adapter modules that wrap [pog](https://hexdocs.pm/pog/) (PostgreSQL) or [sqlight](https://hexdocs.pm/sqlight/) (SQLite).
@@ -588,7 +609,7 @@ sqlode follows sqlc conventions, so most SQL files work without changes. Key dif
 | Init | `sqlc init` | `sqlode init` |
 | Vet/Verify | `sqlc vet`, `sqlc verify` | Not supported |
 | Target language | Go, Python, Kotlin, etc. | Gleam |
-| Runtime | Generated code is self-contained | Generated code imports `sqlode/runtime` |
+| Runtime | Generated code is self-contained | Generated code imports `sqlode/runtime` by default; set `vendor_runtime: true` to vendor a copy and drop the runtime dependency (see [Self-contained generation](#self-contained-generation-vendor_runtime)) |
 
 ### Migration steps
 

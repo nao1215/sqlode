@@ -11,6 +11,7 @@ pub fn render(
   queries: List(model.AnalyzedQuery),
   type_mapping: model.TypeMapping,
   module_path: String,
+  runtime_import: String,
 ) -> String {
   let has_slices = common.queries_have_slices(queries)
 
@@ -28,6 +29,8 @@ pub fn render(
       list.any(q.params, fn(p) { type_mapping.is_rich_type(p.scalar_type) })
     })
 
+  let runtime_import_line = "import " <> runtime_import <> ".{type Value}"
+
   let imports = case needs_option_import(queries) {
     True ->
       list.flatten([
@@ -35,10 +38,7 @@ pub fn render(
           True -> ["import gleam/list"]
           False -> []
         },
-        [
-          "import gleam/option.{type Option, None, Some}",
-          "import sqlode/runtime.{type Value}",
-        ],
+        ["import gleam/option.{type Option, None, Some}", runtime_import_line],
         case has_enums || needs_models_for_strong {
           True -> ["import " <> module_path <> "/models"]
           False -> []
@@ -51,7 +51,7 @@ pub fn render(
           True -> ["import gleam/list"]
           False -> []
         },
-        ["import sqlode/runtime.{type Value}"],
+        [runtime_import_line],
         case has_enums || needs_models_for_strong {
           True -> ["import " <> module_path <> "/models"]
           False -> []
