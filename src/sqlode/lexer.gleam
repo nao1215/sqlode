@@ -484,10 +484,22 @@ fn read_word(input: List(String), acc: List(String)) -> #(String, List(String)) 
 
 fn classify_word(word: String) -> Token {
   let lowered = string.lowercase(word)
-  case is_sql_keyword(lowered) {
-    True -> Keyword(lowered)
-    False -> Ident(word)
+  case is_sqlode_marker(word) {
+    True -> Placeholder(word)
+    False ->
+      case is_sql_keyword(lowered) {
+        True -> Keyword(lowered)
+        False -> Ident(word)
+      }
   }
+}
+
+fn is_sqlode_marker(word: String) -> Bool {
+  {
+    string.starts_with(word, "__sqlode_param_")
+    || string.starts_with(word, "__sqlode_slice_")
+  }
+  && string.ends_with(word, "__")
 }
 
 fn is_sql_keyword(word: String) -> Bool {

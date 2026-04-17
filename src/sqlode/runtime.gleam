@@ -46,28 +46,31 @@ pub type RawQuery(p) {
   )
 }
 
+/// Placeholder style used by the target database driver.
+///
+/// - `DollarNumbered` — PostgreSQL style: `$1`, `$2`, ...
+/// - `QuestionNumbered` — SQLite style: `?1`, `?2`, ...
+/// - `QuestionPositional` — MySQL style: bare `?` (matched by position)
+pub type PlaceholderStyle {
+  DollarNumbered
+  QuestionNumbered
+  QuestionPositional
+}
+
 /// Prepare a raw query for execution by encoding parameters and expanding
-/// slice placeholders.  Returns the final SQL string and the flattened
-/// parameter values, ready to be passed to a database driver.
-///
-/// For queries without slices the SQL is returned unchanged.
-///
-/// - `prefix` – placeholder prefix: `"$"` for PostgreSQL, `"?"` for SQLite
+/// the engine-agnostic placeholder markers that the generator emits.
+/// Returns the final SQL string and the flattened parameter values, ready
+/// to be passed to a database driver.
 pub fn prepare(
   query: RawQuery(p),
   params: p,
-  prefix: String,
+  style: PlaceholderStyle,
 ) -> #(String, List(Value)) {
   let values = query.encode(params)
   let slices = query.slice_info(params)
-  case slices {
-    [] -> #(query.sql, values)
-    _ -> {
-      let sql =
-        expand_slice_placeholders(query.sql, slices, query.param_count, prefix)
-      #(sql, values)
-    }
-  }
+  let sql =
+    expand_slice_placeholders(query.sql, slices, query.param_count, style)
+  #(sql, values)
 }
 
 pub fn null() -> Value {
@@ -105,39 +108,40 @@ pub fn nullable(value: option.Option(a), encode: fn(a) -> Value) -> Value {
   }
 }
 
-/// Expand slice placeholders in a SQL string.
+/// Marker prefix emitted by the generator for a regular `sqlode.arg` /
+/// `sqlode.narg` / `@name` parameter at the given 1-based index.
+/// Rendered into the final placeholder at runtime by `expand_slice_placeholders`.
+pub fn param_marker(index: Int) -> String {
+  "__sqlode_param_" <> int.to_string(index) <> "__"
+}
+
+/// Marker prefix emitted by the generator for a `sqlode.slice` parameter at
+/// the given 1-based index. Rendered into the expanded placeholder list at
+/// runtime by `expand_slice_placeholders`.
+pub fn slice_marker(index: Int) -> String {
+  "__sqlode_slice_" <> int.to_string(index) <> "__"
+}
+
+/// Render a parameter marker into the final engine-specific placeholder.
 ///
-/// When a query uses `sqlode.slice(ids)`, the parser emits a single placeholder
-/// (e.g. `$1` or `?1`).  At runtime the placeholder must be expanded to match
-/// the actual list length, and every subsequent placeholder must be renumbered.
+/// The generator emits `__sqlode_param_N__` / `__sqlode_slice_N__` in the SQL
+/// template regardless of the target engine. At runtime this function
+/// replaces each marker with the correct placeholder string (for example
+/// `$3` for PostgreSQL, `?3` for SQLite, `?` for MySQL) and expands slice
+/// markers to a comma-separated list sized by the caller-provided
+/// `slices`. Non-slice markers are renumbered sequentially across the
+/// whole SQL text so that slices that precede them shift their index.
 ///
-/// Arguments:
-/// - `sql`          – the SQL template with original placeholders
-/// - `slices`       – list of `#(original_index, slice_length)` for each slice param
-/// - `total_params` – total number of original parameter slots
-/// - `prefix`       – placeholder prefix: `"$"` for PostgreSQL, `"?"` for SQLite
-///
-/// Returns the expanded SQL string.
+/// Using markers instead of rewriting `prefix<>index` directly means
+/// placeholder-like text inside string literals or comments is never
+/// touched, and MySQL (which uses bare `?` rather than `?N`) works
+/// without special-casing the placeholder format.
 pub fn expand_slice_placeholders(
   sql: String,
   slices: List(#(Int, Int)),
   total_params: Int,
-  prefix: String,
+  style: PlaceholderStyle,
 ) -> String {
-  // Phase 1: Replace all original placeholders with unique markers
-  //          (from highest index to lowest to avoid partial matches)
-  // Note: int.range excludes the stop value, so use 0 to include 1
-  let marked =
-    int.range(from: total_params, to: 0, with: sql, run: fn(s, i) {
-      string.replace(
-        s,
-        prefix <> int.to_string(i),
-        "{{P" <> int.to_string(i) <> "}}",
-      )
-    })
-
-  // Phase 2: Compute a mapping from each original index to the new placeholder(s)
-  // Note: int.range excludes stop, so use total_params + 1 to include total_params
   let #(_, mapping) =
     int.range(
       from: 1,
@@ -145,28 +149,31 @@ pub fn expand_slice_placeholders(
       with: #(1, []),
       run: fn(acc, orig_idx) {
         let #(next_new_idx, map) = acc
-        let is_slice = list.find(slices, fn(s) { s.0 == orig_idx })
-        case is_slice {
+        case list.find(slices, fn(s) { s.0 == orig_idx }) {
           Ok(#(_, len)) -> {
+            let marker = slice_marker(orig_idx)
             case len {
-              0 -> #(next_new_idx, [#(orig_idx, "NULL"), ..map])
+              0 -> #(next_new_idx, [#(marker, "NULL"), ..map])
               _ -> {
                 let expanded =
                   int.range(
                     from: next_new_idx,
                     to: next_new_idx + len,
                     with: [],
-                    run: fn(items, i) { [prefix <> int.to_string(i), ..items] },
+                    run: fn(items, i) {
+                      [render_placeholder(style, i), ..items]
+                    },
                   )
                   |> list.reverse
                   |> string.join(", ")
-                #(next_new_idx + len, [#(orig_idx, expanded), ..map])
+                #(next_new_idx + len, [#(marker, expanded), ..map])
               }
             }
           }
           Error(_) -> {
+            let marker = param_marker(orig_idx)
             #(next_new_idx + 1, [
-              #(orig_idx, prefix <> int.to_string(next_new_idx)),
+              #(marker, render_placeholder(style, next_new_idx)),
               ..map
             ])
           }
@@ -174,10 +181,18 @@ pub fn expand_slice_placeholders(
       },
     )
 
-  // Phase 3: Replace markers with final placeholders
   mapping
-  |> list.fold(marked, fn(s, entry) {
-    let #(orig_idx, replacement) = entry
-    string.replace(s, "{{P" <> int.to_string(orig_idx) <> "}}", replacement)
+  |> list.reverse
+  |> list.fold(sql, fn(s, entry) {
+    let #(marker, replacement) = entry
+    string.replace(s, marker, replacement)
   })
+}
+
+fn render_placeholder(style: PlaceholderStyle, index: Int) -> String {
+  case style {
+    DollarNumbered -> "$" <> int.to_string(index)
+    QuestionNumbered -> "?" <> int.to_string(index)
+    QuestionPositional -> "?"
+  }
 }
