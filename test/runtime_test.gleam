@@ -62,10 +62,11 @@ pub fn prepare_no_slices_test() {
       sql: "SELECT * FROM users WHERE id = __sqlode_param_1__",
       command: runtime.QueryOne,
       param_count: 1,
+      placeholder_style: runtime.DollarNumbered,
       encode: fn(_) { [runtime.int(42)] },
       slice_info: fn(_) { [] },
     )
-  let #(sql, values) = runtime.prepare(query, Nil, runtime.DollarNumbered)
+  let #(sql, values) = runtime.prepare(query, Nil)
   sql |> should.equal("SELECT * FROM users WHERE id = $1")
   values |> should.equal([runtime.SqlInt(42)])
 }
@@ -77,11 +78,11 @@ pub fn prepare_with_slices_test() {
       sql: "SELECT * FROM users WHERE id IN (__sqlode_slice_1__)",
       command: runtime.QueryMany,
       param_count: 1,
+      placeholder_style: runtime.DollarNumbered,
       encode: fn(ids) { list.map(ids, runtime.int) },
       slice_info: fn(ids) { [#(1, list.length(ids))] },
     )
-  let #(sql, values) =
-    runtime.prepare(query, [10, 20, 30], runtime.DollarNumbered)
+  let #(sql, values) = runtime.prepare(query, [10, 20, 30])
   sql |> should.equal("SELECT * FROM users WHERE id IN ($1, $2, $3)")
   values
   |> should.equal([runtime.SqlInt(10), runtime.SqlInt(20), runtime.SqlInt(30)])
@@ -95,13 +96,13 @@ pub fn prepare_mixed_params_test() {
         <> " AND id IN (__sqlode_slice_2__)",
       command: runtime.QueryMany,
       param_count: 2,
+      placeholder_style: runtime.DollarNumbered,
       encode: fn(p: #(String, List(Int))) {
         list.flatten([[runtime.string(p.0)], list.map(p.1, runtime.int)])
       },
       slice_info: fn(p: #(String, List(Int))) { [#(2, list.length(p.1))] },
     )
-  let #(sql, values) =
-    runtime.prepare(query, #("Alice", [1, 2]), runtime.DollarNumbered)
+  let #(sql, values) = runtime.prepare(query, #("Alice", [1, 2]))
   sql
   |> should.equal("SELECT * FROM users WHERE name = $1 AND id IN ($2, $3)")
   values
@@ -121,11 +122,11 @@ pub fn prepare_mysql_slice_expands_to_positional_test() {
       sql: "SELECT * FROM users WHERE id IN (__sqlode_slice_1__)",
       command: runtime.QueryMany,
       param_count: 1,
+      placeholder_style: runtime.QuestionPositional,
       encode: fn(ids) { list.map(ids, runtime.int) },
       slice_info: fn(ids) { [#(1, list.length(ids))] },
     )
-  let #(sql, _values) =
-    runtime.prepare(query, [10, 20, 30], runtime.QuestionPositional)
+  let #(sql, _values) = runtime.prepare(query, [10, 20, 30])
   sql |> should.equal("SELECT * FROM users WHERE id IN (?, ?, ?)")
 }
 
@@ -138,14 +139,32 @@ pub fn prepare_mysql_mixed_params_and_slice_test() {
         <> " AND status = __sqlode_param_3__",
       command: runtime.QueryMany,
       param_count: 3,
+      placeholder_style: runtime.QuestionPositional,
       encode: fn(_) { [] },
       slice_info: fn(_) { [#(2, 2)] },
     )
-  let #(sql, _values) = runtime.prepare(query, Nil, runtime.QuestionPositional)
+  let #(sql, _values) = runtime.prepare(query, Nil)
   sql
   |> should.equal(
     "SELECT * FROM users WHERE name = ? AND id IN (?, ?) AND status = ?",
   )
+}
+
+// Issue #359 — placeholder style carried by RawQuery
+
+pub fn prepare_sqlite_reads_style_from_raw_query_test() {
+  let query =
+    runtime.RawQuery(
+      name: "GetById",
+      sql: "SELECT * FROM users WHERE id = __sqlode_param_1__",
+      command: runtime.QueryOne,
+      param_count: 1,
+      placeholder_style: runtime.QuestionNumbered,
+      encode: fn(_) { [runtime.int(1)] },
+      slice_info: fn(_) { [] },
+    )
+  let #(sql, _values) = runtime.prepare(query, Nil)
+  sql |> should.equal("SELECT * FROM users WHERE id = ?1")
 }
 
 pub fn expand_slice_placeholders_preserves_string_literal_with_placeholder_text_test() {

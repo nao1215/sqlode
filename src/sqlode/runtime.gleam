@@ -32,20 +32,6 @@ pub type QueryInfo {
   QueryInfo(name: String, sql: String, command: QueryCommand, param_count: Int)
 }
 
-/// A typed raw query descriptor that bundles SQL metadata with its parameter
-/// encoder.  The type parameter `p` represents the parameter type for this
-/// query, which ties the query to its expected parameters at the type level.
-pub type RawQuery(p) {
-  RawQuery(
-    name: String,
-    sql: String,
-    command: QueryCommand,
-    param_count: Int,
-    encode: fn(p) -> List(Value),
-    slice_info: fn(p) -> List(#(Int, Int)),
-  )
-}
-
 /// Placeholder style used by the target database driver.
 ///
 /// - `DollarNumbered` — PostgreSQL style: `$1`, `$2`, ...
@@ -57,19 +43,42 @@ pub type PlaceholderStyle {
   QuestionPositional
 }
 
+/// A typed raw query descriptor that bundles SQL metadata with its parameter
+/// encoder.  The type parameter `p` represents the parameter type for this
+/// query, which ties the query to its expected parameters at the type level.
+///
+/// `placeholder_style` records the dialect the generator emitted the SQL
+/// for, so callers of `prepare` do not need to know or repeat the engine
+/// choice: they pass the query and parameters and get back a final SQL
+/// string already rendered for the target driver.
+pub type RawQuery(p) {
+  RawQuery(
+    name: String,
+    sql: String,
+    command: QueryCommand,
+    param_count: Int,
+    placeholder_style: PlaceholderStyle,
+    encode: fn(p) -> List(Value),
+    slice_info: fn(p) -> List(#(Int, Int)),
+  )
+}
+
 /// Prepare a raw query for execution by encoding parameters and expanding
-/// the engine-agnostic placeholder markers that the generator emits.
+/// the engine-agnostic placeholder markers that the generator emits. The
+/// target placeholder dialect is read from `query.placeholder_style`, so
+/// callers no longer need to pass a separate style argument.
 /// Returns the final SQL string and the flattened parameter values, ready
 /// to be passed to a database driver.
-pub fn prepare(
-  query: RawQuery(p),
-  params: p,
-  style: PlaceholderStyle,
-) -> #(String, List(Value)) {
+pub fn prepare(query: RawQuery(p), params: p) -> #(String, List(Value)) {
   let values = query.encode(params)
   let slices = query.slice_info(params)
   let sql =
-    expand_slice_placeholders(query.sql, slices, query.param_count, style)
+    expand_slice_placeholders(
+      query.sql,
+      slices,
+      query.param_count,
+      query.placeholder_style,
+    )
   #(sql, values)
 }
 

@@ -38,6 +38,8 @@ pub fn render_queries_module_test() {
   |> should.be_true()
   string.contains(rendered, "command: runtime.QueryOne")
   |> should.be_true()
+  string.contains(rendered, "placeholder_style: runtime.DollarNumbered,")
+  |> should.be_true()
   string.contains(rendered, "encode: params.get_author_values,")
   |> should.be_true()
   string.contains(rendered, "slice_info: fn(_) { [] },")

@@ -1014,7 +1014,7 @@ fn render_list_param_value_expr(
 
 fn render_slice_expansion_line(
   params: List(model.QueryParam),
-  style_expr: String,
+  _style_expr: String,
 ) -> String {
   let slice_entries =
     params
@@ -1034,9 +1034,7 @@ fn render_slice_expansion_line(
   <> slice_entries
   <> "], "
   <> int.to_string(total_params)
-  <> ", "
-  <> style_expr
-  <> ")"
+  <> ", q.placeholder_style)"
 }
 
 fn needs_option_import_for_adapter(queries: List(model.AnalyzedQuery)) -> Bool {
