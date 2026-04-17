@@ -1963,6 +1963,85 @@ pub fn correlated_subquery_outer_only_column_test() {
   echoed.nullable |> should.equal(True)
 }
 
+// --- #324: derived tables in FROM / JOIN ---
+
+pub fn derived_table_in_from_body_names_test() {
+  // `FROM (SELECT id, name FROM authors) AS sub` — no explicit column
+  // list, so the derived table's columns come from the inner SELECT
+  // and are reachable via the alias.
+  let sql =
+    "-- name: FromDerived :many\nSELECT sub.id, sub.name FROM (SELECT id, name FROM authors) AS sub;"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(id_col), model.ScalarResult(name_col)] =
+    query.result_columns
+  id_col.name |> should.equal("id")
+  id_col.scalar_type |> should.equal(model.IntType)
+  name_col.name |> should.equal("name")
+  name_col.scalar_type |> should.equal(model.StringType)
+}
+
+pub fn derived_table_with_explicit_column_list_test() {
+  // The alias column list `s(x, y)` renames the inferred columns; the
+  // outer SELECT must reference the new names.
+  let sql =
+    "-- name: FromDerivedAliased :many\nSELECT s.x, s.y FROM (SELECT id, name FROM authors) AS s(x, y);"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(x_col), model.ScalarResult(y_col)] =
+    query.result_columns
+  x_col.name |> should.equal("x")
+  x_col.scalar_type |> should.equal(model.IntType)
+  y_col.name |> should.equal("y")
+  y_col.scalar_type |> should.equal(model.StringType)
+}
+
+pub fn derived_table_in_join_test() {
+  // Derived table joined onto a real table. The inner SELECT computes
+  // `author_id` and an aggregated column, and the outer SELECT pulls
+  // columns from both sides.
+  let naming_ctx = naming.new()
+  let catalog = join_catalog()
+  let sql =
+    "-- name: AuthorsWithPostCount :many\nSELECT authors.name, sub.total FROM authors JOIN (SELECT author_id, COUNT(*) AS total FROM books GROUP BY author_id) AS sub ON authors.id = sub.author_id;"
+  let assert Ok(queries) =
+    query_parser.parse_file("d.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  let assert [model.ScalarResult(name_col), model.ScalarResult(total_col)] =
+    query.result_columns
+  name_col.scalar_type |> should.equal(model.StringType)
+  total_col.name |> should.equal("total")
+  total_col.scalar_type |> should.equal(model.IntType)
+}
+
+pub fn derived_table_nested_test() {
+  // `FROM (SELECT * FROM (SELECT ...) AS inner) AS outer` — the inner
+  // derived table must be discovered and augmented before the outer
+  // body's resolver runs.
+  let sql =
+    "-- name: Nested :many\nSELECT outer_alias.id FROM (SELECT inner_alias.id FROM (SELECT id, name FROM authors) AS inner_alias) AS outer_alias;"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(id_col)] = query.result_columns
+  id_col.scalar_type |> should.equal(model.IntType)
+}
+
+pub fn derived_table_referencing_cte_test() {
+  // A derived table's body can reference a CTE defined in the same
+  // query, because extract_derived_tables runs against the catalog
+  // already augmented with CTE virtual tables.
+  let sql =
+    "-- name: DerivedOverCte :many\nWITH c AS (SELECT id, name FROM authors) SELECT d.name FROM (SELECT name FROM c) AS d;"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(name_col)] = query.result_columns
+  name_col.name |> should.equal("name")
+  name_col.scalar_type |> should.equal(model.StringType)
+}
+
 pub fn mysql_on_duplicate_key_update_test() {
   // MySQL: INSERT ... ON DUPLICATE KEY UPDATE col = VALUES(col)
   // Param count should be 2 (from the INSERT VALUES); VALUES(col) on

@@ -17,20 +17,16 @@ fn table_names_loop(
 ) -> List(String) {
   case tokens {
     [] -> list.reverse(acc)
-    // FROM (VALUES ...) AS alias(...) — the alias names the virtual
-    // table populated by extract_values_tables. Emit the alias so the
-    // resolver can look it up. Non-VALUES subqueries are left alone
-    // (derived tables are not inferred yet).
-    [lexer.Keyword("from"), lexer.LParen, lexer.Keyword("values"), ..rest] -> {
+    // FROM (subquery) AS alias(...) — covers VALUES, derived tables,
+    // and LATERAL subqueries. The alias names a virtual table that
+    // extract_values_tables or extract_derived_tables is responsible
+    // for registering in the catalog.
+    [lexer.Keyword("from"), lexer.LParen, ..rest] -> {
       let remaining = skip_parens(rest, 1)
       case read_subquery_alias(remaining) {
         #(Some(n), after_alias) -> table_names_loop(after_alias, [n, ..acc])
         #(None, _) -> table_names_loop(remaining, acc)
       }
-    }
-    [lexer.Keyword("from"), lexer.LParen, ..rest] -> {
-      let remaining = skip_parens(rest, 1)
-      table_names_loop(remaining, acc)
     }
     [lexer.Keyword(kw), ..rest]
       if kw == "from" || kw == "into" || kw == "update"
@@ -41,7 +37,24 @@ fn table_names_loop(
         None -> table_names_loop(rest, acc)
       }
     }
-    [lexer.Keyword("join"), lexer.LParen, lexer.Keyword("values"), ..rest] -> {
+    // JOIN LATERAL (subquery) AS alias(...) — consume LATERAL before
+    // the paren so the alias is picked up.
+    [lexer.Keyword("join"), lexer.Keyword("lateral"), lexer.LParen, ..rest] -> {
+      let remaining = skip_parens(rest, 1)
+      case read_subquery_alias(remaining) {
+        #(Some(n), after_alias) -> table_names_loop(after_alias, [n, ..acc])
+        #(None, _) -> table_names_loop(remaining, acc)
+      }
+    }
+    [lexer.Keyword("join"), lexer.LParen, ..rest] -> {
+      let remaining = skip_parens(rest, 1)
+      case read_subquery_alias(remaining) {
+        #(Some(n), after_alias) -> table_names_loop(after_alias, [n, ..acc])
+        #(None, _) -> table_names_loop(remaining, acc)
+      }
+    }
+    // PostgreSQL comma-LATERAL: FROM t1, LATERAL (subquery) AS alias
+    [lexer.Keyword("lateral"), lexer.LParen, ..rest] -> {
       let remaining = skip_parens(rest, 1)
       case read_subquery_alias(remaining) {
         #(Some(n), after_alias) -> table_names_loop(after_alias, [n, ..acc])
