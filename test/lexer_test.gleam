@@ -181,6 +181,36 @@ pub fn bracket_identifier_sqlite_test() {
   ])
 }
 
+pub fn double_quoted_identifier_with_escaped_quote_postgresql_test() {
+  lexer.tokenize("SELECT \"foo\"\"bar\"", model.PostgreSQL)
+  |> should.equal([Keyword("select"), QuotedIdent("foo\"bar")])
+}
+
+pub fn double_quoted_identifier_with_escaped_quote_sqlite_test() {
+  lexer.tokenize("SELECT \"foo\"\"bar\"", model.SQLite)
+  |> should.equal([Keyword("select"), QuotedIdent("foo\"bar")])
+}
+
+pub fn backtick_identifier_with_escaped_backtick_mysql_test() {
+  lexer.tokenize("SELECT `foo``bar`", model.MySQL)
+  |> should.equal([Keyword("select"), QuotedIdent("foo`bar")])
+}
+
+pub fn mysql_double_quoted_string_with_escaped_quote_test() {
+  lexer.tokenize("SELECT \"hi\"\"there\"", model.MySQL)
+  |> should.equal([Keyword("select"), StringLit("hi\"there")])
+}
+
+// Bracket identifiers in SQLite have no escape mechanism for ];
+// the first ] closes the identifier and any trailing ] is parsed separately.
+pub fn bracket_identifier_no_escape_sqlite_test() {
+  let tokens = lexer.tokenize("SELECT [a]]b]", model.SQLite)
+  case tokens {
+    [Keyword("select"), QuotedIdent("a"), ..] -> Nil
+    _ -> panic as "bracket identifier should terminate at first ]"
+  }
+}
+
 // --- Placeholder tests ---
 
 pub fn postgresql_placeholder_test() {

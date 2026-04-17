@@ -373,6 +373,10 @@ fn read_quoted(
 ) -> #(String, List(String)) {
   case input {
     [] -> #(acc |> list.reverse |> string.concat, [])
+    // SQL standard: a doubled closer inside the quotes is an escaped literal.
+    // SQLite bracket identifiers ([...]) have no escape mechanism for ].
+    [g, g2, ..rest] if g == closer && g2 == closer && closer != "]" ->
+      read_quoted(rest, closer, [g, ..acc])
     [g, ..rest] ->
       case g == closer {
         True -> #(acc |> list.reverse |> string.concat, rest)
