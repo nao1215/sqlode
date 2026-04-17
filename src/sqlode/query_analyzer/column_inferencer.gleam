@@ -58,12 +58,22 @@ pub fn infer_columns_from_tokens(
 /// FROM clause of its own, fall back to `outer_tables` so correlated
 /// references like `SELECT (SELECT books.id)` can still be resolved
 /// against the enclosing query's FROM list.
+///
+/// Every entry point also runs VALUES and derived-table discovery over
+/// its own token scope and augments the catalog before resolution, so
+/// nested subqueries pick up sibling virtual tables without extra work
+/// from the caller.
 pub fn infer_columns_from_tokens_scoped(
   query_name: String,
   tokens: List(lexer.Token),
   catalog: model.Catalog,
   outer_tables: List(String),
 ) -> Result(List(model.ResultItem), AnalysisError) {
+  use augmented <- result.try(augment_with_subquery_tables(
+    query_name,
+    tokens,
+    catalog,
+  ))
   case tok_extract_returning_columns(tokens) {
     Some(returning_cols) -> {
       let table_names = token_utils.extract_table_names(tokens)
@@ -74,7 +84,7 @@ pub fn infer_columns_from_tokens_scoped(
           resolve_select_columns(
             query_name,
             returning_cols,
-            catalog,
+            augmented,
             primary,
             tables,
             nullable_tables,
@@ -99,7 +109,7 @@ pub fn infer_columns_from_tokens_scoped(
           resolve_select_columns(
             query_name,
             select_columns,
-            catalog,
+            augmented,
             primary,
             tables,
             nullable_tables,
@@ -108,6 +118,21 @@ pub fn infer_columns_from_tokens_scoped(
       }
     }
   }
+}
+
+fn augment_with_subquery_tables(
+  query_name: String,
+  tokens: List(lexer.Token),
+  catalog: model.Catalog,
+) -> Result(model.Catalog, AnalysisError) {
+  let values = extract_values_tables(tokens)
+  let with_values = augment_catalog_with(catalog, values)
+  use derived <- result.try(extract_derived_tables(
+    query_name,
+    tokens,
+    with_values,
+  ))
+  Ok(augment_catalog_with(with_values, derived))
 }
 
 /// Pick the scope the resolver should use: the inner FROM tables if any,
@@ -375,6 +400,114 @@ fn build_values_columns(
       model.Column(name: name, scalar_type: st, nullable: nullable),
       ..build_values_columns(rest_names, rest_types)
     ]
+  }
+}
+
+/// Find every derived table in the token stream — `FROM (SELECT ...)`,
+/// `JOIN (SELECT ...)`, `JOIN LATERAL (SELECT ...)`, and comma-LATERAL
+/// `, LATERAL (SELECT ...)` — and build a virtual Table for each. Each
+/// body is resolved against `catalog` via `infer_columns_from_tokens`,
+/// so nested CTEs / VALUES / derived tables compose naturally. An
+/// explicit `AS alias(c1, c2)` column list overrides the body's names.
+pub fn extract_derived_tables(
+  query_name: String,
+  tokens: List(lexer.Token),
+  catalog: model.Catalog,
+) -> Result(List(model.Table), AnalysisError) {
+  find_derived_tables(query_name, tokens, catalog, [])
+}
+
+fn find_derived_tables(
+  query_name: String,
+  tokens: List(lexer.Token),
+  catalog: model.Catalog,
+  acc: List(model.Table),
+) -> Result(List(model.Table), AnalysisError) {
+  case tokens {
+    [] -> Ok(list.reverse(acc))
+    [lexer.Keyword("from"), lexer.LParen, lexer.Keyword("select"), ..rest] ->
+      handle_derived(query_name, rest, catalog, acc)
+    [
+      lexer.Keyword("join"),
+      lexer.Keyword("lateral"),
+      lexer.LParen,
+      lexer.Keyword("select"),
+      ..rest
+    ] -> handle_derived(query_name, rest, catalog, acc)
+    [lexer.Keyword("join"), lexer.LParen, lexer.Keyword("select"), ..rest] ->
+      handle_derived(query_name, rest, catalog, acc)
+    [lexer.Keyword("lateral"), lexer.LParen, lexer.Keyword("select"), ..rest] ->
+      handle_derived(query_name, rest, catalog, acc)
+    [_, ..rest] -> find_derived_tables(query_name, rest, catalog, acc)
+  }
+}
+
+fn handle_derived(
+  query_name: String,
+  tokens_after_select_kw: List(lexer.Token),
+  catalog: model.Catalog,
+  acc: List(model.Table),
+) -> Result(List(model.Table), AnalysisError) {
+  let #(body, after_rp) =
+    token_utils.collect_paren_contents([
+      lexer.Keyword("select"),
+      ..tokens_after_select_kw
+    ])
+  case parse_derived_alias(after_rp) {
+    Some(#(alias, explicit_names, remaining)) -> {
+      use cols <- result.try(infer_columns_from_tokens(
+        query_name,
+        body,
+        catalog,
+      ))
+      let body_columns =
+        list.filter_map(cols, fn(item) {
+          case item {
+            model.ScalarResult(rc) ->
+              Ok(model.Column(
+                name: rc.name,
+                scalar_type: rc.scalar_type,
+                nullable: rc.nullable,
+              ))
+            _ -> Error(Nil)
+          }
+        })
+      let columns = apply_explicit_column_names(body_columns, explicit_names)
+      let table = model.Table(name: alias, columns: columns)
+      find_derived_tables(query_name, remaining, catalog, [table, ..acc])
+    }
+    None -> find_derived_tables(query_name, after_rp, catalog, acc)
+  }
+}
+
+/// Parse `AS alias(c1, c2, ...)` after a derived-table subquery. The
+/// column list is optional: `AS alias` alone is valid (column names
+/// then come from the body). Returns the alias, any explicit names,
+/// and the tokens following both.
+fn parse_derived_alias(
+  tokens: List(lexer.Token),
+) -> Option(#(String, List(String), List(lexer.Token))) {
+  let after_as = case tokens {
+    [lexer.Keyword("as"), ..rest] -> rest
+    _ -> tokens
+  }
+  case after_as {
+    [lexer.Ident(alias), lexer.LParen, ..rest_after_lp] -> {
+      let #(col_tokens, after_cols) =
+        token_utils.collect_paren_contents(rest_after_lp)
+      let names = parse_cte_column_list(col_tokens)
+      Some(#(string.lowercase(alias), names, after_cols))
+    }
+    [lexer.QuotedIdent(alias), lexer.LParen, ..rest_after_lp] -> {
+      let #(col_tokens, after_cols) =
+        token_utils.collect_paren_contents(rest_after_lp)
+      let names = parse_cte_column_list(col_tokens)
+      Some(#(string.lowercase(alias), names, after_cols))
+    }
+    [lexer.Ident(alias), ..rest] -> Some(#(string.lowercase(alias), [], rest))
+    [lexer.QuotedIdent(alias), ..rest] ->
+      Some(#(string.lowercase(alias), [], rest))
+    _ -> None
   }
 }
 

@@ -33,25 +33,25 @@ fn analyze_query(
   catalog: model.Catalog,
   query: model.ParsedQuery,
 ) -> Result(model.AnalyzedQuery, AnalysisError) {
-  // Build virtual tables from any leading WITH (CTE) clause and from
-  // `FROM (VALUES ...) AS alias(cols)` constructs so the main query can
-  // reference both like real tables.
+  // Surface virtual tables the outer query references — CTEs, VALUES
+  // in FROM, and derived-table subqueries — so both result-column and
+  // parameter inference see them. Nested subqueries rediscover their
+  // own VALUES / derived tables inside infer_columns_from_tokens_scoped.
   let tokens = lexer.tokenize(query.sql, engine)
   use cte_tables <- result.try(column_inferencer.extract_cte_tables(
     query.name,
     tokens,
     catalog,
   ))
+  let with_ctes = merge_virtual_tables(catalog, cte_tables)
   let values_tables = column_inferencer.extract_values_tables(tokens)
-  let virtual_tables = list.append(cte_tables, values_tables)
-  let augmented = case virtual_tables {
-    [] -> catalog
-    _ ->
-      model.Catalog(
-        tables: list.append(catalog.tables, virtual_tables),
-        enums: catalog.enums,
-      )
-  }
+  let with_values = merge_virtual_tables(with_ctes, values_tables)
+  use derived_tables <- result.try(column_inferencer.extract_derived_tables(
+    query.name,
+    tokens,
+    with_values,
+  ))
+  let augmented = merge_virtual_tables(with_values, derived_tables)
 
   let occurrences = placeholder.extract(ctx, engine, query.sql)
   use params <- result.try(build_params(
@@ -69,6 +69,20 @@ fn analyze_query(
   ))
 
   Ok(model.AnalyzedQuery(base: query, params:, result_columns:))
+}
+
+fn merge_virtual_tables(
+  catalog: model.Catalog,
+  vtables: List(model.Table),
+) -> model.Catalog {
+  case vtables {
+    [] -> catalog
+    _ ->
+      model.Catalog(
+        tables: list.append(catalog.tables, vtables),
+        enums: catalog.enums,
+      )
+  }
 }
 
 fn build_params(
