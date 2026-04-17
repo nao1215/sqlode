@@ -33,19 +33,22 @@ fn analyze_query(
   catalog: model.Catalog,
   query: model.ParsedQuery,
 ) -> Result(model.AnalyzedQuery, AnalysisError) {
-  // Build virtual tables from any leading WITH (CTE) clause so the
-  // main query can reference CTE names like real tables.
+  // Build virtual tables from any leading WITH (CTE) clause and from
+  // `FROM (VALUES ...) AS alias(cols)` constructs so the main query can
+  // reference both like real tables.
   let tokens = lexer.tokenize(query.sql, engine)
   use cte_tables <- result.try(column_inferencer.extract_cte_tables(
     query.name,
     tokens,
     catalog,
   ))
-  let augmented = case cte_tables {
+  let values_tables = column_inferencer.extract_values_tables(tokens)
+  let virtual_tables = list.append(cte_tables, values_tables)
+  let augmented = case virtual_tables {
     [] -> catalog
     _ ->
       model.Catalog(
-        tables: list.append(catalog.tables, cte_tables),
+        tables: list.append(catalog.tables, virtual_tables),
         enums: catalog.enums,
       )
   }
