@@ -633,3 +633,106 @@ pub fn partition_by_clause_does_not_break_table_test() {
   table.name |> should.equal("measurements")
   list.length(table.columns) |> should.equal(3)
 }
+
+// Unsupported-DDL diagnostics (Issue #362)
+
+pub fn drop_table_is_rejected_test() {
+  let sql =
+    "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);\n"
+    <> "DROP TABLE users;"
+  let assert Error(error) = schema_parser.parse_files([#("test.sql", sql)])
+  let msg = schema_parser.error_to_string(error)
+  string.contains(msg, "test.sql") |> should.be_true()
+  string.contains(msg, "Unsupported schema DDL") |> should.be_true()
+  string.contains(msg, "DROP TABLE") |> should.be_true()
+}
+
+pub fn drop_table_if_exists_is_rejected_test() {
+  let sql = "DROP TABLE IF EXISTS users;"
+  let assert Error(error) = schema_parser.parse_files([#("test.sql", sql)])
+  let msg = schema_parser.error_to_string(error)
+  string.contains(msg, "DROP TABLE") |> should.be_true()
+}
+
+pub fn drop_view_is_rejected_test() {
+  let sql = "DROP VIEW author_counts;"
+  let assert Error(error) = schema_parser.parse_files([#("test.sql", sql)])
+  let msg = schema_parser.error_to_string(error)
+  string.contains(msg, "DROP VIEW") |> should.be_true()
+}
+
+pub fn drop_type_is_rejected_test() {
+  let sql = "DROP TYPE status;"
+  let assert Error(error) = schema_parser.parse_files([#("test.sql", sql)])
+  let msg = schema_parser.error_to_string(error)
+  string.contains(msg, "DROP TYPE") |> should.be_true()
+}
+
+pub fn alter_table_drop_column_is_rejected_test() {
+  let sql =
+    "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);\n"
+    <> "ALTER TABLE users DROP COLUMN name;"
+  let assert Error(error) = schema_parser.parse_files([#("test.sql", sql)])
+  let msg = schema_parser.error_to_string(error)
+  string.contains(msg, "ALTER TABLE DROP COLUMN") |> should.be_true()
+}
+
+pub fn alter_table_if_exists_drop_column_is_rejected_test() {
+  let sql = "ALTER TABLE IF EXISTS users DROP COLUMN name;"
+  let assert Error(error) = schema_parser.parse_files([#("test.sql", sql)])
+  let msg = schema_parser.error_to_string(error)
+  string.contains(msg, "ALTER TABLE DROP COLUMN") |> should.be_true()
+}
+
+pub fn alter_table_rename_column_is_rejected_test() {
+  let sql =
+    "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);\n"
+    <> "ALTER TABLE users RENAME COLUMN name TO full_name;"
+  let assert Error(error) = schema_parser.parse_files([#("test.sql", sql)])
+  let msg = schema_parser.error_to_string(error)
+  string.contains(msg, "ALTER TABLE RENAME COLUMN") |> should.be_true()
+}
+
+pub fn alter_table_rename_to_is_rejected_test() {
+  let sql =
+    "CREATE TABLE users (id INTEGER PRIMARY KEY);\n"
+    <> "ALTER TABLE users RENAME TO accounts;"
+  let assert Error(error) = schema_parser.parse_files([#("test.sql", sql)])
+  let msg = schema_parser.error_to_string(error)
+  string.contains(msg, "ALTER TABLE RENAME TO") |> should.be_true()
+}
+
+pub fn alter_table_alter_column_is_rejected_test() {
+  let sql =
+    "CREATE TABLE users (id INTEGER PRIMARY KEY, created_at TIMESTAMP);\n"
+    <> "ALTER TABLE users ALTER COLUMN created_at SET NOT NULL;"
+  let assert Error(error) = schema_parser.parse_files([#("test.sql", sql)])
+  let msg = schema_parser.error_to_string(error)
+  string.contains(msg, "ALTER TABLE ALTER COLUMN") |> should.be_true()
+}
+
+pub fn alter_table_drop_constraint_stays_silent_test() {
+  let sql =
+    "CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT NOT NULL);\n"
+    <> "ALTER TABLE users DROP CONSTRAINT unique_email;"
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert [table] = catalog.tables
+  list.length(table.columns) |> should.equal(2)
+}
+
+pub fn comment_on_stays_silent_test() {
+  let sql =
+    "CREATE TABLE users (id INTEGER PRIMARY KEY);\n"
+    <> "COMMENT ON TABLE users IS 'account records';"
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert [table] = catalog.tables
+  table.name |> should.equal("users")
+}
+
+pub fn transaction_control_stays_silent_test() {
+  let sql =
+    "BEGIN;\n" <> "CREATE TABLE users (id INTEGER PRIMARY KEY);\n" <> "COMMIT;"
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert [table] = catalog.tables
+  table.name |> should.equal("users")
+}
