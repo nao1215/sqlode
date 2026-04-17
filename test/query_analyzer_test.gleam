@@ -1852,16 +1852,18 @@ pub fn correlated_subquery_in_select_test() {
 }
 
 pub fn cte_with_explicit_column_list_test() {
-  // `WITH name(c1, c2) AS (...)` — explicit column list is consumed
-  // but the column names still come from the body's SELECT list
-  // (minimum implementation).
+  // `WITH name(c1, c2) AS (...)` — the explicit column list renames
+  // the CTE's columns. Types and nullability come from the body, but
+  // the outer query must reference the new names.
   let sql =
-    "-- name: AliasedCte :many\nWITH renamed(x, y) AS (SELECT id, name FROM authors) SELECT id, name FROM renamed;"
+    "-- name: AliasedCte :many\nWITH renamed(x, y) AS (SELECT id, name FROM authors) SELECT x, y FROM renamed;"
   let query = analyze_one(sql, test_catalog())
-  let assert [model.ScalarResult(id_col), model.ScalarResult(name_col)] =
+  let assert [model.ScalarResult(x_col), model.ScalarResult(y_col)] =
     query.result_columns
-  id_col.scalar_type |> should.equal(model.IntType)
-  name_col.scalar_type |> should.equal(model.StringType)
+  x_col.name |> should.equal("x")
+  x_col.scalar_type |> should.equal(model.IntType)
+  y_col.name |> should.equal("y")
+  y_col.scalar_type |> should.equal(model.StringType)
 }
 
 pub fn multiple_ctes_chain_test() {
@@ -1889,16 +1891,76 @@ pub fn exists_subquery_returns_bool_test() {
   col.scalar_type |> should.equal(model.BoolType)
 }
 
-pub fn values_in_from_returns_empty_columns_test() {
-  // VALUES in FROM with `AS t(id, name)` is not yet inferred. The
-  // analyzer skips the parenthesised subquery and finds no real
-  // table, so result_columns ends up empty. This pin documents the
-  // current behavior; replace with proper inference (alias + column
-  // list + literal type inference from the first row) when added.
+pub fn values_in_from_infers_columns_test() {
+  // `FROM (VALUES ...) AS t(id, name)` becomes a virtual table whose
+  // column types come from the first row's literal types and whose
+  // names come from the alias column list.
   let sql =
     "-- name: FromValues :many\nSELECT t.id, t.name FROM (VALUES (1, 'alice'), (2, 'bob')) AS t(id, name);"
   let query = analyze_one(sql, test_catalog())
-  query.result_columns |> should.equal([])
+  let assert [model.ScalarResult(id_col), model.ScalarResult(name_col)] =
+    query.result_columns
+  id_col.name |> should.equal("id")
+  id_col.scalar_type |> should.equal(model.IntType)
+  name_col.name |> should.equal("name")
+  name_col.scalar_type |> should.equal(model.StringType)
+}
+
+pub fn values_in_from_infers_float_and_bool_test() {
+  // Mix of numeric (with decimal), boolean, and string literals —
+  // verifies the literal-to-ScalarType table handles the common cases.
+  let sql =
+    "-- name: FromMixedValues :many\nSELECT t.ratio, t.active, t.label FROM (VALUES (1.5, true, 'x')) AS t(ratio, active, label);"
+  let query = analyze_one(sql, test_catalog())
+  let assert [
+    model.ScalarResult(ratio_col),
+    model.ScalarResult(active_col),
+    model.ScalarResult(label_col),
+  ] = query.result_columns
+  ratio_col.scalar_type |> should.equal(model.FloatType)
+  active_col.scalar_type |> should.equal(model.BoolType)
+  label_col.scalar_type |> should.equal(model.StringType)
+}
+
+pub fn cte_explicit_column_list_renames_partially_test() {
+  // Fewer explicit names than body columns: only the first N get
+  // renamed; the rest keep their original names. This mirrors how the
+  // query would behave if the user under-specified on purpose.
+  let sql =
+    "-- name: PartialRename :many\nWITH t(alias_id) AS (SELECT id, name FROM authors) SELECT alias_id, name FROM t;"
+  let query = analyze_one(sql, test_catalog())
+  let assert [model.ScalarResult(alias_col), model.ScalarResult(name_col)] =
+    query.result_columns
+  alias_col.name |> should.equal("alias_id")
+  alias_col.scalar_type |> should.equal(model.IntType)
+  name_col.name |> should.equal("name")
+  name_col.scalar_type |> should.equal(model.StringType)
+}
+
+pub fn correlated_subquery_outer_only_column_test() {
+  // The inner SELECT has no FROM of its own, so its column reference
+  // (`books.title`) must be resolved from the enclosing query's FROM
+  // list. This exercises the outer-scope fallback in
+  // infer_columns_from_tokens_scoped.
+  let naming_ctx = naming.new()
+  let catalog = join_catalog()
+  let sql =
+    "-- name: EchoTitle :many\nSELECT books.title, (SELECT books.title) AS echoed FROM books;"
+  let assert Ok(queries) =
+    query_parser.parse_file("e.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  let assert [model.ScalarResult(title), model.ScalarResult(echoed)] =
+    query.result_columns
+  title.scalar_type |> should.equal(model.StringType)
+  echoed.scalar_type |> should.equal(model.StringType)
+  echoed.nullable |> should.equal(True)
 }
 
 pub fn mysql_on_duplicate_key_update_test() {

@@ -51,19 +51,32 @@ pub fn infer_columns_from_tokens(
   tokens: List(lexer.Token),
   catalog: model.Catalog,
 ) -> Result(List(model.ResultItem), AnalysisError) {
+  infer_columns_from_tokens_scoped(query_name, tokens, catalog, [])
+}
+
+/// Same as `infer_columns_from_tokens`, but when the inner query has no
+/// FROM clause of its own, fall back to `outer_tables` so correlated
+/// references like `SELECT (SELECT books.id)` can still be resolved
+/// against the enclosing query's FROM list.
+pub fn infer_columns_from_tokens_scoped(
+  query_name: String,
+  tokens: List(lexer.Token),
+  catalog: model.Catalog,
+  outer_tables: List(String),
+) -> Result(List(model.ResultItem), AnalysisError) {
   case tok_extract_returning_columns(tokens) {
     Some(returning_cols) -> {
       let table_names = token_utils.extract_table_names(tokens)
       let nullable_tables = tok_extract_nullable_tables(tokens, table_names)
-      case table_names {
+      case effective_tables(table_names, outer_tables) {
         [] -> Ok([])
-        [primary, ..] ->
+        [primary, ..] as tables ->
           resolve_select_columns(
             query_name,
             returning_cols,
             catalog,
             primary,
-            table_names,
+            tables,
             nullable_tables,
           )
       }
@@ -79,21 +92,35 @@ pub fn infer_columns_from_tokens(
       let nullable_tables =
         tok_extract_nullable_tables(main_tokens2, table_names)
 
-      case table_names {
+      case effective_tables(table_names, outer_tables) {
         [] -> Ok([])
-        [primary, ..] -> {
+        [primary, ..] as tables -> {
           let select_columns = tok_extract_select_columns(main_tokens2)
           resolve_select_columns(
             query_name,
             select_columns,
             catalog,
             primary,
-            table_names,
+            tables,
             nullable_tables,
           )
         }
       }
     }
+  }
+}
+
+/// Pick the scope the resolver should use: the inner FROM tables if any,
+/// else the outer FROM tables (for correlated subqueries without their
+/// own FROM). Returning [] preserves the pre-scope "empty -> Ok([])"
+/// behaviour so callers can still detect "no columns produced".
+fn effective_tables(
+  inner_tables: List(String),
+  outer_tables: List(String),
+) -> List(String) {
+  case inner_tables {
+    [] -> outer_tables
+    _ -> inner_tables
   }
 }
 
@@ -126,13 +153,15 @@ fn parse_cte_defs(
   case tokens {
     [lexer.Ident(name), ..rest_after_name] -> {
       // Optional explicit column list: name(c1, c2, ...) AS (...).
-      // We consume but ignore it; column names come from the body.
-      let after_optional_cols = case rest_after_name {
+      // When present, these names override the body's SELECT-list names.
+      let #(explicit_names, after_optional_cols) = case rest_after_name {
         [lexer.LParen, ..after_lp] -> {
-          let #(_, after_cols) = token_utils.collect_paren_contents(after_lp)
-          after_cols
+          let #(col_tokens, after_cols) =
+            token_utils.collect_paren_contents(after_lp)
+          let names = parse_cte_column_list(col_tokens)
+          #(names, after_cols)
         }
-        _ -> rest_after_name
+        _ -> #([], rest_after_name)
       }
       case after_optional_cols {
         [lexer.Keyword("as"), lexer.LParen, ..after_as_lp] -> {
@@ -144,7 +173,7 @@ fn parse_cte_defs(
             body,
             augmented,
           ))
-          let columns =
+          let body_columns =
             list.filter_map(cols, fn(item) {
               case item {
                 model.ScalarResult(rc) ->
@@ -156,6 +185,8 @@ fn parse_cte_defs(
                 _ -> Error(Nil)
               }
             })
+          let columns =
+            apply_explicit_column_names(body_columns, explicit_names)
           let table =
             model.Table(name: string.lowercase(name), columns: columns)
           let new_acc = [table, ..acc]
@@ -172,6 +203,49 @@ fn parse_cte_defs(
   }
 }
 
+/// Parse the explicit column list from `WITH name(c1, c2, ...) AS (...)`.
+/// Non-ident items are skipped; empty list means no rename.
+fn parse_cte_column_list(tokens: List(lexer.Token)) -> List(String) {
+  token_utils.split_on_commas(tokens)
+  |> list.filter_map(fn(group) {
+    case group {
+      [lexer.Ident(n)] -> Ok(string.lowercase(n))
+      [lexer.QuotedIdent(n)] -> Ok(string.lowercase(n))
+      _ -> Error(Nil)
+    }
+  })
+}
+
+/// Rename columns using the explicit column list, in order. Extra body
+/// columns keep their original names; extra explicit names are ignored.
+fn apply_explicit_column_names(
+  columns: List(model.Column),
+  names: List(String),
+) -> List(model.Column) {
+  case names {
+    [] -> columns
+    _ -> rename_columns(columns, names)
+  }
+}
+
+fn rename_columns(
+  columns: List(model.Column),
+  names: List(String),
+) -> List(model.Column) {
+  case columns, names {
+    [], _ -> []
+    cols, [] -> cols
+    [col, ..rest_cols], [name, ..rest_names] -> [
+      model.Column(
+        name: name,
+        scalar_type: col.scalar_type,
+        nullable: col.nullable,
+      ),
+      ..rename_columns(rest_cols, rest_names)
+    ]
+  }
+}
+
 fn augment_catalog_with(
   catalog: model.Catalog,
   vtables: List(model.Table),
@@ -183,6 +257,124 @@ fn augment_catalog_with(
         tables: list.append(catalog.tables, vtables),
         enums: catalog.enums,
       )
+  }
+}
+
+/// Find every `(VALUES ...) AS alias(c1, c2, ...)` in the token stream
+/// and build a virtual Table for each. Column types come from the first
+/// row's literals; rows with unsupported expressions are skipped silently
+/// (the resolver will surface any downstream issue).
+pub fn extract_values_tables(tokens: List(lexer.Token)) -> List(model.Table) {
+  find_values_tables(tokens, [])
+}
+
+fn find_values_tables(
+  tokens: List(lexer.Token),
+  acc: List(model.Table),
+) -> List(model.Table) {
+  case tokens {
+    [] -> list.reverse(acc)
+    [lexer.LParen, lexer.Keyword("values"), ..rest] -> {
+      let #(values_body, after_rp) =
+        token_utils.collect_paren_contents([lexer.Keyword("values"), ..rest])
+      case parse_values_alias(after_rp) {
+        Some(#(alias, col_names, remaining)) ->
+          case infer_values_first_row_types(values_body) {
+            Ok(types) -> {
+              let columns = build_values_columns(col_names, types)
+              let table = model.Table(name: alias, columns: columns)
+              find_values_tables(remaining, [table, ..acc])
+            }
+            Error(_) -> find_values_tables(remaining, acc)
+          }
+        None -> find_values_tables(after_rp, acc)
+      }
+    }
+    [_, ..rest] -> find_values_tables(rest, acc)
+  }
+}
+
+fn parse_values_alias(
+  tokens: List(lexer.Token),
+) -> Option(#(String, List(String), List(lexer.Token))) {
+  let after_as = case tokens {
+    [lexer.Keyword("as"), ..rest] -> rest
+    _ -> tokens
+  }
+  case after_as {
+    [lexer.Ident(alias), lexer.LParen, ..rest_after_lp] -> {
+      let #(col_tokens, after_cols) =
+        token_utils.collect_paren_contents(rest_after_lp)
+      case parse_cte_column_list(col_tokens) {
+        [] -> None
+        names -> Some(#(string.lowercase(alias), names, after_cols))
+      }
+    }
+    [lexer.QuotedIdent(alias), lexer.LParen, ..rest_after_lp] -> {
+      let #(col_tokens, after_cols) =
+        token_utils.collect_paren_contents(rest_after_lp)
+      case parse_cte_column_list(col_tokens) {
+        [] -> None
+        names -> Some(#(string.lowercase(alias), names, after_cols))
+      }
+    }
+    _ -> None
+  }
+}
+
+fn infer_values_first_row_types(
+  values_body: List(lexer.Token),
+) -> Result(List(#(model.ScalarType, Bool)), Nil) {
+  // The body starts with `Keyword("values") LParen <row1> RParen, ...`
+  case values_body {
+    [lexer.Keyword("values"), lexer.LParen, ..rest_after_lp] -> {
+      let #(first_row, _) = token_utils.collect_paren_contents(rest_after_lp)
+      let items = token_utils.split_on_commas(first_row)
+      list.try_map(items, infer_literal_type_with_nullability)
+    }
+    _ -> Error(Nil)
+  }
+}
+
+fn infer_literal_type_with_nullability(
+  tokens: List(lexer.Token),
+) -> Result(#(model.ScalarType, Bool), Nil) {
+  case tokens {
+    [lexer.NumberLit(n)] -> Ok(#(number_scalar_type(n), False))
+    [lexer.Operator("-"), lexer.NumberLit(n)] ->
+      Ok(#(number_scalar_type(n), False))
+    [lexer.Operator("+"), lexer.NumberLit(n)] ->
+      Ok(#(number_scalar_type(n), False))
+    [lexer.StringLit(_)] -> Ok(#(model.StringType, False))
+    [lexer.Keyword("true")] | [lexer.Keyword("false")] ->
+      Ok(#(model.BoolType, False))
+    [lexer.Keyword("null")] -> Ok(#(model.StringType, True))
+    _ -> Error(Nil)
+  }
+}
+
+fn number_scalar_type(n: String) -> model.ScalarType {
+  case
+    string.contains(n, ".")
+    || string.contains(n, "e")
+    || string.contains(n, "E")
+  {
+    True -> model.FloatType
+    False -> model.IntType
+  }
+}
+
+fn build_values_columns(
+  names: List(String),
+  types: List(#(model.ScalarType, Bool)),
+) -> List(model.Column) {
+  case names, types {
+    [], _ -> []
+    _, [] -> []
+    [name, ..rest_names], [#(st, nullable), ..rest_types] -> [
+      model.Column(name: name, scalar_type: st, nullable: nullable),
+      ..build_values_columns(rest_names, rest_types)
+    ]
   }
 }
 
@@ -436,11 +628,20 @@ fn infer_expression_type_from_tokens(
     // --- Scalar / correlated subquery: ( SELECT ... ) ---
     // The first column of the subquery's SELECT list determines the
     // expression type. The result is nullable because the subquery
-    // may return zero rows.
+    // may return zero rows. `table_names` is passed as the outer scope
+    // so a subquery without its own FROM can still resolve columns of
+    // the enclosing query (e.g. `SELECT (SELECT books.id)` from books).
     [lexer.LParen, lexer.Keyword("select"), ..rest] -> {
       let #(inner, _) =
         token_utils.collect_paren_contents([lexer.Keyword("select"), ..rest])
-      case infer_columns_from_tokens(query_name, inner, catalog) {
+      case
+        infer_columns_from_tokens_scoped(
+          query_name,
+          inner,
+          catalog,
+          table_names,
+        )
+      {
         Ok([model.ScalarResult(col), ..]) -> Ok(#(col.scalar_type, True))
         _ ->
           Error(UnsupportedExpression(

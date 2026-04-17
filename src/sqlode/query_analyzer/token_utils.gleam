@@ -17,6 +17,17 @@ fn table_names_loop(
 ) -> List(String) {
   case tokens {
     [] -> list.reverse(acc)
+    // FROM (VALUES ...) AS alias(...) — the alias names the virtual
+    // table populated by extract_values_tables. Emit the alias so the
+    // resolver can look it up. Non-VALUES subqueries are left alone
+    // (derived tables are not inferred yet).
+    [lexer.Keyword("from"), lexer.LParen, lexer.Keyword("values"), ..rest] -> {
+      let remaining = skip_parens(rest, 1)
+      case read_subquery_alias(remaining) {
+        #(Some(n), after_alias) -> table_names_loop(after_alias, [n, ..acc])
+        #(None, _) -> table_names_loop(remaining, acc)
+      }
+    }
     [lexer.Keyword("from"), lexer.LParen, ..rest] -> {
       let remaining = skip_parens(rest, 1)
       table_names_loop(remaining, acc)
@@ -30,6 +41,13 @@ fn table_names_loop(
         None -> table_names_loop(rest, acc)
       }
     }
+    [lexer.Keyword("join"), lexer.LParen, lexer.Keyword("values"), ..rest] -> {
+      let remaining = skip_parens(rest, 1)
+      case read_subquery_alias(remaining) {
+        #(Some(n), after_alias) -> table_names_loop(after_alias, [n, ..acc])
+        #(None, _) -> table_names_loop(remaining, acc)
+      }
+    }
     [lexer.Keyword("join"), ..rest] -> {
       let #(name, remaining) = read_table_name(rest)
       case name {
@@ -38,6 +56,31 @@ fn table_names_loop(
       }
     }
     [_, ..rest] -> table_names_loop(rest, acc)
+  }
+}
+
+/// Read an optional AS followed by an identifier alias, optionally
+/// followed by a parenthesised column list. Returns the alias and the
+/// token stream positioned after the alias (and column list, if any).
+pub fn read_subquery_alias(
+  tokens: List(lexer.Token),
+) -> #(Option(String), List(lexer.Token)) {
+  let after_as = case tokens {
+    [lexer.Keyword("as"), ..rest] -> rest
+    _ -> tokens
+  }
+  case after_as {
+    [lexer.Ident(name), lexer.LParen, ..rest_after_lp] -> {
+      let #(_, after_cols) = collect_paren_contents(rest_after_lp)
+      #(Some(string.lowercase(name)), after_cols)
+    }
+    [lexer.QuotedIdent(name), lexer.LParen, ..rest_after_lp] -> {
+      let #(_, after_cols) = collect_paren_contents(rest_after_lp)
+      #(Some(string.lowercase(name)), after_cols)
+    }
+    [lexer.Ident(name), ..rest] -> #(Some(string.lowercase(name)), rest)
+    [lexer.QuotedIdent(name), ..rest] -> #(Some(string.lowercase(name)), rest)
+    _ -> #(None, after_as)
   }
 }
 
