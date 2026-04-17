@@ -283,6 +283,73 @@ pub fn bare_question_mark_still_placeholder_test() {
   ])
 }
 
+// --- Prefixed string literals: E'..', U&'..', B'..', X'..', N'..' ---
+
+pub fn pg_escape_string_literal_test() {
+  lexer.tokenize("SELECT E'hello'", model.PostgreSQL)
+  |> should.equal([Keyword("select"), StringLit("hello")])
+}
+
+pub fn pg_escape_string_lowercase_e_test() {
+  lexer.tokenize("SELECT e'hello'", model.PostgreSQL)
+  |> should.equal([Keyword("select"), StringLit("hello")])
+}
+
+pub fn bit_string_literal_test() {
+  lexer.tokenize("SELECT B'1010'", model.PostgreSQL)
+  |> should.equal([Keyword("select"), StringLit("1010")])
+}
+
+pub fn hex_string_literal_test() {
+  lexer.tokenize("SELECT X'ff'", model.PostgreSQL)
+  |> should.equal([Keyword("select"), StringLit("ff")])
+}
+
+pub fn unicode_string_literal_test() {
+  lexer.tokenize("SELECT U&'\\0061'", model.PostgreSQL)
+  |> should.equal([Keyword("select"), StringLit("\\0061")])
+}
+
+pub fn national_string_literal_test() {
+  // SQL standard N'...' for national character strings.
+  lexer.tokenize("SELECT N'hello'", model.MySQL)
+  |> should.equal([Keyword("select"), StringLit("hello")])
+}
+
+// `Email` (Ident starting with E) must still tokenize as Ident, not as
+// an E-prefixed string.
+pub fn ident_starting_with_e_is_still_ident_test() {
+  lexer.tokenize("SELECT Email FROM users", model.PostgreSQL)
+  |> should.equal([
+    Keyword("select"),
+    Ident("Email"),
+    Keyword("from"),
+    Ident("users"),
+  ])
+}
+
+pub fn mysql_hex_literal_0x_test() {
+  lexer.tokenize("SELECT 0xFF", model.MySQL)
+  |> should.equal([Keyword("select"), NumberLit("0xFF")])
+}
+
+pub fn mysql_hex_literal_lowercase_0x_test() {
+  lexer.tokenize("SELECT 0xabc", model.MySQL)
+  |> should.equal([Keyword("select"), NumberLit("0xabc")])
+}
+
+// 0 followed by a non-hex char is still a regular number followed by
+// whatever (here, a comma).
+pub fn zero_alone_is_number_test() {
+  lexer.tokenize("SELECT 0, 1", model.PostgreSQL)
+  |> should.equal([
+    Keyword("select"),
+    NumberLit("0"),
+    Comma,
+    NumberLit("1"),
+  ])
+}
+
 // --- Placeholder tests ---
 
 pub fn postgresql_placeholder_test() {
