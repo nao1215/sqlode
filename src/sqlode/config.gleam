@@ -119,7 +119,7 @@ fn parse_sql_block(node: yay.Node) -> Result(model.SqlBlock, ConfigError) {
     gleam_node,
     [
       "out", "runtime", "type_mapping", "emit_sql_as_comment",
-      "emit_exact_table_names",
+      "emit_exact_table_names", "omit_unused_models",
     ],
     "sql.gen.gleam.",
   ))
@@ -160,6 +160,9 @@ fn parse_sql_block(node: yay.Node) -> Result(model.SqlBlock, ConfigError) {
   let emit_exact_table_names =
     optional_bool(gleam_node, "emit_exact_table_names")
     |> option.unwrap(False)
+  let omit_unused_models =
+    optional_bool(gleam_node, "omit_unused_models")
+    |> option.unwrap(False)
 
   use overrides <- result.try(parse_overrides(node))
 
@@ -174,6 +177,7 @@ fn parse_sql_block(node: yay.Node) -> Result(model.SqlBlock, ConfigError) {
       type_mapping:,
       emit_sql_as_comment:,
       emit_exact_table_names:,
+      omit_unused_models:,
     ),
     overrides:,
   ))
