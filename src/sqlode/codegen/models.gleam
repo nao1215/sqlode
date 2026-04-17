@@ -2,6 +2,7 @@ import gleam/dict.{type Dict}
 import gleam/list
 import gleam/option
 import gleam/string
+import sqlode/codegen/builder
 import sqlode/codegen/common
 import sqlode/model
 import sqlode/naming
@@ -108,49 +109,54 @@ fn render_enum_type(enum_def: model.EnumDef) -> String {
   let from_string_fn = type_mapping.enum_from_string_fn(enum_def.name)
 
   let constructors =
-    enum_def.values
-    |> list.map(fn(v) { "  " <> type_mapping.enum_value_name(v) })
-    |> string.join("\n")
+    builder.lines(list.map(enum_def.values, type_mapping.enum_value_name))
+    |> builder.indent(by: 2)
 
   let to_string_cases =
-    enum_def.values
-    |> list.map(fn(v) {
-      "    " <> type_mapping.enum_value_name(v) <> " -> \"" <> v <> "\""
-    })
-    |> string.join("\n")
+    builder.lines(
+      list.map(enum_def.values, fn(v) {
+        type_mapping.enum_value_name(v) <> " -> \"" <> v <> "\""
+      }),
+    )
+    |> builder.indent(by: 4)
 
   let from_string_cases =
-    enum_def.values
-    |> list.map(fn(v) {
-      "    \"" <> v <> "\" -> Ok(" <> type_mapping.enum_value_name(v) <> ")"
-    })
-    |> string.join("\n")
+    builder.lines(
+      list.map(enum_def.values, fn(v) {
+        "\"" <> v <> "\" -> Ok(" <> type_mapping.enum_value_name(v) <> ")"
+      }),
+    )
+    |> builder.indent(by: 4)
 
-  string.join(
-    [
-      "pub type " <> type_name <> " {",
-      constructors,
-      "}",
-      "",
+  builder.concat([
+    builder.line("pub type " <> type_name <> " {"),
+    constructors,
+    builder.line("}"),
+    builder.blank(),
+    builder.line(
       "pub fn " <> to_string_fn <> "(value: " <> type_name <> ") -> String {",
-      "  case value {",
-      to_string_cases,
-      "  }",
-      "}",
-      "",
+    ),
+    builder.line("  case value {"),
+    to_string_cases,
+    builder.line("  }"),
+    builder.line("}"),
+    builder.blank(),
+    builder.line(
       "pub fn "
-        <> from_string_fn
-        <> "(value: String) -> Result("
-        <> type_name
-        <> ", String) {",
-      "  case value {",
-      from_string_cases,
+      <> from_string_fn
+      <> "(value: String) -> Result("
+      <> type_name
+      <> ", String) {",
+    ),
+    builder.line("  case value {"),
+    from_string_cases,
+    builder.line(
       "    _ -> Error(\"Unknown " <> enum_def.name <> " value: \" <> value)",
-      "  }",
-      "}",
-    ],
-    "\n",
-  )
+    ),
+    builder.line("  }"),
+    builder.line("}"),
+  ])
+  |> builder.render
 }
 
 fn render_semantic_type_aliases(
@@ -163,7 +169,11 @@ fn render_semantic_type_aliases(
   |> list.map(fn(scalar_type) {
     let alias_name =
       type_mapping.scalar_type_to_gleam_type(scalar_type, model.RichMapping)
-    "pub type " <> alias_name <> " =\n  String"
+    builder.concat([
+      builder.line("pub type " <> alias_name <> " ="),
+      builder.line("  String"),
+    ])
+    |> builder.render
   })
   |> string.join("\n\n")
 }
@@ -183,9 +193,17 @@ fn render_strong_type_wrappers(
       option.None -> type_name <> "_to_string"
     }
     let body = "let " <> type_name <> "(inner) = value\n  inner"
-    common.gleam_type(type_name, "String")
-    <> "\n\n"
-    <> common.gleam_fn(unwrap_fn, "value: " <> type_name, "String", body)
+    builder.concat([
+      builder.line(common.gleam_type(type_name, "String")),
+      builder.blank(),
+      builder.line(common.gleam_fn(
+        unwrap_fn,
+        "value: " <> type_name,
+        "String",
+        body,
+      )),
+    ])
+    |> builder.render
   })
   |> string.join("\n\n")
 }
@@ -305,14 +323,12 @@ fn render_table_type(
     })
     |> string.join(", ")
 
-  string.join(
-    [
-      "pub type " <> type_name <> " {",
-      "  " <> type_name <> "(" <> fields <> ")",
-      "}",
-    ],
-    "\n",
-  )
+  builder.concat([
+    builder.line("pub type " <> type_name <> " {"),
+    builder.line("  " <> type_name <> "(" <> fields <> ")"),
+    builder.line("}"),
+  ])
+  |> builder.render
 }
 
 fn render_row_type_or_alias(
@@ -327,7 +343,11 @@ fn render_row_type_or_alias(
 
   case dict.get(table_matches, query.base.function_name) {
     Ok(table_type_name) ->
-      "pub type " <> row_type_name <> " =\n  " <> table_type_name
+      builder.concat([
+        builder.line("pub type " <> row_type_name <> " ="),
+        builder.line("  " <> table_type_name),
+      ])
+      |> builder.render
     Error(_) ->
       render_row_type(naming_ctx, query, type_mapping, emit_exact_table_names)
   }
@@ -382,14 +402,12 @@ fn render_row_type(
         })
         |> string.join(", ")
 
-      string.join(
-        [
-          "pub type " <> type_name <> " {",
-          "  " <> type_name <> "(" <> fields <> ")",
-          "}",
-        ],
-        "\n",
-      )
+      builder.concat([
+        builder.line("pub type " <> type_name <> " {"),
+        builder.line("  " <> type_name <> "(" <> fields <> ")"),
+        builder.line("}"),
+      ])
+      |> builder.render
     }
   }
 }

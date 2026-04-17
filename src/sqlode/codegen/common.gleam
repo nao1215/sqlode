@@ -2,6 +2,7 @@ import gleam/list
 import gleam/option
 import gleam/result
 import gleam/string
+import sqlode/codegen/builder
 import sqlode/model
 
 pub fn has_slices(params: List(model.QueryParam)) -> Bool {
@@ -140,7 +141,12 @@ pub fn runtime_import_path(gleam: model.GleamOutput) -> String {
 ///      UserId(Int)
 ///    }"
 pub fn gleam_type(name: String, body: String) -> String {
-  "pub type " <> name <> " {\n  " <> name <> "(" <> body <> ")\n}"
+  builder.concat([
+    builder.line("pub type " <> name <> " {"),
+    builder.line("  " <> name <> "(" <> body <> ")"),
+    builder.line("}"),
+  ])
+  |> builder.render
 }
 
 /// Render a Gleam function declaration as a single string.
@@ -155,13 +161,12 @@ pub fn gleam_fn(
   return_type: String,
   body: String,
 ) -> String {
-  "pub fn "
-  <> name
-  <> "("
-  <> params
-  <> ") -> "
-  <> return_type
-  <> " {\n  "
-  <> body
-  <> "\n}"
+  builder.concat([
+    builder.line(
+      "pub fn " <> name <> "(" <> params <> ") -> " <> return_type <> " {",
+    ),
+    builder.line("  " <> body),
+    builder.line("}"),
+  ])
+  |> builder.render
 }
