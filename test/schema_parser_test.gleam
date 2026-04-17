@@ -531,3 +531,105 @@ pub fn schema_duplicate_table_across_files_test() {
   // future changes (dedup, error, or merge) surface as a test failure.
   list.length(catalog.tables) |> should.equal(2)
 }
+
+// --- Batch 6: DDL extensions (CHECK, GENERATED, INDEX, composite keys,
+//     PARTITION, MySQL ON UPDATE) ---
+//
+// These constructs add metadata that codegen does not consume. The
+// requirement is that they parse without losing the column types or
+// erroring on the table.
+
+pub fn check_constraint_inline_test() {
+  let sql =
+    "CREATE TABLE products (id INT PRIMARY KEY, price NUMERIC NOT NULL CHECK (price > 0));"
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("p.sql", sql)])
+  let assert [table] = catalog.tables
+  table.name |> should.equal("products")
+  let assert [id, price] = table.columns
+  id.scalar_type |> should.equal(model.IntType)
+  price.scalar_type |> should.equal(model.FloatType)
+  price.nullable |> should.equal(False)
+}
+
+pub fn check_constraint_table_level_test() {
+  // Table-level CHECK is its own pseudo-column entry; parser must
+  // skip it without dropping the real columns.
+  let sql =
+    "CREATE TABLE orders (id INT, qty INT, price NUMERIC, CHECK (qty > 0 AND price > 0));"
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("o.sql", sql)])
+  let assert [table] = catalog.tables
+  list.length(table.columns) |> should.equal(3)
+}
+
+pub fn composite_primary_key_test() {
+  let sql =
+    "CREATE TABLE memberships (user_id INT, group_id INT, joined_at TIMESTAMP, PRIMARY KEY (user_id, group_id));"
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("m.sql", sql)])
+  let assert [table] = catalog.tables
+  list.length(table.columns) |> should.equal(3)
+  let assert [user_id, group_id, _joined] = table.columns
+  user_id.name |> should.equal("user_id")
+  group_id.name |> should.equal("group_id")
+}
+
+pub fn composite_foreign_key_test() {
+  let sql =
+    "CREATE TABLE orders (id INT PRIMARY KEY, customer_region INT, customer_id INT, FOREIGN KEY (customer_region, customer_id) REFERENCES customers (region, id) ON DELETE CASCADE);"
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("fk.sql", sql)])
+  let assert [table] = catalog.tables
+  list.length(table.columns) |> should.equal(3)
+}
+
+pub fn generated_column_stored_test() {
+  // Generated column types are still inferred from the declared type
+  // (INT here); the GENERATED ALWAYS AS (...) STORED expression is
+  // metadata that codegen does not consume.
+  let sql =
+    "CREATE TABLE invoices (qty INT, price NUMERIC, total NUMERIC GENERATED ALWAYS AS (qty * price) STORED);"
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("i.sql", sql)])
+  let assert [table] = catalog.tables
+  let assert [qty, price, total] = table.columns
+  qty.scalar_type |> should.equal(model.IntType)
+  price.scalar_type |> should.equal(model.FloatType)
+  total.scalar_type |> should.equal(model.FloatType)
+}
+
+pub fn mysql_on_update_current_timestamp_test() {
+  // MySQL `ON UPDATE CURRENT_TIMESTAMP` is a DEFAULT-style modifier;
+  // the column type (DATETIME → DateTimeType) must still be picked up.
+  let sql =
+    "CREATE TABLE entries (id INT PRIMARY KEY, updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP);"
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("r.sql", sql)])
+  let assert [table] = catalog.tables
+  let assert [_id, updated] = table.columns
+  updated.scalar_type |> should.equal(model.DateTimeType)
+  updated.nullable |> should.equal(False)
+}
+
+pub fn create_index_is_skipped_test() {
+  // CREATE INDEX must not produce a phantom table or break the
+  // parser when followed by a real CREATE TABLE.
+  let sql =
+    "CREATE INDEX idx_authors_name ON authors(name); CREATE TABLE authors (id INT PRIMARY KEY, name TEXT NOT NULL);"
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("idx.sql", sql)])
+  let assert [table] = catalog.tables
+  table.name |> should.equal("authors")
+  list.length(table.columns) |> should.equal(2)
+}
+
+pub fn create_unique_index_is_skipped_test() {
+  let sql =
+    "CREATE UNIQUE INDEX idx_authors_name ON authors(name); CREATE TABLE authors (id INT PRIMARY KEY, name TEXT NOT NULL);"
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("uidx.sql", sql)])
+  let assert [table] = catalog.tables
+  table.name |> should.equal("authors")
+}
+
+pub fn partition_by_clause_does_not_break_table_test() {
+  let sql =
+    "CREATE TABLE measurements (id INT, ts TIMESTAMP NOT NULL, value NUMERIC) PARTITION BY RANGE (ts);"
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("part.sql", sql)])
+  let assert [table] = catalog.tables
+  table.name |> should.equal("measurements")
+  list.length(table.columns) |> should.equal(3)
+}
