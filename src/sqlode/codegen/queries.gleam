@@ -17,10 +17,16 @@ pub fn render(
   let emit_sql_as_comment = gleam.emit_sql_as_comment
 
   let has_slices = common.queries_have_slices(queries)
+  let style_expr = engine_placeholder_style_expr(engine)
 
   let query_functions =
     queries
-    |> list.map(render_query_function(naming_ctx, _, emit_sql_as_comment))
+    |> list.map(render_query_function(
+      naming_ctx,
+      _,
+      emit_sql_as_comment,
+      style_expr,
+    ))
     |> string.join("\n\n")
 
   let all_items = case queries {
@@ -69,10 +75,19 @@ pub fn render(
   )
 }
 
+fn engine_placeholder_style_expr(engine: model.Engine) -> String {
+  case engine {
+    model.PostgreSQL -> "runtime.DollarNumbered"
+    model.MySQL -> "runtime.QuestionPositional"
+    model.SQLite -> "runtime.QuestionNumbered"
+  }
+}
+
 fn render_query_function(
   naming_ctx: naming.NamingContext,
   query: model.AnalyzedQuery,
   emit_sql_as_comment: Bool,
+  style_expr: String,
 ) -> String {
   let has_params = !list.is_empty(query.params)
 
@@ -128,6 +143,7 @@ fn render_query_function(
           <> model.query_command_to_string(query.base.command)
           <> ",",
         "    param_count: " <> int.to_string(query.base.param_count) <> ",",
+        "    placeholder_style: " <> style_expr <> ",",
         encode_line,
         slice_info_line,
         "  )",
