@@ -189,3 +189,15 @@ pub fn default_block_name_is_none_test() {
   let assert [block] = cfg.sql
   block.name |> should.equal(option.None)
 }
+
+pub fn default_strict_views_is_false_test() {
+  let assert Ok(cfg) = config.load("test/fixtures/sqlode.yaml")
+  let assert [block] = cfg.sql
+  block.gleam.strict_views |> should.equal(False)
+}
+
+pub fn strict_views_true_roundtrips_test() {
+  let assert Ok(cfg) = config.load("test/fixtures/strict_views_enabled.yaml")
+  let assert [block] = cfg.sql
+  block.gleam.strict_views |> should.equal(True)
+}

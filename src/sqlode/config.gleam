@@ -120,6 +120,7 @@ fn parse_sql_block(node: yay.Node) -> Result(model.SqlBlock, ConfigError) {
     [
       "out", "runtime", "type_mapping", "emit_sql_as_comment",
       "emit_exact_table_names", "omit_unused_models", "vendor_runtime",
+      "strict_views",
     ],
     "sql.gen.gleam.",
   ))
@@ -166,6 +167,9 @@ fn parse_sql_block(node: yay.Node) -> Result(model.SqlBlock, ConfigError) {
   let vendor_runtime =
     optional_bool(gleam_node, "vendor_runtime")
     |> option.unwrap(False)
+  let strict_views =
+    optional_bool(gleam_node, "strict_views")
+    |> option.unwrap(False)
 
   use overrides <- result.try(parse_overrides(node))
 
@@ -182,6 +186,7 @@ fn parse_sql_block(node: yay.Node) -> Result(model.SqlBlock, ConfigError) {
       emit_exact_table_names:,
       omit_unused_models:,
       vendor_runtime:,
+      strict_views:,
     ),
     overrides:,
   ))

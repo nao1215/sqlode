@@ -91,6 +91,9 @@ sql:
 
 `schema` and `queries` accept either a single file path, a list of file paths, or a directory path. When given a directory, sqlode auto-discovers every `.sql` file inside it. An optional `name` field can be set on each `sql` block for diagnostics when multiple blocks are configured.
 
+> [!IMPORTANT]
+> The schema parser accepts a **schema snapshot or add-only migrations**. Supported: `CREATE TABLE` / `CREATE VIEW` / `CREATE TYPE` / `ALTER TABLE ... ADD COLUMN`. Statements like `DROP TABLE`, `ALTER TABLE ... DROP COLUMN`, or `ALTER TABLE ... RENAME` are rejected. Pointing sqlode at a full migration history that includes destructive DDL will fail — keep a separate, additive snapshot for code generation. See [Limitations](#limitations) for the full list.
+
 ### Write SQL
 
 Schema (`db/schema.sql`):
@@ -205,11 +208,12 @@ let q = queries.get_authors_by_ids()
 let #(sql, values) = runtime.prepare(
   q,
   params.GetAuthorsByIdsParams(ids: [1, 2, 3]),
-  "$",  // "$" for PostgreSQL, "?" for SQLite
 )
 // sql has expanded placeholders: "... WHERE id IN ($1, $2, $3)"
 // values is the flattened parameter list
 ```
+
+The placeholder dialect (`$1` for PostgreSQL, `?` for SQLite) is baked into the `RawQuery` by the generator, so `runtime.prepare` does not take a placeholder argument.
 
 ## Runtime modes
 
@@ -531,21 +535,20 @@ Column-level overrides take precedence over `db_type` overrides.
 
 ### Custom type aliases
 
-When you specify a non-primitive `gleam_type` (e.g., `UserId` instead of `Int`), sqlode preserves the type name in generated record fields but uses the underlying primitive type for encoding and decoding.
+> [!WARNING]
+> **Opaque types are not supported.** The custom type you map to **must be a transparent type alias** (`pub type UserId = Int`). Opaque single-constructor types (`pub opaque type UserId { UserId(Int) }`) will fail to compile because the generated code calls primitive encoders (e.g. `runtime.int(params.id)`) directly on the value. Adding a codec hook for opaque types is tracked for a future release.
 
-The custom type must be a transparent type alias, not an opaque type:
+When you specify a non-primitive `gleam_type` (e.g., `UserId` instead of `Int`), sqlode preserves the type name in generated record fields but uses the underlying primitive type for encoding and decoding.
 
 ```gleam
 // OK — transparent type alias
 pub type UserId = Int
 
-// Error — opaque type
+// Error — opaque type (fails to compile against generated code)
 pub opaque type UserId {
   UserId(Int)
 }
 ```
-
-Opaque types are not supported because sqlode generates encoder/decoder calls that operate on the underlying primitive type (e.g., `runtime.int(params.id)`). If `UserId` is opaque, this will produce a compile error because `UserId` and `Int` are not interchangeable.
 
 sqlode validates that `gleam_type` values start with an uppercase letter (valid Gleam type name) and emits a warning during generation when custom types are used.
 
@@ -587,6 +590,68 @@ pub fn sql_uuid_to_string(value: SqlUuid) -> String {
   inner
 }
 ```
+
+## Limitations
+
+sqlode is in an early phase. The following constraints are worth checking before you adopt it; several are tracked for future releases.
+
+### Parameter type inference
+
+sqlode infers a parameter's type from the SQL *context* the parameter appears in. Inference currently fires in four contexts:
+
+1. `INSERT INTO t (col) VALUES ($1)` — the parameter takes the type of `col`.
+2. `WHERE col = $1` (and `!=`, `<`, `<=`, `>`, `>=`) — the parameter takes the column type.
+3. `WHERE col IN ($1, $2, ...)` / `sqlode.slice($1)` — the parameter (or slice element type) takes the column type.
+4. `$1::int` / `CAST($1 AS int)` — explicit type cast.
+
+Outside those contexts, sqlode cannot infer a type and fails with an actionable error:
+
+> `Query "Name": could not infer type for parameter $N. Use a type cast (e.g. $N::int) to specify the type`
+
+Typical cases that need an explicit cast today: parameters inside scalar arithmetic (`price + $1`), inside `CASE WHEN` branches whose other branches are also parameters, or inside function calls whose arguments sqlode does not yet recognise. Adding more inference contexts is tracked for a future release; until then, pin the type with `$N::int` (PostgreSQL) / `CAST($N AS INTEGER)` (SQLite).
+
+### Schema DDL scope
+
+The schema parser is designed for **schema snapshots or add-only migration files**, not full migration histories. Supported statements:
+
+- `CREATE TABLE`
+- `CREATE VIEW`
+- `CREATE TYPE` (enum)
+- `ALTER TABLE ... ADD COLUMN`
+
+Rejected (error at load time):
+
+- `DROP TABLE`, `DROP VIEW`, `DROP TYPE`
+- `ALTER TABLE ... DROP COLUMN`
+- `ALTER TABLE ... RENAME TO` / `RENAME COLUMN`
+- `ALTER TABLE ... ALTER COLUMN` (type changes)
+
+Other statements (`CREATE INDEX`, transaction blocks, comments) are silently skipped.
+
+If your migration workflow mutates schema in place, keep a separate snapshot file for sqlode rather than pointing it at the migration history directly.
+
+### View resolution
+
+`CREATE VIEW ... AS SELECT ...` columns are resolved against the base tables so the generated models have correct types. By default, columns that cannot be resolved (unknown base table, ambiguous expression, etc.) are skipped with a stderr warning; if every column of a view is unresolvable the view itself is dropped from the catalog.
+
+Enable `strict_views: true` to fail-fast on any view resolution warning:
+
+```yaml
+sql:
+  - schema: "db/schema.sql"
+    queries: "db/query.sql"
+    engine: "postgresql"
+    gen:
+      gleam:
+        out: "src/db"
+        strict_views: true
+```
+
+Strict-by-default is planned for a future release.
+
+### Custom types must be transparent aliases
+
+See [Custom type aliases](#custom-type-aliases) — opaque types (`pub opaque type Foo { ... }`) are not supported today.
 
 ## Config options
 

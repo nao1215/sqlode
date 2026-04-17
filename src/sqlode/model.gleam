@@ -110,6 +110,13 @@ pub type GleamOutput {
     /// longer needs `sqlode` as a runtime dependency. Defaults to
     /// False so the shared-runtime path stays the default.
     vendor_runtime: Bool,
+    /// When True, any schema warning from view resolution
+    /// (unresolvable view columns, dropped views) is promoted to a
+    /// fatal error. Defaults to False — the legacy behaviour is to
+    /// print warnings to stderr and drop columns/views silently so
+    /// generation can still produce models for the rest of the
+    /// catalog. Strict-by-default is planned for a future release.
+    strict_views: Bool,
   )
 }
 
