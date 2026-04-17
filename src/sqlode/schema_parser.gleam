@@ -10,6 +10,12 @@ import sqlode/query_analyzer/token_utils
 pub type ParseError {
   InvalidCreateTable(path: String, detail: String)
   InvalidColumn(path: String, table: String, detail: String)
+  /// A DDL statement was recognised as schema-changing but sqlode does not
+  /// apply it to the catalog. Raised for operations that can produce a
+  /// catalog that looks valid but is missing real schema changes — e.g.
+  /// `DROP TABLE`, `ALTER TABLE ... DROP COLUMN`. Informational DDL such
+  /// as `CREATE INDEX` and `ALTER TABLE ... ADD CONSTRAINT` stays silent.
+  UnsupportedStatement(path: String, statement_type: String)
 }
 
 pub type SchemaWarning {
@@ -613,7 +619,89 @@ fn parse_statement_tokens(
 ) -> Result(Option(model.Table), ParseError) {
   case is_create_table_tokens(tokens) {
     True -> parse_create_table_tokens(path, tokens, enums)
-    False -> Ok(None)
+    False ->
+      case classify_unknown_statement(tokens) {
+        Unsupported(statement_type) ->
+          Error(UnsupportedStatement(path:, statement_type:))
+        SilentlyIgnored -> Ok(None)
+      }
+  }
+}
+
+type UnknownStatementKind {
+  Unsupported(statement_type: String)
+  SilentlyIgnored
+}
+
+/// Classify a statement that is not a CREATE TABLE / VIEW / ENUM and not an
+/// ALTER TABLE ... ADD COLUMN. The intent is to let informational or
+/// out-of-scope DDL through silently (CREATE INDEX, COMMENT ON, transaction
+/// control) while failing fast on DDL that materially changes the catalog
+/// and would otherwise be missed (DROP TABLE, ALTER TABLE DROP/RENAME/ALTER).
+///
+/// The lexer reserves only a subset of SQL words as `Keyword` tokens. Words
+/// like `rename`, `savepoint`, and `comment` arrive as `Ident` tokens, so
+/// we normalise the first few tokens of the statement to lowercase strings
+/// before matching, treating Keyword and Ident uniformly.
+fn classify_unknown_statement(tokens: List(lexer.Token)) -> UnknownStatementKind {
+  let words = tokens |> list.take(8) |> list.map(token_keyword_text)
+  case words {
+    ["create", "index", ..] -> SilentlyIgnored
+    ["create", "unique", "index", ..] -> SilentlyIgnored
+    ["drop", "index", ..] -> SilentlyIgnored
+    ["comment", "on", ..] -> SilentlyIgnored
+    ["begin", ..] -> SilentlyIgnored
+    ["commit", ..] -> SilentlyIgnored
+    ["rollback", ..] -> SilentlyIgnored
+    ["savepoint", ..] -> SilentlyIgnored
+    ["release", ..] -> SilentlyIgnored
+    ["set", ..] -> SilentlyIgnored
+
+    ["drop", "table", ..] -> Unsupported("DROP TABLE")
+    ["drop", "view", ..] -> Unsupported("DROP VIEW")
+    ["drop", "type", ..] -> Unsupported("DROP TYPE")
+
+    ["alter", "table", ..rest] -> classify_alter_table(rest)
+
+    _ -> SilentlyIgnored
+  }
+}
+
+fn classify_alter_table(words: List(String)) -> UnknownStatementKind {
+  let after_modifiers = case words {
+    ["if", "exists", ..r] -> r
+    ["only", ..r] -> r
+    _ -> words
+  }
+  case after_modifiers {
+    [_table_name, ..rest] -> classify_alter_table_action(rest)
+    [] -> SilentlyIgnored
+  }
+}
+
+fn classify_alter_table_action(words: List(String)) -> UnknownStatementKind {
+  case words {
+    ["drop", "constraint", ..] -> SilentlyIgnored
+    ["drop", "column", ..] -> Unsupported("ALTER TABLE DROP COLUMN")
+    ["drop", ..] -> Unsupported("ALTER TABLE DROP")
+    ["rename", "to", ..] -> Unsupported("ALTER TABLE RENAME TO")
+    ["rename", ..] -> Unsupported("ALTER TABLE RENAME COLUMN")
+    ["alter", ..] -> Unsupported("ALTER TABLE ALTER COLUMN")
+    ["add", "constraint", ..] -> SilentlyIgnored
+    ["add", "primary", ..] -> SilentlyIgnored
+    ["add", "unique", ..] -> SilentlyIgnored
+    ["add", "foreign", ..] -> SilentlyIgnored
+    ["add", "check", ..] -> SilentlyIgnored
+    ["add", "index", ..] -> SilentlyIgnored
+    _ -> SilentlyIgnored
+  }
+}
+
+fn token_keyword_text(token: lexer.Token) -> String {
+  case token {
+    lexer.Keyword(k) -> k
+    lexer.Ident(i) -> string.lowercase(i)
+    _ -> ""
   }
 }
 
@@ -968,6 +1056,14 @@ pub fn error_to_string(error: ParseError) -> String {
       <> table
       <> ": "
       <> detail
+    UnsupportedStatement(path:, statement_type:) ->
+      path_prefix(path)
+      <> "Unsupported schema DDL: "
+      <> statement_type
+      <> ". sqlode only applies CREATE TABLE, CREATE VIEW, CREATE TYPE ... AS ENUM,"
+      <> " and ALTER TABLE ... ADD COLUMN to the catalog;"
+      <> " keep other schema-changing DDL out of the schema input"
+      <> " or consolidate migrations into a single CREATE TABLE snapshot."
   }
 }
 
