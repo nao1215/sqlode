@@ -207,7 +207,11 @@ pub fn infer_in_params(
   case all_tables {
     [] -> []
     [primary, ..] -> {
-      let matches = token_utils.find_in_patterns(tokens)
+      let matches =
+        list.append(
+          token_utils.find_in_patterns(tokens),
+          token_utils.find_quantified_patterns(tokens),
+        )
       scan_token_matches(
         engine,
         catalog,

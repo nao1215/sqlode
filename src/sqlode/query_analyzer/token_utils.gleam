@@ -441,6 +441,69 @@ pub fn find_in_patterns(tokens: List(lexer.Token)) -> List(EqualityMatch) {
   |> list.reverse
 }
 
+/// Find all `column op ANY|ALL|SOME (placeholder)` patterns. This
+/// complements `find_in_patterns` for the PostgreSQL-style quantified
+/// comparison syntax `t.id = ANY(sqlode.slice(team_ids))` used by
+/// fixture 2 in Issue #393.
+pub fn find_quantified_patterns(
+  tokens: List(lexer.Token),
+) -> List(EqualityMatch) {
+  find_quantified_loop(tokens, [])
+  |> list.reverse
+}
+
+fn find_quantified_loop(
+  tokens: List(lexer.Token),
+  acc: List(EqualityMatch),
+) -> List(EqualityMatch) {
+  case tokens {
+    [] -> acc
+    // table.col <op> ANY|ALL|SOME ( placeholder )
+    [
+      lexer.Ident(t),
+      lexer.Dot,
+      lexer.Ident(c),
+      lexer.Operator(_op),
+      lexer.Keyword(q),
+      lexer.LParen,
+      lexer.Placeholder(p),
+      lexer.RParen,
+      ..rest
+    ]
+      if q == "any" || q == "all" || q == "some"
+    ->
+      find_quantified_loop(rest, [
+        EqualityMatch(
+          column_name: naming.normalize_identifier(c),
+          table_qualifier: Some(string.lowercase(t)),
+          placeholder: p,
+        ),
+        ..acc
+      ])
+    // col <op> ANY|ALL|SOME ( placeholder )
+    [
+      lexer.Ident(c),
+      lexer.Operator(_op),
+      lexer.Keyword(q),
+      lexer.LParen,
+      lexer.Placeholder(p),
+      lexer.RParen,
+      ..rest
+    ]
+      if q == "any" || q == "all" || q == "some"
+    ->
+      find_quantified_loop(rest, [
+        EqualityMatch(
+          column_name: naming.normalize_identifier(c),
+          table_qualifier: None,
+          placeholder: p,
+        ),
+        ..acc
+      ])
+    [_, ..rest] -> find_quantified_loop(rest, acc)
+  }
+}
+
 fn find_in_loop(
   tokens: List(lexer.Token),
   acc: List(EqualityMatch),
