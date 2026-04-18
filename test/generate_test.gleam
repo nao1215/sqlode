@@ -1876,12 +1876,6 @@ pub fn sqlite_array_param_rejected_test() {
       overrides: model.empty_overrides(),
     )
   let cfg = model.Config(version: 2, sql: [block])
-  let result = generate.generate_config(cfg)
-  case result {
-    Error(generate.UnsupportedArrayForEngine(engine: "sqlite", ..)) -> Nil
-    // If the query doesn't trigger the array validation (e.g., SQLite
-    // schema parser doesn't produce ArrayType), that's also acceptable
-    _ -> Nil
-  }
+  let _result = generate.generate_config(cfg)
   cleanup()
 }
