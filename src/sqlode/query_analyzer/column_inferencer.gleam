@@ -583,14 +583,14 @@ fn resolve_select_columns(
     _ ->
       list.try_map(columns, fn(extracted) {
         let trimmed = string.trim(extracted.name)
-        case string.starts_with(trimmed, "sqlode.embed(") {
+        let lowered = string.lowercase(trimmed)
+        case string.starts_with(lowered, "sqlode.embed(") {
           True -> {
             let embed_name =
-              trimmed
+              lowered
               |> string.replace("sqlode.embed(", "")
               |> string.replace(")", "")
               |> string.trim
-              |> string.lowercase
 
             case
               catalog.tables

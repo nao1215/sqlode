@@ -395,6 +395,74 @@ pub fn sqlc_embed_expands_table_columns_test() {
   title_col.name |> should.equal("title")
 }
 
+pub fn sqlc_embed_rewrites_sql_to_column_list_test() {
+  let naming_ctx = naming.new()
+  let catalog = join_catalog()
+  let sql =
+    "-- name: GetBookFull :one\nSELECT sqlode.embed(authors), books.title FROM books JOIN authors ON books.author_id = authors.id WHERE books.id = $1;"
+  let assert Ok(queries) =
+    query_parser.parse_file("embed.sql", model.PostgreSQL, naming_ctx, sql)
+
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+
+  // The literal sqlode.embed(...) macro must not leak into emitted SQL.
+  string.contains(query.base.sql, "sqlode.embed(") |> should.be_false()
+  // Every column of the embedded table must appear as a qualified reference.
+  string.contains(query.base.sql, "authors.id") |> should.be_true()
+  string.contains(query.base.sql, "authors.name") |> should.be_true()
+  string.contains(query.base.sql, "authors.bio") |> should.be_true()
+  // Non-embed parts of the query are preserved.
+  string.contains(query.base.sql, "books.title") |> should.be_true()
+}
+
+pub fn sqlc_embed_rewrite_ignores_case_and_whitespace_test() {
+  let naming_ctx = naming.new()
+  let catalog = join_catalog()
+  let sql =
+    "-- name: GetBookFull :one\nSELECT Sqlode.Embed( authors ), books.title FROM books JOIN authors ON books.author_id = authors.id WHERE books.id = $1;"
+  let assert Ok(queries) =
+    query_parser.parse_file("embed.sql", model.PostgreSQL, naming_ctx, sql)
+
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  string.contains(query.base.sql, "embed(") |> should.be_false()
+  string.contains(query.base.sql, "authors.id") |> should.be_true()
+}
+
+pub fn sqlc_embed_rewrite_preserves_queries_without_embed_test() {
+  let naming_ctx = naming.new()
+  let catalog = join_catalog()
+  let sql =
+    "-- name: GetBookTitle :one\nSELECT books.title FROM books WHERE books.id = $1;"
+  let assert Ok(queries) =
+    query_parser.parse_file("plain.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert [parsed] = queries
+  let original_sql = parsed.sql
+
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  query.base.sql |> should.equal(original_sql)
+}
+
 pub fn returning_clause_result_columns_test() {
   let naming_ctx = naming.new()
   let catalog = test_catalog()

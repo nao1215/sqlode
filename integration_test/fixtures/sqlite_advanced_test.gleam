@@ -1,3 +1,4 @@
+import db/models
 import db/params
 import db/sqlight_adapter
 import gleam/option.{None, Some}
@@ -131,7 +132,33 @@ pub fn left_join_with_valid_author_test() {
   Nil
 }
 
-// Note: sqlode.embed() runtime test is skipped because the generated SQL
-// retains the sqlode.embed(...) macro text which is not valid SQL.
-// The embed codegen (nested type generation + decoder) is verified
-// at the unit test level in codegen_test.gleam.
+// ---- Test sqlode.embed() runtime ----
+pub fn sqlode_embed_returns_nested_row_test() {
+  let db = setup_db()
+
+  let assert Ok(_) =
+    sqlight_adapter.create_author(
+      db,
+      params.CreateAuthorParams(name: "Alice", bio: Some("Author bio")),
+    )
+  let assert Ok(_) =
+    sqlight_adapter.create_post(
+      db,
+      params.CreatePostParams(
+        title: "Hello World",
+        body: "body text",
+        author_id: 1,
+      ),
+    )
+
+  let assert Ok(Some(row)) =
+    sqlight_adapter.get_post_with_author_embed(
+      db,
+      params.GetPostWithAuthorEmbedParams(id: 1),
+    )
+  let assert True = row.title == "Hello World"
+  let assert models.Author(id: 1, name: "Alice", bio: Some("Author bio")) =
+    row.authors
+
+  Nil
+}
