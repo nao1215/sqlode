@@ -25,7 +25,7 @@ pub fn render_queries_module_test() {
   let naming_ctx = naming.new()
   let block = test_block()
   let analyzed = analyzed_queries("test/fixtures/query.sql")
-  let rendered = queries.render(naming_ctx, block, analyzed)
+  let rendered = queries.render(naming_ctx, block, analyzed, dict.new(), False)
 
   string.contains(
     rendered,
@@ -853,7 +853,7 @@ pub fn readme_queries_snapshot_test() {
   let naming_ctx = naming.new()
   let block = readme_test_block()
   let analyzed = readme_analyzed_queries()
-  let rendered = queries.render(naming_ctx, block, analyzed)
+  let rendered = queries.render(naming_ctx, block, analyzed, dict.new(), False)
 
   // README: pub fn get_author() -> runtime.RawQuery(params.GetAuthorParams) { ... }
   string.contains(

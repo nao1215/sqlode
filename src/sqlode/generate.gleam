@@ -232,7 +232,13 @@ fn base_output_files(
     writer.GeneratedFile(
       directory: out,
       path: "queries.gleam",
-      content: queries.render(naming_ctx, block, analyzed),
+      content: queries.render(
+        naming_ctx,
+        block,
+        analyzed,
+        table_matches,
+        gleam.emit_exact_table_names,
+      ),
     ),
   ]
 

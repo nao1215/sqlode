@@ -1,3 +1,4 @@
+import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
 import gleam/string
@@ -11,6 +12,8 @@ pub fn render(
   naming_ctx: naming.NamingContext,
   block: model.SqlBlock,
   queries: List(model.AnalyzedQuery),
+  table_matches: Dict(String, String),
+  emit_exact_table_names: Bool,
 ) -> String {
   let model.SqlBlock(engine:, gleam:, ..) = block
   let model.GleamOutput(runtime:, out:, ..) = gleam
@@ -50,7 +53,14 @@ pub fn render(
     [] -> ""
     _ ->
       decoder_queries
-      |> list.map(render_decoder_function(naming_ctx, _, engine, module_path))
+      |> list.map(render_decoder_function(
+        naming_ctx,
+        _,
+        engine,
+        module_path,
+        table_matches,
+        emit_exact_table_names,
+      ))
       |> string.join("\n\n")
   }
 
@@ -208,8 +218,16 @@ fn render_decoder_function(
   query: model.AnalyzedQuery,
   engine: model.Engine,
   _module_path: String,
+  table_matches: Dict(String, String),
+  _emit_exact_table_names: Bool,
 ) -> String {
   let type_name = naming.to_pascal_case(naming_ctx, query.base.name) <> "Row"
+  let constructor_name = case
+    dict.get(table_matches, query.base.function_name)
+  {
+    Ok(table_type) -> table_type
+    Error(_) -> type_name
+  }
 
   let #(_, field_lines) =
     list.fold(query.result_columns, #(0, []), fn(acc, col) {
@@ -237,7 +255,11 @@ fn render_decoder_function(
             <> ")"
           #(idx + 1, list.append(lines, [line]))
         }
-        model.EmbeddedResult(model.EmbeddedColumn(columns: embed_cols, ..)) -> {
+        model.EmbeddedResult(model.EmbeddedColumn(
+          columns: embed_cols,
+          table_name: _embed_table_name,
+          ..,
+        )) -> {
           let #(new_idx, embed_lines) =
             list.fold(embed_cols, #(idx, []), fn(inner_acc, c) {
               let #(i, ls) = inner_acc
@@ -290,7 +312,7 @@ fn render_decoder_function(
       field_lines,
       [
         "  decode.success(models."
-          <> type_name
+          <> constructor_name
           <> "("
           <> constructor_fields
           <> "))",
