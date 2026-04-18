@@ -44,6 +44,20 @@ Describe 'sqlode CLI'
     End
   End
 
+  Describe 'verify command'
+    It 'fails when config file does not exist'
+      When run verify_cmd --config=nonexistent.yaml
+      The status should be failure
+      The output should include 'Config file not found'
+    End
+
+    It 'fails with invalid config'
+      When run verify_cmd --config=test/fixtures/malformed.yaml
+      The status should be failure
+      The output should include 'Error'
+    End
+  End
+
   Describe 'version command'
     It 'outputs the version string'
       When run version_cmd

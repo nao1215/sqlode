@@ -700,12 +700,61 @@ For example, a table named `authors` generates `pub type Authors { ... }` instea
 ```
 # Standalone escript
 sqlode generate [--config=./sqlode.yaml]
-sqlode init [--output=./sqlode.yaml]
+sqlode verify   [--config=./sqlode.yaml]
+sqlode init     [--output=./sqlode.yaml]
 
 # Via Gleam
 gleam run -m sqlode -- generate [--config=./sqlode.yaml]
-gleam run -m sqlode -- init [--output=./sqlode.yaml]
+gleam run -m sqlode -- verify   [--config=./sqlode.yaml]
+gleam run -m sqlode -- init     [--output=./sqlode.yaml]
 ```
+
+### `sqlode verify`
+
+`verify` is the static verification lane for CI. It loads the
+project the same way `generate` would — schema parsing, query
+parsing, analyser pass — but does not write files and collects
+every failure it can see into a single report instead of
+short-circuiting on the first error.
+
+```
+$ sqlode verify
+Verifying config: sqlode.yaml
+[src/db] query "FilterAuthors" has 4 inferred parameter(s), exceeds query_parameter_limit 3
+```
+
+The command exits non-zero when at least one finding is reported,
+so it can gate generation in CI:
+
+```yaml
+- run: sqlode verify
+- run: sqlode generate
+```
+
+Per-block policies that influence `verify`:
+
+- `strict_views` — view-resolution warnings are promoted to
+  findings (the same policy `generate` uses).
+- `query_parameter_limit` — per-query cap on inferred parameters,
+  mirroring the sqlc setting of the same name. Unset means no
+  limit.
+
+### Verification roadmap
+
+`verify` today covers the static phase of Issue #395. Later phases
+are expected to layer on:
+
+1. **Static analysis (shipped).** The current command: schema +
+   query parsing, full analyser pass, `query_parameter_limit`.
+2. **DB-backed analysis.** A `database` / `analyzer` config concept
+   that runs queries through `EXPLAIN` (or equivalent) against a
+   real database to catch mistakes the local analyser cannot, such
+   as view drift or engine-specific typing.
+3. **Execution-lane validation.** Running generated code against
+   an ephemeral test database as part of the verify command.
+
+Each phase is additive: new findings show up in the existing
+`Report` without breaking the CLI contract.
 
 ## Migrating from sqlc
 
@@ -717,7 +766,7 @@ sqlode follows sqlc conventions, so most SQL files work without changes. Key dif
 | Config | `sqlc.yaml` / `sqlc.json` | `sqlode.yaml` (v2 format only), also accepts `sqlc.yaml` / `sqlc.yml` / `sqlc.json` on autodiscovery |
 | Generate | `sqlc generate` | `sqlode generate` |
 | Init | `sqlc init` | `sqlode init` |
-| Vet/Verify | `sqlc vet`, `sqlc verify` | Not supported |
+| Vet/Verify | `sqlc vet`, `sqlc verify` | `sqlode verify` (static analysis + `query_parameter_limit`); DB-backed analyser is on the [verification roadmap](#verification-roadmap) |
 | Target language | Go, Python, Kotlin, etc. | Gleam |
 | Runtime | Generated code is self-contained | Generated code imports `sqlode/runtime` by default; set `vendor_runtime: true` to vendor a copy and drop the runtime dependency (see [Self-contained generation](#self-contained-generation-vendor_runtime)) |
 

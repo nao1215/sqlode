@@ -76,6 +76,7 @@ fn test_block(queries_path: String) -> model.SqlBlock {
       omit_unused_models: False,
       vendor_runtime: False,
       strict_views: False,
+      query_parameter_limit: option.None,
     ),
     overrides: model.empty_overrides(),
   )

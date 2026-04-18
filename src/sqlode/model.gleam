@@ -118,6 +118,11 @@ pub type GleamOutput {
     /// the real database. Set to False explicitly to restore the
     /// legacy warn-and-continue behaviour for legacy schemas.
     strict_views: Bool,
+    /// When `Some(n)`, `sqlode verify` rejects any analysed query
+    /// whose inferred parameter count exceeds `n`. `None` disables
+    /// the check. Named after the sqlc setting of the same name so
+    /// migrating users can port the config directly.
+    query_parameter_limit: option.Option(Int),
   )
 }
 

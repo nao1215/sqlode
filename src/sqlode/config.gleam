@@ -120,7 +120,7 @@ fn parse_sql_block(node: yay.Node) -> Result(model.SqlBlock, ConfigError) {
     [
       "out", "runtime", "type_mapping", "emit_sql_as_comment",
       "emit_exact_table_names", "omit_unused_models", "vendor_runtime",
-      "strict_views",
+      "strict_views", "query_parameter_limit",
     ],
     "sql.gen.gleam.",
   ))
@@ -176,6 +176,11 @@ fn parse_sql_block(node: yay.Node) -> Result(model.SqlBlock, ConfigError) {
   let strict_views =
     optional_bool(gleam_node, "strict_views")
     |> option.unwrap(True)
+  // `query_parameter_limit` mirrors the sqlc setting of the same
+  // name and is surfaced by `sqlode verify`. Unset means no limit;
+  // any non-positive value is ignored so misconfiguration doesn't
+  // silently reject every query.
+  let query_parameter_limit = optional_int(gleam_node, "query_parameter_limit")
 
   use overrides <- result.try(parse_overrides(node))
 
@@ -193,6 +198,7 @@ fn parse_sql_block(node: yay.Node) -> Result(model.SqlBlock, ConfigError) {
       omit_unused_models:,
       vendor_runtime:,
       strict_views:,
+      query_parameter_limit:,
     ),
     overrides:,
   ))
@@ -389,6 +395,18 @@ fn optional_bool(node: yay.Node, selector: String) -> Option(Bool) {
     Ok(yay.NodeStr("true")) -> Some(True)
     Ok(yay.NodeStr("false")) -> Some(False)
     Ok(yay.NodeBool(value)) -> Some(value)
+    _ -> None
+  }
+}
+
+fn optional_int(node: yay.Node, selector: String) -> Option(Int) {
+  case yay.select_sugar(from: node, selector:) {
+    Ok(yay.NodeStr(text)) ->
+      case int.parse(text) {
+        Ok(n) -> Some(n)
+        Error(_) -> None
+      }
+    Ok(yay.NodeInt(value)) -> Some(value)
     _ -> None
   }
 }

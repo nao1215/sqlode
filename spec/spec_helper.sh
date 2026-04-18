@@ -15,6 +15,10 @@ generate() {
   cd "$PROJECT_ROOT" && gleam run -- generate "$@" 2>&1
 }
 
+verify_cmd() {
+  cd "$PROJECT_ROOT" && gleam run -- verify "$@" 2>&1
+}
+
 clean_test_output() {
   rm -rf "$TEST_OUTPUT_DIR"
 }
