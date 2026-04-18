@@ -24,6 +24,10 @@ test:
 shellspec:
   shellspec
 
+regen-capabilities:
+  gleam build
+  gleam run -m sqlode/scripts/print_capabilities > doc/capabilities.md
+
 all:
   gleam format --check src/ test/
   gleam check

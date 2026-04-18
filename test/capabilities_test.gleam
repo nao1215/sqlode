@@ -22,7 +22,7 @@ pub fn manifest_matches_tracked_file_test() {
       let message =
         "doc/capabilities.md is out of sync with src/sqlode/capabilities.gleam.\n"
         <> "Regenerate the file with:\n"
-        <> "  gleam run -m sqlode/scripts/print_capabilities > doc/capabilities.md\n"
+        <> "  just regen-capabilities\n"
         <> "or copy the expected output below verbatim:\n"
         <> "--- expected ---\n"
         <> rendered
