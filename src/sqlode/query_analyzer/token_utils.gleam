@@ -118,6 +118,39 @@ pub fn read_table_name(
   }
 }
 
+/// Strip a leading `WITH [RECURSIVE] cte_defs` clause so downstream
+/// passes see only the tokens of the main statement. Each CTE
+/// definition lives inside parentheses so we skip them along with
+/// the name / column-list preamble between commas. If the statement
+/// does not begin with WITH, the tokens are returned unchanged.
+///
+/// This is the same strip that the column inferencer uses for
+/// result-column scoping; exposing it here lets the parameter
+/// inferencer reuse the identical boundary when it decides which
+/// tables are visible to a top-level WHERE/ON predicate.
+pub fn strip_leading_with(tokens: List(lexer.Token)) -> List(lexer.Token) {
+  case tokens {
+    [lexer.Keyword("with"), lexer.Keyword("recursive"), ..rest] ->
+      skip_with_body(rest)
+    [lexer.Keyword("with"), ..rest] -> skip_with_body(rest)
+    _ -> tokens
+  }
+}
+
+fn skip_with_body(tokens: List(lexer.Token)) -> List(lexer.Token) {
+  case tokens {
+    [] -> []
+    [lexer.Keyword(kw), ..] as t
+      if kw == "select" || kw == "insert" || kw == "update" || kw == "delete"
+    -> t
+    [lexer.LParen, ..rest] -> {
+      let remaining = skip_parens(rest, 1)
+      skip_with_body(remaining)
+    }
+    [_, ..rest] -> skip_with_body(rest)
+  }
+}
+
 /// Skip tokens until all parentheses at the given depth are closed.
 pub fn skip_parens(tokens: List(lexer.Token), depth: Int) -> List(lexer.Token) {
   case depth <= 0 {

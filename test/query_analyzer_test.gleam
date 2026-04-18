@@ -2426,3 +2426,49 @@ pub fn param_type_conflict_detection_test() {
     type_b: model.StringType,
   )) = result
 }
+
+pub fn ambiguous_unqualified_param_column_is_rejected_test() {
+  // Regression for Issue #390. A CTE-joined query with three `id`
+  // columns in scope (`memberships.id`, `active_users.id`,
+  // `teams.id`) must surface an AmbiguousColumnName error for
+  // `WHERE id = $1` instead of silently binding to the primary
+  // table's id column.
+  let naming_ctx = naming.new()
+  let assert Ok(schema_content) =
+    simplifile.read("test/fixtures/ambiguous_param_schema.sql")
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([
+      #("test/fixtures/ambiguous_param_schema.sql", schema_content),
+    ])
+
+  let assert Ok(sql) =
+    simplifile.read("test/fixtures/ambiguous_param_query.sql")
+  let assert Ok(queries) =
+    query_parser.parse_file(
+      "test/fixtures/ambiguous_param_query.sql",
+      model.PostgreSQL,
+      naming_ctx,
+      sql,
+    )
+
+  let result =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+
+  let assert Error(context.AmbiguousColumnName(
+    query_name: "GetMembership",
+    column_name: "id",
+    matching_tables: tables,
+  )) = result
+  // The matching list must contain every table that exposes `id` at
+  // the outermost FROM/JOIN scope. CTE-internal references do not
+  // leak here thanks to the WITH-prefix strip, so we assert on the
+  // three top-level tables.
+  list.contains(tables, "memberships") |> should.be_true()
+  list.contains(tables, "active_users") |> should.be_true()
+  list.contains(tables, "teams") |> should.be_true()
+}
