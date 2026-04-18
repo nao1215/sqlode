@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `sqlode.embed(TABLE)` is now rewritten into a concrete qualified
+  column list in the emitted SQL. Previously the literal
+  `sqlode.embed(...)` text leaked into generated runtime queries, which
+  the database rejected as invalid SQL. Embed detection during column
+  inference is also now case-insensitive.
+
 ## [0.1.0] - 2026-04-13
 
 ### Added

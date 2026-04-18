@@ -127,6 +127,18 @@ pub fn sqlc_embed_expands_table_columns_test() {
   query_analyzer_test.sqlc_embed_expands_table_columns_test()
 }
 
+pub fn sqlc_embed_rewrites_sql_to_column_list_test() {
+  query_analyzer_test.sqlc_embed_rewrites_sql_to_column_list_test()
+}
+
+pub fn sqlc_embed_rewrite_ignores_case_and_whitespace_test() {
+  query_analyzer_test.sqlc_embed_rewrite_ignores_case_and_whitespace_test()
+}
+
+pub fn sqlc_embed_rewrite_preserves_queries_without_embed_test() {
+  query_analyzer_test.sqlc_embed_rewrite_preserves_queries_without_embed_test()
+}
+
 pub fn returning_clause_result_columns_test() {
   query_analyzer_test.returning_clause_result_columns_test()
 }

@@ -18,3 +18,9 @@ WHERE posts.id = ?1;
 
 -- name: ListAuthors :many
 SELECT id, name, bio FROM authors ORDER BY name;
+
+-- name: GetPostWithAuthorEmbed :one
+SELECT sqlode.embed(authors), posts.title
+FROM posts
+JOIN authors ON posts.author_id = authors.id
+WHERE posts.id = ?1;

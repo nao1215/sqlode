@@ -7,6 +7,7 @@ import sqlode/model
 import sqlode/naming
 import sqlode/query_analyzer/column_inferencer
 import sqlode/query_analyzer/context
+import sqlode/query_analyzer/embed_rewriter
 import sqlode/query_analyzer/param_inferencer
 import sqlode/query_analyzer/placeholder
 
@@ -68,7 +69,36 @@ fn analyze_query(
     augmented,
   ))
 
-  Ok(model.AnalyzedQuery(base: query, params:, result_columns:))
+  let rewritten = rewrite_embed_sql(engine, query, tokens, result_columns)
+  Ok(model.AnalyzedQuery(base: rewritten, params:, result_columns:))
+}
+
+/// Expand any `sqlode.embed(TABLE)` macro calls in the query's SQL into
+/// concrete column lists so the emitted runtime SQL is valid. The token
+/// list is the already-tokenized form of `query.sql`; reusing it avoids a
+/// redundant lex pass when no embed is present.
+fn rewrite_embed_sql(
+  engine: model.Engine,
+  query: model.ParsedQuery,
+  tokens: List(lexer.Token),
+  result_columns: List(model.ResultItem),
+) -> model.ParsedQuery {
+  let rewritten_tokens = embed_rewriter.rewrite(tokens, result_columns)
+  case rewritten_tokens == tokens {
+    True -> query
+    False -> {
+      let rewritten_sql =
+        lexer.tokens_to_string(
+          rewritten_tokens,
+          lexer.TokenRenderOptions(
+            uppercase_keywords: False,
+            preserve_quotes: True,
+            engine: Some(engine),
+          ),
+        )
+      model.ParsedQuery(..query, sql: rewritten_sql)
+    }
+  }
 }
 
 fn merge_virtual_tables(
