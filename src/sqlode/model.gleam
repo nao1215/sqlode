@@ -112,10 +112,11 @@ pub type GleamOutput {
     vendor_runtime: Bool,
     /// When True, any schema warning from view resolution
     /// (unresolvable view columns, dropped views) is promoted to a
-    /// fatal error. Defaults to False — the legacy behaviour is to
-    /// print warnings to stderr and drop columns/views silently so
-    /// generation can still produce models for the rest of the
-    /// catalog. Strict-by-default is planned for a future release.
+    /// fatal error. Defaults to True — a partially resolved view is
+    /// almost always a schema/config mismatch, and letting it reach
+    /// codegen produces a model that is silently out of sync with
+    /// the real database. Set to False explicitly to restore the
+    /// legacy warn-and-continue behaviour for legacy schemas.
     strict_views: Bool,
   )
 }

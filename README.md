@@ -637,9 +637,9 @@ Other statements (`CREATE INDEX`, transaction blocks, comments) are silently ski
 
 ### View resolution
 
-`CREATE VIEW ... AS SELECT ...` columns are resolved against the base tables so the generated models have correct types. By default, columns that cannot be resolved (unknown base table, ambiguous expression, etc.) are skipped with a stderr warning; if every column of a view is unresolvable the view itself is dropped from the catalog.
+`CREATE VIEW ... AS SELECT ...` columns are resolved against the base tables so the generated models have correct types. By default sqlode fails generation when any view column cannot be resolved (unknown base table, ambiguous expression, etc.) — a partially resolved view almost always means the schema and the configuration are out of sync, and silently dropping the column would let that mismatch reach generated code.
 
-Enable `strict_views: true` to fail-fast on any view resolution warning:
+For legacy schemas that still need the old warn-and-continue behaviour, set `strict_views: false` explicitly:
 
 ```yaml
 sql:
@@ -649,10 +649,10 @@ sql:
     gen:
       gleam:
         out: "src/db"
-        strict_views: true
+        strict_views: false
 ```
 
-Strict-by-default is planned for a future release.
+With `strict_views: false` each unresolvable column is reported to stderr and dropped from the generated model (and the view itself is dropped if every column is unresolvable).
 
 ### Custom types must be transparent aliases
 
