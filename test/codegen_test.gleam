@@ -231,6 +231,7 @@ pub fn render_sqlight_adapter_test() {
         omit_unused_models: False,
         vendor_runtime: False,
         strict_views: False,
+        query_parameter_limit: option.None,
       ),
       overrides: model.empty_overrides(),
     )
@@ -300,6 +301,7 @@ pub fn render_pog_adapter_slice_test() {
         omit_unused_models: False,
         vendor_runtime: False,
         strict_views: False,
+        query_parameter_limit: option.None,
       ),
       overrides: model.empty_overrides(),
     )
@@ -339,6 +341,7 @@ pub fn render_sqlight_adapter_slice_test() {
         omit_unused_models: False,
         vendor_runtime: False,
         strict_views: False,
+        query_parameter_limit: option.None,
       ),
       overrides: model.empty_overrides(),
     )
@@ -501,6 +504,7 @@ pub fn render_adapter_uses_table_constructor_for_match_test() {
         omit_unused_models: False,
         vendor_runtime: False,
         strict_views: False,
+        query_parameter_limit: option.None,
       ),
       overrides: model.empty_overrides(),
     )
@@ -547,6 +551,7 @@ fn test_block() -> model.SqlBlock {
       omit_unused_models: False,
       vendor_runtime: False,
       strict_views: False,
+      query_parameter_limit: option.None,
     ),
     overrides: model.empty_overrides(),
   )
@@ -567,6 +572,7 @@ fn test_block_native() -> model.SqlBlock {
       omit_unused_models: False,
       vendor_runtime: False,
       strict_views: False,
+      query_parameter_limit: option.None,
     ),
     overrides: model.empty_overrides(),
   )
@@ -651,6 +657,7 @@ pub fn render_enum_decoder_uses_decode_then_test() {
         omit_unused_models: False,
         vendor_runtime: False,
         strict_views: False,
+        query_parameter_limit: option.None,
       ),
       overrides: model.empty_overrides(),
     )
@@ -724,6 +731,7 @@ pub fn render_pog_adapter_enum_slice_converts_to_string_test() {
         omit_unused_models: False,
         vendor_runtime: False,
         strict_views: False,
+        query_parameter_limit: option.None,
       ),
       overrides: model.empty_overrides(),
     )
@@ -778,6 +786,7 @@ pub fn render_sqlight_adapter_enum_slice_converts_to_string_test() {
         omit_unused_models: False,
         vendor_runtime: False,
         strict_views: False,
+        query_parameter_limit: option.None,
       ),
       overrides: model.empty_overrides(),
     )
@@ -939,6 +948,7 @@ fn readme_test_block() -> model.SqlBlock {
       omit_unused_models: False,
       vendor_runtime: False,
       strict_views: False,
+      query_parameter_limit: option.None,
     ),
     overrides: model.empty_overrides(),
   )
@@ -1059,6 +1069,7 @@ pub fn render_pog_adapter_with_array_columns_test() {
         omit_unused_models: False,
         vendor_runtime: False,
         strict_views: False,
+        query_parameter_limit: option.None,
       ),
       overrides: model.empty_overrides(),
     )

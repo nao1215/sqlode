@@ -29,6 +29,7 @@ fn base_block(overrides: model.Overrides) -> model.SqlBlock {
       omit_unused_models: False,
       vendor_runtime: False,
       strict_views: False,
+      query_parameter_limit: option.None,
     ),
     overrides: overrides,
   )
@@ -287,6 +288,7 @@ pub fn module_qualified_custom_type_in_params_generates_import_test() {
         omit_unused_models: False,
         vendor_runtime: False,
         strict_views: False,
+        query_parameter_limit: option.None,
       ),
       overrides: model.Overrides(
         type_overrides: [
@@ -369,6 +371,7 @@ pub fn rich_type_mapping_emits_semantic_aliases_test() {
         omit_unused_models: False,
         vendor_runtime: False,
         strict_views: False,
+        query_parameter_limit: option.None,
       ),
       overrides: model.empty_overrides(),
     )
@@ -409,6 +412,7 @@ pub fn strong_type_mapping_emits_wrapper_types_test() {
         omit_unused_models: False,
         vendor_runtime: False,
         strict_views: False,
+        query_parameter_limit: option.None,
       ),
       overrides: model.empty_overrides(),
     )
@@ -492,6 +496,7 @@ pub fn exact_table_match_produces_alias_test() {
         omit_unused_models: False,
         vendor_runtime: False,
         strict_views: False,
+        query_parameter_limit: option.None,
       ),
       overrides: model.empty_overrides(),
     )
@@ -645,6 +650,7 @@ fn join_rename_block(renames: List(model.ColumnRename)) -> model.SqlBlock {
       omit_unused_models: False,
       vendor_runtime: False,
       strict_views: False,
+      query_parameter_limit: option.None,
     ),
     overrides: model.Overrides(type_overrides: [], column_renames: renames),
   )
@@ -796,6 +802,7 @@ fn nullable_block(overrides: model.Overrides) -> model.SqlBlock {
       omit_unused_models: False,
       vendor_runtime: False,
       strict_views: False,
+      query_parameter_limit: option.None,
     ),
     overrides: overrides,
   )
@@ -904,6 +911,7 @@ fn all_commands_block(
       omit_unused_models: False,
       vendor_runtime: False,
       strict_views: False,
+      query_parameter_limit: option.None,
     ),
     overrides: model.empty_overrides(),
   )
@@ -1040,6 +1048,7 @@ pub fn run_with_missing_schema_file_test() {
         omit_unused_models: False,
         vendor_runtime: False,
         strict_views: False,
+        query_parameter_limit: option.None,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1067,6 +1076,7 @@ pub fn run_with_missing_query_file_test() {
         omit_unused_models: False,
         vendor_runtime: False,
         strict_views: False,
+        query_parameter_limit: option.None,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1095,6 +1105,7 @@ pub fn run_with_no_queries_in_file_test() {
         omit_unused_models: False,
         vendor_runtime: False,
         strict_views: False,
+        query_parameter_limit: option.None,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1123,6 +1134,7 @@ pub fn execresult_rejected_on_native_runtime_test() {
         omit_unused_models: False,
         vendor_runtime: False,
         strict_views: False,
+        query_parameter_limit: option.None,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1150,6 +1162,7 @@ pub fn execresult_allowed_on_raw_runtime_test() {
         omit_unused_models: False,
         vendor_runtime: False,
         strict_views: False,
+        query_parameter_limit: option.None,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1176,6 +1189,7 @@ fn unsupported_annotation_block(query_file: String) -> model.SqlBlock {
       omit_unused_models: False,
       vendor_runtime: False,
       strict_views: False,
+      query_parameter_limit: option.None,
     ),
     overrides: model.empty_overrides(),
   )
@@ -1240,6 +1254,7 @@ fn compound_block() -> model.SqlBlock {
       omit_unused_models: False,
       vendor_runtime: False,
       strict_views: False,
+      query_parameter_limit: option.None,
     ),
     overrides: model.empty_overrides(),
   )
@@ -1322,6 +1337,7 @@ fn view_block() -> model.SqlBlock {
       omit_unused_models: False,
       vendor_runtime: False,
       strict_views: False,
+      query_parameter_limit: option.None,
     ),
     overrides: model.empty_overrides(),
   )
@@ -1401,6 +1417,7 @@ pub fn invalid_out_path_rejected_test() {
         omit_unused_models: False,
         vendor_runtime: False,
         strict_views: False,
+        query_parameter_limit: option.None,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1435,6 +1452,7 @@ pub fn accept_directory_for_schema_and_queries_test() {
         omit_unused_models: False,
         vendor_runtime: False,
         strict_views: False,
+        query_parameter_limit: option.None,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1467,6 +1485,7 @@ pub fn mixed_file_and_directory_inputs_test() {
         omit_unused_models: False,
         vendor_runtime: False,
         strict_views: False,
+        query_parameter_limit: option.None,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1495,6 +1514,7 @@ pub fn reject_empty_schema_directory_test() {
         omit_unused_models: False,
         vendor_runtime: False,
         strict_views: False,
+        query_parameter_limit: option.None,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1523,6 +1543,7 @@ pub fn reject_empty_query_directory_test() {
         omit_unused_models: False,
         vendor_runtime: False,
         strict_views: False,
+        query_parameter_limit: option.None,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1553,6 +1574,7 @@ pub fn reject_duplicate_query_names_test() {
         omit_unused_models: False,
         vendor_runtime: False,
         strict_views: False,
+        query_parameter_limit: option.None,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1584,6 +1606,7 @@ pub fn emit_sql_as_comment_includes_sql_in_output_test() {
         omit_unused_models: False,
         vendor_runtime: False,
         strict_views: False,
+        query_parameter_limit: option.None,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1627,6 +1650,7 @@ pub fn emit_exact_table_names_skips_singularization_test() {
         omit_unused_models: False,
         vendor_runtime: False,
         strict_views: False,
+        query_parameter_limit: option.None,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1672,6 +1696,7 @@ fn multi_table_block(omit_unused_models: Bool) -> model.SqlBlock {
       omit_unused_models: omit_unused_models,
       vendor_runtime: False,
       strict_views: False,
+      query_parameter_limit: option.None,
     ),
     overrides: model.empty_overrides(),
   )
@@ -1724,6 +1749,7 @@ fn vendor_runtime_block(vendor_runtime: Bool) -> model.SqlBlock {
       omit_unused_models: False,
       vendor_runtime: vendor_runtime,
       strict_views: False,
+      query_parameter_limit: option.None,
     ),
     overrides: model.empty_overrides(),
   )
@@ -1791,6 +1817,7 @@ fn strict_views_block(strict_views: Bool) -> model.SqlBlock {
       omit_unused_models: False,
       vendor_runtime: False,
       strict_views: strict_views,
+      query_parameter_limit: option.None,
     ),
     overrides: model.empty_overrides(),
   )
@@ -1846,6 +1873,7 @@ fn partial_view_block(strict_views: Bool) -> model.SqlBlock {
       omit_unused_models: False,
       vendor_runtime: False,
       strict_views: strict_views,
+      query_parameter_limit: option.None,
     ),
     overrides: model.empty_overrides(),
   )
@@ -1930,6 +1958,7 @@ pub fn vendor_runtime_fails_when_source_not_found_test() {
         omit_unused_models: False,
         vendor_runtime: True,
         strict_views: False,
+        query_parameter_limit: option.None,
       ),
       overrides: model.empty_overrides(),
     )
@@ -1961,6 +1990,7 @@ pub fn sqlite_array_param_rejected_test() {
         omit_unused_models: False,
         vendor_runtime: False,
         strict_views: False,
+        query_parameter_limit: option.None,
       ),
       overrides: model.empty_overrides(),
     )

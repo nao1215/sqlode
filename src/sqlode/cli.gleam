@@ -7,6 +7,7 @@ import gleam/string
 import glint
 import simplifile
 import sqlode/generate
+import sqlode/verify
 import sqlode/version
 
 pub fn app() -> glint.Glint(Nil) {
@@ -16,6 +17,7 @@ pub fn app() -> glint.Glint(Nil) {
   |> glint.pretty_help(glint.default_pretty_help())
   |> glint.add(at: ["generate"], do: generate_command())
   |> glint.add(at: ["init"], do: init_command())
+  |> glint.add(at: ["verify"], do: verify_command())
   |> glint.add(at: ["version"], do: version_command())
 }
 
@@ -24,11 +26,13 @@ fn global_help_text() -> String {
 
 Usage:
   sqlode generate [--config=<path>]
+  sqlode verify [--config=<path>]
   sqlode init [--output=./sqlode.yaml] [--engine=postgresql|sqlite|mysql] [--runtime=raw|native]
   sqlode version
 
-Without --config, generate auto-discovers sqlode.yaml, sqlode.yml,
-sqlc.yaml, sqlc.yml, or sqlc.json in the current directory.
+Without --config, generate/verify auto-discovers sqlode.yaml,
+sqlode.yml, sqlc.yaml, sqlc.yml, or sqlc.json in the current
+directory.
 
 Run `sqlode <command> --help` for details on each command."
 }
@@ -109,6 +113,65 @@ Examples:
         })
       },
     )
+  }
+}
+
+fn verify_command() -> glint.Command(Nil) {
+  {
+    use config_path <- glint.flag(
+      glint.string_flag("config")
+      |> glint.flag_default("")
+      |> glint.flag_help(
+        "Path to config file. Default: auto-discover sqlode.yaml, sqlode.yml, sqlc.yaml, sqlc.yml, or sqlc.json in the current directory.",
+      ),
+    )
+
+    glint.command_help(
+      "Run static verification on the project without writing files.
+
+Loads the config, parses every schema and query the generator would
+use, and runs the full analyser pass. Any query-analysis error,
+schema warning under strict_views, or policy violation (for example
+`query_parameter_limit`) is collected into a single report.
+
+The command exits non-zero when at least one finding is reported —
+suitable for CI gates before the generation step runs.
+
+Examples:
+  sqlode verify
+  sqlode verify --config=./custom.yaml",
+      fn() {
+        glint.command(fn(_named_args, _args, flags) {
+          let flag_value = config_path(flags) |> result.unwrap("")
+          run_verify(flag_value)
+        })
+      },
+    )
+  }
+}
+
+fn run_verify(flag_value: String) -> Nil {
+  case resolve_config_path(flag_value) {
+    Error(message) -> {
+      io.println_error("Error: " <> message)
+      halt(1)
+    }
+    Ok(config_path) -> {
+      io.println("Verifying config: " <> config_path)
+      case verify.run(config_path) {
+        Error(err) -> {
+          io.println_error("Error: " <> verify.error_to_string(err))
+          halt(1)
+        }
+        Ok(report) -> {
+          io.println(verify.report_to_string(report))
+          case report.findings {
+            [] -> Nil
+            _ -> halt(1)
+          }
+        }
+      }
+    }
   }
 }
 
