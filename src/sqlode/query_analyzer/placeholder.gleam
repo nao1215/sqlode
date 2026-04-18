@@ -17,10 +17,10 @@ pub type PlaceholderOccurrence {
 pub fn extract(
   ctx: AnalyzerContext,
   engine: model.Engine,
-  sql: String,
+  tokens: List(lexer.Token),
 ) -> List(PlaceholderOccurrence) {
-  let tokens = placeholder_tokens(engine, sql)
-  build_occurrences(ctx, engine, tokens, 1, dict.new(), [])
+  let placeholder_tokens = token_utils.extract_placeholders(tokens)
+  build_occurrences(ctx, engine, placeholder_tokens, 1, dict.new(), [])
 }
 
 pub fn unique(
@@ -195,11 +195,6 @@ fn build_occurrences(
         }
       }
   }
-}
-
-fn placeholder_tokens(engine: model.Engine, sql: String) -> List(String) {
-  lexer.tokenize(sql, engine)
-  |> token_utils.extract_placeholders
 }
 
 fn default_param_name(ctx: AnalyzerContext, token: String, index: Int) -> String {

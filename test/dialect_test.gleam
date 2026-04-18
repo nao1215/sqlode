@@ -5,6 +5,7 @@ import simplifile
 import sqlode/model
 import sqlode/naming
 import sqlode/query_analyzer
+import sqlode/query_ir
 import sqlode/query_parser
 import sqlode/runtime
 import sqlode/schema_parser
@@ -306,7 +307,7 @@ fn parse_queries(
   path: String,
   engine: model.Engine,
   naming_ctx: naming.NamingContext,
-) -> List(model.ParsedQuery) {
+) -> List(query_ir.TokenizedQuery) {
   let assert Ok(content) = simplifile.read(path)
   let assert Ok(queries) =
     query_parser.parse_file(path, engine, naming_ctx, content)

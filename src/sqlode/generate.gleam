@@ -16,6 +16,7 @@ import sqlode/config
 import sqlode/model
 import sqlode/naming
 import sqlode/query_analyzer
+import sqlode/query_ir
 import sqlode/query_parser
 import sqlode/runtime
 import sqlode/schema_parser
@@ -121,7 +122,7 @@ fn load_and_analyze_queries(
   block: model.SqlBlock,
   catalog: model.Catalog,
 ) -> Result(
-  #(List(model.ParsedQuery), List(model.AnalyzedQuery)),
+  #(List(query_ir.TokenizedQuery), List(model.AnalyzedQuery)),
   GenerateError,
 ) {
   use queries <- result.try(load_queries(naming_ctx, block))
@@ -140,7 +141,7 @@ fn render_output_files(
   naming_ctx: naming.NamingContext,
   block: model.SqlBlock,
   catalog: model.Catalog,
-  queries: List(model.ParsedQuery),
+  queries: List(query_ir.TokenizedQuery),
   analyzed: List(model.AnalyzedQuery),
 ) -> Result(List(writer.GeneratedFile), GenerateError) {
   let model.SqlBlock(gleam:, ..) = block
@@ -462,7 +463,7 @@ fn load_catalog(
 fn load_queries(
   naming_ctx: naming.NamingContext,
   block: model.SqlBlock,
-) -> Result(List(model.ParsedQuery), GenerateError) {
+) -> Result(List(query_ir.TokenizedQuery), GenerateError) {
   let model.SqlBlock(engine:, queries:, ..) = block
 
   use expanded <- result.try(
@@ -494,10 +495,10 @@ fn load_queries(
 }
 
 fn validate_no_duplicate_query_names(
-  queries: List(model.ParsedQuery),
-) -> Result(List(model.ParsedQuery), GenerateError) {
+  queries: List(query_ir.TokenizedQuery),
+) -> Result(List(query_ir.TokenizedQuery), GenerateError) {
   let grouped =
-    list.group(queries, fn(q) { q.name })
+    list.group(queries, fn(q) { q.base.name })
     |> dict.to_list
     |> list.filter(fn(entry) { list.length(entry.1) > 1 })
 
@@ -506,7 +507,7 @@ fn validate_no_duplicate_query_names(
     [#(name, dupes), ..] -> {
       let paths =
         dupes
-        |> list.map(fn(q) { q.source_path })
+        |> list.map(fn(q) { q.base.source_path })
         |> list.unique
       Error(DuplicateQueryName(name:, paths:))
     }

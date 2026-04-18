@@ -1,4 +1,5 @@
 import gleam/list
+import gleam/result
 import gleam/string
 import gleeunit
 import gleeunit/should
@@ -12,16 +13,25 @@ pub fn main() {
   gleeunit.main()
 }
 
+/// Thin wrapper that unwraps `query_ir.TokenizedQuery` to `model.ParsedQuery`
+/// so the parser-focused assertions in this file can keep accessing
+/// `.name`, `.sql`, `.macros` etc. directly. The analyzer pipeline still
+/// sees the tokenized form.
+fn parse_file(
+  path: String,
+  engine: model.Engine,
+  naming_ctx: naming.NamingContext,
+  content: String,
+) -> Result(List(model.ParsedQuery), query_parser.ParseError) {
+  query_parser.parse_file(path, engine, naming_ctx, content)
+  |> result.map(list.map(_, fn(q) { q.base }))
+}
+
 pub fn parse_queries_from_sqlc_annotations_test() {
   let naming_ctx = naming.new()
   let assert Ok(content) = simplifile.read("test/fixtures/query.sql")
   let assert Ok(queries) =
-    query_parser.parse_file(
-      "test/fixtures/query.sql",
-      model.PostgreSQL,
-      naming_ctx,
-      content,
-    )
+    parse_file("test/fixtures/query.sql", model.PostgreSQL, naming_ctx, content)
 
   list.length(queries) |> should.equal(2)
 
@@ -40,7 +50,7 @@ pub fn reject_query_without_sql_body_test() {
   let content = "-- name: GetAuthor :one\n"
 
   let assert Error(error) =
-    query_parser.parse_file("broken.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("broken.sql", model.PostgreSQL, naming_ctx, content)
 
   query_parser.error_to_string(error)
   |> should.equal("broken.sql:1: query GetAuthor is missing SQL body")
@@ -53,7 +63,7 @@ pub fn count_mysql_placeholders_test() {
     <> "INSERT INTO authors (name, bio) VALUES (?, ?);"
 
   let assert Ok(queries) =
-    query_parser.parse_file("mysql.sql", model.MySQL, naming_ctx, content)
+    parse_file("mysql.sql", model.MySQL, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(2)
@@ -66,7 +76,7 @@ pub fn count_sqlite_named_placeholders_test() {
     <> "SELECT id FROM authors WHERE id = :id OR name = @name OR slug = $slug OR code = ?2;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
+    parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(4)
@@ -79,7 +89,7 @@ pub fn expand_sqlc_arg_macro_test() {
     <> "SELECT id FROM authors WHERE name = sqlode.arg(author_name);"
 
   let assert Ok(queries) =
-    query_parser.parse_file("arg.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("arg.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(1)
@@ -96,7 +106,7 @@ pub fn expand_sqlc_narg_macro_test() {
     <> "UPDATE authors SET bio = sqlode.narg(new_bio) WHERE id = sqlode.arg(author_id);"
 
   let assert Ok(queries) =
-    query_parser.parse_file("narg.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("narg.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(2)
@@ -116,7 +126,7 @@ pub fn expand_sqlc_arg_mysql_test() {
     <> "SELECT id FROM authors WHERE name = sqlode.arg(author_name);"
 
   let assert Ok(queries) =
-    query_parser.parse_file("arg_mysql.sql", model.MySQL, naming_ctx, content)
+    parse_file("arg_mysql.sql", model.MySQL, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(1)
@@ -132,7 +142,7 @@ pub fn expand_sqlc_arg_single_quoted_test() {
     <> "SELECT id FROM authors WHERE name = sqlode.arg('author_name');"
 
   let assert Ok(queries) =
-    query_parser.parse_file("arg.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("arg.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(1)
@@ -149,7 +159,7 @@ pub fn expand_sqlc_arg_double_quoted_test() {
     <> "SELECT id FROM authors WHERE name = sqlode.arg(\"author_name\");"
 
   let assert Ok(queries) =
-    query_parser.parse_file("arg.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("arg.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(1)
@@ -164,7 +174,7 @@ pub fn expand_sqlc_narg_single_quoted_test() {
     <> "UPDATE authors SET bio = sqlode.narg('new_bio') WHERE id = sqlode.arg(author_id);"
 
   let assert Ok(queries) =
-    query_parser.parse_file("narg.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("narg.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(2)
@@ -182,7 +192,7 @@ pub fn expand_sqlc_slice_double_quoted_test() {
     <> "SELECT id, name FROM authors WHERE id IN (sqlode.slice(\"ids\"));"
 
   let assert Ok(queries) =
-    query_parser.parse_file("slice.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("slice.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
 
   query.macros
@@ -198,7 +208,7 @@ pub fn expand_at_name_postgresql_test() {
     <> "SELECT id FROM authors WHERE name = @author_name;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("at.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("at.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(1)
@@ -215,7 +225,7 @@ pub fn expand_at_name_sqlite_test() {
     <> "SELECT id FROM authors WHERE name = @author_name;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("at.sql", model.SQLite, naming_ctx, content)
+    parse_file("at.sql", model.SQLite, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(1)
@@ -232,7 +242,7 @@ pub fn expand_multiple_at_names_test() {
     <> "UPDATE authors SET bio = @new_bio WHERE id = @author_id;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("at.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("at.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(2)
@@ -252,7 +262,7 @@ pub fn expand_at_name_mixed_with_sqlc_arg_test() {
     <> "UPDATE authors SET bio = @new_bio WHERE id = sqlode.arg(author_id);"
 
   let assert Ok(queries) =
-    query_parser.parse_file("at.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("at.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(2)
@@ -270,7 +280,7 @@ pub fn at_name_not_expanded_on_mysql_test() {
     <> "SELECT id FROM authors WHERE name = @author_name;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("at.sql", model.MySQL, naming_ctx, content)
+    parse_file("at.sql", model.MySQL, naming_ctx, content)
   let assert [query] = queries
 
   query.macros |> should.equal([])
@@ -284,7 +294,7 @@ pub fn invalid_annotation_format_test() {
   let content = "-- name: OnlyName\nSELECT 1;"
 
   let assert Error(error) =
-    query_parser.parse_file("bad.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("bad.sql", model.PostgreSQL, naming_ctx, content)
   let msg = query_parser.error_to_string(error)
   string.contains(msg, "expected") |> should.be_true()
   string.contains(msg, ":one") |> should.be_true()
@@ -296,7 +306,7 @@ pub fn invalid_command_test() {
   let content = "-- name: MyQuery :unknown\nSELECT 1;"
 
   let assert Error(error) =
-    query_parser.parse_file("bad.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("bad.sql", model.PostgreSQL, naming_ctx, content)
   let msg = query_parser.error_to_string(error)
   string.contains(msg, "must be one of") |> should.be_true()
 }
@@ -306,14 +316,14 @@ pub fn file_with_no_annotations_test() {
   let content = "SELECT 1;\nSELECT 2;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("none.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("none.sql", model.PostgreSQL, naming_ctx, content)
   queries |> should.equal([])
 }
 
 pub fn empty_file_test() {
   let naming_ctx = naming.new()
   let assert Ok(queries) =
-    query_parser.parse_file("empty.sql", model.PostgreSQL, naming_ctx, "")
+    parse_file("empty.sql", model.PostgreSQL, naming_ctx, "")
   queries |> should.equal([])
 }
 
@@ -325,7 +335,7 @@ pub fn multiple_queries_test() {
     <> "-- name: Q3 :exec\nINSERT INTO t VALUES (1);"
 
   let assert Ok(queries) =
-    query_parser.parse_file("multi.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("multi.sql", model.PostgreSQL, naming_ctx, content)
   list.length(queries) |> should.equal(3)
 
   let assert [q1, q2, q3] = queries
@@ -348,7 +358,7 @@ pub fn all_command_types_test() {
     <> "-- name: F :execlastid\nSELECT 1;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("cmds.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("cmds.sql", model.PostgreSQL, naming_ctx, content)
   list.length(queries) |> should.equal(6)
 
   let assert [a, b, c, d, e, f] = queries
@@ -371,7 +381,7 @@ pub fn multiline_sql_body_test() {
     <> "WHERE id = $1;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("multi.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("multi.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
   query.param_count |> should.equal(1)
   // Token-first rendering normalizes keywords to lowercase
@@ -390,7 +400,7 @@ pub fn ignore_placeholder_in_single_quoted_string_test() {
     <> "WHERE note = '$2' OR id = $1;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("lit.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("lit.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
 
   // $2 inside string should be ignored, only $1 counts
@@ -406,7 +416,7 @@ pub fn ignore_placeholder_in_line_comment_test() {
     <> "WHERE id = $1; -- $2 is not used"
 
   let assert Ok(queries) =
-    query_parser.parse_file("cmt.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("cmt.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(1)
@@ -422,7 +432,7 @@ pub fn ignore_placeholder_in_block_comment_test() {
     <> "WHERE id = $1;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("cmt.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("cmt.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(1)
@@ -436,7 +446,7 @@ pub fn ignore_at_name_in_string_literal_test() {
     <> "WHERE note = '@skip_me' AND id = @real_id;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("at.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("at.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
 
   // @skip_me inside string should not be expanded
@@ -452,8 +462,7 @@ pub fn ignore_question_mark_in_string_mysql_test() {
     <> "SELECT id FROM authors\n"
     <> "WHERE note = 'is this a ?' AND id = ?;"
 
-  let assert Ok(queries) =
-    query_parser.parse_file("q.sql", model.MySQL, naming_ctx, content)
+  let assert Ok(queries) = parse_file("q.sql", model.MySQL, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(1)
@@ -466,7 +475,7 @@ pub fn sqlite_repeated_colon_placeholder_dedup_test() {
     <> "SELECT id FROM authors WHERE id = :id OR parent_id = :id;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
+    parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(1)
@@ -479,7 +488,7 @@ pub fn sqlite_repeated_dollar_placeholder_dedup_test() {
     <> "SELECT id FROM authors WHERE id = $id OR parent_id = $id;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
+    parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(1)
@@ -492,7 +501,7 @@ pub fn sqlite_repeated_at_placeholder_dedup_test() {
     <> "SELECT id FROM authors WHERE id = @id OR parent_id = @id;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
+    parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(1)
@@ -505,7 +514,7 @@ pub fn sqlite_distinct_named_placeholders_not_deduped_test() {
     <> "SELECT id FROM authors WHERE id = :id OR name = :name;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
+    parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(2)
@@ -518,7 +527,7 @@ pub fn sqlite_colon_and_at_are_different_params_test() {
     <> "SELECT id FROM authors WHERE id = :id OR parent_id = @id;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
+    parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(2)
@@ -531,7 +540,7 @@ pub fn sqlite_bare_question_marks_not_deduped_test() {
     <> "INSERT INTO authors (name, bio) VALUES (?, ?);"
 
   let assert Ok(queries) =
-    query_parser.parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
+    parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(2)
@@ -544,7 +553,7 @@ pub fn sqlite_repeated_numbered_placeholder_dedup_test() {
     <> "SELECT id FROM authors WHERE id = ?1 OR parent_id = ?1;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
+    parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(1)
@@ -557,7 +566,7 @@ pub fn postgresql_plain_dollar_quoted_string_masks_placeholder_test() {
     <> "SELECT $$literal $1 inside$$, id FROM authors WHERE id = $1;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("pg.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("pg.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(1)
@@ -570,7 +579,7 @@ pub fn postgresql_tagged_dollar_quoted_string_masks_placeholder_test() {
     <> "SELECT $tag$literal $1 inside$tag$, id FROM authors WHERE id = $2;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("pg.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("pg.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(2)
@@ -583,7 +592,7 @@ pub fn postgresql_dollar_quoted_does_not_affect_real_params_test() {
     <> "SELECT $fn$body with $1 and $2$fn$, id FROM authors WHERE id = $1 AND name = $2;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("pg.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("pg.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(2)
@@ -595,7 +604,7 @@ pub fn sqlite_dollar_not_treated_as_dollar_quoted_test() {
     "-- name: SqliteDollar :one\n" <> "SELECT id FROM authors WHERE id = $id;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
+    parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(1)
@@ -608,7 +617,7 @@ pub fn sqlc_arg_in_string_literal_ignored_test() {
     <> "SELECT id FROM authors WHERE note = 'sqlode.arg(fake)' AND id = sqlode.arg(real_id);"
 
   let assert Ok(queries) =
-    query_parser.parse_file("pg.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("pg.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(1)
@@ -626,7 +635,7 @@ pub fn sqlc_narg_in_line_comment_ignored_test() {
     <> "WHERE id = sqlode.arg(real_id);"
 
   let assert Ok(queries) =
-    query_parser.parse_file("pg.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("pg.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(1)
@@ -642,7 +651,7 @@ pub fn sqlc_slice_in_block_comment_ignored_test() {
     <> "WHERE /* sqlode.slice(phantom) */ id IN (sqlode.slice(real_ids));"
 
   let assert Ok(queries) =
-    query_parser.parse_file("pg.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("pg.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
 
   query.param_count |> should.equal(1)
@@ -679,7 +688,7 @@ pub fn skip_annotation_skips_query_test() {
     <> "SELECT id FROM authors;\n"
 
   let assert Ok(queries) =
-    query_parser.parse_file("test.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("test.sql", model.PostgreSQL, naming_ctx, content)
 
   list.length(queries) |> should.equal(1)
   let assert [query] = queries
@@ -699,7 +708,7 @@ pub fn skip_annotation_all_queries_skipped_test() {
     <> "SELECT 2;\n"
 
   let assert Ok(queries) =
-    query_parser.parse_file("test.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("test.sql", model.PostgreSQL, naming_ctx, content)
 
   list.length(queries) |> should.equal(0)
 }
@@ -718,7 +727,7 @@ pub fn skip_annotation_middle_query_test() {
     <> "SELECT 3;\n"
 
   let assert Ok(queries) =
-    query_parser.parse_file("test.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("test.sql", model.PostgreSQL, naming_ctx, content)
 
   list.length(queries) |> should.equal(2)
   let names = list.map(queries, fn(q) { q.name })
@@ -733,7 +742,7 @@ pub fn parse_block_annotation_one_test() {
     "/* name: GetAuthor :one */\nSELECT id FROM authors WHERE id = $1;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
   query.name |> should.equal("GetAuthor")
   query.function_name |> should.equal("get_author")
@@ -746,7 +755,7 @@ pub fn parse_block_annotation_many_test() {
   let content = "/* name: ListAll :many */\nSELECT * FROM authors;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
   query.name |> should.equal("ListAll")
   query.command |> should.equal(runtime.QueryMany)
@@ -757,7 +766,7 @@ pub fn parse_block_annotation_exec_test() {
   let content = "/* name: InsertRow :exec */\nINSERT INTO t (v) VALUES ($1);"
 
   let assert Ok(queries) =
-    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
   query.name |> should.equal("InsertRow")
   query.command |> should.equal(runtime.QueryExec)
@@ -768,7 +777,7 @@ pub fn parse_block_annotation_whitespace_tolerance_test() {
   let content = "/*    name:   Spaced   :one    */\nSELECT 1;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
   query.name |> should.equal("Spaced")
   query.command |> should.equal(runtime.QueryOne)
@@ -779,7 +788,7 @@ pub fn parse_block_annotation_no_inner_space_test() {
   let content = "/*name: Tight :one*/\nSELECT 1;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
   query.name |> should.equal("Tight")
   query.command |> should.equal(runtime.QueryOne)
@@ -798,7 +807,7 @@ pub fn parse_mixed_line_and_block_annotations_test() {
     <> "INSERT INTO t VALUES (1);\n"
 
   let assert Ok(queries) =
-    query_parser.parse_file("mixed.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("mixed.sql", model.PostgreSQL, naming_ctx, content)
   list.length(queries) |> should.equal(3)
 
   let assert [q1, q2, q3] = queries
@@ -821,7 +830,7 @@ pub fn parse_block_annotation_multiline_body_test() {
     <> "WHERE id = $1;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
   query.name |> should.equal("BigQuery")
   query.param_count |> should.equal(1)
@@ -834,7 +843,7 @@ pub fn parse_block_annotation_with_macro_test() {
     <> "SELECT id FROM authors WHERE name = sqlode.arg(author_name);"
 
   let assert Ok(queries) =
-    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
   query.param_count |> should.equal(1)
   list.length(query.macros) |> should.equal(1)
@@ -849,7 +858,7 @@ pub fn parse_block_annotation_body_with_regular_block_comment_test() {
     <> "FROM authors WHERE id = $1;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
   query.name |> should.equal("WithComment")
   query.param_count |> should.equal(1)
@@ -861,7 +870,7 @@ pub fn parse_block_comment_other_directive_ignored_test() {
     "-- name: Real :one\n" <> "/* other: bogus :many */\n" <> "SELECT 1;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
   query.name |> should.equal("Real")
   query.command |> should.equal(runtime.QueryOne)
@@ -873,7 +882,7 @@ pub fn parse_block_annotation_inline_sql_not_annotation_test() {
   let content = "/* name: X :one */ SELECT 1;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
   queries |> should.equal([])
 }
 
@@ -882,7 +891,7 @@ pub fn parse_block_annotation_unclosed_ignored_test() {
   let content = "/* name: NotReally :one\nSELECT 1;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
   queries |> should.equal([])
 }
 
@@ -892,7 +901,7 @@ pub fn parse_block_annotation_multiline_not_annotation_test() {
   let content = "/* name: Split\n" <> " :one */\n" <> "SELECT 1;"
 
   let assert Ok(queries) =
-    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
   queries |> should.equal([])
 }
 
@@ -901,7 +910,7 @@ pub fn parse_block_annotation_invalid_command_test() {
   let content = "/* name: Q :bogus */\nSELECT 1;"
 
   let assert Error(error) =
-    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
   let msg = query_parser.error_to_string(error)
   string.contains(msg, "must be one of") |> should.be_true()
 }
@@ -911,7 +920,7 @@ pub fn parse_block_annotation_missing_command_test() {
   let content = "/* name: OnlyName */\nSELECT 1;"
 
   let assert Error(error) =
-    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
   let msg = query_parser.error_to_string(error)
   string.contains(msg, "/* name:") |> should.be_true()
 }
@@ -921,7 +930,7 @@ pub fn parse_block_annotation_missing_sql_body_test() {
   let content = "/* name: NoBody :one */\n"
 
   let assert Error(error) =
-    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
 
   query_parser.error_to_string(error)
   |> should.equal("block.sql:1: query NoBody is missing SQL body")
@@ -938,7 +947,7 @@ pub fn skip_annotation_applies_to_block_annotation_test() {
     <> "SELECT 2;\n"
 
   let assert Ok(queries) =
-    query_parser.parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
+    parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
   query.name |> should.equal("Kept")
   query.command |> should.equal(runtime.QueryMany)
