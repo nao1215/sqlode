@@ -162,6 +162,24 @@ pub fn init_sqlite_native_runtime_test() {
   cleanup("sqlite_native")
 }
 
+pub fn init_creates_missing_parent_directory_test() {
+  cleanup("missing_parent")
+  let dir = base_dir <> "/missing_parent"
+  let nested_dir = dir <> "/config/nested"
+  let config_path = nested_dir <> "/sqlode.yaml"
+
+  run_init(config_path)
+  |> result.is_ok
+  |> should.be_true
+
+  simplifile.is_file(config_path) |> should.equal(Ok(True))
+  simplifile.is_file(nested_dir <> "/db/schema.sql")
+  |> should.equal(Ok(True))
+  simplifile.is_file(nested_dir <> "/db/query.sql") |> should.equal(Ok(True))
+
+  cleanup("missing_parent")
+}
+
 pub fn init_mysql_engine_generates_mysql_schema_test() {
   setup("mysql_engine")
   let dir = base_dir <> "/mysql_engine"
