@@ -72,6 +72,7 @@ fn analyze_query(
     engine,
     query,
     tokens,
+    statement,
     augmented,
   ))
 

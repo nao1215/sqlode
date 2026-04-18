@@ -4,6 +4,8 @@ import gleam/string
 import sqlode/codegen/common
 import sqlode/model
 import sqlode/naming
+import sqlode/runtime
+import sqlode/type_mapping
 
 pub fn render(
   naming_ctx: naming.NamingContext,
@@ -40,15 +42,51 @@ pub fn render(
 
   let has_any_params = list.any(queries, fn(q) { !list.is_empty(q.params) })
 
+  let decoder_queries =
+    queries
+    |> list.filter(fn(q) { has_result_columns(q) })
+
+  let decoder_functions = case decoder_queries {
+    [] -> ""
+    _ ->
+      decoder_queries
+      |> list.map(render_decoder_function(naming_ctx, _, engine, module_path))
+      |> string.join("\n\n")
+  }
+
+  let has_decoders = !list.is_empty(decoder_queries)
+  let has_nullable =
+    has_decoders
+    && list.any(decoder_queries, fn(q) {
+      list.any(q.result_columns, fn(col) {
+        case col {
+          model.ScalarResult(model.ResultColumn(nullable: True, ..)) -> True
+          _ -> False
+        }
+      })
+    })
+
   let imports =
     list.flatten([
       case has_slices {
         True -> ["import gleam/list"]
         False -> []
       },
+      case has_decoders {
+        True -> ["import gleam/dynamic/decode"]
+        False -> []
+      },
+      case has_nullable {
+        True -> ["import gleam/option.{type Option}"]
+        False -> []
+      },
       ["import " <> common.runtime_import_path(gleam)],
       case has_any_params {
         True -> ["import " <> module_path <> "/params"]
+        False -> []
+      },
+      case has_decoders {
+        True -> ["import " <> module_path <> "/models"]
         False -> []
       },
     ])
@@ -70,6 +108,10 @@ pub fn render(
         "",
         query_functions,
       ],
+      case decoder_functions {
+        "" -> []
+        _ -> ["", decoder_functions]
+      },
     ]),
     "\n",
   )
@@ -147,6 +189,111 @@ fn render_query_function(
         encode_line,
         slice_info_line,
         "  )",
+        "}",
+      ],
+    ]),
+    "\n",
+  )
+}
+
+fn has_result_columns(query: model.AnalyzedQuery) -> Bool {
+  case query.base.command {
+    runtime.QueryOne | runtime.QueryMany -> !list.is_empty(query.result_columns)
+    _ -> False
+  }
+}
+
+fn render_decoder_function(
+  naming_ctx: naming.NamingContext,
+  query: model.AnalyzedQuery,
+  engine: model.Engine,
+  _module_path: String,
+) -> String {
+  let type_name = naming.to_pascal_case(naming_ctx, query.base.name) <> "Row"
+
+  let #(_, field_lines) =
+    list.fold(query.result_columns, #(0, []), fn(acc, col) {
+      let #(idx, lines) = acc
+      case col {
+        model.ScalarResult(model.ResultColumn(
+          name:,
+          scalar_type:,
+          nullable:,
+          ..,
+        )) -> {
+          let field_name = naming.to_snake_case(naming_ctx, name)
+          let base = type_mapping.scalar_type_to_decoder(engine, scalar_type)
+          let decoder = case nullable {
+            True -> "decode.optional(" <> base <> ")"
+            False -> base
+          }
+          let line =
+            "  use "
+            <> field_name
+            <> " <- decode.field("
+            <> int.to_string(idx)
+            <> ", "
+            <> decoder
+            <> ")"
+          #(idx + 1, list.append(lines, [line]))
+        }
+        model.EmbeddedResult(model.EmbeddedColumn(columns: embed_cols, ..)) -> {
+          let #(new_idx, embed_lines) =
+            list.fold(embed_cols, #(idx, []), fn(inner_acc, c) {
+              let #(i, ls) = inner_acc
+              let field_name = naming.to_snake_case(naming_ctx, c.name)
+              let base =
+                type_mapping.scalar_type_to_decoder(engine, c.scalar_type)
+              let decoder = case c.nullable {
+                True -> "decode.optional(" <> base <> ")"
+                False -> base
+              }
+              let line =
+                "  use "
+                <> field_name
+                <> " <- decode.field("
+                <> int.to_string(i)
+                <> ", "
+                <> decoder
+                <> ")"
+              #(i + 1, list.append(ls, [line]))
+            })
+          #(new_idx, list.append(lines, embed_lines))
+        }
+      }
+    })
+
+  let constructor_fields =
+    query.result_columns
+    |> list.flat_map(fn(col) {
+      case col {
+        model.ScalarResult(model.ResultColumn(name:, ..)) -> [
+          naming.to_snake_case(naming_ctx, name) <> ":",
+        ]
+        model.EmbeddedResult(model.EmbeddedColumn(columns: embed_cols, ..)) ->
+          list.map(embed_cols, fn(c) {
+            naming.to_snake_case(naming_ctx, c.name) <> ":"
+          })
+      }
+    })
+    |> string.join(", ")
+
+  string.join(
+    list.flatten([
+      [
+        "pub fn "
+        <> query.base.function_name
+        <> "_decoder() -> decode.Decoder(models."
+        <> type_name
+        <> ") {",
+      ],
+      field_lines,
+      [
+        "  decode.success(models."
+          <> type_name
+          <> "("
+          <> constructor_fields
+          <> "))",
         "}",
       ],
     ]),

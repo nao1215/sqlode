@@ -156,14 +156,16 @@ fn scan_token_matches(
             Some(table) ->
               context.find_column(catalog, table, match.column_name)
             None ->
-              option.map(
+              case
                 context.find_column_in_tables(
                   catalog,
                   all_tables,
                   match.column_name,
-                ),
-                fn(pair) { pair.1 },
-              )
+                )
+              {
+                Ok(Some(pair)) -> Some(pair.1)
+                _ -> None
+              }
           }
           case found {
             Some(column) -> [#(index, column), ..acc]

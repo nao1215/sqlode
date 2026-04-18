@@ -636,79 +636,109 @@ pub fn partition_by_clause_does_not_break_table_test() {
 
 // Unsupported-DDL diagnostics (Issue #362)
 
-pub fn drop_table_is_rejected_test() {
+pub fn drop_table_removes_table_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);\n"
     <> "DROP TABLE users;"
-  let assert Error(error) = schema_parser.parse_files([#("test.sql", sql)])
-  let msg = schema_parser.error_to_string(error)
-  string.contains(msg, "test.sql") |> should.be_true()
-  string.contains(msg, "Unsupported schema DDL") |> should.be_true()
-  string.contains(msg, "DROP TABLE") |> should.be_true()
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  list.length(catalog.tables) |> should.equal(0)
 }
 
-pub fn drop_table_if_exists_is_rejected_test() {
+pub fn drop_table_if_exists_nonexistent_test() {
   let sql = "DROP TABLE IF EXISTS users;"
-  let assert Error(error) = schema_parser.parse_files([#("test.sql", sql)])
-  let msg = schema_parser.error_to_string(error)
-  string.contains(msg, "DROP TABLE") |> should.be_true()
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  list.length(catalog.tables) |> should.equal(0)
 }
 
-pub fn drop_view_is_rejected_test() {
-  let sql = "DROP VIEW author_counts;"
-  let assert Error(error) = schema_parser.parse_files([#("test.sql", sql)])
-  let msg = schema_parser.error_to_string(error)
-  string.contains(msg, "DROP VIEW") |> should.be_true()
+pub fn drop_view_removes_view_test() {
+  let sql =
+    "CREATE TABLE authors (id INTEGER PRIMARY KEY, name TEXT NOT NULL);\n"
+    <> "CREATE VIEW author_list AS SELECT id, name FROM authors;\n"
+    <> "DROP VIEW author_list;"
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  list.length(catalog.tables) |> should.equal(1)
+  let assert [table] = catalog.tables
+  table.name |> should.equal("authors")
 }
 
-pub fn drop_type_is_rejected_test() {
-  let sql = "DROP TYPE status;"
-  let assert Error(error) = schema_parser.parse_files([#("test.sql", sql)])
-  let msg = schema_parser.error_to_string(error)
-  string.contains(msg, "DROP TYPE") |> should.be_true()
+pub fn drop_type_removes_enum_test() {
+  let sql =
+    "CREATE TYPE status AS ENUM ('active', 'inactive');\n"
+    <> "DROP TYPE status;"
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  list.length(catalog.enums) |> should.equal(0)
 }
 
-pub fn alter_table_drop_column_is_rejected_test() {
+pub fn alter_table_drop_column_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);\n"
     <> "ALTER TABLE users DROP COLUMN name;"
-  let assert Error(error) = schema_parser.parse_files([#("test.sql", sql)])
-  let msg = schema_parser.error_to_string(error)
-  string.contains(msg, "ALTER TABLE DROP COLUMN") |> should.be_true()
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert [table] = catalog.tables
+  list.length(table.columns) |> should.equal(1)
+  let assert [col] = table.columns
+  col.name |> should.equal("id")
 }
 
-pub fn alter_table_if_exists_drop_column_is_rejected_test() {
-  let sql = "ALTER TABLE IF EXISTS users DROP COLUMN name;"
-  let assert Error(error) = schema_parser.parse_files([#("test.sql", sql)])
-  let msg = schema_parser.error_to_string(error)
-  string.contains(msg, "ALTER TABLE DROP COLUMN") |> should.be_true()
+pub fn alter_table_if_exists_drop_column_test() {
+  let sql =
+    "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);\n"
+    <> "ALTER TABLE IF EXISTS users DROP COLUMN name;"
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert [table] = catalog.tables
+  list.length(table.columns) |> should.equal(1)
 }
 
-pub fn alter_table_rename_column_is_rejected_test() {
+pub fn alter_table_rename_column_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);\n"
     <> "ALTER TABLE users RENAME COLUMN name TO full_name;"
-  let assert Error(error) = schema_parser.parse_files([#("test.sql", sql)])
-  let msg = schema_parser.error_to_string(error)
-  string.contains(msg, "ALTER TABLE RENAME COLUMN") |> should.be_true()
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert [table] = catalog.tables
+  let assert [_, col2] = table.columns
+  col2.name |> should.equal("full_name")
 }
 
-pub fn alter_table_rename_to_is_rejected_test() {
+pub fn alter_table_rename_to_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY);\n"
     <> "ALTER TABLE users RENAME TO accounts;"
-  let assert Error(error) = schema_parser.parse_files([#("test.sql", sql)])
-  let msg = schema_parser.error_to_string(error)
-  string.contains(msg, "ALTER TABLE RENAME TO") |> should.be_true()
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert [table] = catalog.tables
+  table.name |> should.equal("accounts")
 }
 
-pub fn alter_table_alter_column_is_rejected_test() {
+pub fn alter_table_set_not_null_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY, created_at TIMESTAMP);\n"
     <> "ALTER TABLE users ALTER COLUMN created_at SET NOT NULL;"
-  let assert Error(error) = schema_parser.parse_files([#("test.sql", sql)])
-  let msg = schema_parser.error_to_string(error)
-  string.contains(msg, "ALTER TABLE ALTER COLUMN") |> should.be_true()
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert [table] = catalog.tables
+  let assert [_, col2] = table.columns
+  col2.name |> should.equal("created_at")
+  col2.nullable |> should.equal(False)
+}
+
+pub fn alter_table_drop_not_null_test() {
+  let sql =
+    "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);\n"
+    <> "ALTER TABLE users ALTER COLUMN name DROP NOT NULL;"
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert [table] = catalog.tables
+  let assert [_, col2] = table.columns
+  col2.name |> should.equal("name")
+  col2.nullable |> should.equal(True)
+}
+
+pub fn alter_table_alter_column_type_test() {
+  let sql =
+    "CREATE TABLE users (id INTEGER PRIMARY KEY, score INTEGER NOT NULL);\n"
+    <> "ALTER TABLE users ALTER COLUMN score TYPE TEXT;"
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert [table] = catalog.tables
+  let assert [_, col2] = table.columns
+  col2.name |> should.equal("score")
+  col2.scalar_type |> should.equal(model.StringType)
 }
 
 pub fn alter_table_drop_constraint_stays_silent_test() {
