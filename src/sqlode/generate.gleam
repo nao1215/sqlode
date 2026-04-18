@@ -41,6 +41,8 @@ pub type GenerateError {
   UnsupportedAnnotation(query_name: String, command: String, detail: String)
   InvalidOutPath(path: String)
   WriteError(writer.WriteError)
+  VendorRuntimeNotFound
+  UnsupportedArrayForEngine(query_name: String, engine: String)
 }
 
 pub fn run(config_path: String) -> Result(List(String), GenerateError) {
@@ -133,6 +135,7 @@ fn load_and_analyze_queries(
     }),
   )
   use Nil <- result.try(validate_unsupported_annotations(analyzed))
+  use Nil <- result.try(validate_array_engine_support(block.engine, analyzed))
   let analyzed = apply_column_renames(analyzed, block.overrides.column_renames)
   Ok(#(queries, analyzed))
 }
@@ -165,8 +168,13 @@ fn render_output_files(
           gleam.emit_exact_table_names,
         )
 
-      let base_files =
-        base_output_files(naming_ctx, block, analyzed, catalog, table_matches)
+      use base_files <- result.try(base_output_files(
+        naming_ctx,
+        block,
+        analyzed,
+        catalog,
+        table_matches,
+      ))
 
       case gleam.runtime {
         model.Raw -> Ok(base_files)
@@ -198,7 +206,7 @@ fn base_output_files(
   analyzed: List(model.AnalyzedQuery),
   catalog: model.Catalog,
   table_matches: Dict(String, String),
-) -> List(writer.GeneratedFile) {
+) -> Result(List(writer.GeneratedFile), GenerateError) {
   let model.SqlBlock(gleam:, ..) = block
   let model.GleamOutput(out:, ..) = gleam
 
@@ -256,16 +264,18 @@ fn base_output_files(
     True ->
       case read_runtime_source() {
         Ok(source) ->
-          list.append(files_with_models, [
-            writer.GeneratedFile(
-              directory: out,
-              path: "runtime.gleam",
-              content: source,
-            ),
-          ])
-        Error(_) -> files_with_models
+          Ok(
+            list.append(files_with_models, [
+              writer.GeneratedFile(
+                directory: out,
+                path: "runtime.gleam",
+                content: source,
+              ),
+            ]),
+          )
+        Error(_) -> Error(VendorRuntimeNotFound)
       }
-    False -> files_with_models
+    False -> Ok(files_with_models)
   }
 }
 
@@ -739,6 +749,33 @@ fn validate_unsupported_annotations(
   }
 }
 
+fn validate_array_engine_support(
+  engine: model.Engine,
+  queries: List(model.AnalyzedQuery),
+) -> Result(Nil, GenerateError) {
+  case engine {
+    model.PostgreSQL -> Ok(Nil)
+    _ -> {
+      let has_array = fn(q: model.AnalyzedQuery) {
+        list.any(q.params, fn(p) {
+          case p.scalar_type {
+            model.ArrayType(_) -> True
+            _ -> False
+          }
+        })
+      }
+      case list.find(queries, has_array) {
+        Ok(q) ->
+          Error(UnsupportedArrayForEngine(
+            query_name: q.base.name,
+            engine: model.engine_to_string(engine),
+          ))
+        Error(_) -> Ok(Nil)
+      }
+    }
+  }
+}
+
 fn validate_native_annotations(
   queries: List(model.AnalyzedQuery),
 ) -> Result(Nil, GenerateError) {
@@ -917,5 +954,15 @@ pub fn error_to_string(error: GenerateError) -> String {
       <> path
       <> "\": produces an invalid Gleam module path. Use a relative path under src/ (e.g., \"src/db\")"
     WriteError(inner) -> writer.error_to_string(inner)
+    VendorRuntimeNotFound ->
+      "vendor_runtime is enabled but the sqlode/runtime source file could not be found. "
+      <> "Tried: src/sqlode/runtime.gleam, build/packages/sqlode/src/sqlode/runtime.gleam, "
+      <> "build/dev/erlang/sqlode/src/sqlode/runtime.gleam"
+    UnsupportedArrayForEngine(query_name:, engine:) ->
+      "Query \""
+      <> query_name
+      <> "\": array parameters are not supported for engine \""
+      <> engine
+      <> "\". Arrays are only supported with PostgreSQL"
   }
 }

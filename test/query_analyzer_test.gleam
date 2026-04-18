@@ -4,10 +4,13 @@ import gleam/string
 import gleeunit
 import gleeunit/should
 import simplifile
+import sqlode/lexer
 import sqlode/model
 import sqlode/naming
 import sqlode/query_analyzer
 import sqlode/query_analyzer/context
+import sqlode/query_analyzer/token_utils
+import sqlode/query_ir
 import sqlode/query_parser
 import sqlode/schema_parser
 
@@ -952,9 +955,31 @@ pub fn sqlite_repeated_and_distinct_placeholders_correct_index_test() {
 pub fn sqlite_repeated_at_placeholder_single_param_test() {
   let naming_ctx = naming.new()
   let catalog = test_catalog()
+  // Same placeholder used with columns of different types (id:Int, name:String)
+  // should produce a type conflict error
   let sql =
     "-- name: ReusedAt :one\n"
     <> "SELECT id FROM authors WHERE id = @id OR name = @id;"
+
+  let assert Ok(queries) =
+    query_parser.parse_file("at.sql", model.SQLite, naming_ctx, sql)
+  let result =
+    query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, queries)
+  let assert Error(context.ParameterTypeConflict(
+    query_name: "ReusedAt",
+    param_index: 1,
+    type_a: model.IntType,
+    type_b: model.StringType,
+  )) = result
+}
+
+pub fn sqlite_repeated_at_placeholder_same_type_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  // Same placeholder used with columns of the same type should succeed
+  let sql =
+    "-- name: ReusedSameType :one\n"
+    <> "SELECT id FROM authors WHERE id = @id OR id > @id;"
 
   let assert Ok(queries) =
     query_parser.parse_file("at.sql", model.SQLite, naming_ctx, sql)
@@ -965,6 +990,7 @@ pub fn sqlite_repeated_at_placeholder_single_param_test() {
   list.length(query.params) |> should.equal(1)
   let assert [param] = query.params
   param.index |> should.equal(1)
+  param.scalar_type |> should.equal(model.IntType)
 }
 
 fn join_catalog() -> model.Catalog {
@@ -2301,4 +2327,102 @@ pub fn case_nullable_column_branch_propagates_test() {
   let assert [model.ScalarResult(col)] = query.result_columns
   col.scalar_type |> should.equal(model.FloatType)
   col.nullable |> should.be_true()
+}
+
+// --- Structured IR tests ---
+
+pub fn structure_tokens_select_test() {
+  let tokens =
+    lexer.tokenize(
+      "SELECT id, name FROM authors WHERE id = $1",
+      model.PostgreSQL,
+    )
+  let statement = token_utils.structure_tokens(tokens)
+  case statement {
+    query_ir.SelectStatement(select_items:, from:, ..) -> {
+      list.length(select_items) |> should.equal(2)
+      list.length(from) |> should.equal(1)
+    }
+    _ -> should.fail()
+  }
+}
+
+pub fn structure_tokens_insert_test() {
+  let tokens =
+    lexer.tokenize(
+      "INSERT INTO authors (name, bio) VALUES ($1, $2)",
+      model.PostgreSQL,
+    )
+  let statement = token_utils.structure_tokens(tokens)
+  case statement {
+    query_ir.InsertStatement(table_name:, columns:, value_groups:, ..) -> {
+      table_name |> should.equal("authors")
+      list.length(columns) |> should.equal(2)
+      list.length(value_groups) |> should.equal(2)
+    }
+    _ -> should.fail()
+  }
+}
+
+pub fn structure_tokens_update_test() {
+  let tokens =
+    lexer.tokenize(
+      "UPDATE authors SET name = $1 WHERE id = $2",
+      model.PostgreSQL,
+    )
+  let statement = token_utils.structure_tokens(tokens)
+  case statement {
+    query_ir.UpdateStatement(table_name:, ..) -> {
+      table_name |> should.equal("authors")
+    }
+    _ -> should.fail()
+  }
+}
+
+pub fn structure_tokens_delete_test() {
+  let tokens =
+    lexer.tokenize("DELETE FROM authors WHERE id = $1", model.PostgreSQL)
+  let statement = token_utils.structure_tokens(tokens)
+  case statement {
+    query_ir.DeleteStatement(table_name:, ..) -> {
+      table_name |> should.equal("authors")
+    }
+    _ -> should.fail()
+  }
+}
+
+pub fn structure_tokens_with_cte_test() {
+  let tokens =
+    lexer.tokenize(
+      "WITH active AS (SELECT * FROM authors WHERE active = true) SELECT id FROM active",
+      model.PostgreSQL,
+    )
+  let statement = token_utils.structure_tokens(tokens)
+  case statement {
+    query_ir.SelectStatement(..) -> Nil
+    _ -> should.fail()
+  }
+}
+
+pub fn param_type_conflict_detection_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: ConflictTest :one\n"
+    <> "SELECT id FROM authors WHERE id = $1 AND name = $1;"
+  let assert Ok(queries) =
+    query_parser.parse_file("conflict.sql", model.PostgreSQL, naming_ctx, sql)
+  let result =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert Error(context.ParameterTypeConflict(
+    query_name: "ConflictTest",
+    param_index: 1,
+    type_a: model.IntType,
+    type_b: model.StringType,
+  )) = result
 }

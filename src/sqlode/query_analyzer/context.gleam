@@ -8,6 +8,12 @@ pub type AnalysisError {
   TableNotFound(query_name: String, table_name: String)
   ColumnNotFound(query_name: String, table_name: String, column_name: String)
   ParameterTypeNotInferred(query_name: String, param_index: Int)
+  ParameterTypeConflict(
+    query_name: String,
+    param_index: Int,
+    type_a: model.ScalarType,
+    type_b: model.ScalarType,
+  )
   UnrecognizedCastType(query_name: String, param_index: Int, cast_type: String)
   CompoundColumnCountMismatch(
     query_name: String,
@@ -55,12 +61,40 @@ pub fn analysis_error_to_string(error: AnalysisError) -> String {
       <> int.to_string(branch_count)
       <> " columns, but the first branch has "
       <> int.to_string(first_count)
+    ParameterTypeConflict(query_name:, param_index:, type_a:, type_b:) ->
+      "Query \""
+      <> query_name
+      <> "\": parameter $"
+      <> int.to_string(param_index)
+      <> " has conflicting inferred types \""
+      <> scalar_type_label(type_a)
+      <> "\" and \""
+      <> scalar_type_label(type_b)
+      <> "\". Use a type cast to resolve the ambiguity"
     UnsupportedExpression(query_name:, expression:) ->
       "Query \""
       <> query_name
       <> "\": unsupported expression \""
       <> expression
       <> "\", cannot infer result type. Use CAST to specify the type explicitly"
+  }
+}
+
+fn scalar_type_label(t: model.ScalarType) -> String {
+  case t {
+    model.IntType -> "Int"
+    model.FloatType -> "Float"
+    model.BoolType -> "Bool"
+    model.StringType -> "String"
+    model.BytesType -> "BitArray"
+    model.DateTimeType -> "DateTime"
+    model.DateType -> "Date"
+    model.TimeType -> "Time"
+    model.UuidType -> "Uuid"
+    model.JsonType -> "Json"
+    model.EnumType(name) -> "Enum(" <> name <> ")"
+    model.CustomType(name, ..) -> name
+    model.ArrayType(element) -> "List(" <> scalar_type_label(element) <> ")"
   }
 }
 

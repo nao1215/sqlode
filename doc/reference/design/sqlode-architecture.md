@@ -50,7 +50,8 @@ A single unified parser handles all SQL dialects:
 - counts placeholders per engine (`$N` for PostgreSQL, `?` for MySQL,
   `?N`/`:name`/`@name`/`$name` for SQLite)
 - expands `sqlode.arg`, `sqlode.narg`, `sqlode.slice` macros into
-  engine-appropriate placeholders
+  engine-agnostic markers (`__sqlode_param_N__`, `__sqlode_slice_N__`)
+  that `runtime.prepare` substitutes with engine-specific placeholders
 
 ## 3. Query analysis (`query_analyzer.gleam`)
 
@@ -60,9 +61,9 @@ Analyzes parsed queries against the schema catalog:
 - infers result columns from SELECT lists, `*` expansion, table prefixes
 - resolves JOIN tables and `sqlode.embed` table expansion
 - handles RETURNING clauses and CTE (WITH) stripping
-- uses pre-compiled regexes via `AnalyzerContext` for performance
+- detects conflicting type inferences for the same placeholder
 
-## 4. Gleam code generation (`codegen.gleam`)
+## 4. Gleam code generation (`codegen/`)
 
 Generates Gleam source files from analyzed queries:
 
@@ -91,7 +92,7 @@ patterns.
 ```text
 src/sqlode/
   cli.gleam              — CLI commands (generate, init, version)
-  codegen.gleam          — top-level codegen dispatcher
+  query_ir.gleam         — intermediate representation (TokenizedQuery)
   config.gleam           — YAML config parsing
   generate.gleam         — orchestrates the pipeline
   lexer.gleam            — SQL tokenizer for all dialects
@@ -106,7 +107,7 @@ src/sqlode/
 
   query_analyzer/
     column_inferencer.gleam — result column inference
-    context.gleam           — AnalyzerContext with pre-compiled regexes
+    context.gleam           — AnalyzerContext, AnalysisError, catalog lookups
     param_inferencer.gleam  — parameter type inference
     placeholder.gleam       — placeholder extraction and indexing
     token_utils.gleam       — SQL token helpers (table name extraction, etc.)
@@ -136,8 +137,10 @@ The IR consumed by codegen:
 A single flat `runtime.gleam` module exports:
 
 - `QueryCommand` type (QueryOne, QueryMany, QueryExec, etc.)
-- `Value` type (SqlNull, SqlString, SqlInt, SqlFloat, SqlBool, SqlBytes)
-- Constructor functions (`null`, `string`, `int`, `float`, `bool`, `bytes`)
+- `Value` type (SqlNull, SqlString, SqlInt, SqlFloat, SqlBool, SqlBytes, SqlArray)
+- Constructor functions (`null`, `string`, `int`, `float`, `bool`, `bytes`, `array`, `nullable`)
+- `prepare` function that substitutes engine-agnostic markers with
+  engine-specific placeholders and expands slice parameters
 
 ### `gen.gleam.runtime` values
 

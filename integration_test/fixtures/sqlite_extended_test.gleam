@@ -253,10 +253,10 @@ pub fn get_authors_by_ids_and_names_test() {
   let assert Ok(authors) =
     sqlight_adapter.get_authors_by_ids_and_names(
       db,
-      params.GetAuthorsByIdsAndNamesParams(
-        ids: [1, 2, 3],
-        names: ["Alice", "Charlie"],
-      ),
+      params.GetAuthorsByIdsAndNamesParams(ids: [1, 2, 3], names: [
+        "Alice",
+        "Charlie",
+      ]),
     )
   let assert True = {
     case authors {

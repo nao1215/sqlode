@@ -193,15 +193,23 @@ pub fn list_authors() -> runtime.RawQuery(Nil) { ... }
 pub fn create_author() -> runtime.RawQuery(params.CreateAuthorParams) { ... }
 ```
 
-Usage example — the compiler ensures you pass the right params to the right query:
+Usage example — always use `runtime.prepare` to execute parameterized queries.
+The generated SQL contains engine-agnostic markers for all parameter types
+(`sqlode.arg`, `sqlode.narg`, and `sqlode.slice`), and `runtime.prepare`
+substitutes the correct engine-specific placeholders at runtime:
 
 ```gleam
 let q = queries.get_author()
-let values = q.encode(params.GetAuthorParams(id: 1))
-// q.sql, q.command, and values are now tied together
+let #(sql, values) = runtime.prepare(
+  q,
+  params.GetAuthorParams(id: 1),
+)
+// sql has final placeholders: "... WHERE id = $1"
+// values is the encoded parameter list
 ```
 
-For queries using `sqlode.slice()`, use `runtime.prepare` to expand slice placeholders and encode parameters in one call:
+For queries using `sqlode.slice()`, `runtime.prepare` additionally expands
+slice parameters into the correct number of placeholders:
 
 ```gleam
 let q = queries.get_authors_by_ids()
