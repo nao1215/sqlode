@@ -258,19 +258,49 @@ fn run_init(path: String, engine: String, runtime: String) -> Nil {
           halt(1)
         }
         _ -> {
-          case simplifile.write(path, template) {
-            Ok(_) -> {
-              io.println("Created " <> path)
-              create_stub_files(filepath.directory_name(path), engine)
-            }
-            Error(_) -> {
-              io.println_error("Error: failed to write " <> path)
+          let parent_dir = filepath.directory_name(path)
+          case ensure_parent_directory(parent_dir) {
+            Error(msg) -> {
+              io.println_error("Error: " <> msg)
               halt(1)
             }
+            Ok(Nil) ->
+              case simplifile.write(path, template) {
+                Ok(_) -> {
+                  io.println("Created " <> path)
+                  create_stub_files(parent_dir, engine)
+                }
+                Error(err) -> {
+                  io.println_error(
+                    "Error: failed to write "
+                    <> path
+                    <> ": "
+                    <> simplifile.describe_error(err),
+                  )
+                  halt(1)
+                }
+              }
           }
         }
       }
     }
+  }
+}
+
+fn ensure_parent_directory(dir: String) -> Result(Nil, String) {
+  case dir {
+    "" | "." -> Ok(Nil)
+    _ ->
+      case simplifile.create_directory_all(dir) {
+        Ok(Nil) -> Ok(Nil)
+        Error(err) ->
+          Error(
+            "failed to create directory "
+            <> dir
+            <> ": "
+            <> simplifile.describe_error(err),
+          )
+      }
   }
 }
 
