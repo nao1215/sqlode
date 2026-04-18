@@ -139,17 +139,24 @@ fn build_params(
   catalog: model.Catalog,
   occurrences: List(placeholder.PlaceholderOccurrence),
 ) -> Result(List(model.QueryParam), context.AnalysisError) {
+  use equality <- result.try(param_inferencer.infer_equality_params(
+    ctx,
+    engine,
+    query.name,
+    tokens,
+    catalog,
+  ))
+  use in_params <- result.try(param_inferencer.infer_in_params(
+    ctx,
+    engine,
+    query.name,
+    tokens,
+    catalog,
+  ))
   let inferences =
-    list.append(
-      param_inferencer.infer_insert_params_from_ir(engine, statement, catalog),
-      param_inferencer.infer_equality_params(ctx, engine, tokens, catalog),
-    )
-    |> list.append(param_inferencer.infer_in_params(
-      ctx,
-      engine,
-      tokens,
-      catalog,
-    ))
+    param_inferencer.infer_insert_params_from_ir(engine, statement, catalog)
+    |> list.append(equality)
+    |> list.append(in_params)
 
   use cast_dict <- result.try(
     param_inferencer.extract_type_casts(ctx, engine, tokens)

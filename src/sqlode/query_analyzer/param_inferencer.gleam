@@ -2,10 +2,13 @@ import gleam/dict
 import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/result
 import gleam/string
 import sqlode/lexer
 import sqlode/model
-import sqlode/query_analyzer/context.{type AnalyzerContext}
+import sqlode/query_analyzer/context.{
+  type AnalysisError, type AnalyzerContext, AmbiguousColumnName,
+}
 import sqlode/query_analyzer/placeholder
 import sqlode/query_analyzer/token_utils
 import sqlode/query_ir
@@ -110,88 +113,120 @@ fn map_insert_columns(
 pub fn infer_equality_params(
   _ctx: AnalyzerContext,
   engine: model.Engine,
+  query_name: String,
   tokens: List(lexer.Token),
   catalog: model.Catalog,
-) -> List(#(Int, model.Column)) {
-  let all_tables = token_utils.extract_table_names(tokens)
-
+) -> Result(List(#(Int, model.Column)), AnalysisError) {
+  // Only FROM/JOIN tables of the outermost statement are in scope for
+  // top-level predicates. Dropping the WITH prefix keeps CTE-internal
+  // tables (which each CTE resolves against its own scope) from
+  // leaking into the ambiguity check for the outer WHERE.
+  let main_tokens = token_utils.strip_leading_with(tokens)
+  let all_tables = token_utils.extract_table_names(main_tokens)
   case all_tables {
-    [] -> []
-    [primary, ..] -> {
-      let matches = token_utils.find_equality_patterns(tokens)
+    [] -> Ok([])
+    _ -> {
+      let matches = token_utils.find_equality_patterns(main_tokens)
       scan_token_matches(
         engine,
         catalog,
-        primary,
+        query_name,
         all_tables,
         matches,
         1,
         dict.new(),
         [],
       )
-      |> list.reverse
+      |> result.map(list.reverse)
     }
   }
 }
 
+/// Walk each `column <op> placeholder` / `column IN (placeholder)` /
+/// quantified pattern the token scanners found and bind a parameter
+/// type when the referenced column exists. Ambiguity (the column name
+/// exists in more than one in-scope table and is not qualified) is
+/// surfaced as `AmbiguousColumnName` so `sqlode generate` fails before
+/// emitting a wrong `Params` type — the result-column inferencer has
+/// raised the same diagnostic for select-list ambiguity; parameter
+/// inference now behaves symmetrically. A qualified column that can't
+/// be found, and an unqualified column not present in any visible
+/// table, simply skip inference for that placeholder — the outer
+/// analyzer still has type-cast / macro hooks to satisfy the param.
 fn scan_token_matches(
   engine: model.Engine,
   catalog: model.Catalog,
-  primary_table: String,
+  query_name: String,
   all_tables: List(String),
   matches: List(token_utils.EqualityMatch),
   occurrence: Int,
   seen: dict.Dict(String, Int),
   acc: List(#(Int, model.Column)),
-) -> List(#(Int, model.Column)) {
+) -> Result(List(#(Int, model.Column)), AnalysisError) {
   case matches {
-    [] -> acc
+    [] -> Ok(acc)
     [match, ..rest] -> {
       let #(maybe_index, next_occurrence, updated_seen) =
         placeholder.resolve_index(engine, match.placeholder, occurrence, seen)
 
-      let acc = case maybe_index {
+      case maybe_index {
+        None ->
+          scan_token_matches(
+            engine,
+            catalog,
+            query_name,
+            all_tables,
+            rest,
+            next_occurrence,
+            updated_seen,
+            acc,
+          )
         Some(index) -> {
-          let found = case match.table_qualifier {
+          let lookup = case match.table_qualifier {
             Some(table) ->
-              context.find_column(catalog, table, match.column_name)
+              Ok(
+                context.find_column(catalog, table, match.column_name)
+                |> option.map(fn(col) { #(table, col) }),
+              )
             None ->
-              case
-                context.find_column_in_tables(
-                  catalog,
-                  all_tables,
-                  match.column_name,
-                )
-              {
-                Ok(Some(pair)) -> Some(pair.1)
-                _ -> None
-              }
+              context.find_column_in_tables(
+                catalog,
+                all_tables,
+                match.column_name,
+              )
           }
-          case found {
-            Some(column) -> [#(index, column), ..acc]
-            None ->
-              // Fallback: try primary table
-              case
-                context.find_column(catalog, primary_table, match.column_name)
-              {
-                Some(column) -> [#(index, column), ..acc]
-                None -> acc
-              }
+          case lookup {
+            Error(matching_tables) ->
+              Error(AmbiguousColumnName(
+                query_name: query_name,
+                column_name: match.column_name,
+                matching_tables: matching_tables,
+              ))
+            Ok(Some(#(_table, column))) ->
+              scan_token_matches(
+                engine,
+                catalog,
+                query_name,
+                all_tables,
+                rest,
+                next_occurrence,
+                updated_seen,
+                [#(index, column), ..acc],
+              )
+            Ok(None) ->
+              scan_token_matches(
+                engine,
+                catalog,
+                query_name,
+                all_tables,
+                rest,
+                next_occurrence,
+                updated_seen,
+                acc,
+              )
           }
         }
-        None -> acc
       }
-
-      scan_token_matches(
-        engine,
-        catalog,
-        primary_table,
-        all_tables,
-        rest,
-        next_occurrence,
-        updated_seen,
-        acc,
-      )
     }
   }
 }
@@ -199,30 +234,31 @@ fn scan_token_matches(
 pub fn infer_in_params(
   _ctx: AnalyzerContext,
   engine: model.Engine,
+  query_name: String,
   tokens: List(lexer.Token),
   catalog: model.Catalog,
-) -> List(#(Int, model.Column)) {
-  let all_tables = token_utils.extract_table_names(tokens)
-
+) -> Result(List(#(Int, model.Column)), AnalysisError) {
+  let main_tokens = token_utils.strip_leading_with(tokens)
+  let all_tables = token_utils.extract_table_names(main_tokens)
   case all_tables {
-    [] -> []
-    [primary, ..] -> {
+    [] -> Ok([])
+    _ -> {
       let matches =
         list.append(
-          token_utils.find_in_patterns(tokens),
-          token_utils.find_quantified_patterns(tokens),
+          token_utils.find_in_patterns(main_tokens),
+          token_utils.find_quantified_patterns(main_tokens),
         )
       scan_token_matches(
         engine,
         catalog,
-        primary,
+        query_name,
         all_tables,
         matches,
         1,
         dict.new(),
         [],
       )
-      |> list.reverse
+      |> result.map(list.reverse)
     }
   }
 }
