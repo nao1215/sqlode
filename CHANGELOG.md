@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-04-18
+
+### Fixed
+
+- Raw decoder for embedded columns (e.g., `sqlode.embed(table)`) now
+  correctly constructs the nested type (e.g., `Author(id:, name:, bio:)`)
+  instead of flattening all fields into the outer row constructor.
+
 ## [0.2.0] - 2026-04-18
 
 ### Added

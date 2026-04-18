@@ -219,7 +219,7 @@ fn render_decoder_function(
   engine: model.Engine,
   _module_path: String,
   table_matches: Dict(String, String),
-  _emit_exact_table_names: Bool,
+  emit_exact_table_names: Bool,
 ) -> String {
   let type_name = naming.to_pascal_case(naming_ctx, query.base.name) <> "Row"
   let constructor_name = case
@@ -256,11 +256,18 @@ fn render_decoder_function(
           #(idx + 1, list.append(lines, [line]))
         }
         model.EmbeddedResult(model.EmbeddedColumn(
+          name: embed_name,
           columns: embed_cols,
-          table_name: _embed_table_name,
-          ..,
+          table_name: embed_table_name,
         )) -> {
-          let #(new_idx, embed_lines) =
+          let embed_field_name = naming.to_snake_case(naming_ctx, embed_name)
+          let embed_type_name =
+            naming.table_type_name(
+              naming_ctx,
+              embed_table_name,
+              emit_exact_table_names,
+            )
+          let #(new_idx, decode_lines) =
             list.fold(embed_cols, #(idx, []), fn(inner_acc, c) {
               let #(i, ls) = inner_acc
               let field_name = naming.to_snake_case(naming_ctx, c.name)
@@ -280,7 +287,21 @@ fn render_decoder_function(
                 <> ")"
               #(i + 1, list.append(ls, [line]))
             })
-          #(new_idx, list.append(lines, embed_lines))
+          let embed_constructor_fields =
+            list.map(embed_cols, fn(c) {
+              naming.to_snake_case(naming_ctx, c.name) <> ":"
+            })
+            |> string.join(", ")
+          let constructor_line =
+            "  let "
+            <> embed_field_name
+            <> " = models."
+            <> embed_type_name
+            <> "("
+            <> embed_constructor_fields
+            <> ")"
+          let all_lines = list.append(decode_lines, [constructor_line])
+          #(new_idx, list.append(lines, all_lines))
         }
       }
     })
@@ -292,10 +313,9 @@ fn render_decoder_function(
         model.ScalarResult(model.ResultColumn(name:, ..)) -> [
           naming.to_snake_case(naming_ctx, name) <> ":",
         ]
-        model.EmbeddedResult(model.EmbeddedColumn(columns: embed_cols, ..)) ->
-          list.map(embed_cols, fn(c) {
-            naming.to_snake_case(naming_ctx, c.name) <> ":"
-          })
+        model.EmbeddedResult(model.EmbeddedColumn(name:, ..)) -> [
+          naming.to_snake_case(naming_ctx, name) <> ":",
+        ]
       }
     })
     |> string.join(", ")
