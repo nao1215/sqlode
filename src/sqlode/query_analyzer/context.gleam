@@ -1,6 +1,7 @@
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/string
 import sqlode/model
 import sqlode/naming
 
@@ -21,6 +22,11 @@ pub type AnalysisError {
     branch_count: Int,
   )
   UnsupportedExpression(query_name: String, expression: String)
+  AmbiguousColumnName(
+    query_name: String,
+    column_name: String,
+    matching_tables: List(String),
+  )
 }
 
 pub fn analysis_error_to_string(error: AnalysisError) -> String {
@@ -77,6 +83,14 @@ pub fn analysis_error_to_string(error: AnalysisError) -> String {
       <> "\": unsupported expression \""
       <> expression
       <> "\", cannot infer result type. Use CAST to specify the type explicitly"
+    AmbiguousColumnName(query_name:, column_name:, matching_tables:) ->
+      "Query \""
+      <> query_name
+      <> "\": column \""
+      <> column_name
+      <> "\" is ambiguous — found in tables: "
+      <> string.join(matching_tables, ", ")
+      <> ". Use a table qualifier (e.g. table.column) to resolve the ambiguity"
   }
 }
 
@@ -129,16 +143,24 @@ pub fn find_column(
 
 /// Search for a column across multiple tables, returning the column and the
 /// table name where it was found.
+///
+/// Returns `Error(matching_table_names)` when the column exists in more than
+/// one of the given tables (ambiguous reference).
 pub fn find_column_in_tables(
   catalog: model.Catalog,
   table_names: List(String),
   column_name: String,
-) -> Option(#(String, model.Column)) {
-  list.find_map(table_names, fn(name) {
-    case find_column(catalog, name, column_name) {
-      Some(col) -> Ok(#(name, col))
-      None -> Error(Nil)
-    }
-  })
-  |> option.from_result
+) -> Result(Option(#(String, model.Column)), List(String)) {
+  let matches =
+    list.filter_map(table_names, fn(name) {
+      case find_column(catalog, name, column_name) {
+        Some(col) -> Ok(#(name, col))
+        None -> Error(Nil)
+      }
+    })
+  case matches {
+    [] -> Ok(None)
+    [single] -> Ok(Some(single))
+    _ -> Error(list.map(matches, fn(m) { m.0 }))
+  }
 }

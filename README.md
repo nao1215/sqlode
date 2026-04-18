@@ -7,6 +7,10 @@
 
 sqlode reads SQL schema and query files, then generates typed Gleam code. The workflow follows [sqlc](https://sqlc.dev/) conventions: write SQL, run the generator, get type-safe functions.
 
+> **Note:** sqlode is inspired by sqlc's workflow but is **not** a drop-in replacement.
+> Macro syntax uses the `sqlode.*` prefix exclusively (e.g., `sqlode.arg(name)`,
+> `sqlode.embed(table)`). The `sqlc.*` prefix is not supported.
+
 Supported engines: PostgreSQL, MySQL (parsing only), SQLite.
 
 ## Getting started
@@ -92,7 +96,7 @@ sql:
 `schema` and `queries` accept either a single file path, a list of file paths, or a directory path. When given a directory, sqlode auto-discovers every `.sql` file inside it. An optional `name` field can be set on each `sql` block for diagnostics when multiple blocks are configured.
 
 > [!IMPORTANT]
-> The schema parser accepts a **schema snapshot or add-only migrations**. Supported: `CREATE TABLE` / `CREATE VIEW` / `CREATE TYPE` / `ALTER TABLE ... ADD COLUMN`. Statements like `DROP TABLE`, `ALTER TABLE ... DROP COLUMN`, or `ALTER TABLE ... RENAME` are rejected. Pointing sqlode at a full migration history that includes destructive DDL will fail — keep a separate, additive snapshot for code generation. See [Limitations](#limitations) for the full list.
+> The schema parser accepts a **schema snapshot or migration history**. Supported DDL: `CREATE TABLE` / `CREATE VIEW` / `CREATE TYPE` / `ALTER TABLE ... ADD COLUMN` / `DROP TABLE` / `DROP VIEW` / `DROP TYPE` / `ALTER TABLE ... DROP COLUMN` / `ALTER TABLE ... RENAME` / `ALTER TABLE ... ALTER COLUMN TYPE` / `ALTER TABLE ... SET/DROP NOT NULL`. Both additive and destructive migrations can be processed. See [Limitations](#limitations) for the full list.
 
 ### Write SQL
 
@@ -620,23 +624,16 @@ Typical cases that need an explicit cast today: parameters inside scalar arithme
 
 ### Schema DDL scope
 
-The schema parser is designed for **schema snapshots or add-only migration files**, not full migration histories. Supported statements:
+The schema parser supports both **schema snapshots and migration histories** including destructive DDL. Supported statements:
 
-- `CREATE TABLE`
-- `CREATE VIEW`
-- `CREATE TYPE` (enum)
+- `CREATE TABLE`, `CREATE VIEW`, `CREATE TYPE` (enum)
 - `ALTER TABLE ... ADD COLUMN`
-
-Rejected (error at load time):
-
 - `DROP TABLE`, `DROP VIEW`, `DROP TYPE`
 - `ALTER TABLE ... DROP COLUMN`
 - `ALTER TABLE ... RENAME TO` / `RENAME COLUMN`
-- `ALTER TABLE ... ALTER COLUMN` (type changes)
+- `ALTER TABLE ... ALTER COLUMN TYPE` / `SET NOT NULL` / `DROP NOT NULL`
 
 Other statements (`CREATE INDEX`, transaction blocks, comments) are silently skipped.
-
-If your migration workflow mutates schema in place, keep a separate snapshot file for sqlode rather than pointing it at the migration history directly.
 
 ### View resolution
 

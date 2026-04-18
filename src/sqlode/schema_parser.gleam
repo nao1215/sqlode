@@ -10,12 +10,6 @@ import sqlode/query_analyzer/token_utils
 pub type ParseError {
   InvalidCreateTable(path: String, detail: String)
   InvalidColumn(path: String, table: String, detail: String)
-  /// A DDL statement was recognised as schema-changing but sqlode does not
-  /// apply it to the catalog. Raised for operations that can produce a
-  /// catalog that looks valid but is missing real schema changes — e.g.
-  /// `DROP TABLE`, `ALTER TABLE ... DROP COLUMN`. Informational DDL such
-  /// as `CREATE INDEX` and `ALTER TABLE ... ADD CONSTRAINT` stays silent.
-  UnsupportedStatement(path: String, statement_type: String)
 }
 
 pub type SchemaWarning {
@@ -85,18 +79,18 @@ fn parse_content(
 
   let all_enums = list.append(known_enums, enums)
 
-  use #(tables, warnings) <- result.try(
+  use #(tables, final_enums, warnings) <- result.try(
     statements
-    |> list.try_fold(#([], []), fn(acc, stmt_tokens) {
-      let #(tables, warnings) = acc
+    |> list.try_fold(#([], all_enums, []), fn(acc, stmt_tokens) {
+      let #(tables, current_enums, warnings) = acc
       case is_create_view_tokens(stmt_tokens) {
         True -> {
           let #(maybe_table, view_warnings) =
             parse_create_view_from_tokens(stmt_tokens, list.reverse(tables))
           let new_warnings = list.append(warnings, view_warnings)
           Ok(case maybe_table {
-            Some(table) -> #([table, ..tables], new_warnings)
-            None -> #(tables, new_warnings)
+            Some(table) -> #([table, ..tables], current_enums, new_warnings)
+            None -> #(tables, current_enums, new_warnings)
           })
         }
         False ->
@@ -105,29 +99,35 @@ fn parse_content(
               use new_tables <- result.try(apply_alter_table_add_column(
                 path,
                 stmt_tokens,
-                all_enums,
+                current_enums,
                 tables,
               ))
-              Ok(#(new_tables, warnings))
+              Ok(#(new_tables, current_enums, warnings))
             }
             False -> {
-              use maybe_table <- result.try(parse_statement_tokens(
+              use stmt_result <- result.try(parse_statement_tokens(
                 path,
                 stmt_tokens,
-                all_enums,
+                current_enums,
               ))
-              Ok(case maybe_table {
-                Some(table) -> #([table, ..tables], warnings)
-                None -> #(tables, warnings)
-              })
+              case stmt_result {
+                CreateTableResult(table:) ->
+                  Ok(#([table, ..tables], current_enums, warnings))
+                DDLApplied(action:) -> {
+                  let #(new_tables, new_enums) =
+                    apply_ddl_action(action, tables, current_enums)
+                  Ok(#(new_tables, new_enums, warnings))
+                }
+                Ignored -> Ok(#(tables, current_enums, warnings))
+              }
             }
           }
       }
     })
-    |> result.map(fn(pair) { #(list.reverse(pair.0), pair.1) }),
+    |> result.map(fn(triple) { #(list.reverse(triple.0), triple.1, triple.2) }),
   )
 
-  Ok(ParsedSchema(tables:, enums:, warnings:))
+  Ok(ParsedSchema(tables:, enums: final_enums, warnings:))
 }
 
 // --- Lexer-based helpers ---
@@ -612,25 +612,56 @@ fn extract_ident(token: lexer.Token) -> String {
   }
 }
 
+type StatementResult {
+  CreateTableResult(table: model.Table)
+  DDLApplied(action: DDLAction)
+  Ignored
+}
+
 fn parse_statement_tokens(
   path: String,
   tokens: List(lexer.Token),
   enums: List(model.EnumDef),
-) -> Result(Option(model.Table), ParseError) {
+) -> Result(StatementResult, ParseError) {
   case is_create_table_tokens(tokens) {
-    True -> parse_create_table_tokens(path, tokens, enums)
+    True -> {
+      use maybe_table <- result.try(parse_create_table_tokens(
+        path,
+        tokens,
+        enums,
+      ))
+      case maybe_table {
+        Some(table) -> Ok(CreateTableResult(table:))
+        None -> Ok(Ignored)
+      }
+    }
     False ->
       case classify_unknown_statement(tokens) {
-        Unsupported(statement_type) ->
-          Error(UnsupportedStatement(path:, statement_type:))
-        SilentlyIgnored -> Ok(None)
+        DestructiveDDL(action) -> Ok(DDLApplied(action:))
+        SilentlyIgnored -> Ok(Ignored)
       }
   }
 }
 
 type UnknownStatementKind {
-  Unsupported(statement_type: String)
+  DestructiveDDL(DDLAction)
   SilentlyIgnored
+}
+
+type DDLAction {
+  DropTable(table_name: String)
+  DropView(view_name: String)
+  DropType(type_name: String)
+  AlterDropColumn(table_name: String, column_name: String)
+  AlterRenameTable(old_name: String, new_name: String)
+  AlterRenameColumn(table_name: String, old_name: String, new_name: String)
+  AlterColumnType(
+    table_name: String,
+    column_name: String,
+    type_tokens: List(lexer.Token),
+  )
+  AlterColumnSetNotNull(table_name: String, column_name: String)
+  AlterColumnDropNotNull(table_name: String, column_name: String)
 }
 
 /// Classify a statement that is not a CREATE TABLE / VIEW / ENUM and not an
@@ -657,36 +688,113 @@ fn classify_unknown_statement(tokens: List(lexer.Token)) -> UnknownStatementKind
     ["release", ..] -> SilentlyIgnored
     ["set", ..] -> SilentlyIgnored
 
-    ["drop", "table", ..] -> Unsupported("DROP TABLE")
-    ["drop", "view", ..] -> Unsupported("DROP VIEW")
-    ["drop", "type", ..] -> Unsupported("DROP TYPE")
+    ["drop", "table", ..] -> parse_drop_table(tokens)
+    ["drop", "view", ..] -> parse_drop_view(tokens)
+    ["drop", "type", ..] -> parse_drop_type(tokens)
 
-    ["alter", "table", ..rest] -> classify_alter_table(rest)
+    ["alter", "table", ..] -> classify_alter_table_from_tokens(tokens)
 
     _ -> SilentlyIgnored
   }
 }
 
-fn classify_alter_table(words: List(String)) -> UnknownStatementKind {
-  let after_modifiers = case words {
-    ["if", "exists", ..r] -> r
-    ["only", ..r] -> r
-    _ -> words
+/// Parse DROP TABLE [IF EXISTS] <name> from the token list.
+fn parse_drop_table(tokens: List(lexer.Token)) -> UnknownStatementKind {
+  case tokens {
+    [_, _, lexer.Keyword("if"), lexer.Keyword("exists"), name_tok, ..] ->
+      DestructiveDDL(DropTable(table_name: extract_ident(name_tok)))
+    [_, _, name_tok, ..] ->
+      DestructiveDDL(DropTable(table_name: extract_ident(name_tok)))
+    _ -> SilentlyIgnored
   }
+}
+
+/// Parse DROP VIEW [IF EXISTS] <name> from the token list.
+fn parse_drop_view(tokens: List(lexer.Token)) -> UnknownStatementKind {
+  case tokens {
+    [_, _, lexer.Keyword("if"), lexer.Keyword("exists"), name_tok, ..] ->
+      DestructiveDDL(DropView(view_name: extract_ident(name_tok)))
+    [_, _, name_tok, ..] ->
+      DestructiveDDL(DropView(view_name: extract_ident(name_tok)))
+    _ -> SilentlyIgnored
+  }
+}
+
+/// Parse DROP TYPE [IF EXISTS] <name> from the token list.
+fn parse_drop_type(tokens: List(lexer.Token)) -> UnknownStatementKind {
+  case tokens {
+    [_, _, lexer.Keyword("if"), lexer.Keyword("exists"), name_tok, ..] ->
+      DestructiveDDL(DropType(type_name: extract_ident(name_tok)))
+    [_, _, name_tok, ..] ->
+      DestructiveDDL(DropType(type_name: extract_ident(name_tok)))
+    _ -> SilentlyIgnored
+  }
+}
+
+/// Classify ALTER TABLE statements from the full token list.
+fn classify_alter_table_from_tokens(
+  tokens: List(lexer.Token),
+) -> UnknownStatementKind {
+  // ALTER TABLE [IF EXISTS] [ONLY] <name> <action>
+  let after_alter_table = case tokens {
+    [_, _, ..rest] -> rest
+    _ -> []
+  }
+  let #(after_modifiers, _) = skip_alter_modifiers(after_alter_table)
   case after_modifiers {
-    [_table_name, ..rest] -> classify_alter_table_action(rest)
+    [name_tok, ..rest] -> {
+      let table_name = extract_ident(name_tok)
+      classify_alter_action_tokens(table_name, rest)
+    }
     [] -> SilentlyIgnored
   }
 }
 
-fn classify_alter_table_action(words: List(String)) -> UnknownStatementKind {
+fn skip_alter_modifiers(tokens: List(lexer.Token)) -> #(List(lexer.Token), Bool) {
+  case tokens {
+    [lexer.Keyword("if"), lexer.Keyword("exists"), ..rest] ->
+      skip_alter_modifiers(rest)
+    [lexer.Keyword("only"), ..rest] -> skip_alter_modifiers(rest)
+    _ -> #(tokens, False)
+  }
+}
+
+fn classify_alter_action_tokens(
+  table_name: String,
+  tokens: List(lexer.Token),
+) -> UnknownStatementKind {
+  let words = tokens |> list.take(8) |> list.map(token_keyword_text)
   case words {
     ["drop", "constraint", ..] -> SilentlyIgnored
-    ["drop", "column", ..] -> Unsupported("ALTER TABLE DROP COLUMN")
-    ["drop", ..] -> Unsupported("ALTER TABLE DROP")
-    ["rename", "to", ..] -> Unsupported("ALTER TABLE RENAME TO")
-    ["rename", ..] -> Unsupported("ALTER TABLE RENAME COLUMN")
-    ["alter", ..] -> Unsupported("ALTER TABLE ALTER COLUMN")
+    ["drop", "column", "if", "exists", col_name, ..] ->
+      DestructiveDDL(AlterDropColumn(table_name:, column_name: col_name))
+    ["drop", "column", col_name, ..] ->
+      DestructiveDDL(AlterDropColumn(table_name:, column_name: col_name))
+    ["drop", col_name, ..] ->
+      DestructiveDDL(AlterDropColumn(table_name:, column_name: col_name))
+    ["rename", "to", new_name, ..] ->
+      DestructiveDDL(AlterRenameTable(old_name: table_name, new_name:))
+    ["rename", "column", old_name, "to", new_name, ..] ->
+      DestructiveDDL(AlterRenameColumn(table_name:, old_name:, new_name:))
+    ["rename", old_name, "to", new_name, ..] ->
+      DestructiveDDL(AlterRenameColumn(table_name:, old_name:, new_name:))
+    ["alter", "column", _col_name, "set", "not", "null", ..] ->
+      DestructiveDDL(AlterColumnSetNotNull(
+        table_name:,
+        column_name: extract_alter_column_name(tokens),
+      ))
+    ["alter", "column", _col_name, "drop", "not", "null", ..] ->
+      DestructiveDDL(AlterColumnDropNotNull(
+        table_name:,
+        column_name: extract_alter_column_name(tokens),
+      ))
+    ["alter", "column", _col_name, "type", ..]
+    | ["alter", "column", _col_name, "set", "data", "type", ..] ->
+      DestructiveDDL(AlterColumnType(
+        table_name:,
+        column_name: extract_alter_column_name(tokens),
+        type_tokens: extract_alter_type_tokens(tokens),
+      ))
     ["add", "constraint", ..] -> SilentlyIgnored
     ["add", "primary", ..] -> SilentlyIgnored
     ["add", "unique", ..] -> SilentlyIgnored
@@ -694,6 +802,160 @@ fn classify_alter_table_action(words: List(String)) -> UnknownStatementKind {
     ["add", "check", ..] -> SilentlyIgnored
     ["add", "index", ..] -> SilentlyIgnored
     _ -> SilentlyIgnored
+  }
+}
+
+/// Extract the column name from ALTER [COLUMN] <name> ... tokens.
+fn extract_alter_column_name(tokens: List(lexer.Token)) -> String {
+  case tokens {
+    [_, lexer.Keyword("column"), name_tok, ..] -> extract_ident(name_tok)
+    [_, name_tok, ..] -> extract_ident(name_tok)
+    _ -> ""
+  }
+}
+
+/// Extract TYPE tokens from ALTER [COLUMN] <name> [SET DATA] TYPE <tokens>.
+fn extract_alter_type_tokens(tokens: List(lexer.Token)) -> List(lexer.Token) {
+  case tokens {
+    [] -> []
+    [lexer.Keyword("type"), ..rest] -> rest
+    [_, ..rest] -> extract_alter_type_tokens(rest)
+  }
+}
+
+/// Apply a destructive DDL action to the tables and enums lists.
+fn apply_ddl_action(
+  action: DDLAction,
+  tables: List(model.Table),
+  enums: List(model.EnumDef),
+) -> #(List(model.Table), List(model.EnumDef)) {
+  case action {
+    DropTable(table_name:) -> #(
+      list.filter(tables, fn(t) {
+        string.lowercase(t.name) != string.lowercase(table_name)
+      }),
+      enums,
+    )
+    DropView(view_name:) -> #(
+      list.filter(tables, fn(t) {
+        string.lowercase(t.name) != string.lowercase(view_name)
+      }),
+      enums,
+    )
+    DropType(type_name:) -> #(
+      tables,
+      list.filter(enums, fn(e) {
+        string.lowercase(e.name) != string.lowercase(type_name)
+      }),
+    )
+    AlterDropColumn(table_name:, column_name:) -> #(
+      list.map(tables, fn(t) {
+        case string.lowercase(t.name) == string.lowercase(table_name) {
+          True ->
+            model.Table(
+              ..t,
+              columns: list.filter(t.columns, fn(c) {
+                string.lowercase(c.name) != string.lowercase(column_name)
+              }),
+            )
+          False -> t
+        }
+      }),
+      enums,
+    )
+    AlterRenameTable(old_name:, new_name:) -> #(
+      list.map(tables, fn(t) {
+        case string.lowercase(t.name) == string.lowercase(old_name) {
+          True -> model.Table(..t, name: string.lowercase(new_name))
+          False -> t
+        }
+      }),
+      enums,
+    )
+    AlterRenameColumn(table_name:, old_name:, new_name:) -> #(
+      list.map(tables, fn(t) {
+        case string.lowercase(t.name) == string.lowercase(table_name) {
+          True ->
+            model.Table(
+              ..t,
+              columns: list.map(t.columns, fn(c) {
+                case string.lowercase(c.name) == string.lowercase(old_name) {
+                  True -> model.Column(..c, name: string.lowercase(new_name))
+                  False -> c
+                }
+              }),
+            )
+          False -> t
+        }
+      }),
+      enums,
+    )
+    AlterColumnType(table_name:, column_name:, type_tokens:) -> {
+      let type_text = render_type_tokens(type_tokens)
+      let new_type = case model.parse_sql_type(type_text) {
+        Ok(t) -> Some(t)
+        Error(_) -> None
+      }
+      case new_type {
+        Some(scalar_type) -> #(
+          list.map(tables, fn(t) {
+            case string.lowercase(t.name) == string.lowercase(table_name) {
+              True ->
+                model.Table(
+                  ..t,
+                  columns: list.map(t.columns, fn(c) {
+                    case
+                      string.lowercase(c.name) == string.lowercase(column_name)
+                    {
+                      True -> model.Column(..c, scalar_type:)
+                      False -> c
+                    }
+                  }),
+                )
+              False -> t
+            }
+          }),
+          enums,
+        )
+        None -> #(tables, enums)
+      }
+    }
+    AlterColumnSetNotNull(table_name:, column_name:) -> #(
+      list.map(tables, fn(t) {
+        case string.lowercase(t.name) == string.lowercase(table_name) {
+          True ->
+            model.Table(
+              ..t,
+              columns: list.map(t.columns, fn(c) {
+                case string.lowercase(c.name) == string.lowercase(column_name) {
+                  True -> model.Column(..c, nullable: False)
+                  False -> c
+                }
+              }),
+            )
+          False -> t
+        }
+      }),
+      enums,
+    )
+    AlterColumnDropNotNull(table_name:, column_name:) -> #(
+      list.map(tables, fn(t) {
+        case string.lowercase(t.name) == string.lowercase(table_name) {
+          True ->
+            model.Table(
+              ..t,
+              columns: list.map(t.columns, fn(c) {
+                case string.lowercase(c.name) == string.lowercase(column_name) {
+                  True -> model.Column(..c, nullable: True)
+                  False -> c
+                }
+              }),
+            )
+          False -> t
+        }
+      }),
+      enums,
+    )
   }
 }
 
@@ -1056,14 +1318,6 @@ pub fn error_to_string(error: ParseError) -> String {
       <> table
       <> ": "
       <> detail
-    UnsupportedStatement(path:, statement_type:) ->
-      path_prefix(path)
-      <> "Unsupported schema DDL: "
-      <> statement_type
-      <> ". sqlode only applies CREATE TABLE, CREATE VIEW, CREATE TYPE ... AS ENUM,"
-      <> " and ALTER TABLE ... ADD COLUMN to the catalog;"
-      <> " keep other schema-changing DDL out of the schema input"
-      <> " or consolidate migrations into a single CREATE TABLE snapshot."
   }
 }
 

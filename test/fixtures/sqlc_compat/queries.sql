@@ -18,12 +18,12 @@ GROUP BY user_id
 HAVING COUNT(*) > $1::int;
 
 -- name: ListUsersWithPosts :many
-SELECT id, name
+SELECT users.id, users.name
 FROM users
 WHERE EXISTS (SELECT 1 FROM posts WHERE posts.user_id = users.id);
 
 -- name: ListUsersWithoutPosts :many
-SELECT id, name
+SELECT users.id, users.name
 FROM users
 WHERE NOT EXISTS (SELECT 1 FROM posts WHERE posts.user_id = users.id);
 

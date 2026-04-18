@@ -5,10 +5,11 @@ import gleam/string
 import sqlode/lexer
 import sqlode/model
 import sqlode/query_analyzer/context.{
-  type AnalysisError, type AnalyzerContext, ColumnNotFound,
+  type AnalysisError, type AnalyzerContext, AmbiguousColumnName, ColumnNotFound,
   CompoundColumnCountMismatch, TableNotFound, UnsupportedExpression,
 }
 import sqlode/query_analyzer/token_utils
+import sqlode/query_ir
 import sqlode/runtime
 
 type ExtractedColumn {
@@ -25,6 +26,7 @@ pub fn infer_result_columns(
   _engine: model.Engine,
   query: model.ParsedQuery,
   tokens: List(lexer.Token),
+  statement: query_ir.SqlStatement,
   catalog: model.Catalog,
 ) -> Result(List(model.ResultItem), AnalysisError) {
   case query.command {
@@ -38,7 +40,251 @@ pub fn infer_result_columns(
     | runtime.QueryMany
     | runtime.QueryBatchOne
     | runtime.QueryBatchMany ->
-      infer_columns_from_tokens(query.name, tokens, catalog)
+      infer_columns_from_ir(query.name, tokens, statement, catalog)
+  }
+}
+
+/// Use the structured IR to drive column inference when available.
+/// For SelectStatement, we extract columns from `select_items` and
+/// table names from `from`/`joins`, delegating expression type
+/// inference to the existing token-based helpers.
+/// For other statement types, fall back to token-based inference.
+fn infer_columns_from_ir(
+  query_name: String,
+  tokens: List(lexer.Token),
+  statement: query_ir.SqlStatement,
+  catalog: model.Catalog,
+) -> Result(List(model.ResultItem), AnalysisError) {
+  case statement {
+    query_ir.SelectStatement(
+      select_items: items,
+      from: from_items,
+      joins: join_clauses,
+      ..,
+    ) -> {
+      // Fall back to token-based for compound queries or when IR is incomplete
+      case has_compound_keyword(tokens) {
+        True -> infer_columns_from_tokens(query_name, tokens, catalog)
+        False -> {
+          let ir_tables = extract_ir_table_names(from_items, join_clauses)
+          case ir_tables {
+            [] -> infer_columns_from_tokens(query_name, tokens, catalog)
+            _ -> {
+              // Check for embed expressions which need special handling
+              case has_embed_items(items) {
+                True -> infer_columns_from_tokens(query_name, tokens, catalog)
+                False -> {
+                  use augmented <- result.try(augment_with_subquery_tables(
+                    query_name,
+                    tokens,
+                    catalog,
+                  ))
+                  let nullable_tables =
+                    tok_extract_nullable_tables(tokens, ir_tables)
+                  let select_columns =
+                    ir_select_items_to_extracted(items, ir_tables)
+                  case select_columns {
+                    [] -> infer_columns_from_tokens(query_name, tokens, catalog)
+                    _ ->
+                      resolve_select_columns(
+                        query_name,
+                        select_columns,
+                        augmented,
+                        case ir_tables {
+                          [first, ..] -> first
+                          [] -> ""
+                        },
+                        ir_tables,
+                        nullable_tables,
+                      )
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    _ -> infer_columns_from_tokens(query_name, tokens, catalog)
+  }
+}
+
+/// Check if tokens contain UNION/EXCEPT/INTERSECT (compound query).
+fn has_compound_keyword(tokens: List(lexer.Token)) -> Bool {
+  // Only check top-level tokens (not inside parentheses)
+  has_compound_keyword_loop(tokens, 0)
+}
+
+fn has_compound_keyword_loop(tokens: List(lexer.Token), depth: Int) -> Bool {
+  case tokens {
+    [] -> False
+    [lexer.LParen, ..rest] -> has_compound_keyword_loop(rest, depth + 1)
+    [lexer.RParen, ..rest] ->
+      has_compound_keyword_loop(rest, case depth > 0 {
+        True -> depth - 1
+        False -> 0
+      })
+    [lexer.Keyword(k), ..rest] if depth == 0 ->
+      case k {
+        "union" | "except" | "intersect" -> True
+        _ -> has_compound_keyword_loop(rest, 0)
+      }
+    [_, ..rest] -> has_compound_keyword_loop(rest, depth)
+  }
+}
+
+/// Check if any select item contains an embed expression.
+fn has_embed_items(items: List(query_ir.SelectItem)) -> Bool {
+  list.any(items, fn(item) {
+    case item {
+      query_ir.ExpressionItem(tokens: expr_tokens, ..) ->
+        list.any(expr_tokens, fn(tok) {
+          case tok {
+            lexer.Ident(name) -> string.lowercase(name) == "embed"
+            _ -> False
+          }
+        })
+      _ -> False
+    }
+  })
+}
+
+/// Extract table names from IR FROM items and JOIN clauses.
+fn extract_ir_table_names(
+  from_items: List(query_ir.FromItem),
+  joins: List(query_ir.JoinClause),
+) -> List(String) {
+  let from_names =
+    list.filter_map(from_items, fn(item) {
+      case item {
+        query_ir.TableRef(alias: Some(a), ..) -> Ok(a)
+        query_ir.TableRef(name:, alias: None) -> Ok(name)
+        query_ir.SubqueryRef(alias: Some(a), ..) -> Ok(a)
+        query_ir.SubqueryRef(alias: None, ..) -> Error(Nil)
+      }
+    })
+  let join_names =
+    list.map(joins, fn(j) {
+      case j.alias {
+        Some(a) -> a
+        None -> j.table_name
+      }
+    })
+  list.append(from_names, join_names)
+}
+
+/// Convert IR SelectItems into ExtractedColumn values for
+/// resolve_select_columns.
+fn ir_select_items_to_extracted(
+  items: List(query_ir.SelectItem),
+  _table_names: List(String),
+) -> List(ExtractedColumn) {
+  list.flat_map(items, fn(item) {
+    case item {
+      query_ir.StarItem(None) -> [
+        ExtractedColumn(
+          name: "*",
+          source_table: None,
+          expression: None,
+          expression_tokens: None,
+        ),
+      ]
+      query_ir.StarItem(Some(prefix)) -> [
+        ExtractedColumn(
+          name: prefix <> ".*",
+          source_table: Some(prefix),
+          expression: None,
+          expression_tokens: None,
+        ),
+      ]
+      // Handle Star token that IR didn't recognize (lexer produces Star, not Operator("*"))
+      query_ir.ExpressionItem(tokens: [lexer.Star], alias: _) -> [
+        ExtractedColumn(
+          name: "*",
+          source_table: None,
+          expression: None,
+          expression_tokens: None,
+        ),
+      ]
+      query_ir.ExpressionItem(
+        tokens: [lexer.Ident(t), lexer.Dot, lexer.Star],
+        alias: _,
+      ) -> [
+        ExtractedColumn(
+          name: t <> ".*",
+          source_table: Some(t),
+          expression: None,
+          expression_tokens: None,
+        ),
+      ]
+      query_ir.ExpressionItem(tokens: expr_tokens, alias: Some(alias)) -> {
+        let stripped = strip_trailing_alias(expr_tokens)
+        let source = derive_source_table_from_tokens(stripped)
+        [
+          ExtractedColumn(
+            name: alias,
+            source_table: source,
+            expression: None,
+            expression_tokens: Some(stripped),
+          ),
+        ]
+      }
+      query_ir.ExpressionItem(tokens: expr_tokens, alias: None) -> {
+        let name = derive_column_name_from_tokens(expr_tokens)
+        let source = derive_source_table_from_tokens(expr_tokens)
+        [
+          ExtractedColumn(
+            name:,
+            source_table: source,
+            expression: None,
+            expression_tokens: case source {
+              Some(_) -> None
+              None -> Some(expr_tokens)
+            },
+          ),
+        ]
+      }
+    }
+  })
+}
+
+/// Strip trailing AS <alias> from expression tokens.
+fn strip_trailing_alias(tokens: List(lexer.Token)) -> List(lexer.Token) {
+  case list.reverse(tokens) {
+    [lexer.Ident(_), lexer.Keyword("as"), ..rest] -> list.reverse(rest)
+    [lexer.QuotedIdent(_), lexer.Keyword("as"), ..rest] -> list.reverse(rest)
+    _ -> tokens
+  }
+}
+
+/// Derive a column name from expression tokens (last ident, or table.col pattern).
+fn derive_column_name_from_tokens(tokens: List(lexer.Token)) -> String {
+  case tokens {
+    [lexer.Ident(name)] -> name
+    [lexer.QuotedIdent(name)] -> name
+    [lexer.Ident(_table), lexer.Dot, lexer.Ident(col)] -> col
+    [lexer.Ident(_table), lexer.Dot, lexer.QuotedIdent(col)] -> col
+    _ ->
+      // Fall back to last Ident in the expression
+      tokens
+      |> list.filter_map(fn(tok) {
+        case tok {
+          lexer.Ident(n) -> Ok(n)
+          lexer.QuotedIdent(n) -> Ok(n)
+          _ -> Error(Nil)
+        }
+      })
+      |> list.last
+      |> result.unwrap("?column?")
+  }
+}
+
+/// Derive a source table from a simple table.column reference.
+fn derive_source_table_from_tokens(tokens: List(lexer.Token)) -> Option(String) {
+  case tokens {
+    [lexer.Ident(table), lexer.Dot, lexer.Ident(_col)] -> Some(table)
+    [lexer.Ident(table), lexer.Dot, lexer.QuotedIdent(_col)] -> Some(table)
+    _ -> None
   }
 }
 
@@ -676,7 +922,7 @@ fn resolve_select_columns(
                     normalized_name,
                   )
                 {
-                  Some(#(found_table, column)) ->
+                  Ok(Some(#(found_table, column))) ->
                     Ok([
                       model.ScalarResult(model.ResultColumn(
                         name: column.name,
@@ -686,7 +932,13 @@ fn resolve_select_columns(
                         source_table: Some(found_table),
                       )),
                     ])
-                  None ->
+                  Error(matching_tables) ->
+                    Error(AmbiguousColumnName(
+                      query_name:,
+                      column_name: normalized_name,
+                      matching_tables:,
+                    ))
+                  Ok(None) ->
                     case extracted.expression_tokens {
                       Some(expr_tokens) -> {
                         use #(scalar_type, nullable) <- result.try(
@@ -1282,15 +1534,15 @@ fn resolve_column_type_nullable_from_tokens(
   table_names: List(String),
 ) -> Option(#(model.ScalarType, Bool)) {
   case tokens {
-    [lexer.Ident(_table), lexer.Dot, lexer.Ident(col)] ->
-      case context.find_column_in_tables(catalog, table_names, col) {
-        Some(#(_, column)) -> Some(#(column.scalar_type, column.nullable))
+    [lexer.Ident(table), lexer.Dot, lexer.Ident(col)] ->
+      case context.find_column(catalog, table, col) {
+        Some(column) -> Some(#(column.scalar_type, column.nullable))
         None -> None
       }
     [lexer.Ident(col)] ->
       case context.find_column_in_tables(catalog, table_names, col) {
-        Some(#(_, column)) -> Some(#(column.scalar_type, column.nullable))
-        None -> None
+        Ok(Some(#(_, column))) -> Some(#(column.scalar_type, column.nullable))
+        _ -> None
       }
     _ -> None
   }
@@ -1634,15 +1886,15 @@ fn resolve_column_type_from_tokens(
   table_names: List(String),
 ) -> Option(model.ScalarType) {
   case tokens {
-    [lexer.Ident(_table), lexer.Dot, lexer.Ident(col)] ->
-      case context.find_column_in_tables(catalog, table_names, col) {
-        Some(#(_, column)) -> Some(column.scalar_type)
+    [lexer.Ident(table), lexer.Dot, lexer.Ident(col)] ->
+      case context.find_column(catalog, table, col) {
+        Some(column) -> Some(column.scalar_type)
         None -> None
       }
     [lexer.Ident(col)] ->
       case context.find_column_in_tables(catalog, table_names, col) {
-        Some(#(_, column)) -> Some(column.scalar_type)
-        None -> None
+        Ok(Some(#(_, column))) -> Some(column.scalar_type)
+        _ -> None
       }
     [lexer.Star] -> None
     _ -> None
