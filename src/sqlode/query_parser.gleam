@@ -7,6 +7,7 @@ import gleam/string
 import sqlode/lexer
 import sqlode/model
 import sqlode/naming
+import sqlode/query_ir
 import sqlode/runtime
 
 pub type ParseError {
@@ -29,7 +30,7 @@ pub fn parse_file(
   engine: model.Engine,
   naming_ctx: naming.NamingContext,
   content: String,
-) -> Result(List(model.ParsedQuery), ParseError) {
+) -> Result(List(query_ir.TokenizedQuery), ParseError) {
   parse_lines(
     naming_ctx,
     string.split(content, "\n"),
@@ -50,9 +51,9 @@ fn parse_lines(
   engine: model.Engine,
   line_number: Int,
   pending: Option(PendingQuery),
-  parsed_rev: List(model.ParsedQuery),
+  parsed_rev: List(query_ir.TokenizedQuery),
   skip_next: Bool,
-) -> Result(List(model.ParsedQuery), ParseError) {
+) -> Result(List(query_ir.TokenizedQuery), ParseError) {
   case lines {
     [] -> finalize_pending(naming_ctx, pending, path, engine, parsed_rev)
     [line, ..rest] -> {
@@ -158,8 +159,8 @@ fn finalize_pending(
   pending: Option(PendingQuery),
   path: String,
   engine: model.Engine,
-  parsed_rev: List(model.ParsedQuery),
-) -> Result(List(model.ParsedQuery), ParseError) {
+  parsed_rev: List(query_ir.TokenizedQuery),
+) -> Result(List(query_ir.TokenizedQuery), ParseError) {
   case pending {
     None -> Ok(parsed_rev)
     Some(PendingQuery(name:, function_name:, command:, start_line:, body_rev:)) -> {
@@ -199,7 +200,7 @@ fn finalize_pending(
           // Phase 5: Count parameters from the already-expanded token list
           let param_count = count_parameters_from_tokens(engine, tokens)
 
-          Ok([
+          let parsed =
             model.ParsedQuery(
               name:,
               function_name:,
@@ -208,7 +209,9 @@ fn finalize_pending(
               source_path: path,
               param_count:,
               macros:,
-            ),
+            )
+          Ok([
+            query_ir.TokenizedQuery(base: parsed, tokens: tokens),
             ..parsed_rev
           ])
         }

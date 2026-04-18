@@ -5,6 +5,7 @@ import simplifile
 import sqlode/model
 import sqlode/naming
 import sqlode/query_analyzer
+import sqlode/query_ir
 import sqlode/query_parser
 import sqlode/runtime
 import sqlode/schema_parser
@@ -393,10 +394,10 @@ pub fn macro_duplicate_arg_name_test() {
     )
 
   let assert Ok(search) =
-    list.find(queries, fn(q) { q.name == "SearchByNameOrBio" })
+    list.find(queries, fn(q) { q.base.name == "SearchByNameOrBio" })
   // Two sqlode.arg(search_term) should produce two separate placeholders
-  search.param_count |> should.equal(2)
-  list.length(search.macros) |> should.equal(2)
+  search.base.param_count |> should.equal(2)
+  list.length(search.base.macros) |> should.equal(2)
 }
 
 pub fn macro_mixed_arg_narg_test() {
@@ -527,9 +528,10 @@ pub fn upsert_on_conflict_test() {
       naming_ctx,
     )
 
-  let assert Ok(upsert) = list.find(queries, fn(q) { q.name == "UpsertUser" })
-  upsert.command |> should.equal(runtime.QueryOne)
-  upsert.param_count |> should.equal(2)
+  let assert Ok(upsert) =
+    list.find(queries, fn(q) { q.base.name == "UpsertUser" })
+  upsert.base.command |> should.equal(runtime.QueryOne)
+  upsert.base.param_count |> should.equal(2)
 
   let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
@@ -555,9 +557,9 @@ pub fn distinct_query_test() {
     )
 
   let assert Ok(distinct) =
-    list.find(queries, fn(q) { q.name == "ListPostsByTag" })
-  distinct.command |> should.equal(runtime.QueryMany)
-  distinct.param_count |> should.equal(1)
+    list.find(queries, fn(q) { q.base.name == "ListPostsByTag" })
+  distinct.base.command |> should.equal(runtime.QueryMany)
+  distinct.base.param_count |> should.equal(1)
 }
 
 pub fn group_by_having_test() {
@@ -570,9 +572,9 @@ pub fn group_by_having_test() {
     )
 
   let assert Ok(grouped) =
-    list.find(queries, fn(q) { q.name == "ListActiveUsers" })
-  grouped.command |> should.equal(runtime.QueryMany)
-  grouped.param_count |> should.equal(1)
+    list.find(queries, fn(q) { q.base.name == "ListActiveUsers" })
+  grouped.base.command |> should.equal(runtime.QueryMany)
+  grouped.base.param_count |> should.equal(1)
 }
 
 pub fn exists_subquery_test() {
@@ -586,10 +588,10 @@ pub fn exists_subquery_test() {
     )
 
   let assert Ok(with_posts) =
-    list.find(queries, fn(q) { q.name == "ListUsersWithPosts" })
-  with_posts.command |> should.equal(runtime.QueryMany)
+    list.find(queries, fn(q) { q.base.name == "ListUsersWithPosts" })
+  with_posts.base.command |> should.equal(runtime.QueryMany)
   // No params in the outer query (subquery is correlated, not parameterized)
-  with_posts.param_count |> should.equal(0)
+  with_posts.base.param_count |> should.equal(0)
 
   let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
@@ -613,9 +615,9 @@ pub fn not_exists_subquery_test() {
     )
 
   let assert Ok(without_posts) =
-    list.find(queries, fn(q) { q.name == "ListUsersWithoutPosts" })
-  without_posts.command |> should.equal(runtime.QueryMany)
-  without_posts.param_count |> should.equal(0)
+    list.find(queries, fn(q) { q.base.name == "ListUsersWithoutPosts" })
+  without_posts.base.command |> should.equal(runtime.QueryMany)
+  without_posts.base.param_count |> should.equal(0)
 }
 
 pub fn parameterized_pagination_test() {
@@ -629,9 +631,9 @@ pub fn parameterized_pagination_test() {
     )
 
   let assert Ok(paginate) =
-    list.find(queries, fn(q) { q.name == "PaginateUsers" })
-  paginate.command |> should.equal(runtime.QueryMany)
-  paginate.param_count |> should.equal(2)
+    list.find(queries, fn(q) { q.base.name == "PaginateUsers" })
+  paginate.base.command |> should.equal(runtime.QueryMany)
+  paginate.base.param_count |> should.equal(2)
 
   let assert Ok(analyzed) =
     query_analyzer.analyze_queries(
@@ -655,10 +657,10 @@ pub fn multiple_ctes_test() {
     )
 
   let assert Ok(multi_cte) =
-    list.find(queries, fn(q) { q.name == "RecentPostsWithAuthor" })
-  multi_cte.command |> should.equal(runtime.QueryMany)
+    list.find(queries, fn(q) { q.base.name == "RecentPostsWithAuthor" })
+  multi_cte.base.command |> should.equal(runtime.QueryMany)
   // No parameters in this query
-  multi_cte.param_count |> should.equal(0)
+  multi_cte.base.param_count |> should.equal(0)
 }
 
 pub fn distinct_top_scores_test() {
@@ -671,9 +673,9 @@ pub fn distinct_top_scores_test() {
     )
 
   let assert Ok(top) =
-    list.find(queries, fn(q) { q.name == "TopDistinctScores" })
-  top.command |> should.equal(runtime.QueryMany)
-  top.param_count |> should.equal(1)
+    list.find(queries, fn(q) { q.base.name == "TopDistinctScores" })
+  top.base.command |> should.equal(runtime.QueryMany)
+  top.base.param_count |> should.equal(1)
 }
 
 // ============================================================
@@ -690,7 +692,7 @@ fn parse_queries(
   path: String,
   engine: model.Engine,
   naming_ctx: naming.NamingContext,
-) -> List(model.ParsedQuery) {
+) -> List(query_ir.TokenizedQuery) {
   let assert Ok(content) = simplifile.read(path)
   let assert Ok(queries) =
     query_parser.parse_file(path, engine, naming_ctx, content)

@@ -22,8 +22,9 @@ type ExtractedColumn {
 
 pub fn infer_result_columns(
   _ctx: AnalyzerContext,
-  engine: model.Engine,
+  _engine: model.Engine,
   query: model.ParsedQuery,
+  tokens: List(lexer.Token),
   catalog: model.Catalog,
 ) -> Result(List(model.ResultItem), AnalysisError) {
   case query.command {
@@ -36,10 +37,8 @@ pub fn infer_result_columns(
     runtime.QueryOne
     | runtime.QueryMany
     | runtime.QueryBatchOne
-    | runtime.QueryBatchMany -> {
-      let tokens = lexer.tokenize(query.sql, engine)
+    | runtime.QueryBatchMany ->
       infer_columns_from_tokens(query.name, tokens, catalog)
-    }
   }
 }
 

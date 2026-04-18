@@ -10,6 +10,7 @@ import sqlode/query_analyzer/context
 import sqlode/query_analyzer/embed_rewriter
 import sqlode/query_analyzer/param_inferencer
 import sqlode/query_analyzer/placeholder
+import sqlode/query_ir
 
 pub type AnalysisError =
   context.AnalysisError
@@ -22,7 +23,7 @@ pub fn analyze_queries(
   engine: model.Engine,
   catalog: model.Catalog,
   naming_ctx: naming.NamingContext,
-  queries: List(model.ParsedQuery),
+  queries: List(query_ir.TokenizedQuery),
 ) -> Result(List(model.AnalyzedQuery), AnalysisError) {
   let ctx = context.new(naming_ctx)
   list.try_map(queries, analyze_query(ctx, engine, catalog, _))
@@ -32,13 +33,13 @@ fn analyze_query(
   ctx: context.AnalyzerContext,
   engine: model.Engine,
   catalog: model.Catalog,
-  query: model.ParsedQuery,
+  tq: query_ir.TokenizedQuery,
 ) -> Result(model.AnalyzedQuery, AnalysisError) {
+  let query_ir.TokenizedQuery(base: query, tokens: tokens) = tq
   // Surface virtual tables the outer query references — CTEs, VALUES
   // in FROM, and derived-table subqueries — so both result-column and
   // parameter inference see them. Nested subqueries rediscover their
   // own VALUES / derived tables inside infer_columns_from_tokens_scoped.
-  let tokens = lexer.tokenize(query.sql, engine)
   use cte_tables <- result.try(column_inferencer.extract_cte_tables(
     query.name,
     tokens,
@@ -54,11 +55,12 @@ fn analyze_query(
   ))
   let augmented = merge_virtual_tables(with_values, derived_tables)
 
-  let occurrences = placeholder.extract(ctx, engine, query.sql)
+  let occurrences = placeholder.extract(ctx, engine, tokens)
   use params <- result.try(build_params(
     ctx,
     engine,
     query,
+    tokens,
     augmented,
     occurrences,
   ))
@@ -66,6 +68,7 @@ fn analyze_query(
     ctx,
     engine,
     query,
+    tokens,
     augmented,
   ))
 
@@ -119,18 +122,24 @@ fn build_params(
   ctx: context.AnalyzerContext,
   engine: model.Engine,
   query: model.ParsedQuery,
+  tokens: List(lexer.Token),
   catalog: model.Catalog,
   occurrences: List(placeholder.PlaceholderOccurrence),
 ) -> Result(List(model.QueryParam), context.AnalysisError) {
   let inferences =
     list.append(
-      param_inferencer.infer_insert_params(ctx, engine, query, catalog),
-      param_inferencer.infer_equality_params(ctx, engine, query, catalog),
+      param_inferencer.infer_insert_params(ctx, engine, tokens, catalog),
+      param_inferencer.infer_equality_params(ctx, engine, tokens, catalog),
     )
-    |> list.append(param_inferencer.infer_in_params(ctx, engine, query, catalog))
+    |> list.append(param_inferencer.infer_in_params(
+      ctx,
+      engine,
+      tokens,
+      catalog,
+    ))
 
   use cast_dict <- result.try(
-    param_inferencer.extract_type_casts(ctx, engine, query.sql)
+    param_inferencer.extract_type_casts(ctx, engine, tokens)
     |> result.map_error(fn(err) {
       let #(index, cast_type) = err
       context.UnrecognizedCastType(

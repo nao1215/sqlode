@@ -450,7 +450,7 @@ pub fn sqlc_embed_rewrite_preserves_queries_without_embed_test() {
   let assert Ok(queries) =
     query_parser.parse_file("plain.sql", model.PostgreSQL, naming_ctx, sql)
   let assert [parsed] = queries
-  let original_sql = parsed.sql
+  let original_sql = parsed.base.sql
 
   let assert Ok(analyzed) =
     query_analyzer.analyze_queries(

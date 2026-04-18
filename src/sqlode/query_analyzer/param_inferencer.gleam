@@ -12,11 +12,9 @@ import sqlode/query_analyzer/token_utils
 pub fn infer_insert_params(
   _ctx: AnalyzerContext,
   engine: model.Engine,
-  query: model.ParsedQuery,
+  tokens: List(lexer.Token),
   catalog: model.Catalog,
 ) -> List(#(Int, model.Column)) {
-  let tokens = lexer.tokenize(query.sql, engine)
-
   case token_utils.find_insert_parts(tokens) {
     Some(parts) ->
       map_insert_columns(
@@ -86,10 +84,9 @@ fn map_insert_columns(
 pub fn infer_equality_params(
   _ctx: AnalyzerContext,
   engine: model.Engine,
-  query: model.ParsedQuery,
+  tokens: List(lexer.Token),
   catalog: model.Catalog,
 ) -> List(#(Int, model.Column)) {
-  let tokens = lexer.tokenize(query.sql, engine)
   let all_tables = token_utils.extract_table_names(tokens)
 
   case all_tables {
@@ -174,10 +171,9 @@ fn scan_token_matches(
 pub fn infer_in_params(
   _ctx: AnalyzerContext,
   engine: model.Engine,
-  query: model.ParsedQuery,
+  tokens: List(lexer.Token),
   catalog: model.Catalog,
 ) -> List(#(Int, model.Column)) {
-  let tokens = lexer.tokenize(query.sql, engine)
   let all_tables = token_utils.extract_table_names(tokens)
 
   case all_tables {
@@ -202,11 +198,10 @@ pub fn infer_in_params(
 pub fn extract_type_casts(
   _ctx: AnalyzerContext,
   engine: model.Engine,
-  sql: String,
+  tokens: List(lexer.Token),
 ) -> Result(dict.Dict(Int, model.ScalarType), #(Int, String)) {
   case engine {
     model.PostgreSQL -> {
-      let tokens = lexer.tokenize(sql, engine)
       let casts = token_utils.find_type_casts(tokens)
       list.try_fold(casts, dict.new(), fn(d, cast) {
         case
