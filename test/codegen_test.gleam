@@ -54,6 +54,38 @@ pub fn render_queries_module_test() {
   |> should.be_true()
 }
 
+pub fn render_prepare_helpers_test() {
+  // Function-first wrapper (Issue #394): the generated module should
+  // expose `prepare_<function_name>(...)` helpers that construct the
+  // params record inline and return the `(sql, values)` pair, so the
+  // common call site is a single function call instead of descriptor
+  // + params constructor + runtime.prepare composition.
+  let naming_ctx = naming.new()
+  let block = test_block()
+  let analyzed = analyzed_queries("test/fixtures/query.sql")
+  let rendered = queries.render(naming_ctx, block, analyzed, dict.new(), False)
+
+  // Parameterised query — arg list mirrors the params record fields.
+  string.contains(
+    rendered,
+    "pub fn prepare_get_author(id: Int) -> #(String, List(runtime.Value)) {",
+  )
+  |> should.be_true()
+  string.contains(rendered, "runtime.prepare(")
+  |> should.be_true()
+  string.contains(rendered, "params.GetAuthorParams(id: id),")
+  |> should.be_true()
+
+  // Parameterless query — no arguments, passes Nil to runtime.prepare.
+  string.contains(
+    rendered,
+    "pub fn prepare_list_authors() -> #(String, List(runtime.Value)) {",
+  )
+  |> should.be_true()
+  string.contains(rendered, "runtime.prepare(list_authors(), Nil)")
+  |> should.be_true()
+}
+
 pub fn render_params_module_test() {
   let naming_ctx = naming.new()
   let analyzed = analyzed_queries("test/fixtures/query.sql")

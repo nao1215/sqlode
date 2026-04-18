@@ -197,10 +197,36 @@ pub fn list_authors() -> runtime.RawQuery(Nil) { ... }
 pub fn create_author() -> runtime.RawQuery(params.CreateAuthorParams) { ... }
 ```
 
-Usage example — always use `runtime.prepare` to execute parameterized queries.
-The generated SQL contains engine-agnostic markers for all parameter types
-(`sqlode.arg`, `sqlode.narg`, and `sqlode.slice`), and `runtime.prepare`
-substitutes the correct engine-specific placeholders at runtime:
+Usage example — for the common case, use the generated
+`prepare_<function_name>` helper. It constructs the params record
+and delegates to `runtime.prepare` in a single call, returning the
+`(sql, values)` pair that Gleam database drivers consume directly:
+
+```gleam
+let #(sql, values) = queries.prepare_get_author(id: 1)
+// sql has final placeholders: "... WHERE id = $1"
+// values is the encoded parameter list
+```
+
+The generated SQL contains engine-agnostic markers for all parameter
+types (`sqlode.arg`, `sqlode.narg`, and `sqlode.slice`), and the
+helper substitutes the correct engine-specific placeholders at
+runtime.
+
+Slice parameters (`sqlode.slice`) work the same way — the helper
+accepts a `List` for each slice field and the generated SQL expands
+it into the correct number of placeholders:
+
+```gleam
+let #(sql, values) = queries.prepare_get_authors_by_ids(ids: [1, 2, 3])
+// sql has expanded placeholders: "... WHERE id IN ($1, $2, $3)"
+// values is the flattened parameter list
+```
+
+If you need to hold the `RawQuery` descriptor (for caching, batch
+execution, or building custom wrappers), the low-level pieces are
+still exported. `queries.get_author()` returns the descriptor and
+`runtime.prepare` composes it with a params record:
 
 ```gleam
 let q = queries.get_author()
@@ -208,21 +234,6 @@ let #(sql, values) = runtime.prepare(
   q,
   params.GetAuthorParams(id: 1),
 )
-// sql has final placeholders: "... WHERE id = $1"
-// values is the encoded parameter list
-```
-
-For queries using `sqlode.slice()`, `runtime.prepare` additionally expands
-slice parameters into the correct number of placeholders:
-
-```gleam
-let q = queries.get_authors_by_ids()
-let #(sql, values) = runtime.prepare(
-  q,
-  params.GetAuthorsByIdsParams(ids: [1, 2, 3]),
-)
-// sql has expanded placeholders: "... WHERE id IN ($1, $2, $3)"
-// values is the flattened parameter list
 ```
 
 The placeholder dialect (`$1` for PostgreSQL, `?` for SQLite) is baked into the `RawQuery` by the generator, so `runtime.prepare` does not take a placeholder argument.

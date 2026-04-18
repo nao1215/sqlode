@@ -34,6 +34,18 @@ pub fn render(
     ))
     |> string.join("\n\n")
 
+  // Function-first convenience wrappers. For each generated query
+  // descriptor, emit a `prepare_<function_name>(...)` helper that
+  // constructs the params record inline and returns the pair that
+  // Gleam database drivers consume directly — collapsing the
+  // three-step "descriptor + params constructor + runtime.prepare"
+  // composition into a single call at the use site (Issue #394).
+  let prepare_functions =
+    queries
+    |> list.map(render_prepare_function(naming_ctx, _, gleam.type_mapping))
+    |> list.filter(fn(s) { s != "" })
+    |> string.join("\n\n")
+
   let all_items = case queries {
     [] -> "[]"
     _ ->
@@ -66,15 +78,18 @@ pub fn render(
 
   let has_decoders = !list.is_empty(decoder_queries)
   let has_nullable =
-    has_decoders
-    && list.any(decoder_queries, fn(q) {
-      list.any(q.result_columns, fn(col) {
-        case col {
-          model.ScalarResult(model.ResultColumn(nullable: True, ..)) -> True
-          _ -> False
-        }
+    {
+      has_decoders
+      && list.any(decoder_queries, fn(q) {
+        list.any(q.result_columns, fn(col) {
+          case col {
+            model.ScalarResult(model.ResultColumn(nullable: True, ..)) -> True
+            _ -> False
+          }
+        })
       })
-    })
+    }
+    || list.any(queries, fn(q) { list.any(q.params, fn(p) { p.nullable }) })
 
   let imports =
     list.flatten([
@@ -118,6 +133,10 @@ pub fn render(
         "",
         query_functions,
       ],
+      case prepare_functions {
+        "" -> []
+        _ -> ["", prepare_functions]
+      },
       case decoder_functions {
         "" -> []
         _ -> ["", decoder_functions]
@@ -204,6 +223,81 @@ fn render_query_function(
     ]),
     "\n",
   )
+}
+
+/// Emit a `prepare_<function_name>` convenience wrapper that
+/// constructs the generated params record inline (for parameterised
+/// queries) or passes `Nil` (for parameterless queries) and then
+/// returns `runtime.prepare(…)` directly. Callers consume the
+/// `#(sql, values)` tuple without composing the descriptor, params
+/// record and `runtime.prepare` call by hand.
+fn render_prepare_function(
+  naming_ctx: naming.NamingContext,
+  query: model.AnalyzedQuery,
+  type_mapping: model.TypeMapping,
+) -> String {
+  let type_name = naming.to_pascal_case(naming_ctx, query.base.name) <> "Params"
+  let descriptor_call = query.base.function_name <> "()"
+  case query.params {
+    [] ->
+      string.join(
+        [
+          "pub fn prepare_"
+            <> query.base.function_name
+            <> "() -> #(String, List(runtime.Value)) {",
+          "  runtime.prepare(" <> descriptor_call <> ", Nil)",
+          "}",
+        ],
+        "\n",
+      )
+    params -> {
+      let arg_list =
+        params
+        |> list.map(fn(p) {
+          p.field_name <> ": " <> param_arg_type(p, type_mapping)
+        })
+        |> string.join(", ")
+      let constructor_args =
+        params
+        |> list.map(fn(p) { p.field_name <> ": " <> p.field_name })
+        |> string.join(", ")
+      string.join(
+        [
+          "pub fn prepare_"
+            <> query.base.function_name
+            <> "("
+            <> arg_list
+            <> ") -> #(String, List(runtime.Value)) {",
+          "  runtime.prepare(",
+          "    " <> descriptor_call <> ",",
+          "    params." <> type_name <> "(" <> constructor_args <> "),",
+          "  )",
+          "}",
+        ],
+        "\n",
+      )
+    }
+  }
+}
+
+/// Render the Gleam type of a single parameter for a `prepare_*`
+/// argument position. Mirrors the type used in the `Params` record
+/// field: base type, optionally wrapped in `Option(…)` when the
+/// parameter is nullable or `List(…)` when it is a slice.
+fn param_arg_type(
+  param: model.QueryParam,
+  type_mapping: model.TypeMapping,
+) -> String {
+  let base =
+    type_mapping.scalar_type_to_gleam_type(param.scalar_type, type_mapping)
+  case param.is_list {
+    True -> "List(" <> base <> ")"
+    False ->
+      case param.nullable {
+        True -> "Option(" <> base <> ")"
+        False -> base
+      }
+  }
 }
 
 fn has_result_columns(query: model.AnalyzedQuery) -> Bool {
