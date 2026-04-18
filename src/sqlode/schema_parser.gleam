@@ -1140,6 +1140,52 @@ fn split_tokens_by_comma_loop(
   }
 }
 
+fn parse_named_column(
+  path: String,
+  table_name: String,
+  raw_name: String,
+  all_tokens: List(lexer.Token),
+  rest: List(lexer.Token),
+  enums: List(model.EnumDef),
+) -> Result(Option(model.Column), ParseError) {
+  let name = naming.normalize_identifier(raw_name)
+  let type_toks = take_type_tokens_from_lexer(rest, [])
+  case type_toks {
+    [] ->
+      Error(InvalidColumn(
+        path: path,
+        table: table_name,
+        detail: "missing type for column " <> name,
+      ))
+    _ -> {
+      let type_text = render_type_tokens(type_toks)
+      let nullable = case
+        tokens_contain_not_null(all_tokens)
+        || tokens_contain_keyword(all_tokens, "primary")
+        || string.contains(type_text, "serial")
+      {
+        True -> False
+        False -> True
+      }
+      use scalar_type <- result.try(case find_enum(type_text, enums) {
+        Some(enum_name) -> Ok(model.EnumType(enum_name))
+        None ->
+          infer_scalar_type(type_text)
+          |> result.map_error(fn(detail) {
+            InvalidColumn(path: path, table: table_name, detail: detail)
+          })
+      })
+      Ok(
+        Some(model.Column(
+          name: name,
+          scalar_type: scalar_type,
+          nullable: nullable,
+        )),
+      )
+    }
+  }
+}
+
 fn parse_column_tokens(
   path: String,
   table_name: String,
@@ -1155,6 +1201,11 @@ fn parse_column_tokens(
         | lexer.Keyword("unique")
         | lexer.Keyword("constraint")
         | lexer.Keyword("check") -> Ok(None)
+        // Non-reserved SQL keywords like `action`, `name`, `order`
+        // are frequently used as column identifiers in user schemas.
+        // Accept them here the same way Ident/QuotedIdent are handled.
+        lexer.Keyword(n) ->
+          parse_named_column(path, table_name, n, tokens, rest, enums)
         lexer.Ident(n) | lexer.QuotedIdent(n) -> {
           let name = naming.normalize_identifier(n)
           let type_toks = take_type_tokens_from_lexer(rest, [])

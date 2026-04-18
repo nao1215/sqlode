@@ -55,7 +55,15 @@ fn analyze_query(
     tokens,
     with_values,
   ))
-  let augmented = merge_virtual_tables(with_values, derived_tables)
+  let with_derived = merge_virtual_tables(with_values, derived_tables)
+  // Register `FROM table AS alias` / `JOIN table AS alias` aliases so
+  // qualified refs like `p.user_id` in a query that writes
+  // `FROM posts AS p` resolve to `posts`. This is the single hook
+  // that lets the expression-aware IR reason about aliased column
+  // references without re-implementing alias resolution everywhere.
+  let alias_tables =
+    column_inferencer.extract_table_aliases(tokens, with_derived)
+  let augmented = merge_virtual_tables(with_derived, alias_tables)
 
   let occurrences = placeholder.extract(ctx, engine, tokens)
   use params <- result.try(build_params(

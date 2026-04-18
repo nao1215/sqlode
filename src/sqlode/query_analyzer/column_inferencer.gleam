@@ -8,7 +8,9 @@ import sqlode/query_analyzer/context.{
   type AnalysisError, type AnalyzerContext, AmbiguousColumnName, ColumnNotFound,
   CompoundColumnCountMismatch, TableNotFound, UnsupportedExpression,
 }
+import sqlode/query_analyzer/expr_parser
 import sqlode/query_analyzer/token_utils
+import sqlode/query_analyzer/type_inference
 import sqlode/query_ir
 import sqlode/runtime
 
@@ -321,9 +323,19 @@ pub fn infer_columns_from_tokens_scoped(
   ))
   case tok_extract_returning_columns(tokens) {
     Some(returning_cols) -> {
-      let table_names = token_utils.extract_table_names(tokens)
-      let nullable_tables = tok_extract_nullable_tables(tokens, table_names)
-      case effective_tables(table_names, outer_tables) {
+      // RETURNING resolves against the DML target (INSERT/UPDATE/
+      // DELETE target table) — never against other tables that
+      // happen to appear in the same statement (CTE inputs, INSERT..
+      // SELECT source tables, alias virtual tables). Without this
+      // restriction, fixture 4 in Issue #393 sees `id` reported as
+      // ambiguous across `posts`, `audit_log` and `changed_posts`.
+      let dml_target = detect_dml_target(tokens)
+      let scope_tables = case dml_target {
+        Some(target) -> [target]
+        None -> token_utils.extract_table_names(tokens)
+      }
+      let nullable_tables = tok_extract_nullable_tables(tokens, scope_tables)
+      case effective_tables(scope_tables, outer_tables) {
         [] -> Ok([])
         [primary, ..] as tables ->
           resolve_select_columns(
@@ -365,6 +377,29 @@ pub fn infer_columns_from_tokens_scoped(
   }
 }
 
+/// Locate the table targeted by a DML statement (INSERT INTO table,
+/// UPDATE table, DELETE FROM table). Skips any leading WITH clause
+/// so `WITH … INSERT INTO target` still picks `target`. Returns
+/// `None` for SELECT / unrecognised statements.
+fn detect_dml_target(tokens: List(lexer.Token)) -> Option(String) {
+  let stripped = tok_strip_cte(tokens)
+  case stripped {
+    [lexer.Keyword("insert"), lexer.Keyword("into"), ..rest] -> {
+      let #(name, _) = token_utils.read_table_name(rest)
+      name
+    }
+    [lexer.Keyword("update"), ..rest] -> {
+      let #(name, _) = token_utils.read_table_name(rest)
+      name
+    }
+    [lexer.Keyword("delete"), lexer.Keyword("from"), ..rest] -> {
+      let #(name, _) = token_utils.read_table_name(rest)
+      name
+    }
+    _ -> None
+  }
+}
+
 fn augment_with_subquery_tables(
   query_name: String,
   tokens: List(lexer.Token),
@@ -377,7 +412,9 @@ fn augment_with_subquery_tables(
     tokens,
     with_values,
   ))
-  Ok(augment_catalog_with(with_values, derived))
+  let with_derived = augment_catalog_with(with_values, derived)
+  let aliases = extract_table_aliases(tokens, with_derived)
+  Ok(augment_catalog_with(with_derived, aliases))
 }
 
 /// Pick the scope the resolver should use: the inner FROM tables if any,
@@ -645,6 +682,99 @@ fn build_values_columns(
       model.Column(name: name, scalar_type: st, nullable: nullable),
       ..build_values_columns(rest_names, rest_types)
     ]
+  }
+}
+
+/// Register table aliases as virtual tables pointing at the underlying
+/// table's columns. Scans the token stream for
+/// `FROM/JOIN/UPDATE table [AS] alias` patterns and emits a
+/// `model.Table(name: alias, columns: …)` copy for each alias whose
+/// underlying table exists in the catalog. Aliases that shadow an
+/// existing catalog entry are skipped so we don't accidentally
+/// replace a real base table. This is what lets `p.user_id` resolve
+/// to `posts.user_id` when the query writes `FROM posts AS p`.
+pub fn extract_table_aliases(
+  tokens: List(lexer.Token),
+  catalog: model.Catalog,
+) -> List(model.Table) {
+  scan_aliases_loop(tokens, catalog, [])
+  |> list.reverse
+}
+
+fn scan_aliases_loop(
+  tokens: List(lexer.Token),
+  catalog: model.Catalog,
+  acc: List(model.Table),
+) -> List(model.Table) {
+  case tokens {
+    [] -> acc
+    [lexer.Keyword(kw), ..rest]
+      if kw == "from" || kw == "join" || kw == "update" || kw == "into"
+    -> {
+      let #(alias_pair, remaining) = read_table_with_alias(rest)
+      let next_acc = case alias_pair {
+        Some(#(table_name, alias_name)) ->
+          case alias_name != table_name {
+            True ->
+              case list.find(catalog.tables, fn(t) { t.name == table_name }) {
+                Ok(found) ->
+                  case list.any(acc, fn(t) { t.name == alias_name }) {
+                    True -> acc
+                    False ->
+                      case
+                        list.any(catalog.tables, fn(t) { t.name == alias_name })
+                      {
+                        True -> acc
+                        False -> [
+                          model.Table(name: alias_name, columns: found.columns),
+                          ..acc
+                        ]
+                      }
+                  }
+                Error(_) -> acc
+              }
+            False -> acc
+          }
+        None -> acc
+      }
+      scan_aliases_loop(remaining, catalog, next_acc)
+    }
+    [_, ..rest] -> scan_aliases_loop(rest, catalog, acc)
+  }
+}
+
+fn read_table_with_alias(
+  tokens: List(lexer.Token),
+) -> #(Option(#(String, String)), List(lexer.Token)) {
+  case tokens {
+    [
+      lexer.Ident(_),
+      lexer.Dot,
+      lexer.Ident(name),
+      lexer.Keyword("as"),
+      lexer.Ident(alias),
+      ..rest
+    ] -> #(Some(#(string.lowercase(name), string.lowercase(alias))), rest)
+    [lexer.Ident(_), lexer.Dot, lexer.Ident(name), lexer.Ident(alias), ..rest]
+      if alias != "on" && alias != "where" && alias != "using"
+    -> #(Some(#(string.lowercase(name), string.lowercase(alias))), rest)
+    [lexer.Ident(name), lexer.Keyword("as"), lexer.Ident(alias), ..rest] -> #(
+      Some(#(string.lowercase(name), string.lowercase(alias))),
+      rest,
+    )
+    [lexer.QuotedIdent(name), lexer.Keyword("as"), lexer.Ident(alias), ..rest] -> #(
+      Some(#(string.lowercase(name), string.lowercase(alias))),
+      rest,
+    )
+    [lexer.Ident(name), lexer.Ident(alias), ..rest] -> #(
+      Some(#(string.lowercase(name), string.lowercase(alias))),
+      rest,
+    )
+    [lexer.Ident(name), ..rest] -> #(
+      Some(#(string.lowercase(name), string.lowercase(name))),
+      rest,
+    )
+    _ -> #(None, tokens)
   }
 }
 
@@ -975,10 +1105,45 @@ fn resolve_select_columns(
 }
 
 // ============================================================
-// Token-based expression type inference (#342, #298)
+// Expression type inference
 // ============================================================
+//
+// `infer_expression_type_from_tokens` first tries the IR-driven path
+// (`expr_parser.parse_expr` → `type_inference.infer_expr_type`). When
+// the expression-aware IR can type the expression, the result flows
+// through unchanged. When the IR cannot (e.g. a construct not yet in
+// the expression grammar), we fall through to the legacy token-scan
+// path so existing coverage is preserved. Over time the token path
+// shrinks as the IR grows; both produce the same `(ScalarType, Bool)`
+// contract expected by the select-column resolver.
 
 fn infer_expression_type_from_tokens(
+  tokens: List(lexer.Token),
+  catalog: model.Catalog,
+  table_names: List(String),
+  query_name: String,
+) -> Result(#(model.ScalarType, Bool), AnalysisError) {
+  let ir_expr = expr_parser.parse_expr(tokens)
+  case ir_expr {
+    query_ir.RawExpr(..) ->
+      infer_expression_type_token_path(tokens, catalog, table_names, query_name)
+    _ -> {
+      let scope = type_inference.scope(query_name, catalog, table_names, [])
+      case type_inference.infer_expr_type(scope, ir_expr) {
+        Ok(type_inference.InferredType(scalar: t, nullable: n)) -> Ok(#(t, n))
+        Error(_) ->
+          infer_expression_type_token_path(
+            tokens,
+            catalog,
+            table_names,
+            query_name,
+          )
+      }
+    }
+  }
+}
+
+fn infer_expression_type_token_path(
   tokens: List(lexer.Token),
   catalog: model.Catalog,
   table_names: List(String),
@@ -2071,10 +2236,33 @@ fn tok_nullable_loop(
 ) -> #(List(String), Bool) {
   case tokens {
     [] -> #(acc, primary_nullable)
-    // LEFT [OUTER] JOIN table → joined table is nullable
+    // LEFT [OUTER] JOIN table → joined table is nullable.
+    // Also handles `LEFT [OUTER] JOIN LATERAL (subquery) AS alias`
+    // so the alias from a LATERAL subquery is marked nullable too.
     [lexer.Keyword("left"), ..rest] -> {
       let rest2 = tok_skip_keyword(rest, "outer")
       case rest2 {
+        [
+          lexer.Keyword("join"),
+          lexer.Keyword("lateral"),
+          lexer.LParen,
+          ..after_lp
+        ] -> {
+          let remaining = token_utils.skip_parens(after_lp, 1)
+          case token_utils.read_subquery_alias(remaining) {
+            #(Some(n), after_alias) ->
+              tok_nullable_loop(after_alias, [n, ..acc], primary_nullable)
+            #(None, after) -> tok_nullable_loop(after, acc, primary_nullable)
+          }
+        }
+        [lexer.Keyword("join"), lexer.LParen, ..after_lp] -> {
+          let remaining = token_utils.skip_parens(after_lp, 1)
+          case token_utils.read_subquery_alias(remaining) {
+            #(Some(n), after_alias) ->
+              tok_nullable_loop(after_alias, [n, ..acc], primary_nullable)
+            #(None, after) -> tok_nullable_loop(after, acc, primary_nullable)
+          }
+        }
         [lexer.Keyword("join"), ..after_join] -> {
           let #(name, remaining) = token_utils.read_table_name(after_join)
           case name {
@@ -2255,6 +2443,24 @@ fn tok_parse_regular_column(tokens: List(lexer.Token)) -> ExtractedColumn {
           ExtractedColumn(
             name: name,
             source_table: None,
+            expression: None,
+            expression_tokens: None,
+          )
+        // A bare keyword like `action` / `name` / `order` appearing in
+        // a SELECT or RETURNING list is a non-reserved identifier used
+        // as a column name. Treat it as a plain column ref so catalog
+        // lookup can pick up the column from the DML target.
+        [lexer.Keyword(name)] ->
+          ExtractedColumn(
+            name: name,
+            source_table: None,
+            expression: None,
+            expression_tokens: None,
+          )
+        [lexer.Ident(table), lexer.Dot, lexer.Keyword(col)] ->
+          ExtractedColumn(
+            name: col,
+            source_table: Some(string.lowercase(table)),
             expression: None,
             expression_tokens: None,
           )
