@@ -167,9 +167,15 @@ fn parse_sql_block(node: yay.Node) -> Result(model.SqlBlock, ConfigError) {
   let vendor_runtime =
     optional_bool(gleam_node, "vendor_runtime")
     |> option.unwrap(False)
+  // Strict-views is the default: any unresolvable view column is a
+  // generation error so the emitted model never silently drifts away
+  // from the actual schema. `strict_views: false` is still accepted
+  // as an explicit opt-out for legacy schemas that need the old
+  // warn-and-continue behaviour, but new configurations should leave
+  // it unset.
   let strict_views =
     optional_bool(gleam_node, "strict_views")
-    |> option.unwrap(False)
+    |> option.unwrap(True)
 
   use overrides <- result.try(parse_overrides(node))
 

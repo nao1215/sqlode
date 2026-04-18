@@ -190,10 +190,13 @@ pub fn default_block_name_is_none_test() {
   block.name |> should.equal(option.None)
 }
 
-pub fn default_strict_views_is_false_test() {
+pub fn default_strict_views_is_true_test() {
+  // A config that does not mention `strict_views` defaults to the
+  // strict policy. Issue #391 tightened the default so partial view
+  // resolution cannot silently reach codegen.
   let assert Ok(cfg) = config.load("test/fixtures/sqlode.yaml")
   let assert [block] = cfg.sql
-  block.gleam.strict_views |> should.equal(False)
+  block.gleam.strict_views |> should.equal(True)
 }
 
 pub fn strict_views_true_roundtrips_test() {

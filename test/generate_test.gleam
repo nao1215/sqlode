@@ -3,6 +3,7 @@ import gleam/option
 import gleam/string
 import gleeunit/should
 import simplifile
+import sqlode/config
 import sqlode/generate
 import sqlode/model
 
@@ -1820,6 +1821,94 @@ pub fn strict_views_false_preserves_legacy_silent_drop_test() {
   let cfg = model.Config(version: 2, sql: [strict_views_block(False)])
   let assert Ok(_) = generate.generate_config(cfg)
   cleanup()
+}
+
+// --- strict_views default — Issue #391 ---
+
+const partial_view_out = "test_output/generate_test_partial_view"
+
+fn partial_view_block(strict_views: Bool) -> model.SqlBlock {
+  // A block where strict_views reflects the user's setting. The
+  // `ListUserRollups` query selects from a view that contains one
+  // intentionally unresolved column (`missing_source.value`), so the
+  // strict default must reject this configuration.
+  model.SqlBlock(
+    name: option.None,
+    engine: model.PostgreSQL,
+    schema: ["test/fixtures/partial_view_schema.sql"],
+    queries: ["test/fixtures/partial_view_query.sql"],
+    gleam: model.GleamOutput(
+      out: partial_view_out,
+      runtime: model.Raw,
+      type_mapping: model.StringMapping,
+      emit_sql_as_comment: False,
+      emit_exact_table_names: False,
+      omit_unused_models: False,
+      vendor_runtime: False,
+      strict_views: strict_views,
+    ),
+    overrides: model.empty_overrides(),
+  )
+}
+
+fn cleanup_partial_view() {
+  let _ = simplifile.delete(partial_view_out)
+  Nil
+}
+
+pub fn strict_views_is_default_for_partial_view_test() {
+  // Regression for Issue #391. A fresh configuration without an
+  // explicit `strict_views` setting must now fail when a view
+  // contains an unresolvable column, instead of silently dropping
+  // the column and producing a partial model. This mirrors the
+  // reproduction in the issue body.
+  cleanup_partial_view()
+
+  let yaml_path = "test/fixtures/partial_view.yaml"
+  let content =
+    "version: \"2\"\n"
+    <> "sql:\n"
+    <> "  - engine: postgresql\n"
+    <> "    schema: test/fixtures/partial_view_schema.sql\n"
+    <> "    queries: test/fixtures/partial_view_query.sql\n"
+    <> "    gen:\n"
+    <> "      gleam:\n"
+    <> "        out: "
+    <> partial_view_out
+    <> "\n"
+  let assert Ok(_) = simplifile.write(yaml_path, content)
+
+  let assert Ok(cfg) = config.load(yaml_path)
+  let assert [block] = cfg.sql
+  // Sanity-check: the configuration must have picked up the strict
+  // default even though the YAML does not mention strict_views.
+  block.gleam.strict_views |> should.equal(True)
+
+  case generate.generate_config(cfg) {
+    Error(generate.SchemaParseError(detail)) -> {
+      string.contains(detail, "broken_col") |> should.be_true
+    }
+    Error(other) ->
+      panic as {
+        "expected SchemaParseError for partial view, got "
+        <> string.inspect(other)
+      }
+    Ok(_) ->
+      panic as "expected generation to fail on partial view with default policy"
+  }
+
+  let _ = simplifile.delete(yaml_path)
+  cleanup_partial_view()
+}
+
+pub fn strict_views_false_still_accepts_partial_view_test() {
+  // Opt-out still works: users who explicitly set
+  // `strict_views: false` get the legacy warn-and-continue behaviour
+  // for migrating legacy schemas that produce resolution warnings.
+  cleanup_partial_view()
+  let cfg = model.Config(version: 2, sql: [partial_view_block(False)])
+  let assert Ok(_) = generate.generate_config(cfg)
+  cleanup_partial_view()
 }
 
 // --- vendor_runtime failure test ---
