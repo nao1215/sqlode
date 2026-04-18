@@ -4,6 +4,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/string
 import sqlode/lexer
 import sqlode/naming
+import sqlode/query_ir
 
 /// Extract all table names referenced in a token list (FROM, INTO, UPDATE, JOIN).
 pub fn extract_table_names(tokens: List(lexer.Token)) -> List(String) {
@@ -602,5 +603,441 @@ fn scan_set_assignments(
         ..acc
       ])
     [_, ..rest] -> scan_set_assignments(rest, acc)
+  }
+}
+
+// ============================================================
+// Structured IR construction
+// ============================================================
+
+/// Build a `SqlStatement` from a token list. This function identifies the
+/// statement kind and decomposes it into its major clauses. Sub-expressions
+/// (WHERE predicates, etc.) remain as raw token lists — this is
+/// intentionally a *thin* IR that avoids building a full expression AST.
+pub fn structure_tokens(tokens: List(lexer.Token)) -> query_ir.SqlStatement {
+  let stripped = strip_leading_cte(tokens)
+  case stripped {
+    [lexer.Keyword("select"), ..] -> structure_select(stripped)
+    [lexer.Keyword("insert"), ..] -> structure_insert(stripped)
+    [lexer.Keyword("update"), ..] -> structure_update(stripped)
+    [lexer.Keyword("delete"), ..] -> structure_delete(stripped)
+    _ -> query_ir.UnstructuredStatement(tokens: stripped)
+  }
+}
+
+fn strip_leading_cte(tokens: List(lexer.Token)) -> List(lexer.Token) {
+  case tokens {
+    [lexer.Keyword("with"), ..rest] -> skip_cte_body(rest)
+    _ -> tokens
+  }
+}
+
+fn skip_cte_body(tokens: List(lexer.Token)) -> List(lexer.Token) {
+  case tokens {
+    [] -> []
+    // When we hit a top-level SELECT/INSERT/UPDATE/DELETE after the CTE, stop
+    [lexer.Keyword("select"), ..] as t -> t
+    [lexer.Keyword("insert"), ..] as t -> t
+    [lexer.Keyword("update"), ..] as t -> t
+    [lexer.Keyword("delete"), ..] as t -> t
+    [lexer.LParen, ..rest] -> {
+      let after = skip_parens(rest, 1)
+      skip_cte_body(after)
+    }
+    [_, ..rest] -> skip_cte_body(rest)
+  }
+}
+
+// --- SELECT structuring ---
+
+fn structure_select(tokens: List(lexer.Token)) -> query_ir.SqlStatement {
+  let after_select = case tokens {
+    [lexer.Keyword("select"), lexer.Keyword("distinct"), ..rest] -> rest
+    [lexer.Keyword("select"), ..rest] -> rest
+    _ -> tokens
+  }
+
+  let #(select_tokens, rest_after_select) =
+    collect_until_keyword(after_select, [
+      "from", "where", "group", "having", "order", "limit", "union", "intersect",
+      "except",
+    ])
+  let select_items = parse_select_items(select_tokens)
+
+  let #(from_items, joins, rest_after_from) =
+    parse_from_clause(rest_after_select)
+
+  let #(where_tokens, rest_after_where) =
+    extract_clause(rest_after_from, "where", [
+      "group", "having", "order", "limit", "union", "intersect", "except",
+    ])
+  let #(group_by_tokens, rest_after_group) =
+    extract_clause(rest_after_where, "group", [
+      "having", "order", "limit", "union", "intersect", "except",
+    ])
+  let #(having_tokens, rest_after_having) =
+    extract_clause(rest_after_group, "having", [
+      "order", "limit", "union", "intersect", "except",
+    ])
+  let #(order_by_tokens, rest_after_order) =
+    extract_clause(rest_after_having, "order", [
+      "limit", "union", "intersect", "except",
+    ])
+  let #(limit_tokens, _) =
+    extract_clause(rest_after_order, "limit", ["union", "intersect", "except"])
+
+  query_ir.SelectStatement(
+    select_items:,
+    from: from_items,
+    joins:,
+    where_tokens:,
+    group_by_tokens:,
+    having_tokens:,
+    order_by_tokens:,
+    limit_tokens:,
+  )
+}
+
+fn parse_select_items(tokens: List(lexer.Token)) -> List(query_ir.SelectItem) {
+  let groups = split_on_commas(tokens)
+  list.map(groups, fn(group) {
+    case group {
+      [lexer.Operator("*")] -> query_ir.StarItem(table_prefix: None)
+      [lexer.Ident(t), lexer.Dot, lexer.Operator("*")] ->
+        query_ir.StarItem(table_prefix: Some(string.lowercase(t)))
+      _ -> {
+        let alias = extract_alias_from_item(group)
+        query_ir.ExpressionItem(tokens: group, alias:)
+      }
+    }
+  })
+}
+
+fn extract_alias_from_item(tokens: List(lexer.Token)) -> Option(String) {
+  case list.reverse(tokens) {
+    [lexer.Ident(name), lexer.Keyword("as"), ..] ->
+      Some(naming.normalize_identifier(name))
+    [lexer.QuotedIdent(name), lexer.Keyword("as"), ..] ->
+      Some(naming.normalize_identifier(name))
+    _ -> None
+  }
+}
+
+fn parse_from_clause(
+  tokens: List(lexer.Token),
+) -> #(List(query_ir.FromItem), List(query_ir.JoinClause), List(lexer.Token)) {
+  case tokens {
+    [lexer.Keyword("from"), ..rest] -> {
+      let #(from_tokens, after_from) =
+        collect_until_keyword(rest, [
+          "where", "group", "having", "order", "limit", "union", "intersect",
+          "except", "join", "left", "right", "inner", "outer", "cross", "full",
+          "natural", "lateral",
+        ])
+      let from_items = parse_from_items(from_tokens)
+      let #(joins, after_joins) = parse_join_clauses(after_from)
+      #(from_items, joins, after_joins)
+    }
+    _ -> #([], [], tokens)
+  }
+}
+
+fn parse_from_items(tokens: List(lexer.Token)) -> List(query_ir.FromItem) {
+  let groups = split_on_commas(tokens)
+  list.filter_map(groups, fn(group) {
+    case group {
+      [lexer.Ident(name)] ->
+        Ok(query_ir.TableRef(name: string.lowercase(name), alias: None))
+      [lexer.QuotedIdent(name)] ->
+        Ok(query_ir.TableRef(name: string.lowercase(name), alias: None))
+      [lexer.Ident(_schema), lexer.Dot, lexer.Ident(name)] ->
+        Ok(query_ir.TableRef(name: string.lowercase(name), alias: None))
+      [lexer.Ident(name), lexer.Keyword("as"), lexer.Ident(a)] ->
+        Ok(query_ir.TableRef(
+          name: string.lowercase(name),
+          alias: Some(string.lowercase(a)),
+        ))
+      [lexer.Ident(name), lexer.Ident(a)] ->
+        Ok(query_ir.TableRef(
+          name: string.lowercase(name),
+          alias: Some(string.lowercase(a)),
+        ))
+      _ -> Error(Nil)
+    }
+  })
+}
+
+fn parse_join_clauses(
+  tokens: List(lexer.Token),
+) -> #(List(query_ir.JoinClause), List(lexer.Token)) {
+  parse_joins_loop(tokens, [])
+}
+
+fn parse_joins_loop(
+  tokens: List(lexer.Token),
+  acc: List(query_ir.JoinClause),
+) -> #(List(query_ir.JoinClause), List(lexer.Token)) {
+  case tokens {
+    // JOIN variants
+    [lexer.Keyword(kw), ..rest]
+      if kw == "join"
+      || kw == "left"
+      || kw == "right"
+      || kw == "inner"
+      || kw == "outer"
+      || kw == "cross"
+      || kw == "full"
+      || kw == "natural"
+    -> {
+      let after_join_kw = skip_join_keywords(rest)
+      case after_join_kw {
+        [lexer.Keyword("join"), ..after_join] -> {
+          let #(clause, remaining) = parse_single_join(after_join)
+          case clause {
+            Some(j) -> parse_joins_loop(remaining, [j, ..acc])
+            None -> parse_joins_loop(remaining, acc)
+          }
+        }
+        _ -> {
+          let #(clause, remaining) = parse_single_join(after_join_kw)
+          case clause {
+            Some(j) -> parse_joins_loop(remaining, [j, ..acc])
+            None -> parse_joins_loop(remaining, acc)
+          }
+        }
+      }
+    }
+    _ -> #(list.reverse(acc), tokens)
+  }
+}
+
+fn skip_join_keywords(tokens: List(lexer.Token)) -> List(lexer.Token) {
+  case tokens {
+    [lexer.Keyword(kw), ..rest]
+      if kw == "outer"
+      || kw == "inner"
+      || kw == "cross"
+      || kw == "natural"
+      || kw == "left"
+      || kw == "right"
+      || kw == "full"
+    -> skip_join_keywords(rest)
+    _ -> tokens
+  }
+}
+
+fn parse_single_join(
+  tokens: List(lexer.Token),
+) -> #(Option(query_ir.JoinClause), List(lexer.Token)) {
+  let #(table_name_opt, rest) = read_table_name(tokens)
+  case table_name_opt {
+    None -> #(None, rest)
+    Some(name) -> {
+      let #(alias, rest2) = read_optional_alias(rest)
+      let #(on_tokens, rest3) = case rest2 {
+        [lexer.Keyword("on"), ..after_on] -> {
+          let #(on_toks, after) =
+            collect_until_keyword(after_on, [
+              "join", "left", "right", "inner", "outer", "cross", "full",
+              "natural", "where", "group", "having", "order", "limit", "union",
+              "intersect", "except",
+            ])
+          #(Some(on_toks), after)
+        }
+        _ -> #(None, rest2)
+      }
+      #(Some(query_ir.JoinClause(table_name: name, alias:, on_tokens:)), rest3)
+    }
+  }
+}
+
+fn read_optional_alias(
+  tokens: List(lexer.Token),
+) -> #(Option(String), List(lexer.Token)) {
+  case tokens {
+    [lexer.Keyword("as"), lexer.Ident(a), ..rest] -> #(
+      Some(string.lowercase(a)),
+      rest,
+    )
+    [lexer.Keyword("as"), lexer.QuotedIdent(a), ..rest] -> #(
+      Some(string.lowercase(a)),
+      rest,
+    )
+    [lexer.Ident(a), ..rest]
+      if a != "on"
+      && a != "where"
+      && a != "group"
+      && a != "order"
+      && a != "limit"
+      && a != "join"
+      && a != "left"
+      && a != "right"
+      && a != "inner"
+    -> #(Some(string.lowercase(a)), rest)
+    _ -> #(None, tokens)
+  }
+}
+
+// --- INSERT structuring ---
+
+fn structure_insert(tokens: List(lexer.Token)) -> query_ir.SqlStatement {
+  case find_insert_parts(tokens) {
+    Some(parts) -> {
+      let returning = extract_returning_tokens(tokens)
+      query_ir.InsertStatement(
+        table_name: parts.table_name,
+        columns: parts.columns,
+        value_groups: parts.values,
+        returning_tokens: returning,
+      )
+    }
+    None -> query_ir.UnstructuredStatement(tokens:)
+  }
+}
+
+// --- UPDATE structuring ---
+
+fn structure_update(tokens: List(lexer.Token)) -> query_ir.SqlStatement {
+  case tokens {
+    [lexer.Keyword("update"), ..rest] -> {
+      let #(table_name_opt, after_table) = read_table_name(rest)
+      case table_name_opt {
+        None -> query_ir.UnstructuredStatement(tokens:)
+        Some(name) -> {
+          let #(set_tokens, after_set) = case
+            skip_to_keyword(after_table, "set")
+          {
+            Some(after_set_kw) ->
+              collect_until_keyword(after_set_kw, ["where", "returning", "from"])
+            None -> #([], after_table)
+          }
+          let #(where_tokens, _) =
+            extract_clause(after_set, "where", ["returning"])
+          let returning = extract_returning_tokens(tokens)
+          query_ir.UpdateStatement(
+            table_name: name,
+            set_tokens:,
+            where_tokens:,
+            returning_tokens: returning,
+          )
+        }
+      }
+    }
+    _ -> query_ir.UnstructuredStatement(tokens:)
+  }
+}
+
+// --- DELETE structuring ---
+
+fn structure_delete(tokens: List(lexer.Token)) -> query_ir.SqlStatement {
+  case tokens {
+    [lexer.Keyword("delete"), lexer.Keyword("from"), ..rest] -> {
+      let #(table_name_opt, after_table) = read_table_name(rest)
+      case table_name_opt {
+        None -> query_ir.UnstructuredStatement(tokens:)
+        Some(name) -> {
+          let #(where_tokens, _after_where) =
+            extract_clause(after_table, "where", ["returning"])
+          let returning = extract_returning_tokens(tokens)
+          query_ir.DeleteStatement(
+            table_name: name,
+            where_tokens:,
+            returning_tokens: returning,
+          )
+        }
+      }
+    }
+    _ -> query_ir.UnstructuredStatement(tokens:)
+  }
+}
+
+// --- Clause extraction helpers ---
+
+/// Collect tokens until one of the stop keywords is found at depth 0.
+fn collect_until_keyword(
+  tokens: List(lexer.Token),
+  stop_keywords: List(String),
+) -> #(List(lexer.Token), List(lexer.Token)) {
+  collect_until_kw_loop(tokens, stop_keywords, 0, [])
+}
+
+fn collect_until_kw_loop(
+  tokens: List(lexer.Token),
+  stop_keywords: List(String),
+  depth: Int,
+  acc: List(lexer.Token),
+) -> #(List(lexer.Token), List(lexer.Token)) {
+  case tokens {
+    [] -> #(list.reverse(acc), [])
+    [lexer.Keyword(kw), ..] if depth == 0 ->
+      case list.contains(stop_keywords, kw) {
+        True -> #(list.reverse(acc), tokens)
+        False ->
+          case tokens {
+            [t, ..rest] ->
+              collect_until_kw_loop(rest, stop_keywords, depth, [t, ..acc])
+            _ -> #(list.reverse(acc), [])
+          }
+      }
+    [lexer.LParen, ..rest] ->
+      collect_until_kw_loop(rest, stop_keywords, depth + 1, [
+        lexer.LParen,
+        ..acc
+      ])
+    [lexer.RParen, ..rest] ->
+      collect_until_kw_loop(rest, stop_keywords, depth - 1, [
+        lexer.RParen,
+        ..acc
+      ])
+    [t, ..rest] -> collect_until_kw_loop(rest, stop_keywords, depth, [t, ..acc])
+  }
+}
+
+/// Extract a clause that starts with `keyword` and ends before any of `stop_keywords`.
+fn extract_clause(
+  tokens: List(lexer.Token),
+  keyword: String,
+  stop_keywords: List(String),
+) -> #(Option(List(lexer.Token)), List(lexer.Token)) {
+  case tokens {
+    [lexer.Keyword(kw), ..rest] if kw == keyword -> {
+      // For GROUP BY / ORDER BY, also skip the "by" keyword
+      let after_kw = case kw, rest {
+        "group", [lexer.Keyword("by"), ..r] -> r
+        "order", [lexer.Keyword("by"), ..r] -> r
+        _, _ -> rest
+      }
+      let #(clause_tokens, remaining) =
+        collect_until_keyword(after_kw, stop_keywords)
+      case clause_tokens {
+        [] -> #(None, remaining)
+        _ -> #(Some(clause_tokens), remaining)
+      }
+    }
+    _ -> #(None, tokens)
+  }
+}
+
+fn skip_to_keyword(
+  tokens: List(lexer.Token),
+  keyword: String,
+) -> Option(List(lexer.Token)) {
+  case tokens {
+    [] -> None
+    [lexer.Keyword(kw), ..rest] if kw == keyword -> Some(rest)
+    [_, ..rest] -> skip_to_keyword(rest, keyword)
+  }
+}
+
+fn extract_returning_tokens(
+  tokens: List(lexer.Token),
+) -> Option(List(lexer.Token)) {
+  case skip_to_keyword(tokens, "returning") {
+    Some(after_returning) ->
+      case after_returning {
+        [] -> None
+        toks -> Some(toks)
+      }
+    None -> None
   }
 }

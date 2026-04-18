@@ -177,92 +177,96 @@ fn param_accessors(
   |> list.map(render_param_value(_, type_mapping))
 }
 
-fn render_param_value(
-  param: model.QueryParam,
-  type_mapping: model.TypeMapping,
-) -> String {
-  let value_expr = "params." <> param.field_name
-  let runtime_fn =
-    type_mapping.scalar_type_to_runtime_function(param.scalar_type)
+// ============================================================
+// ValueEncoder — abstract encoding strategy
+// ============================================================
 
-  case param.scalar_type {
+/// Describes how a parameter value should be encoded, separating
+/// the *what* (encoding strategy) from the *how* (Gleam source rendering).
+type ValueEncoder {
+  /// A direct runtime call: `runtime.string(value)`
+  DirectEncode(runtime_fn: String)
+  /// Unwrap through a model function first: `runtime.int(models.unwrap(value))`
+  UnwrapEncode(runtime_fn: String, unwrap_fn: String)
+  /// Encode an enum: `runtime.string(models.status_to_string(value))`
+  EnumEncode(runtime_fn: String, to_string_fn: String)
+  /// Encode an array: `runtime.array(list.map(value, element_encoder))`
+  ArrayEncode(element_encoder: ValueEncoder)
+}
+
+/// Determine the encoding strategy for a scalar type.
+fn plan_encoding(
+  scalar_type: model.ScalarType,
+  type_mapping_mode: model.TypeMapping,
+) -> ValueEncoder {
+  case scalar_type {
     model.EnumType(name) -> {
-      let to_string_fn = "models." <> type_mapping.enum_to_string_fn(name)
-      let encode_fn =
-        "fn(v) { " <> runtime_fn <> "(" <> to_string_fn <> "(v)) }"
-      case param.nullable {
-        True -> "runtime.nullable(" <> value_expr <> ", " <> encode_fn <> ")"
-        False -> runtime_fn <> "(" <> to_string_fn <> "(" <> value_expr <> "))"
-      }
+      let runtime_fn = type_mapping.scalar_type_to_runtime_function(scalar_type)
+      let to_str = "models." <> type_mapping.enum_to_string_fn(name)
+      EnumEncode(runtime_fn:, to_string_fn: to_str)
     }
     model.ArrayType(element) -> {
-      let mapper = render_array_element_mapper(element, type_mapping)
-      let array_expr =
-        "runtime.array(list.map(" <> value_expr <> ", " <> mapper <> "))"
-      case param.nullable {
-        True ->
-          "runtime.nullable("
-          <> value_expr
-          <> ", fn(v) { runtime.array(list.map(v, "
-          <> mapper
-          <> ")) })"
-        False -> array_expr
-      }
+      let inner = plan_encoding(element, type_mapping_mode)
+      ArrayEncode(element_encoder: inner)
     }
     _ -> {
-      let unwrap = strong_unwrap_expr(param.scalar_type, type_mapping)
-      case param.nullable {
-        True -> {
-          let encode_fn = case unwrap {
-            option.None -> runtime_fn
+      let runtime_fn = type_mapping.scalar_type_to_runtime_function(scalar_type)
+      case type_mapping_mode {
+        model.StrongMapping ->
+          case type_mapping.strong_type_unwrap_fn(scalar_type) {
             option.Some(fn_name) ->
-              "fn(v) { " <> runtime_fn <> "(" <> fn_name <> "(v)) }"
+              UnwrapEncode(runtime_fn:, unwrap_fn: "models." <> fn_name)
+            option.None -> DirectEncode(runtime_fn:)
           }
-          "runtime.nullable(" <> value_expr <> ", " <> encode_fn <> ")"
-        }
-        False ->
-          case unwrap {
-            option.None -> runtime_fn <> "(" <> value_expr <> ")"
-            option.Some(fn_name) ->
-              runtime_fn <> "(" <> fn_name <> "(" <> value_expr <> "))"
-          }
+        _ -> DirectEncode(runtime_fn:)
       }
     }
   }
 }
 
-fn strong_unwrap_expr(
-  scalar_type: model.ScalarType,
-  type_mapping: model.TypeMapping,
-) -> option.Option(String) {
-  case type_mapping {
-    model.StrongMapping ->
-      case type_mapping.strong_type_unwrap_fn(scalar_type) {
-        option.Some(fn_name) -> option.Some("models." <> fn_name)
-        option.None -> option.None
-      }
-    _ -> option.None
+/// Render the encoder as a function expression (for use in callbacks).
+fn render_encoder_fn(encoder: ValueEncoder) -> String {
+  case encoder {
+    DirectEncode(runtime_fn:) -> runtime_fn
+    UnwrapEncode(runtime_fn:, unwrap_fn:) ->
+      "fn(v) { " <> runtime_fn <> "(" <> unwrap_fn <> "(v)) }"
+    EnumEncode(runtime_fn:, to_string_fn:) ->
+      "fn(v) { " <> runtime_fn <> "(" <> to_string_fn <> "(v)) }"
+    ArrayEncode(element_encoder:) -> {
+      let mapper = render_encoder_fn(element_encoder)
+      "fn(v) { runtime.array(list.map(v, " <> mapper <> ")) }"
+    }
   }
 }
 
-fn render_array_element_mapper(
-  element: model.ScalarType,
-  type_mapping: model.TypeMapping,
+/// Render a direct application of the encoder to a value expression.
+fn render_encoder_apply(encoder: ValueEncoder, value_expr: String) -> String {
+  case encoder {
+    DirectEncode(runtime_fn:) -> runtime_fn <> "(" <> value_expr <> ")"
+    UnwrapEncode(runtime_fn:, unwrap_fn:) ->
+      runtime_fn <> "(" <> unwrap_fn <> "(" <> value_expr <> "))"
+    EnumEncode(runtime_fn:, to_string_fn:) ->
+      runtime_fn <> "(" <> to_string_fn <> "(" <> value_expr <> "))"
+    ArrayEncode(element_encoder:) -> {
+      let mapper = render_encoder_fn(element_encoder)
+      "runtime.array(list.map(" <> value_expr <> ", " <> mapper <> "))"
+    }
+  }
+}
+
+fn render_param_value(
+  param: model.QueryParam,
+  type_mapping_mode: model.TypeMapping,
 ) -> String {
-  let runtime_fn = type_mapping.scalar_type_to_runtime_function(element)
-  case element {
-    model.EnumType(name) -> {
-      let to_str = "models." <> type_mapping.enum_to_string_fn(name)
-      "fn(v) { " <> runtime_fn <> "(" <> to_str <> "(v)) }"
+  let value_expr = "params." <> param.field_name
+  let encoder = plan_encoding(param.scalar_type, type_mapping_mode)
+
+  case param.nullable {
+    True -> {
+      let encode_fn = render_encoder_fn(encoder)
+      "runtime.nullable(" <> value_expr <> ", " <> encode_fn <> ")"
     }
-    _ -> {
-      let unwrap = strong_unwrap_expr(element, type_mapping)
-      case unwrap {
-        option.None -> runtime_fn
-        option.Some(fn_name) ->
-          "fn(v) { " <> runtime_fn <> "(" <> fn_name <> "(v)) }"
-      }
-    }
+    False -> render_encoder_apply(encoder, value_expr)
   }
 }
 
@@ -283,9 +287,10 @@ fn param_accessors_flattened(
 
 fn render_list_param_mapper(
   param: model.QueryParam,
-  type_mapping: model.TypeMapping,
+  type_mapping_mode: model.TypeMapping,
 ) -> String {
   let value_expr = "params." <> param.field_name
-  let mapper = render_array_element_mapper(param.scalar_type, type_mapping)
+  let encoder = plan_encoding(param.scalar_type, type_mapping_mode)
+  let mapper = render_encoder_fn(encoder)
   "list.map(" <> value_expr <> ", " <> mapper <> ")"
 }

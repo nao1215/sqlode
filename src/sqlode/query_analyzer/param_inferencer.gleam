@@ -8,6 +8,7 @@ import sqlode/model
 import sqlode/query_analyzer/context.{type AnalyzerContext}
 import sqlode/query_analyzer/placeholder
 import sqlode/query_analyzer/token_utils
+import sqlode/query_ir
 
 pub fn infer_insert_params(
   _ctx: AnalyzerContext,
@@ -29,6 +30,31 @@ pub fn infer_insert_params(
       )
       |> list.reverse
     None -> []
+  }
+}
+
+/// Structured IR variant of `infer_insert_params`. Consumes the
+/// pre-parsed `InsertStatement` directly instead of re-scanning
+/// the token list.
+pub fn infer_insert_params_from_ir(
+  engine: model.Engine,
+  statement: query_ir.SqlStatement,
+  catalog: model.Catalog,
+) -> List(#(Int, model.Column)) {
+  case statement {
+    query_ir.InsertStatement(table_name:, columns:, value_groups:, ..) ->
+      map_insert_columns(
+        engine,
+        catalog,
+        table_name,
+        columns,
+        value_groups,
+        1,
+        dict.new(),
+        [],
+      )
+      |> list.reverse
+    _ -> []
   }
 }
 

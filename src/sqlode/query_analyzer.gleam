@@ -10,6 +10,7 @@ import sqlode/query_analyzer/context
 import sqlode/query_analyzer/embed_rewriter
 import sqlode/query_analyzer/param_inferencer
 import sqlode/query_analyzer/placeholder
+import sqlode/query_analyzer/token_utils
 import sqlode/query_ir
 
 pub type AnalysisError =
@@ -36,6 +37,7 @@ fn analyze_query(
   tq: query_ir.TokenizedQuery,
 ) -> Result(model.AnalyzedQuery, AnalysisError) {
   let query_ir.TokenizedQuery(base: query, tokens: tokens) = tq
+  let statement = token_utils.structure_tokens(tokens)
   // Surface virtual tables the outer query references — CTEs, VALUES
   // in FROM, and derived-table subqueries — so both result-column and
   // parameter inference see them. Nested subqueries rediscover their
@@ -61,6 +63,7 @@ fn analyze_query(
     engine,
     query,
     tokens,
+    statement,
     augmented,
     occurrences,
   ))
@@ -123,12 +126,13 @@ fn build_params(
   engine: model.Engine,
   query: model.ParsedQuery,
   tokens: List(lexer.Token),
+  statement: query_ir.SqlStatement,
   catalog: model.Catalog,
   occurrences: List(placeholder.PlaceholderOccurrence),
 ) -> Result(List(model.QueryParam), context.AnalysisError) {
   let inferences =
     list.append(
-      param_inferencer.infer_insert_params(ctx, engine, tokens, catalog),
+      param_inferencer.infer_insert_params_from_ir(engine, statement, catalog),
       param_inferencer.infer_equality_params(ctx, engine, tokens, catalog),
     )
     |> list.append(param_inferencer.infer_in_params(
@@ -150,7 +154,7 @@ fn build_params(
     }),
   )
   let macro_dict = build_macro_dict(query.macros)
-  let inference_dict = build_inference_dict(inferences)
+  use inference_dict <- result.try(build_inference_dict(query.name, inferences))
 
   placeholder.unique(occurrences)
   |> list.try_map(fn(occurrence) {
@@ -228,13 +232,27 @@ fn build_macro_dict(macros: List(model.Macro)) -> dict.Dict(Int, model.Macro) {
 }
 
 fn build_inference_dict(
+  query_name: String,
   inferences: List(#(Int, model.Column)),
-) -> dict.Dict(Int, model.Column) {
-  list.fold(inferences, dict.new(), fn(d, entry) {
-    let #(index, column) = entry
-    case dict.has_key(d, index) {
-      True -> d
-      False -> dict.insert(d, index, column)
+) -> Result(dict.Dict(Int, model.Column), context.AnalysisError) {
+  list.try_fold(inferences, dict.new(), fn(d, entry) {
+    let #(index, model.Column(scalar_type: new_type, ..)) = entry
+    case dict.get(d, index) {
+      Ok(model.Column(scalar_type: existing_type, ..)) ->
+        case existing_type == new_type {
+          True -> Ok(d)
+          False ->
+            Error(context.ParameterTypeConflict(
+              query_name:,
+              param_index: index,
+              type_a: existing_type,
+              type_b: new_type,
+            ))
+        }
+      Error(_) -> {
+        let #(_, column) = entry
+        Ok(dict.insert(d, index, column))
+      }
     }
   })
 }

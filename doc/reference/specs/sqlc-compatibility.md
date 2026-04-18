@@ -43,6 +43,11 @@ sql:
 | `package` | Implemented | Package name for imports |
 | `out` | Implemented | Output directory |
 | `runtime` | Implemented | `raw`, `native` (`based` is rejected) |
+| `emit_exact_table_names` | Implemented | Use table names as-is instead of singularising |
+| `emit_sql_as_comment` | Implemented | Include SQL text as a comment in generated code |
+| `omit_unused_models` | Implemented | Only emit models referenced by generated queries |
+| `vendor_runtime` | Implemented | Copy runtime module into the output directory |
+| `strict_views` | Implemented | Promote view resolution warnings to errors |
 | `overrides.types` | Implemented | Map DB types to Gleam types (custom types must be transparent aliases, not opaque) |
 | `overrides.renames` | Implemented | Rename columns in result types |
 
@@ -50,8 +55,6 @@ sql:
 
 | Option | Status |
 |--------|--------|
-| `emit_exact_table_names` | Not implemented |
-| `emit_sql_as_comment` | Not implemented |
 | `query_parameter_limit` | Not implemented |
 | `database` | Not implemented (live DB analysis) |
 | `analyzer` | Not implemented |
@@ -93,20 +96,23 @@ Batch annotations and `:copyfrom` are also implemented:
 
 | Macro | Status | Notes |
 |-------|--------|-------|
-| `sqlc.arg(name)` | Implemented | Names a parameter |
-| `sqlc.narg(name)` | Implemented | Names a nullable parameter |
-| `sqlc.slice(name)` | Implemented | Expands to list parameter |
-| `sqlc.embed(table)` | Implemented | Flattens all table columns into result |
+| `sqlode.arg(name)` | Implemented | Names a parameter |
+| `sqlode.narg(name)` | Implemented | Names a nullable parameter |
+| `sqlode.slice(name)` | Implemented | Expands to list parameter |
+| `sqlode.embed(table)` | Implemented | Flattens all table columns into result |
+
+The `sqlc.*` prefix is also accepted for backward compatibility.
 
 ### Compatibility notes
 
-- `sqlc.arg` and `sqlc.narg` are expanded by the query parser into
-  engine-appropriate placeholders (`$N` for PostgreSQL, `?` for MySQL,
-  `?N` for SQLite).
-- `sqlc.embed` flattens all columns from the embedded table into the
+- `sqlode.arg` and `sqlode.narg` are expanded by the query parser into
+  engine-agnostic markers (`__sqlode_param_N__`). These are substituted
+  with engine-specific placeholders (`$N` for PostgreSQL, `?` for SQLite)
+  by `runtime.prepare` at runtime.
+- `sqlode.embed` flattens all columns from the embedded table into the
   result type. **Note:** This differs from sqlc's Go behavior which
   produces nested structs. Gleam does not have implicit struct embedding.
-- `sqlc.slice` generates a `List(T)` parameter type.
+- `sqlode.slice` generates a `List(T)` parameter type.
 - `@name` shorthand is supported on PostgreSQL and SQLite (not MySQL).
 
 ## Type mapping
@@ -131,9 +137,13 @@ Nullable columns (without `NOT NULL`) are wrapped in `Option(T)`.
 
 Type overrides allow remapping DB types to different Gleam types.
 
+### Implemented type extensions
+
+- PostgreSQL arrays (`TEXT ARRAY`, `BIGINT ARRAY`, etc.) — mapped to `List(T)` / `Option(List(T))`
+- Arrays are only supported with the PostgreSQL engine; SQLite and MySQL reject array parameters at generation time
+
 ### Not yet implemented
 
-- PostgreSQL arrays
 - MySQL `ENUM` / `SET`
 - SQLite affinity-based typing edge cases
 
