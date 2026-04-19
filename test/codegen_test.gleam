@@ -666,7 +666,11 @@ pub fn render_enum_decoder_uses_decode_then_test() {
   |> should.be_true()
   string.contains(rendered, "decode.success(v)")
   |> should.be_true()
-  string.contains(rendered, "decode.failure(s")
+  // Error branch must pass a typed zero (the generated
+  // `<name>_default()` helper), not the raw decoded string, so the
+  // case expression type-checks as `Decoder(<EnumType>)` rather than
+  // `Decoder(String)`.
+  string.contains(rendered, "decode.failure(models.status_default()")
   |> should.be_true()
 
   // Should NOT use decode.map for enum decoding

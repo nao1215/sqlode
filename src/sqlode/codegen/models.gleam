@@ -126,6 +126,12 @@ fn render_enum_type(enum_def: model.EnumDef) -> String {
   let type_name = type_mapping.enum_type_name(enum_def.name)
   let to_string_fn = type_mapping.enum_to_string_fn(enum_def.name)
   let from_string_fn = type_mapping.enum_from_string_fn(enum_def.name)
+  let default_fn = type_mapping.enum_default_fn(enum_def.name)
+
+  let first_variant = case enum_def.values {
+    [first, ..] -> type_mapping.enum_value_name(first)
+    [] -> type_name
+  }
 
   let constructors =
     builder.lines(list.map(enum_def.values, type_mapping.enum_value_name))
@@ -173,6 +179,15 @@ fn render_enum_type(enum_def: model.EnumDef) -> String {
       "    _ -> Error(\"Unknown " <> enum_def.name <> " value: \" <> value)",
     ),
     builder.line("  }"),
+    builder.line("}"),
+    builder.blank(),
+    // `<name>_default()` is the first variant in declaration order.
+    // Used as the `decode.failure` fallback for generated decoders —
+    // `decode.failure` requires a zero of the target type, and hard-
+    // coding the first variant keeps the generated code
+    // type-checked without the caller needing to pick one at runtime.
+    builder.line("pub fn " <> default_fn <> "() -> " <> type_name <> " {"),
+    builder.line("  " <> first_variant),
     builder.line("}"),
   ])
   |> builder.render
