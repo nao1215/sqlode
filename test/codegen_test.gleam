@@ -1275,3 +1275,100 @@ pub fn render_mysql_inline_set_emits_value_type_and_helpers_test() {
   string.contains(rendered, "items_tags_set_from_string")
   |> should.be_true()
 }
+
+// --- Issue #418: MySQL native adapter codegen ---
+
+pub fn render_mysql_native_adapter_uses_gmysql_test() {
+  // The MySQL adapter is no longer a stub. It must import gmysql,
+  // bind parameters via runtime.prepare → value_to_gmysql, and use
+  // gmysql.query as the execution primitive.
+  let naming_ctx = naming.new()
+  let catalog = mysql_native_catalog()
+  let queries = mysql_native_queries(naming_ctx, catalog)
+  let block = mysql_native_block()
+  let rendered = adapter.render(naming_ctx, block, queries, dict.new())
+
+  string.contains(rendered, "import gmysql") |> should.be_true()
+  string.contains(rendered, "value_to_gmysql") |> should.be_true()
+  string.contains(rendered, "gmysql.query(") |> should.be_true()
+  // The stub message must not be present anywhere.
+  string.contains(rendered, "MySQL adapter generation is not yet available")
+  |> should.be_false()
+}
+
+pub fn render_mysql_native_adapter_emits_last_insert_id_test() {
+  // :execlastid must call SELECT LAST_INSERT_ID() after the INSERT,
+  // not rely on a client-side counter.
+  let naming_ctx = naming.new()
+  let catalog = mysql_native_catalog()
+  let queries = mysql_native_queries(naming_ctx, catalog)
+  let block = mysql_native_block()
+  let rendered = adapter.render(naming_ctx, block, queries, dict.new())
+
+  string.contains(rendered, "SELECT LAST_INSERT_ID()") |> should.be_true()
+}
+
+pub fn render_mysql_native_adapter_emits_row_count_for_execrows_test() {
+  // :execrows must call SELECT ROW_COUNT() after the statement,
+  // matching the sqlight changes() pattern.
+  let naming_ctx = naming.new()
+  let catalog = mysql_native_catalog()
+  let queries = mysql_native_queries(naming_ctx, catalog)
+  let block = mysql_native_block()
+  let rendered = adapter.render(naming_ctx, block, queries, dict.new())
+
+  string.contains(rendered, "SELECT ROW_COUNT()") |> should.be_true()
+}
+
+fn mysql_native_catalog() -> model.Catalog {
+  let assert Ok(content) = simplifile.read("test/fixtures/mysql_schema.sql")
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files_with_engine(
+      [#("test/fixtures/mysql_schema.sql", content)],
+      model.MySQL,
+    )
+  catalog
+}
+
+fn mysql_native_queries(
+  naming_ctx: naming.NamingContext,
+  catalog: model.Catalog,
+) -> List(model.AnalyzedQuery) {
+  let sql =
+    "-- name: GetAuthor :one\n"
+    <> "SELECT id, name, bio, created_at FROM authors WHERE id = ?;\n"
+    <> "-- name: ListAuthors :many\n"
+    <> "SELECT id, name FROM authors ORDER BY id;\n"
+    <> "-- name: CreateAuthor :execlastid\n"
+    <> "INSERT INTO authors (name, bio, created_at) VALUES (?, ?, ?);\n"
+    <> "-- name: DeleteAuthor :exec\n"
+    <> "DELETE FROM authors WHERE id = ?;\n"
+    <> "-- name: UpdateBio :execrows\n"
+    <> "UPDATE authors SET bio = ? WHERE id = ?;\n"
+  let assert Ok(parsed) =
+    query_parser.parse_file("q.sql", model.MySQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(model.MySQL, catalog, naming_ctx, parsed)
+  analyzed
+}
+
+fn mysql_native_block() -> model.SqlBlock {
+  model.SqlBlock(
+    name: None,
+    engine: model.MySQL,
+    schema: ["test/fixtures/mysql_schema.sql"],
+    queries: ["q.sql"],
+    gleam: model.GleamOutput(
+      out: "src/db",
+      runtime: model.Native,
+      type_mapping: model.StringMapping,
+      emit_sql_as_comment: False,
+      emit_exact_table_names: False,
+      omit_unused_models: False,
+      vendor_runtime: False,
+      strict_views: True,
+      query_parameter_limit: option.None,
+    ),
+    overrides: model.empty_overrides(),
+  )
+}

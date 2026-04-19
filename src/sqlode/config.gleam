@@ -135,15 +135,6 @@ fn parse_sql_block(node: yay.Node) -> Result(model.SqlBlock, ConfigError) {
     None -> Ok(model.Raw)
   })
 
-  use _ <- result.try(case engine, runtime {
-    model.MySQL, model.Native ->
-      Error(InvalidValue(
-        field: "sql.gen.gleam.runtime",
-        detail: "MySQL does not support runtime: \"native\" because no Gleam MySQL driver is available; use runtime: \"raw\" instead",
-      ))
-    _, _ -> Ok(Nil)
-  })
-
   use type_mapping <- result.try(
     case optional_string(gleam_node, "type_mapping") {
       Some(value) ->
