@@ -17,7 +17,7 @@ pub fn queries_have_enum_params(queries: List(model.AnalyzedQuery)) -> Bool {
   list.any(queries, fn(query) {
     list.any(query.params, fn(param) {
       case param.scalar_type {
-        model.EnumType(_) -> True
+        model.EnumType(_) | model.SetType(_) -> True
         _ -> False
       }
     })
@@ -28,7 +28,7 @@ pub fn queries_have_enums(queries: List(model.AnalyzedQuery)) -> Bool {
   list.any(queries, fn(query) {
     list.any(query.params, fn(param) {
       case param.scalar_type {
-        model.EnumType(_) -> True
+        model.EnumType(_) | model.SetType(_) -> True
         _ -> False
       }
     })
@@ -36,6 +36,10 @@ pub fn queries_have_enums(queries: List(model.AnalyzedQuery)) -> Bool {
       case col {
         model.ScalarResult(model.ResultColumn(
           scalar_type: model.EnumType(_),
+          ..,
+        ))
+        | model.ScalarResult(model.ResultColumn(
+          scalar_type: model.SetType(_),
           ..,
         )) -> True
         _ -> False
