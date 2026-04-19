@@ -92,7 +92,7 @@ _integration_driver_dep() {
   case "$1:$2" in
     native:postgresql) printf 'pog = ">= 4.0.0 and < 5.0.0"\n' ;;
     native:sqlite) printf 'sqlight = ">= 1.0.0 and < 2.0.0"\n' ;;
-    native:mysql) printf 'gmysql = ">= 1.0.0 and < 2.0.0"\n' ;;
+    native:mysql) printf 'shork = ">= 1.0.0 and < 2.0.0"\n' ;;
     *) printf '' ;;
   esac
 }

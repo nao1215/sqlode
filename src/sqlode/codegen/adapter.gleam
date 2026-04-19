@@ -80,7 +80,7 @@ pub fn render(
         block,
         queries,
         table_matches,
-        gmysql_adapter_config(),
+        shork_adapter_config(),
       )
   }
 }
@@ -156,39 +156,40 @@ fn sqlight_value_to_driver_helper() -> String {
 }"
 }
 
-fn gmysql_adapter_config() -> AdapterConfig {
+fn shork_adapter_config() -> AdapterConfig {
   AdapterConfig(
-    library_import: "import gmysql",
-    connection_type: "gmysql.Connection",
-    error_type: "gmysql.Error",
+    library_import: "import shork",
+    connection_type: "shork.Connection",
+    error_type: "shork.QueryError",
     value_function: type_mapping.scalar_type_to_value_function(model.MySQL, _),
     decoder_function: type_mapping.scalar_type_to_decoder(model.MySQL, _),
-    render_params: render_gmysql_params,
-    render_query_call: render_gmysql_query_call,
-    render_one_result: render_gmysql_one_result,
-    render_many_result: render_gmysql_many_result,
-    render_exec_rows_result: render_gmysql_exec_rows_result,
-    render_exec_last_id: render_gmysql_exec_last_id,
+    render_params: render_shork_params,
+    render_query_call: render_shork_query_call,
+    render_one_result: render_shork_one_result,
+    render_many_result: render_shork_many_result,
+    render_exec_rows_result: render_shork_exec_rows_result,
+    render_exec_last_id: render_shork_exec_last_id,
     placeholder_prefix: "?",
-    value_to_driver_helper: gmysql_value_to_driver_helper(),
+    value_to_driver_helper: shork_value_to_driver_helper(),
   )
 }
 
-/// Encode a `runtime.Value` into a `gmysql.Param`. SqlArray is not
-/// supported because MySQL has no first-class array type; the
-/// generated query layer never emits SqlArray for MySQL targets, but
-/// we still need a total function to match the helper contract.
-/// Bytes are passed via `gmysql.to_param` on the underlying BitArray.
-fn gmysql_value_to_driver_helper() -> String {
-  "fn value_to_gmysql(value: runtime.Value) -> gmysql.Param {
+/// Encode a `runtime.Value` into a `shork.Value`. shork's public
+/// `Value` type does not (yet) expose a bytes/blob constructor, so
+/// `SqlBytes` falls back to `shork.null()` — bytes columns in native
+/// MySQL mode round-trip as NULL until the driver grows a bytes
+/// helper. SqlArray likewise resolves to NULL because MySQL has no
+/// first-class array type.
+fn shork_value_to_driver_helper() -> String {
+  "fn value_to_shork(value: runtime.Value) -> shork.Value {
   case value {
-    runtime.SqlNull -> gmysql.to_param(option.None: option.Option(String))
-    runtime.SqlString(v) -> gmysql.to_param(v)
-    runtime.SqlInt(v) -> gmysql.to_param(v)
-    runtime.SqlFloat(v) -> gmysql.to_param(v)
-    runtime.SqlBool(v) -> gmysql.to_param(v)
-    runtime.SqlBytes(v) -> gmysql.to_param(v)
-    runtime.SqlArray(_) -> gmysql.to_param(option.None: option.Option(String))
+    runtime.SqlNull -> shork.null()
+    runtime.SqlString(v) -> shork.text(v)
+    runtime.SqlInt(v) -> shork.int(v)
+    runtime.SqlFloat(v) -> shork.float(v)
+    runtime.SqlBool(v) -> shork.bool(v)
+    runtime.SqlBytes(_) -> shork.null()
+    runtime.SqlArray(_) -> shork.null()
   }
 }"
 }
@@ -236,16 +237,6 @@ fn render_adapter(
       ["import gleam/result"],
       case needs_option_import_for_adapter(queries) {
         True -> ["import gleam/option.{type Option, None, Some}"]
-        False -> []
-      },
-      // The MySQL adapter encodes `SqlNull` as `option.None` because
-      // gmysql has no first-class null helper, so option must always
-      // be imported even when the queries themselves carry no
-      // nullable params or results.
-      case
-        block.engine == model.MySQL && !needs_option_import_for_adapter(queries)
-      {
-        True -> ["import gleam/option"]
         False -> []
       },
       [config.library_import],
@@ -914,97 +905,75 @@ fn render_sqlight_exec_last_id(
 }
 
 // ============================================================
-// gmysql-specific rendering
+// shork-specific rendering
 // ============================================================
 
-fn render_gmysql_query_call(
+fn render_shork_query_call(
   _fn_name: String,
   _params_str: String,
   decoder: String,
   _sql_expr: String,
   params: List(model.QueryParam),
 ) -> List(String) {
-  let prepare_line = case list.is_empty(params) {
-    True -> "  let #(sql, values) = runtime.prepare(q, Nil)"
-    False -> "  let #(sql, values) = runtime.prepare(q, p)"
-  }
-  [
-    prepare_line,
-    "  gmysql.query(",
-    "    sql,",
-    "    on: db,",
-    "    with: list.map(values, value_to_gmysql),",
-    "    expecting: " <> decoder <> ",",
-    "  )",
-  ]
+  list.flatten([
+    render_prepare_lines("shork", "value_to_shork", params),
+    ["  |> shork.returning(" <> decoder <> ")", "  |> shork.execute(db)"],
+  ])
 }
 
 /// Unused under the prepare-and-fold adapter shape; kept so the
 /// AdapterConfig record shape stays uniform across drivers.
-fn render_gmysql_params(
+fn render_shork_params(
   _params: List(model.QueryParam),
   _prefix: String,
 ) -> String {
   ""
 }
 
-fn render_gmysql_one_result() -> List(String) {
-  render_one_result_with("rows", "rows")
+fn render_shork_one_result() -> List(String) {
+  render_one_result_with("returned", "returned.rows")
 }
 
-fn render_gmysql_many_result() -> List(String) {
-  []
+fn render_shork_many_result() -> List(String) {
+  ["  |> result.map(fn(returned) { returned.rows })"]
 }
 
-/// MySQL exposes the affected-row count of the last statement via the
-/// `ROW_COUNT()` function. Run the statement, then issue a single
-/// `SELECT ROW_COUNT()` follow-up — the same shape the sqlight
-/// adapter uses with `changes()`.
-fn render_gmysql_exec_rows_result() -> List(String) {
+/// shork's `Returned` exposes `rows` and `column_names`, but not an
+/// affected-row count. MySQL's `SELECT ROW_COUNT()` returns the
+/// previous statement's row count, so for `:execrows` we run the
+/// original statement first, then issue a one-row follow-up — the
+/// same shape the sqlight adapter uses with `changes()`.
+fn render_shork_exec_rows_result() -> List(String) {
   list.flatten([
     [
       "  |> result.try(fn(_) {",
-      "    gmysql.query(",
-      "      \"SELECT ROW_COUNT()\",",
-      "      on: db,",
-      "      with: [],",
-      "      expecting: decode.at([0], decode.int),",
-      "    )",
+      "    shork.query(\"SELECT ROW_COUNT()\")",
+      "    |> shork.returning(decode.at([0], decode.int))",
+      "    |> shork.execute(db)",
       "  })",
     ],
-    render_first_or_default("rows", "rows", "0"),
+    render_first_or_default("returned", "returned.rows", "0"),
   ])
 }
 
-fn render_gmysql_exec_last_id(
+fn render_shork_exec_last_id(
   _fn_name: String,
   _params_str: String,
   _sql_expr: String,
   params: List(model.QueryParam),
 ) -> List(String) {
-  let prepare_line = case list.is_empty(params) {
-    True -> "  let #(sql, values) = runtime.prepare(q, Nil)"
-    False -> "  let #(sql, values) = runtime.prepare(q, p)"
-  }
   list.flatten([
+    render_prepare_lines("shork", "value_to_shork", params),
     [
-      prepare_line,
-      "  gmysql.query(",
-      "    sql,",
-      "    on: db,",
-      "    with: list.map(values, value_to_gmysql),",
-      "    expecting: decode.success(Nil),",
-      "  )",
+      "  |> shork.returning(decode.success(Nil))",
+      "  |> shork.execute(db)",
       "  |> result.try(fn(_) {",
-      "    gmysql.query(",
-      "      \"SELECT LAST_INSERT_ID()\",",
-      "      on: db,",
-      "      with: [],",
-      "      expecting: decode.at([0], decode.int),",
-      "    )",
+      "    shork.query(\"SELECT LAST_INSERT_ID()\")",
+      "    |> shork.returning(decode.at([0], decode.int))",
+      "    |> shork.execute(db)",
       "  })",
     ],
-    render_first_or_default("rows", "rows", "0"),
+    render_first_or_default("returned", "returned.rows", "0"),
   ])
 }
 

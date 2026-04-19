@@ -12,7 +12,7 @@ sqlode reads SQL schema and query files, then generates typed Gleam code. The wo
 > `sqlode.embed(table)`). The `sqlc.*` prefix is not supported.
 
 Supported engines (raw + native): PostgreSQL (`pog`), MySQL 8.0
-(`gmysql`), SQLite (`sqlight`). See
+(`shork`), SQLite (`sqlight`). See
 [`doc/capabilities.md`](doc/capabilities.md) for the full
 engine/runtime support matrix and per-engine query-annotation
 details.
@@ -285,16 +285,21 @@ re-running `sqlode generate` to pick up runtime changes.
 When `runtime` is set to `native`, sqlode generates adapter modules
 that wrap [pog](https://hexdocs.pm/pog/) (PostgreSQL),
 [sqlight](https://hexdocs.pm/sqlight/) (SQLite), or
-[gmysql](https://hexdocs.pm/gmysql/) (MySQL 8.0). The MySQL adapter
+[shork](https://hexdocs.pm/shork/) (MySQL 8.0). The MySQL adapter
 follows the same shape as the others — `:execrows` is implemented via
 `SELECT ROW_COUNT()` and `:execlastid` via `SELECT LAST_INSERT_ID()`,
-both invoked through the underlying `gmysql` connection — so callers
+both invoked through the underlying `shork` connection — so callers
 do not need to know the MySQL wire protocol.
 
 > **Out of scope (today):** MariaDB is not separately validated; the
 > `mysql` engine targets MySQL 8.0 specifically. `:execresult` is
 > rejected for every native target — use `:exec`, `:execrows`, or
-> `:execlastid` instead.
+> `:execlastid` instead. `BLOB` / `BINARY` columns are encoded as
+> NULL by the generated MySQL adapter because shork's public `Value`
+> type does not yet expose a bytes constructor — schemas with bytes
+> columns parse and generate cleanly, but the native round-trip is
+> a documented gap until shork (or our adapter) gains a bytes
+> encoder.
 
 ```yaml
 gen:
@@ -389,7 +394,7 @@ pub fn main() {
 
 The MySQL engine works in both runtime modes. The raw runtime gives
 you the prepared SQL plus encoded params; the native runtime
-generates a `mysql_adapter` module that wraps `gmysql`.
+generates a `mysql_adapter` module that wraps `shork`.
 
 ##### MySQL raw mode
 
@@ -438,10 +443,10 @@ sql:
 import db/mysql_adapter
 import db/params
 import gleam/option
-import gmysql
+import shork
 
 pub fn main() {
-  let assert Ok(db) = gmysql.connect(gmysql.default_config())
+  let assert Ok(db) = shork.connect(shork.default_config())
 
   // :execlastid — returns the AUTO_INCREMENT id of the new row.
   let assert Ok(id) =
@@ -456,7 +461,7 @@ pub fn main() {
       ),
     )
 
-  // :one — returns Result(Option(Row), gmysql.Error).
+  // :one — returns Result(Option(Row), shork.QueryError).
   let assert Ok(option.Some(author)) =
     mysql_adapter.get_author(db, params.GetAuthorParams(id:))
   let _ = author.display_name
@@ -466,13 +471,13 @@ pub fn main() {
 
 #### Return types by annotation
 
-| Annotation | sqlight return type | pog return type | gmysql return type |
+| Annotation | sqlight return type | pog return type | shork return type |
 |---|---|---|---|
-| `:one` | `Result(Option(Row), sqlight.Error)` | `Result(Option(Row), pog.QueryError)` | `Result(Option(Row), gmysql.Error)` |
-| `:many` | `Result(List(Row), sqlight.Error)` | `Result(List(Row), pog.QueryError)` | `Result(List(Row), gmysql.Error)` |
-| `:exec` | `Result(Nil, sqlight.Error)` | `Result(Nil, pog.QueryError)` | `Result(Nil, gmysql.Error)` |
-| `:execrows` | `Result(Int, sqlight.Error)` | `Result(Int, pog.QueryError)` | `Result(Int, gmysql.Error)` |
-| `:execlastid` | `Result(Int, sqlight.Error)` | `Result(Int, pog.QueryError)` | `Result(Int, gmysql.Error)` |
+| `:one` | `Result(Option(Row), sqlight.Error)` | `Result(Option(Row), pog.QueryError)` | `Result(Option(Row), shork.QueryError)` |
+| `:many` | `Result(List(Row), sqlight.Error)` | `Result(List(Row), pog.QueryError)` | `Result(List(Row), shork.QueryError)` |
+| `:exec` | `Result(Nil, sqlight.Error)` | `Result(Nil, pog.QueryError)` | `Result(Nil, shork.QueryError)` |
+| `:execrows` | `Result(Int, sqlight.Error)` | `Result(Int, pog.QueryError)` | `Result(Int, shork.QueryError)` |
+| `:execlastid` | `Result(Int, sqlight.Error)` | `Result(Int, pog.QueryError)` | `Result(Int, shork.QueryError)` |
 
 `:batchone`, `:batchmany`, `:batchexec`, and `:copyfrom` are not yet implemented. Using them currently fails generation with an unsupported-annotation error. See the Planned annotations section below.
 

@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **End-to-end MySQL support** (#417 epic; #418, #419, #420, #421,
   #422, #423). MySQL is now a first-class engine in both `raw` and
   `native` runtime modes. The native MySQL adapter targets the
-  [`gmysql`](https://hexdocs.pm/gmysql/) Hex package; `:execrows` and
+  [`shork`](https://hexdocs.pm/shork/) Hex package; `:execrows` and
   `:execlastid` resolve via `SELECT ROW_COUNT()` / `SELECT
   LAST_INSERT_ID()` follow-up queries. The previous config guard
   rejecting `engine: "mysql"` + `runtime: "native"` is gone.

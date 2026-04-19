@@ -1278,19 +1278,21 @@ pub fn render_mysql_inline_set_emits_value_type_and_helpers_test() {
 
 // --- Issue #418: MySQL native adapter codegen ---
 
-pub fn render_mysql_native_adapter_uses_gmysql_test() {
-  // The MySQL adapter is no longer a stub. It must import gmysql,
-  // bind parameters via runtime.prepare → value_to_gmysql, and use
-  // gmysql.query as the execution primitive.
+pub fn render_mysql_native_adapter_uses_shork_test() {
+  // The MySQL adapter is no longer a stub. It imports shork, binds
+  // parameters via runtime.prepare → value_to_shork, and uses
+  // shork.query / shork.returning / shork.execute as the execution
+  // chain (mirroring the pog adapter shape).
   let naming_ctx = naming.new()
   let catalog = mysql_native_catalog()
   let queries = mysql_native_queries(naming_ctx, catalog)
   let block = mysql_native_block()
   let rendered = adapter.render(naming_ctx, block, queries, dict.new())
 
-  string.contains(rendered, "import gmysql") |> should.be_true()
-  string.contains(rendered, "value_to_gmysql") |> should.be_true()
-  string.contains(rendered, "gmysql.query(") |> should.be_true()
+  string.contains(rendered, "import shork") |> should.be_true()
+  string.contains(rendered, "value_to_shork") |> should.be_true()
+  string.contains(rendered, "shork.query(") |> should.be_true()
+  string.contains(rendered, "shork.execute(db)") |> should.be_true()
   // The stub message must not be present anywhere.
   string.contains(rendered, "MySQL adapter generation is not yet available")
   |> should.be_false()

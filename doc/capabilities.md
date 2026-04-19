@@ -20,7 +20,7 @@ update the capabilities module and run `just regen-capabilities`.
 | Engine | Raw | Native | Native driver |
 | --- | --- | --- | --- |
 | `postgresql` | yes | yes | `pog` |
-| `mysql` | yes | yes | `gmysql` |
+| `mysql` | yes | yes | `shork` |
 | `sqlite` | yes | yes | `sqlight` |
 
 ## Type mappings

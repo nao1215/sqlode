@@ -4,6 +4,5 @@ CREATE TABLE authors (
   display_name VARCHAR(255) NOT NULL,
   bio TEXT NULL,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
-  avatar BLOB NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

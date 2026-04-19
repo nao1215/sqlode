@@ -104,7 +104,7 @@ pub fn engine_runtime_support() -> List(EngineSupport) {
       engine: model.MySQL,
       raw: True,
       native: True,
-      native_driver: "gmysql",
+      native_driver: "shork",
     ),
     EngineSupport(
       engine: model.SQLite,
