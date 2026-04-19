@@ -22,3 +22,76 @@ filepath = ">= 1.1.2 and < 2.0.0"
 [dev-dependencies]
 gleeunit = ">= 1.0.0 and < 2.0.0"
 gleescript = ">= 1.5.2 and < 2.0.0"
+glinter = ">= 2.14.0 and < 3.0.0"
+
+# Glinter (https://github.com/pairshaped/glinter) configuration. Run via
+# `just lint` (or directly via `gleam run -m glinter -- --include test/`).
+# `warnings_as_errors` makes the run fail on any unfixed warning so CI
+# stays honest about the strictness contract.
+[tools.glinter]
+warnings_as_errors = true
+include = ["src/", "test/"]
+
+[tools.glinter.rules]
+# `label_possible` flags any positional parameter that could carry a
+# label. Adopting it across the entire codebase would force a labelled
+# call-site rewrite for every helper for cosmetic gain. The rest of the
+# label-related rules (`missing_labels`) are stricter and stay on.
+label_possible = "off"
+# Deep nesting is fundamental to a parser / codegen pipeline (token
+# walks, AST case-expression cascades, builder chains) — flattening
+# them every time hides the algorithm. `function_complexity` and
+# `module_complexity` likewise penalise the dispatch tables that
+# inevitably grow with every supported SQL construct.
+deep_nesting = "off"
+function_complexity = "off"
+module_complexity = "off"
+# This is a published Hex package: many `pub fn` and `pub type`
+# definitions are intentional API surface even when no in-tree caller
+# uses them yet. Flagging them as unused inverts the semantics of
+# `pub`.
+unused_exports = "off"
+# `case True/False` is equivalent to `bool.guard` for control flow;
+# both forms read fine in their respective contexts and the rule is a
+# pure stylistic preference. Keeping it on would force a single shape
+# everywhere, including places where the negative branch is the
+# trivial fallthrough that reads better as a `case`.
+prefer_guard_clause = "off"
+# `Error(_) -> default` is the natural shape for end-of-input
+# iterators (`string.pop_grapheme`), partial-info lookups (cache
+# misses, env-var absence), and best-effort fallback chains. Forcing
+# every site to thread the error through `result.try` / `result.or`
+# hides those base cases behind extra plumbing. Errors at *system
+# boundaries* (file IO, parsing, query execution) are routed through
+# `Result` types regardless.
+thrown_away_error = "off"
+# String error messages are the public contract for the CLI / config
+# loader / schema + query parsers — they are emitted directly to the
+# user. Promoting them to typed-error sums would either duplicate the
+# message text into a constructor name or force every error site to
+# define a one-shot variant; both are worse than the current shape.
+stringly_typed_error = "off"
+# `result.map_error(fn(_) { custom_error })` is the canonical way to
+# *translate* a foreign error into one of our own variants — by
+# definition the original is replaced. The places where we use it
+# already do so to re-encode at a module boundary; flagging them as
+# "lost context" would block legitimate boundary-crossing.
+error_context_lost = "off"
+
+[tools.glinter.ignore]
+# gleeunit auto-discovers test functions by `pub fn ..._test() {}` at
+# the module top level, so every test must stay public — `unused_exports`
+# fires on the entire test suite. `missing_type_annotation` fires for
+# the same reason: gleeunit functions return `Nil` by convention and
+# the annotation is implicit. `assert_ok_pattern` is idiomatic in
+# tests where a setup-failure should crash loudly. `short_variable_name`
+# is fine in test fixtures where variables are scoped to a few lines.
+# `avoid_panic` is allowed in tests so a test fixture can `panic` to
+# fail loudly when a precondition is violated.
+"test/**/*.gleam" = [
+  "assert_ok_pattern",
+  "avoid_panic",
+  "missing_type_annotation",
+  "short_variable_name",
+  "unused_exports",
+]

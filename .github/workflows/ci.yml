@@ -57,6 +57,9 @@ jobs:
       - name: Build (warnings as errors)
         run: gleam build --warnings-as-errors
 
+      - name: Lint (glinter, warnings as errors)
+        run: gleam run -m glinter
+
       - name: Unit tests
         run: gleam test
 

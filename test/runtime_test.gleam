@@ -92,8 +92,7 @@ pub fn prepare_mixed_params_test() {
   let query =
     runtime.RawQuery(
       name: "GetByNameAndIds",
-      sql: "SELECT * FROM users WHERE name = __sqlode_param_1__"
-        <> " AND id IN (__sqlode_slice_2__)",
+      sql: "SELECT * FROM users WHERE name = __sqlode_param_1__ AND id IN (__sqlode_slice_2__)",
       command: runtime.QueryMany,
       param_count: 2,
       placeholder_style: runtime.DollarNumbered,
@@ -134,9 +133,7 @@ pub fn prepare_mysql_mixed_params_and_slice_test() {
   let query =
     runtime.RawQuery(
       name: "GetByNameAndIds",
-      sql: "SELECT * FROM users WHERE name = __sqlode_param_1__"
-        <> " AND id IN (__sqlode_slice_2__)"
-        <> " AND status = __sqlode_param_3__",
+      sql: "SELECT * FROM users WHERE name = __sqlode_param_1__ AND id IN (__sqlode_slice_2__) AND status = __sqlode_param_3__",
       command: runtime.QueryMany,
       param_count: 3,
       placeholder_style: runtime.QuestionPositional,
@@ -182,16 +179,12 @@ pub fn expand_slice_placeholders_preserves_string_literal_with_placeholder_text_
 
 pub fn expand_slice_placeholders_preserves_comment_with_placeholder_text_test() {
   let sql =
-    "SELECT id FROM t"
-    <> " /* $1 is the placeholder used below */"
-    <> " WHERE id = __sqlode_param_1__"
+    "SELECT id FROM t /* $1 is the placeholder used below */ WHERE id = __sqlode_param_1__"
   let result =
     runtime.expand_slice_placeholders(sql, [], 1, runtime.DollarNumbered)
   result
   |> should.equal(
-    "SELECT id FROM t"
-    <> " /* $1 is the placeholder used below */"
-    <> " WHERE id = $1",
+    "SELECT id FROM t /* $1 is the placeholder used below */ WHERE id = $1",
   )
 }
 

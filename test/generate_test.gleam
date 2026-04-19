@@ -10,7 +10,7 @@ import sqlode/model
 const test_out = "test_output/generate_test"
 
 fn cleanup() {
-  let _ = simplifile.delete(test_out)
+  let _delete_result = simplifile.delete(test_out)
   Nil
 }
 
@@ -657,7 +657,7 @@ fn join_rename_block(renames: List(model.ColumnRename)) -> model.SqlBlock {
 }
 
 fn cleanup_join_rename() {
-  let _ = simplifile.delete(join_rename_out)
+  let _delete_result = simplifile.delete(join_rename_out)
   Nil
 }
 
@@ -918,7 +918,7 @@ fn all_commands_block(
 }
 
 fn cleanup_commands() {
-  let _ = simplifile.delete(all_commands_out)
+  let _delete_result = simplifile.delete(all_commands_out)
   Nil
 }
 
@@ -1168,7 +1168,7 @@ pub fn execresult_allowed_on_raw_runtime_test() {
     )
   let cfg = model.Config(version: 2, sql: [block])
   let assert Ok(_) = generate.generate_config(cfg)
-  let _ = simplifile.delete("test_output/execresult_raw")
+  let _delete_result = simplifile.delete("test_output/execresult_raw")
   Nil
 }
 
@@ -1261,7 +1261,7 @@ fn compound_block() -> model.SqlBlock {
 }
 
 fn cleanup_compound() {
-  let _ = simplifile.delete(compound_out)
+  let _delete_result = simplifile.delete(compound_out)
   Nil
 }
 
@@ -1344,7 +1344,7 @@ fn view_block() -> model.SqlBlock {
 }
 
 fn cleanup_view() {
-  let _ = simplifile.delete(view_out)
+  let _delete_result = simplifile.delete(view_out)
   Nil
 }
 
@@ -1382,7 +1382,7 @@ pub fn view_select_star_inferred_test() {
 const resolve_out = "src/resolve_paths_test"
 
 fn cleanup_resolve() {
-  let _ = simplifile.delete(resolve_out)
+  let _delete_result = simplifile.delete(resolve_out)
   Nil
 }
 
@@ -1431,7 +1431,7 @@ pub fn invalid_out_path_rejected_test() {
 const dir_out = "test_output/generate_test_dir"
 
 fn cleanup_dir() {
-  let _ = simplifile.delete(dir_out)
+  let _delete_result = simplifile.delete(dir_out)
   Nil
 }
 
@@ -1880,7 +1880,7 @@ fn partial_view_block(strict_views: Bool) -> model.SqlBlock {
 }
 
 fn cleanup_partial_view() {
-  let _ = simplifile.delete(partial_view_out)
+  let _delete_result = simplifile.delete(partial_view_out)
   Nil
 }
 
@@ -1893,17 +1893,14 @@ pub fn strict_views_is_default_for_partial_view_test() {
   cleanup_partial_view()
 
   let yaml_path = "test/fixtures/partial_view.yaml"
-  let content =
-    "version: \"2\"\n"
-    <> "sql:\n"
-    <> "  - engine: postgresql\n"
-    <> "    schema: test/fixtures/partial_view_schema.sql\n"
-    <> "    queries: test/fixtures/partial_view_query.sql\n"
-    <> "    gen:\n"
-    <> "      gleam:\n"
-    <> "        out: "
-    <> partial_view_out
-    <> "\n"
+  let content = "version: \"2\"
+sql:
+  - engine: postgresql
+    schema: test/fixtures/partial_view_schema.sql
+    queries: test/fixtures/partial_view_query.sql
+    gen:
+      gleam:
+        out: " <> partial_view_out <> "\n"
   let assert Ok(_) = simplifile.write(yaml_path, content)
 
   let assert Ok(cfg) = config.load(yaml_path)
@@ -1925,7 +1922,7 @@ pub fn strict_views_is_default_for_partial_view_test() {
       panic as "expected generation to fail on partial view with default policy"
   }
 
-  let _ = simplifile.delete(yaml_path)
+  let _delete_result = simplifile.delete(yaml_path)
   cleanup_partial_view()
 }
 

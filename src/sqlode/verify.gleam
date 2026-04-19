@@ -232,7 +232,6 @@ fn format_finding(finding: Finding) -> String {
 }
 
 pub fn error_to_string(error: VerifyError) -> String {
-  case error {
-    ConfigError(inner) -> config.error_to_string(inner)
-  }
+  let ConfigError(inner) = error
+  config.error_to_string(inner)
 }

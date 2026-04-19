@@ -7,7 +7,7 @@ import sqlode/writer
 const test_dir = "test_output/writer_test"
 
 fn cleanup() {
-  let _ = simplifile.delete(test_dir)
+  let _delete_result = simplifile.delete(test_dir)
   Nil
 }
 

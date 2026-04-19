@@ -1587,7 +1587,7 @@ fn render_type_tokens_loop(
         [] -> render_type_tokens_loop(rest, ["[]", ..acc])
       }
     [tok, ..rest] -> {
-      let s = case tok {
+      let token_text = case tok {
         lexer.Keyword(k) -> k
         lexer.Ident(n) -> n
         lexer.QuotedIdent(n) -> n
@@ -1599,9 +1599,9 @@ fn render_type_tokens_loop(
         lexer.Star -> "*"
         _ -> ""
       }
-      case s {
+      case token_text {
         "" -> render_type_tokens_loop(rest, acc)
-        _ -> render_type_tokens_loop(rest, [s, ..acc])
+        _ -> render_type_tokens_loop(rest, [token_text, ..acc])
       }
     }
   }
@@ -1698,10 +1698,8 @@ fn path_prefix(path: String) -> String {
 }
 
 pub fn warning_to_string(warning: SchemaWarning) -> String {
-  case warning {
-    UnresolvableViewColumn(column:) ->
-      "Warning: view column \""
-      <> column
-      <> "\" could not be resolved from source tables — skipping column."
-  }
+  let UnresolvableViewColumn(column:) = warning
+  "Warning: view column \""
+  <> column
+  <> "\" could not be resolved from source tables — skipping column."
 }

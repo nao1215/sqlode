@@ -59,8 +59,8 @@ pub fn reject_query_without_sql_body_test() {
 pub fn count_mysql_placeholders_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: CreateAuthor :exec\n"
-    <> "INSERT INTO authors (name, bio) VALUES (?, ?);"
+    "-- name: CreateAuthor :exec
+INSERT INTO authors (name, bio) VALUES (?, ?);"
 
   let assert Ok(queries) =
     parse_file("mysql.sql", model.MySQL, naming_ctx, content)
@@ -72,8 +72,8 @@ pub fn count_mysql_placeholders_test() {
 pub fn count_sqlite_named_placeholders_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: GetAuthor :one\n"
-    <> "SELECT id FROM authors WHERE id = :id OR name = @name OR slug = $slug OR code = ?2;"
+    "-- name: GetAuthor :one
+SELECT id FROM authors WHERE id = :id OR name = @name OR slug = $slug OR code = ?2;"
 
   let assert Ok(queries) =
     parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
@@ -85,8 +85,8 @@ pub fn count_sqlite_named_placeholders_test() {
 pub fn expand_sqlc_arg_macro_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: GetByName :one\n"
-    <> "SELECT id FROM authors WHERE name = sqlode.arg(author_name);"
+    "-- name: GetByName :one
+SELECT id FROM authors WHERE name = sqlode.arg(author_name);"
 
   let assert Ok(queries) =
     parse_file("arg.sql", model.PostgreSQL, naming_ctx, content)
@@ -102,8 +102,8 @@ pub fn expand_sqlc_arg_macro_test() {
 pub fn expand_sqlc_narg_macro_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: UpdateBio :exec\n"
-    <> "UPDATE authors SET bio = sqlode.narg(new_bio) WHERE id = sqlode.arg(author_id);"
+    "-- name: UpdateBio :exec
+UPDATE authors SET bio = sqlode.narg(new_bio) WHERE id = sqlode.arg(author_id);"
 
   let assert Ok(queries) =
     parse_file("narg.sql", model.PostgreSQL, naming_ctx, content)
@@ -122,8 +122,8 @@ pub fn expand_sqlc_narg_macro_test() {
 pub fn expand_sqlc_arg_mysql_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: GetByName :one\n"
-    <> "SELECT id FROM authors WHERE name = sqlode.arg(author_name);"
+    "-- name: GetByName :one
+SELECT id FROM authors WHERE name = sqlode.arg(author_name);"
 
   let assert Ok(queries) =
     parse_file("arg_mysql.sql", model.MySQL, naming_ctx, content)
@@ -138,8 +138,8 @@ pub fn expand_sqlc_arg_mysql_test() {
 pub fn expand_sqlc_arg_single_quoted_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: GetByName :one\n"
-    <> "SELECT id FROM authors WHERE name = sqlode.arg('author_name');"
+    "-- name: GetByName :one
+SELECT id FROM authors WHERE name = sqlode.arg('author_name');"
 
   let assert Ok(queries) =
     parse_file("arg.sql", model.PostgreSQL, naming_ctx, content)
@@ -155,8 +155,8 @@ pub fn expand_sqlc_arg_single_quoted_test() {
 pub fn expand_sqlc_arg_double_quoted_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: GetByName :one\n"
-    <> "SELECT id FROM authors WHERE name = sqlode.arg(\"author_name\");"
+    "-- name: GetByName :one
+SELECT id FROM authors WHERE name = sqlode.arg(\"author_name\");"
 
   let assert Ok(queries) =
     parse_file("arg.sql", model.PostgreSQL, naming_ctx, content)
@@ -170,8 +170,8 @@ pub fn expand_sqlc_arg_double_quoted_test() {
 pub fn expand_sqlc_narg_single_quoted_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: UpdateBio :exec\n"
-    <> "UPDATE authors SET bio = sqlode.narg('new_bio') WHERE id = sqlode.arg(author_id);"
+    "-- name: UpdateBio :exec
+UPDATE authors SET bio = sqlode.narg('new_bio') WHERE id = sqlode.arg(author_id);"
 
   let assert Ok(queries) =
     parse_file("narg.sql", model.PostgreSQL, naming_ctx, content)
@@ -188,8 +188,8 @@ pub fn expand_sqlc_narg_single_quoted_test() {
 pub fn expand_sqlc_slice_double_quoted_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: GetByIds :many\n"
-    <> "SELECT id, name FROM authors WHERE id IN (sqlode.slice(\"ids\"));"
+    "-- name: GetByIds :many
+SELECT id, name FROM authors WHERE id IN (sqlode.slice(\"ids\"));"
 
   let assert Ok(queries) =
     parse_file("slice.sql", model.PostgreSQL, naming_ctx, content)
@@ -204,8 +204,8 @@ pub fn expand_sqlc_slice_double_quoted_test() {
 pub fn expand_at_name_postgresql_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: GetByName :one\n"
-    <> "SELECT id FROM authors WHERE name = @author_name;"
+    "-- name: GetByName :one
+SELECT id FROM authors WHERE name = @author_name;"
 
   let assert Ok(queries) =
     parse_file("at.sql", model.PostgreSQL, naming_ctx, content)
@@ -221,8 +221,8 @@ pub fn expand_at_name_postgresql_test() {
 pub fn expand_at_name_sqlite_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: GetByName :one\n"
-    <> "SELECT id FROM authors WHERE name = @author_name;"
+    "-- name: GetByName :one
+SELECT id FROM authors WHERE name = @author_name;"
 
   let assert Ok(queries) =
     parse_file("at.sql", model.SQLite, naming_ctx, content)
@@ -238,8 +238,8 @@ pub fn expand_at_name_sqlite_test() {
 pub fn expand_multiple_at_names_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: UpdateBio :exec\n"
-    <> "UPDATE authors SET bio = @new_bio WHERE id = @author_id;"
+    "-- name: UpdateBio :exec
+UPDATE authors SET bio = @new_bio WHERE id = @author_id;"
 
   let assert Ok(queries) =
     parse_file("at.sql", model.PostgreSQL, naming_ctx, content)
@@ -258,8 +258,8 @@ pub fn expand_multiple_at_names_test() {
 pub fn expand_at_name_mixed_with_sqlc_arg_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: Update :exec\n"
-    <> "UPDATE authors SET bio = @new_bio WHERE id = sqlode.arg(author_id);"
+    "-- name: Update :exec
+UPDATE authors SET bio = @new_bio WHERE id = sqlode.arg(author_id);"
 
   let assert Ok(queries) =
     parse_file("at.sql", model.PostgreSQL, naming_ctx, content)
@@ -276,8 +276,8 @@ pub fn expand_at_name_mixed_with_sqlc_arg_test() {
 pub fn at_name_not_expanded_on_mysql_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: GetByName :one\n"
-    <> "SELECT id FROM authors WHERE name = @author_name;"
+    "-- name: GetByName :one
+SELECT id FROM authors WHERE name = @author_name;"
 
   let assert Ok(queries) =
     parse_file("at.sql", model.MySQL, naming_ctx, content)
@@ -330,9 +330,12 @@ pub fn empty_file_test() {
 pub fn multiple_queries_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: Q1 :one\nSELECT 1;\n"
-    <> "-- name: Q2 :many\nSELECT 2;\n"
-    <> "-- name: Q3 :exec\nINSERT INTO t VALUES (1);"
+    "-- name: Q1 :one
+SELECT 1;
+-- name: Q2 :many
+SELECT 2;
+-- name: Q3 :exec
+INSERT INTO t VALUES (1);"
 
   let assert Ok(queries) =
     parse_file("multi.sql", model.PostgreSQL, naming_ctx, content)
@@ -350,12 +353,18 @@ pub fn multiple_queries_test() {
 pub fn all_command_types_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: A :one\nSELECT 1;\n"
-    <> "-- name: B :many\nSELECT 1;\n"
-    <> "-- name: C :exec\nSELECT 1;\n"
-    <> "-- name: D :execresult\nSELECT 1;\n"
-    <> "-- name: E :execrows\nSELECT 1;\n"
-    <> "-- name: F :execlastid\nSELECT 1;"
+    "-- name: A :one
+SELECT 1;
+-- name: B :many
+SELECT 1;
+-- name: C :exec
+SELECT 1;
+-- name: D :execresult
+SELECT 1;
+-- name: E :execrows
+SELECT 1;
+-- name: F :execlastid
+SELECT 1;"
 
   let assert Ok(queries) =
     parse_file("cmds.sql", model.PostgreSQL, naming_ctx, content)
@@ -373,12 +382,12 @@ pub fn all_command_types_test() {
 pub fn multiline_sql_body_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: GetAuthor :one\n"
-    <> "SELECT id,\n"
-    <> "       name,\n"
-    <> "       bio\n"
-    <> "FROM authors\n"
-    <> "WHERE id = $1;"
+    "-- name: GetAuthor :one
+SELECT id,
+       name,
+       bio
+FROM authors
+WHERE id = $1;"
 
   let assert Ok(queries) =
     parse_file("multi.sql", model.PostgreSQL, naming_ctx, content)
@@ -394,10 +403,10 @@ pub fn multiline_sql_body_test() {
 pub fn ignore_placeholder_in_single_quoted_string_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: GetAuthorWithLiteral :one\n"
-    <> "SELECT id, name\n"
-    <> "FROM authors\n"
-    <> "WHERE note = '$2' OR id = $1;"
+    "-- name: GetAuthorWithLiteral :one
+SELECT id, name
+FROM authors
+WHERE note = '$2' OR id = $1;"
 
   let assert Ok(queries) =
     parse_file("lit.sql", model.PostgreSQL, naming_ctx, content)
@@ -410,10 +419,10 @@ pub fn ignore_placeholder_in_single_quoted_string_test() {
 pub fn ignore_placeholder_in_line_comment_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: GetById :one\n"
-    <> "SELECT id, name\n"
-    <> "FROM authors\n"
-    <> "WHERE id = $1; -- $2 is not used"
+    "-- name: GetById :one
+SELECT id, name
+FROM authors
+WHERE id = $1; -- $2 is not used"
 
   let assert Ok(queries) =
     parse_file("cmt.sql", model.PostgreSQL, naming_ctx, content)
@@ -425,11 +434,11 @@ pub fn ignore_placeholder_in_line_comment_test() {
 pub fn ignore_placeholder_in_block_comment_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: GetById :one\n"
-    <> "SELECT id, name\n"
-    <> "FROM authors\n"
-    <> "/* WHERE bio = $2 */\n"
-    <> "WHERE id = $1;"
+    "-- name: GetById :one
+SELECT id, name
+FROM authors
+/* WHERE bio = $2 */
+WHERE id = $1;"
 
   let assert Ok(queries) =
     parse_file("cmt.sql", model.PostgreSQL, naming_ctx, content)
@@ -441,9 +450,9 @@ pub fn ignore_placeholder_in_block_comment_test() {
 pub fn ignore_at_name_in_string_literal_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: GetByNote :one\n"
-    <> "SELECT id FROM authors\n"
-    <> "WHERE note = '@skip_me' AND id = @real_id;"
+    "-- name: GetByNote :one
+SELECT id FROM authors
+WHERE note = '@skip_me' AND id = @real_id;"
 
   let assert Ok(queries) =
     parse_file("at.sql", model.PostgreSQL, naming_ctx, content)
@@ -458,9 +467,9 @@ pub fn ignore_at_name_in_string_literal_test() {
 pub fn ignore_question_mark_in_string_mysql_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: GetByNote :one\n"
-    <> "SELECT id FROM authors\n"
-    <> "WHERE note = 'is this a ?' AND id = ?;"
+    "-- name: GetByNote :one
+SELECT id FROM authors
+WHERE note = 'is this a ?' AND id = ?;"
 
   let assert Ok(queries) = parse_file("q.sql", model.MySQL, naming_ctx, content)
   let assert [query] = queries
@@ -471,8 +480,8 @@ pub fn ignore_question_mark_in_string_mysql_test() {
 pub fn sqlite_repeated_colon_placeholder_dedup_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: ReusedNamed :one\n"
-    <> "SELECT id FROM authors WHERE id = :id OR parent_id = :id;"
+    "-- name: ReusedNamed :one
+SELECT id FROM authors WHERE id = :id OR parent_id = :id;"
 
   let assert Ok(queries) =
     parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
@@ -484,8 +493,8 @@ pub fn sqlite_repeated_colon_placeholder_dedup_test() {
 pub fn sqlite_repeated_dollar_placeholder_dedup_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: ReusedDollar :one\n"
-    <> "SELECT id FROM authors WHERE id = $id OR parent_id = $id;"
+    "-- name: ReusedDollar :one
+SELECT id FROM authors WHERE id = $id OR parent_id = $id;"
 
   let assert Ok(queries) =
     parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
@@ -497,8 +506,8 @@ pub fn sqlite_repeated_dollar_placeholder_dedup_test() {
 pub fn sqlite_repeated_at_placeholder_dedup_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: ReusedAt :one\n"
-    <> "SELECT id FROM authors WHERE id = @id OR parent_id = @id;"
+    "-- name: ReusedAt :one
+SELECT id FROM authors WHERE id = @id OR parent_id = @id;"
 
   let assert Ok(queries) =
     parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
@@ -510,8 +519,8 @@ pub fn sqlite_repeated_at_placeholder_dedup_test() {
 pub fn sqlite_distinct_named_placeholders_not_deduped_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: DistinctNames :one\n"
-    <> "SELECT id FROM authors WHERE id = :id OR name = :name;"
+    "-- name: DistinctNames :one
+SELECT id FROM authors WHERE id = :id OR name = :name;"
 
   let assert Ok(queries) =
     parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
@@ -523,8 +532,8 @@ pub fn sqlite_distinct_named_placeholders_not_deduped_test() {
 pub fn sqlite_colon_and_at_are_different_params_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: DifferentPrefix :one\n"
-    <> "SELECT id FROM authors WHERE id = :id OR parent_id = @id;"
+    "-- name: DifferentPrefix :one
+SELECT id FROM authors WHERE id = :id OR parent_id = @id;"
 
   let assert Ok(queries) =
     parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
@@ -536,8 +545,8 @@ pub fn sqlite_colon_and_at_are_different_params_test() {
 pub fn sqlite_bare_question_marks_not_deduped_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: BareQuestions :exec\n"
-    <> "INSERT INTO authors (name, bio) VALUES (?, ?);"
+    "-- name: BareQuestions :exec
+INSERT INTO authors (name, bio) VALUES (?, ?);"
 
   let assert Ok(queries) =
     parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
@@ -549,8 +558,8 @@ pub fn sqlite_bare_question_marks_not_deduped_test() {
 pub fn sqlite_repeated_numbered_placeholder_dedup_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: ReusedNumbered :one\n"
-    <> "SELECT id FROM authors WHERE id = ?1 OR parent_id = ?1;"
+    "-- name: ReusedNumbered :one
+SELECT id FROM authors WHERE id = ?1 OR parent_id = ?1;"
 
   let assert Ok(queries) =
     parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
@@ -562,8 +571,8 @@ pub fn sqlite_repeated_numbered_placeholder_dedup_test() {
 pub fn postgresql_plain_dollar_quoted_string_masks_placeholder_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: DollarPlain :one\n"
-    <> "SELECT $$literal $1 inside$$, id FROM authors WHERE id = $1;"
+    "-- name: DollarPlain :one
+SELECT $$literal $1 inside$$, id FROM authors WHERE id = $1;"
 
   let assert Ok(queries) =
     parse_file("pg.sql", model.PostgreSQL, naming_ctx, content)
@@ -575,8 +584,8 @@ pub fn postgresql_plain_dollar_quoted_string_masks_placeholder_test() {
 pub fn postgresql_tagged_dollar_quoted_string_masks_placeholder_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: DollarTag :one\n"
-    <> "SELECT $tag$literal $1 inside$tag$, id FROM authors WHERE id = $2;"
+    "-- name: DollarTag :one
+SELECT $tag$literal $1 inside$tag$, id FROM authors WHERE id = $2;"
 
   let assert Ok(queries) =
     parse_file("pg.sql", model.PostgreSQL, naming_ctx, content)
@@ -588,8 +597,8 @@ pub fn postgresql_tagged_dollar_quoted_string_masks_placeholder_test() {
 pub fn postgresql_dollar_quoted_does_not_affect_real_params_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: DollarMixed :one\n"
-    <> "SELECT $fn$body with $1 and $2$fn$, id FROM authors WHERE id = $1 AND name = $2;"
+    "-- name: DollarMixed :one
+SELECT $fn$body with $1 and $2$fn$, id FROM authors WHERE id = $1 AND name = $2;"
 
   let assert Ok(queries) =
     parse_file("pg.sql", model.PostgreSQL, naming_ctx, content)
@@ -601,7 +610,7 @@ pub fn postgresql_dollar_quoted_does_not_affect_real_params_test() {
 pub fn sqlite_dollar_not_treated_as_dollar_quoted_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: SqliteDollar :one\n" <> "SELECT id FROM authors WHERE id = $id;"
+    "-- name: SqliteDollar :one\nSELECT id FROM authors WHERE id = $id;"
 
   let assert Ok(queries) =
     parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
@@ -613,8 +622,8 @@ pub fn sqlite_dollar_not_treated_as_dollar_quoted_test() {
 pub fn sqlc_arg_in_string_literal_ignored_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: MacroInString :one\n"
-    <> "SELECT id FROM authors WHERE note = 'sqlode.arg(fake)' AND id = sqlode.arg(real_id);"
+    "-- name: MacroInString :one
+SELECT id FROM authors WHERE note = 'sqlode.arg(fake)' AND id = sqlode.arg(real_id);"
 
   let assert Ok(queries) =
     parse_file("pg.sql", model.PostgreSQL, naming_ctx, content)
@@ -629,10 +638,10 @@ pub fn sqlc_arg_in_string_literal_ignored_test() {
 pub fn sqlc_narg_in_line_comment_ignored_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: MacroInComment :one\n"
-    <> "SELECT id FROM authors\n"
-    <> "-- WHERE name = sqlode.narg(ignored)\n"
-    <> "WHERE id = sqlode.arg(real_id);"
+    "-- name: MacroInComment :one
+SELECT id FROM authors
+-- WHERE name = sqlode.narg(ignored)
+WHERE id = sqlode.arg(real_id);"
 
   let assert Ok(queries) =
     parse_file("pg.sql", model.PostgreSQL, naming_ctx, content)
@@ -646,9 +655,9 @@ pub fn sqlc_narg_in_line_comment_ignored_test() {
 pub fn sqlc_slice_in_block_comment_ignored_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: MacroInBlock :many\n"
-    <> "SELECT id FROM authors\n"
-    <> "WHERE /* sqlode.slice(phantom) */ id IN (sqlode.slice(real_ids));"
+    "-- name: MacroInBlock :many
+SELECT id FROM authors
+WHERE /* sqlode.slice(phantom) */ id IN (sqlode.slice(real_ids));"
 
   let assert Ok(queries) =
     parse_file("pg.sql", model.PostgreSQL, naming_ctx, content)
@@ -680,12 +689,13 @@ pub fn error_to_string_coverage_test() {
 pub fn skip_annotation_skips_query_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- sqlode:skip\n"
-    <> "-- name: SkippedQuery :one\n"
-    <> "SELECT complex_stuff FROM somewhere;\n"
-    <> "\n"
-    <> "-- name: KeptQuery :many\n"
-    <> "SELECT id FROM authors;\n"
+    "-- sqlode:skip
+-- name: SkippedQuery :one
+SELECT complex_stuff FROM somewhere;
+
+-- name: KeptQuery :many
+SELECT id FROM authors;
+"
 
   let assert Ok(queries) =
     parse_file("test.sql", model.PostgreSQL, naming_ctx, content)
@@ -699,13 +709,14 @@ pub fn skip_annotation_skips_query_test() {
 pub fn skip_annotation_all_queries_skipped_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- sqlode:skip\n"
-    <> "-- name: SkippedOne :one\n"
-    <> "SELECT 1;\n"
-    <> "\n"
-    <> "-- sqlode:skip\n"
-    <> "-- name: SkippedTwo :many\n"
-    <> "SELECT 2;\n"
+    "-- sqlode:skip
+-- name: SkippedOne :one
+SELECT 1;
+
+-- sqlode:skip
+-- name: SkippedTwo :many
+SELECT 2;
+"
 
   let assert Ok(queries) =
     parse_file("test.sql", model.PostgreSQL, naming_ctx, content)
@@ -716,15 +727,16 @@ pub fn skip_annotation_all_queries_skipped_test() {
 pub fn skip_annotation_middle_query_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: First :one\n"
-    <> "SELECT 1;\n"
-    <> "\n"
-    <> "-- sqlode:skip\n"
-    <> "-- name: Second :one\n"
-    <> "SELECT 2;\n"
-    <> "\n"
-    <> "-- name: Third :many\n"
-    <> "SELECT 3;\n"
+    "-- name: First :one
+SELECT 1;
+
+-- sqlode:skip
+-- name: Second :one
+SELECT 2;
+
+-- name: Third :many
+SELECT 3;
+"
 
   let assert Ok(queries) =
     parse_file("test.sql", model.PostgreSQL, naming_ctx, content)
@@ -797,14 +809,15 @@ pub fn parse_block_annotation_no_inner_space_test() {
 pub fn parse_mixed_line_and_block_annotations_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- name: First :one\n"
-    <> "SELECT 1;\n"
-    <> "\n"
-    <> "/* name: Second :many */\n"
-    <> "SELECT 2;\n"
-    <> "\n"
-    <> "-- name: Third :exec\n"
-    <> "INSERT INTO t VALUES (1);\n"
+    "-- name: First :one
+SELECT 1;
+
+/* name: Second :many */
+SELECT 2;
+
+-- name: Third :exec
+INSERT INTO t VALUES (1);
+"
 
   let assert Ok(queries) =
     parse_file("mixed.sql", model.PostgreSQL, naming_ctx, content)
@@ -822,12 +835,12 @@ pub fn parse_mixed_line_and_block_annotations_test() {
 pub fn parse_block_annotation_multiline_body_test() {
   let naming_ctx = naming.new()
   let content =
-    "/* name: BigQuery :many */\n"
-    <> "SELECT id,\n"
-    <> "       name,\n"
-    <> "       bio\n"
-    <> "FROM authors\n"
-    <> "WHERE id = $1;"
+    "/* name: BigQuery :many */
+SELECT id,
+       name,
+       bio
+FROM authors
+WHERE id = $1;"
 
   let assert Ok(queries) =
     parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
@@ -839,8 +852,8 @@ pub fn parse_block_annotation_multiline_body_test() {
 pub fn parse_block_annotation_with_macro_test() {
   let naming_ctx = naming.new()
   let content =
-    "/* name: Search :many */\n"
-    <> "SELECT id FROM authors WHERE name = sqlode.arg(author_name);"
+    "/* name: Search :many */
+SELECT id FROM authors WHERE name = sqlode.arg(author_name);"
 
   let assert Ok(queries) =
     parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
@@ -852,10 +865,10 @@ pub fn parse_block_annotation_with_macro_test() {
 pub fn parse_block_annotation_body_with_regular_block_comment_test() {
   let naming_ctx = naming.new()
   let content =
-    "/* name: WithComment :one */\n"
-    <> "SELECT id\n"
-    <> "/* just a regular comment */\n"
-    <> "FROM authors WHERE id = $1;"
+    "/* name: WithComment :one */
+SELECT id
+/* just a regular comment */
+FROM authors WHERE id = $1;"
 
   let assert Ok(queries) =
     parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
@@ -866,8 +879,7 @@ pub fn parse_block_annotation_body_with_regular_block_comment_test() {
 
 pub fn parse_block_comment_other_directive_ignored_test() {
   let naming_ctx = naming.new()
-  let content =
-    "-- name: Real :one\n" <> "/* other: bogus :many */\n" <> "SELECT 1;"
+  let content = "-- name: Real :one\n/* other: bogus :many */\nSELECT 1;"
 
   let assert Ok(queries) =
     parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
@@ -898,7 +910,7 @@ pub fn parse_block_annotation_unclosed_ignored_test() {
 pub fn parse_block_annotation_multiline_not_annotation_test() {
   let naming_ctx = naming.new()
   // Annotation text split across lines is not supported.
-  let content = "/* name: Split\n" <> " :one */\n" <> "SELECT 1;"
+  let content = "/* name: Split\n :one */\nSELECT 1;"
 
   let assert Ok(queries) =
     parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
@@ -939,12 +951,13 @@ pub fn parse_block_annotation_missing_sql_body_test() {
 pub fn skip_annotation_applies_to_block_annotation_test() {
   let naming_ctx = naming.new()
   let content =
-    "-- sqlode:skip\n"
-    <> "/* name: Skipped :one */\n"
-    <> "SELECT 1;\n"
-    <> "\n"
-    <> "-- name: Kept :many\n"
-    <> "SELECT 2;\n"
+    "-- sqlode:skip
+/* name: Skipped :one */
+SELECT 1;
+
+-- name: Kept :many
+SELECT 2;
+"
 
   let assert Ok(queries) =
     parse_file("block.sql", model.PostgreSQL, naming_ctx, content)

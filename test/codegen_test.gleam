@@ -371,9 +371,7 @@ pub fn expand_slice_placeholders_single_test() {
 
 pub fn expand_slice_placeholders_with_renumbering_test() {
   let sql =
-    "SELECT * FROM users WHERE name = __sqlode_param_1__"
-    <> " AND id IN (__sqlode_slice_2__)"
-    <> " AND status = __sqlode_param_3__"
+    "SELECT * FROM users WHERE name = __sqlode_param_1__ AND id IN (__sqlode_slice_2__) AND status = __sqlode_param_3__"
   let result =
     runtime.expand_slice_placeholders(sql, [#(2, 3)], 3, runtime.DollarNumbered)
   result
@@ -411,9 +409,7 @@ pub fn expand_slice_placeholders_empty_slice_test() {
 
 pub fn expand_slice_placeholders_empty_slice_with_other_params_test() {
   let sql =
-    "SELECT * FROM users WHERE name = __sqlode_param_1__"
-    <> " AND id IN (__sqlode_slice_2__)"
-    <> " AND status = __sqlode_param_3__"
+    "SELECT * FROM users WHERE name = __sqlode_param_1__ AND id IN (__sqlode_slice_2__) AND status = __sqlode_param_3__"
   let result =
     runtime.expand_slice_placeholders(sql, [#(2, 0)], 3, runtime.DollarNumbered)
   result
@@ -1207,11 +1203,11 @@ pub fn readme_runtime_prepare_is_two_arg_test() {
 
 fn mysql_enum_set_catalog() -> model.Catalog {
   let content =
-    "CREATE TABLE items (\n"
-    <> "  id BIGINT NOT NULL,\n"
-    <> "  status ENUM('active', 'inactive', 'archived') NOT NULL,\n"
-    <> "  tags SET('red', 'green', 'blue')\n"
-    <> ");"
+    "CREATE TABLE items (
+  id BIGINT NOT NULL,
+  status ENUM('active', 'inactive', 'archived') NOT NULL,
+  tags SET('red', 'green', 'blue')
+);"
   let assert Ok(#(catalog, _)) =
     schema_parser.parse_files_with_engine(
       [#("items.sql", content)],
@@ -1339,16 +1335,17 @@ fn mysql_native_queries(
   catalog: model.Catalog,
 ) -> List(model.AnalyzedQuery) {
   let sql =
-    "-- name: GetAuthor :one\n"
-    <> "SELECT id, name, bio, created_at FROM authors WHERE id = ?;\n"
-    <> "-- name: ListAuthors :many\n"
-    <> "SELECT id, name FROM authors ORDER BY id;\n"
-    <> "-- name: CreateAuthor :execlastid\n"
-    <> "INSERT INTO authors (name, bio, created_at) VALUES (?, ?, ?);\n"
-    <> "-- name: DeleteAuthor :exec\n"
-    <> "DELETE FROM authors WHERE id = ?;\n"
-    <> "-- name: UpdateBio :execrows\n"
-    <> "UPDATE authors SET bio = ? WHERE id = ?;\n"
+    "-- name: GetAuthor :one
+SELECT id, name, bio, created_at FROM authors WHERE id = ?;
+-- name: ListAuthors :many
+SELECT id, name FROM authors ORDER BY id;
+-- name: CreateAuthor :execlastid
+INSERT INTO authors (name, bio, created_at) VALUES (?, ?, ?);
+-- name: DeleteAuthor :exec
+DELETE FROM authors WHERE id = ?;
+-- name: UpdateBio :execrows
+UPDATE authors SET bio = ? WHERE id = ?;
+"
   let assert Ok(parsed) =
     query_parser.parse_file("q.sql", model.MySQL, naming_ctx, sql)
   let assert Ok(analyzed) =
