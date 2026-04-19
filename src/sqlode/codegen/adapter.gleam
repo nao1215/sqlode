@@ -461,21 +461,8 @@ fn render_base_decoder(
   type_mapping: model.TypeMapping,
 ) -> String {
   case scalar_type {
-    model.EnumType(enum_name) ->
-      "decode.then(decode.string, fn(s) { case models."
-      <> type_mapping.enum_from_string_fn(enum_name)
-      <> "(s) { Ok(v) -> decode.success(v) Error(_) -> decode.failure(s, \"valid "
-      <> enum_name
-      <> " value\") } })"
-    // SetType: comma-joined wire string → `List(<Name>Value)` via the
-    // `<name>_set_from_string` helper. Empty string maps to `[]`,
-    // unknown member names fail the row decoder with a useful default.
-    model.SetType(set_name) ->
-      "decode.then(decode.string, fn(s) { case models."
-      <> type_mapping.set_from_string_fn(set_name)
-      <> "(s) { Ok(v) -> decode.success(v) Error(_) -> decode.failure([], \"valid "
-      <> set_name
-      <> " set\") } })"
+    model.EnumType(_) | model.SetType(_) ->
+      common.render_enum_or_set_decoder(scalar_type, config.decoder_function)
     _ ->
       case
         type_mapping == model.StrongMapping

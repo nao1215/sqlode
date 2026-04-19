@@ -4,6 +4,7 @@ import gleam/result
 import gleam/string
 import sqlode/codegen/builder
 import sqlode/model
+import sqlode/type_mapping
 
 pub fn has_slices(params: List(model.QueryParam)) -> Bool {
   list.any(params, fn(p) { p.is_list })
@@ -11,6 +12,56 @@ pub fn has_slices(params: List(model.QueryParam)) -> Bool {
 
 pub fn queries_have_slices(queries: List(model.AnalyzedQuery)) -> Bool {
   list.any(queries, fn(query) { has_slices(query.params) })
+}
+
+/// Wrap the base decoder for `EnumType` and `SetType` columns so the
+/// decoded value reaches the consuming record as the generated sum
+/// type (or list of sum-type values for SET) rather than the raw
+/// wire string. `fallback` is the decoder to use for every other
+/// scalar type (adapter-specific in the caller — e.g. pog's
+/// `decode.bool` vs sqlight's int-to-bool adapter).
+pub fn render_enum_or_set_decoder(
+  scalar_type: model.ScalarType,
+  fallback: fn(model.ScalarType) -> String,
+) -> String {
+  case scalar_type {
+    model.EnumType(enum_name) ->
+      "decode.then(decode.string, fn(s) { case models."
+      <> type_mapping.enum_from_string_fn(enum_name)
+      <> "(s) { Ok(v) -> decode.success(v) Error(_) -> decode.failure(s, \"valid "
+      <> enum_name
+      <> " value\") } })"
+    model.SetType(set_name) ->
+      "decode.then(decode.string, fn(s) { case models."
+      <> type_mapping.set_from_string_fn(set_name)
+      <> "(s) { Ok(v) -> decode.success(v) Error(_) -> decode.failure([], \"valid "
+      <> set_name
+      <> " set\") } })"
+    _ -> fallback(scalar_type)
+  }
+}
+
+/// Render a param / record field's Gleam type for generated modules
+/// that are NOT `models.gleam` itself (currently `params.gleam` and
+/// `queries.gleam`). They reach the generated `EnumType` / `SetType`
+/// definitions through a plain `import db/models`, so every external
+/// reference must be qualified with `models.` — the bare names only
+/// work inside `models.gleam` where the types are declared.
+/// `ArrayType` recurses so arrays of enum / set stay qualified.
+pub fn qualified_field_type(
+  scalar_type: model.ScalarType,
+  type_mapping_mode: model.TypeMapping,
+) -> String {
+  case scalar_type {
+    model.EnumType(_) ->
+      "models."
+      <> type_mapping.scalar_type_to_gleam_type(scalar_type, type_mapping_mode)
+    model.SetType(name) ->
+      "List(models." <> type_mapping.set_value_type_name(name) <> ")"
+    model.ArrayType(element) ->
+      "List(" <> qualified_field_type(element, type_mapping_mode) <> ")"
+    _ -> type_mapping.scalar_type_to_gleam_type(scalar_type, type_mapping_mode)
+  }
 }
 
 pub fn queries_have_enum_params(queries: List(model.AnalyzedQuery)) -> Bool {
