@@ -1320,6 +1320,101 @@ pub fn render_mysql_native_adapter_decodes_affected_rows_for_execrows_test() {
   string.contains(rendered, "decode.field(1, decode.int)") |> should.be_true()
 }
 
+pub fn render_mysql_native_adapter_passes_bytes_through_shork_ffi_test() {
+  // SqlBytes encoding goes through `shork_ffi.coerce` directly so
+  // BLOB / BINARY parameters reach mysql:query/4 byte-for-byte —
+  // closes the previously-documented bytes round-trip gap from #418.
+  let naming_ctx = naming.new()
+  let catalog = mysql_native_catalog()
+  let queries = mysql_native_queries(naming_ctx, catalog)
+  let block = mysql_native_block()
+  let rendered = adapter.render(naming_ctx, block, queries, dict.new())
+
+  string.contains(rendered, "@external(erlang, \"shork_ffi\", \"coerce\")")
+  |> should.be_true()
+  string.contains(
+    rendered,
+    "fn bit_array_to_shork(value: BitArray) -> shork.Value",
+  )
+  |> should.be_true()
+  string.contains(rendered, "runtime.SqlBytes(v) -> bit_array_to_shork(v)")
+  |> should.be_true()
+}
+
+pub fn render_mysql_set_param_uses_set_to_string_helper_test() {
+  // SET params are encoded via the generated `<name>_set_to_string`
+  // helper before being handed to `runtime.string`; the column type
+  // in the params record stays `List(<Name>Value)`.
+  let naming_ctx = naming.new()
+  let assert Ok(schema_content) =
+    simplifile.read("test/fixtures/mysql_real_schema.sql")
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files_with_engine(
+      [#("test/fixtures/mysql_real_schema.sql", schema_content)],
+      model.MySQL,
+    )
+  let assert Ok(query_content) =
+    simplifile.read("test/fixtures/mysql_real_query.sql")
+  let assert Ok(parsed) =
+    query_parser.parse_file(
+      "test/fixtures/mysql_real_query.sql",
+      model.MySQL,
+      naming_ctx,
+      query_content,
+    )
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(model.MySQL, catalog, naming_ctx, parsed)
+
+  let params_rendered =
+    params.render(
+      naming_ctx,
+      analyzed,
+      model.StringMapping,
+      "db",
+      "sqlode/runtime",
+    )
+  // The params record exposes the SET column as `List(<Name>Value)`
+  // and the encoder routes it through `<name>_set_to_string` before
+  // calling `runtime.string`.
+  string.contains(params_rendered, "tags: Option(List(AuthorsTagsValue))")
+  |> should.be_true()
+  string.contains(params_rendered, "models.authors_tags_set_to_string")
+  |> should.be_true()
+}
+
+pub fn render_mysql_set_decoder_uses_set_from_string_helper_test() {
+  let naming_ctx = naming.new()
+  let assert Ok(schema_content) =
+    simplifile.read("test/fixtures/mysql_real_schema.sql")
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files_with_engine(
+      [#("test/fixtures/mysql_real_schema.sql", schema_content)],
+      model.MySQL,
+    )
+  let assert Ok(query_content) =
+    simplifile.read("test/fixtures/mysql_real_query.sql")
+  let assert Ok(parsed) =
+    query_parser.parse_file(
+      "test/fixtures/mysql_real_query.sql",
+      model.MySQL,
+      naming_ctx,
+      query_content,
+    )
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(model.MySQL, catalog, naming_ctx, parsed)
+
+  let block = mysql_native_block()
+  let block =
+    model.SqlBlock(
+      ..block,
+      schema: ["test/fixtures/mysql_real_schema.sql"],
+      queries: ["test/fixtures/mysql_real_query.sql"],
+    )
+  let rendered = adapter.render(naming_ctx, block, analyzed, dict.new())
+  string.contains(rendered, "models.authors_tags_set_from_string")
+  |> should.be_true()
+}
+
 fn mysql_native_catalog() -> model.Catalog {
   let assert Ok(content) = simplifile.read("test/fixtures/mysql_schema.sql")
   let assert Ok(#(catalog, _)) =

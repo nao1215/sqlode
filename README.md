@@ -294,12 +294,10 @@ do not need to know the MySQL wire protocol.
 > **Out of scope (today):** MariaDB is not separately validated; the
 > `mysql` engine targets MySQL 8.0 specifically. `:execresult` is
 > rejected for every native target — use `:exec`, `:execrows`, or
-> `:execlastid` instead. `BLOB` / `BINARY` columns are encoded as
-> NULL by the generated MySQL adapter because shork's public `Value`
-> type does not yet expose a bytes constructor — schemas with bytes
-> columns parse and generate cleanly, but the native round-trip is
-> a documented gap until shork (or our adapter) gains a bytes
-> encoder.
+> `:execlastid` instead. `BLOB` / `BINARY` columns are encoded
+> byte-for-byte by routing through `shork_ffi.coerce` — the same
+> identity FFI shork's other value constructors use under the hood
+> — so the native round-trip works without a shork API extension.
 
 ```yaml
 gen:

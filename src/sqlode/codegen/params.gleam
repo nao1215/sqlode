@@ -205,6 +205,15 @@ fn plan_encoding(
       let to_str = "models." <> type_mapping.enum_to_string_fn(name)
       EnumEncode(runtime_fn:, to_string_fn: to_str)
     }
+    // SetType reuses the EnumEncode shape: project the
+    // `List(<Name>Value)` field through `<name>_set_to_string` (the
+    // helper emitted by `codegen/models.gleam`) before handing the
+    // resulting comma-joined `String` to `runtime.string`.
+    model.SetType(name) -> {
+      let runtime_fn = type_mapping.scalar_type_to_runtime_function(scalar_type)
+      let to_str = "models." <> type_mapping.set_to_string_fn(name)
+      EnumEncode(runtime_fn:, to_string_fn: to_str)
+    }
     model.ArrayType(element) -> {
       let inner = plan_encoding(element, type_mapping_mode)
       ArrayEncode(element_encoder: inner)
