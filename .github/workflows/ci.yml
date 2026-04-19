@@ -26,6 +26,19 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: sqlode_integration
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h localhost -uroot -proot"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v6
 
@@ -66,3 +79,8 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/sqlode_integration
         run: sh integration_test/run.sh case_postgresql_real
+
+      - name: MySQL integration test
+        env:
+          MYSQL_URL: mysql://root:root@localhost:3306/sqlode_integration
+        run: sh integration_test/run.sh case_mysql_real
