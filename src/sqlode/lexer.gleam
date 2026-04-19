@@ -1,9 +1,7 @@
 import gleam/list
 import gleam/option
 import gleam/string
-import sqlode/char_utils.{
-  is_alnum_or_underscore, is_alpha_or_underscore, is_digit,
-}
+import sqlode/char_utils
 import sqlode/model
 
 /// Options for controlling how tokens are rendered back to text.
@@ -181,7 +179,7 @@ fn do_tokenize(
         "." ->
           case rest {
             [next, ..] ->
-              case is_digit(next) {
+              case char_utils.is_digit(next) {
                 // .5 → numeric literal
                 True -> {
                   let #(num, remaining) = read_number(rest, [g])
@@ -212,7 +210,7 @@ fn do_tokenize(
             [":", ..after_colon] ->
               do_tokenize(after_colon, engine, [Operator("::"), ..acc])
             [next, ..] ->
-              case is_alpha_or_underscore(next) {
+              case char_utils.is_alpha_or_underscore(next) {
                 True -> {
                   let #(ph, remaining) = read_word(rest, [g])
                   do_tokenize(remaining, engine, [Placeholder(ph), ..acc])
@@ -227,7 +225,7 @@ fn do_tokenize(
             [">", ..after] ->
               do_tokenize(after, engine, [Operator("@>"), ..acc])
             [next, ..] ->
-              case is_alpha_or_underscore(next) {
+              case char_utils.is_alpha_or_underscore(next) {
                 True -> {
                   let #(ph, remaining) = read_word(rest, [g])
                   do_tokenize(remaining, engine, [Placeholder(ph), ..acc])
@@ -239,7 +237,7 @@ fn do_tokenize(
 
         // Numbers
         _ ->
-          case is_digit(g) {
+          case char_utils.is_digit(g) {
             True ->
               case g, rest {
                 // 0x/0X hex literal (MySQL, SQLite). Treat as a single
@@ -258,7 +256,7 @@ fn do_tokenize(
                 }
               }
             False ->
-              case is_alpha_or_underscore(g) {
+              case char_utils.is_alpha_or_underscore(g) {
                 True ->
                   case detect_string_literal_prefix(g, rest) {
                     option.Some(#(after_prefix, _kind)) -> {
@@ -354,7 +352,7 @@ fn try_dollar_tag_lex(
   case chars {
     ["$", ..rest] -> Ok(#("", rest))
     [c, ..rest] ->
-      case is_alpha_or_underscore(c) {
+      case char_utils.is_alpha_or_underscore(c) {
         True -> read_dollar_tag_chars_lex(rest, [c])
         False -> Error(Nil)
       }
@@ -373,7 +371,7 @@ fn read_dollar_tag_chars_lex(
       Ok(#(tag, rest))
     }
     [c, ..rest] ->
-      case is_alnum_or_underscore(c) {
+      case char_utils.is_alnum_or_underscore(c) {
         True -> read_dollar_tag_chars_lex(rest, [c, ..acc])
         False -> Error(Nil)
       }
@@ -474,7 +472,7 @@ fn is_hex_digit(g: String) -> Bool {
 fn read_word(input: List(String), acc: List(String)) -> #(String, List(String)) {
   case input {
     [g, ..rest] ->
-      case is_alnum_or_underscore(g) {
+      case char_utils.is_alnum_or_underscore(g) {
         True -> read_word(rest, [g, ..acc])
         False -> #(acc |> list.reverse |> string.concat, input)
       }
@@ -651,7 +649,7 @@ fn read_number(
 ) -> #(String, List(String)) {
   case input {
     [g, ..rest] ->
-      case is_digit(g) || g == "." {
+      case char_utils.is_digit(g) || g == "." {
         True -> read_number(rest, [g, ..acc])
         False ->
           case g == "e" || g == "E" {
@@ -693,7 +691,7 @@ fn read_placeholder_question(
 ) -> #(String, List(String)) {
   case input {
     [g, ..rest] ->
-      case is_digit(g) {
+      case char_utils.is_digit(g) {
         True -> read_placeholder_question(rest, [g, ..acc])
         False -> #(acc |> list.reverse |> string.concat, input)
       }
@@ -739,17 +737,17 @@ fn tokens_to_string_loop(
   case tokens {
     [] -> acc
     [token, ..rest] -> {
-      let s = token_to_string(token, options)
+      let token_text = token_to_string(token, options)
       let with_space = case acc, token {
         _, Comma | _, Semicolon | _, LParen | _, RParen | _, Dot | _, Star -> [
-          s,
+          token_text,
           ..acc
         ]
-        ["(", ..], _ | [".", ..], _ -> [s, ..acc]
-        _, Operator("[") -> [s, ..acc]
-        ["]", ..], _ | ["[", ..], _ -> [s, ..acc]
-        [], _ -> [s]
-        _, _ -> [s, " ", ..acc]
+        ["(", ..], _ | [".", ..], _ -> [token_text, ..acc]
+        _, Operator("[") -> [token_text, ..acc]
+        ["]", ..], _ | ["[", ..], _ -> [token_text, ..acc]
+        [], _ -> [token_text]
+        _, _ -> [token_text, " ", ..acc]
       }
       tokens_to_string_loop(rest, with_space, options)
     }

@@ -961,9 +961,7 @@ pub fn error_to_string(error: GenerateError) -> String {
       <> "\": produces an invalid Gleam module path. Use a relative path under src/ (e.g., \"src/db\")"
     WriteError(inner) -> writer.error_to_string(inner)
     VendorRuntimeNotFound ->
-      "vendor_runtime is enabled but the sqlode/runtime source file could not be found. "
-      <> "Tried: src/sqlode/runtime.gleam, build/packages/sqlode/src/sqlode/runtime.gleam, "
-      <> "build/dev/erlang/sqlode/src/sqlode/runtime.gleam"
+      "vendor_runtime is enabled but the sqlode/runtime source file could not be found. Tried: src/sqlode/runtime.gleam, build/packages/sqlode/src/sqlode/runtime.gleam, build/dev/erlang/sqlode/src/sqlode/runtime.gleam"
     UnsupportedArrayForEngine(query_name:, engine:) ->
       "Query \""
       <> query_name

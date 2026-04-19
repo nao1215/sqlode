@@ -335,19 +335,11 @@ fn validate_init_flags(engine: String, runtime: String) -> Result(Nil, String) {
 }
 
 fn config_template(engine: String, runtime: String) -> String {
-  "version: \"2\"\n"
-  <> "sql:\n"
-  <> "  - schema: \"db/schema.sql\"\n"
-  <> "    queries: \"db/query.sql\"\n"
-  <> "    engine: \""
-  <> engine
-  <> "\"\n"
-  <> "    gen:\n"
-  <> "      gleam:\n"
-  <> "        out: \"src/db\"\n"
-  <> "        runtime: \""
-  <> runtime
-  <> "\"\n"
+  "version: \"2\"
+sql:
+  - schema: \"db/schema.sql\"
+    queries: \"db/query.sql\"
+    engine: \"" <> engine <> "\"\n" <> "    gen:\n" <> "      gleam:\n" <> "        out: \"src/db\"\n" <> "        runtime: \"" <> runtime <> "\"\n"
 }
 
 fn create_stub_files(base_dir: String, engine: String) -> Nil {
@@ -358,7 +350,7 @@ fn create_stub_files(base_dir: String, engine: String) -> Nil {
   let schema_path = filepath.join(db_dir, "schema.sql")
   let query_path = filepath.join(db_dir, "query.sql")
 
-  let _ = simplifile.create_directory_all(db_dir)
+  let _create_dir_result = simplifile.create_directory_all(db_dir)
 
   case simplifile.is_file(schema_path) {
     Ok(True) -> io.println("  Skipped " <> schema_path <> " (already exists)")
@@ -382,26 +374,29 @@ fn create_stub_files(base_dir: String, engine: String) -> Nil {
 fn starter_schema(engine: String) -> String {
   case engine {
     "sqlite" ->
-      "CREATE TABLE authors (\n"
-      <> "  id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
-      <> "  name TEXT NOT NULL,\n"
-      <> "  bio TEXT,\n"
-      <> "  created_at TEXT NOT NULL\n"
-      <> ");\n"
+      "CREATE TABLE authors (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  bio TEXT,
+  created_at TEXT NOT NULL
+);
+"
     "mysql" ->
-      "CREATE TABLE authors (\n"
-      <> "  id BIGINT AUTO_INCREMENT PRIMARY KEY,\n"
-      <> "  name TEXT NOT NULL,\n"
-      <> "  bio TEXT,\n"
-      <> "  created_at DATETIME NOT NULL\n"
-      <> ");\n"
+      "CREATE TABLE authors (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  name TEXT NOT NULL,
+  bio TEXT,
+  created_at DATETIME NOT NULL
+);
+"
     _ ->
-      "CREATE TABLE authors (\n"
-      <> "  id BIGSERIAL PRIMARY KEY,\n"
-      <> "  name TEXT NOT NULL,\n"
-      <> "  bio TEXT,\n"
-      <> "  created_at TIMESTAMP NOT NULL\n"
-      <> ");\n"
+      "CREATE TABLE authors (
+  id BIGSERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  bio TEXT,
+  created_at TIMESTAMP NOT NULL
+);
+"
   }
 }
 
@@ -411,21 +406,10 @@ fn starter_query(engine: String) -> String {
     _ -> "$1"
   }
 
-  "-- name: GetAuthor :one\n"
-  <> "SELECT id, name, bio\n"
-  <> "FROM authors\n"
-  <> "WHERE id = "
-  <> get_placeholder
-  <> ";\n"
-  <> "\n"
-  <> "-- name: ListAuthors :many\n"
-  <> "SELECT id, name\n"
-  <> "FROM authors\n"
-  <> "ORDER BY name;\n"
-  <> "\n"
-  <> "-- name: CreateAuthor :exec\n"
-  <> "INSERT INTO authors (name, bio)\n"
-  <> "VALUES (sqlode.arg(author_name), sqlode.narg(bio));\n"
+  "-- name: GetAuthor :one
+SELECT id, name, bio
+FROM authors
+WHERE id = " <> get_placeholder <> ";\n" <> "\n" <> "-- name: ListAuthors :many\n" <> "SELECT id, name\n" <> "FROM authors\n" <> "ORDER BY name;\n" <> "\n" <> "-- name: CreateAuthor :exec\n" <> "INSERT INTO authors (name, bio)\n" <> "VALUES (sqlode.arg(author_name), sqlode.narg(bio));\n"
 }
 
 /// Exit the process with the given status code, flushing I/O before shutdown.

@@ -224,11 +224,16 @@ fn build_params(
 
     let #(field_name, scalar_type, nullable, is_list) = case macro_info {
       Some(model.MacroArg(name:, ..)) -> {
-        let n = case inferred {
+        let nullable = case inferred {
           Some(column) -> column.nullable
           None -> False
         }
-        #(naming.to_snake_case(ctx.naming, name), inferred_type, n, False)
+        #(
+          naming.to_snake_case(ctx.naming, name),
+          inferred_type,
+          nullable,
+          False,
+        )
       }
       Some(model.MacroNarg(name:, ..)) -> #(
         naming.to_snake_case(ctx.naming, name),

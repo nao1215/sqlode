@@ -1096,12 +1096,12 @@ fn collect_aliased_tables(stmt: query_ir.Stmt) -> List(#(String, String)) {
     list.filter_map(collect_from_items(stmt), fn(item) {
       case item {
         query_ir.FromTable(name:, alias: Some(a)) -> {
-          let n = string.lowercase(name)
-          let al = string.lowercase(a)
-          case n, al {
+          let table_name = string.lowercase(name)
+          let alias_name = string.lowercase(a)
+          case table_name, alias_name {
             "", _ -> Error(Nil)
             _, "" -> Error(Nil)
-            _, _ -> Ok(#(n, al))
+            _, _ -> Ok(#(table_name, alias_name))
           }
         }
         _ -> Error(Nil)
@@ -1109,21 +1109,21 @@ fn collect_aliased_tables(stmt: query_ir.Stmt) -> List(#(String, String)) {
     })
   let dml_target = case stmt {
     query_ir.UpdateStmt(table:, alias: Some(a), ..) -> {
-      let n = string.lowercase(table)
-      let al = string.lowercase(a)
-      case n, al {
+      let table_name = string.lowercase(table)
+      let alias_name = string.lowercase(a)
+      case table_name, alias_name {
         "", _ -> []
         _, "" -> []
-        _, _ -> [#(n, al)]
+        _, _ -> [#(table_name, alias_name)]
       }
     }
     query_ir.DeleteStmt(table:, alias: Some(a), ..) -> {
-      let n = string.lowercase(table)
-      let al = string.lowercase(a)
-      case n, al {
+      let table_name = string.lowercase(table)
+      let alias_name = string.lowercase(a)
+      case table_name, alias_name {
         "", _ -> []
         _, "" -> []
-        _, _ -> [#(n, al)]
+        _, _ -> [#(table_name, alias_name)]
       }
     }
     _ -> []

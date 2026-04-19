@@ -21,6 +21,13 @@ build:
 test:
   gleam test
 
+# Run the glinter (https://github.com/pairshaped/glinter) static
+# analysis. Configuration lives under `[tools.glinter]` in
+# `gleam.toml`; with `warnings_as_errors = true` set there, this task
+# fails the build on any unsuppressed warning.
+lint:
+  gleam run -m glinter
+
 shellspec:
   shellspec
 
@@ -47,6 +54,7 @@ all:
   gleam format --check src/ test/
   gleam check
   gleam build --warnings-as-errors
+  gleam run -m glinter
   gleam test
   just integration-prepare
   shellspec

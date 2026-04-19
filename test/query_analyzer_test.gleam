@@ -321,12 +321,12 @@ pub fn sqlc_slice_sets_is_list_test() {
 
 pub fn parse_enum_column_type_test() {
   let schema =
-    "CREATE TYPE status AS ENUM ('active', 'inactive', 'banned');\n"
-    <> "CREATE TABLE users (\n"
-    <> "  id BIGSERIAL PRIMARY KEY,\n"
-    <> "  name TEXT NOT NULL,\n"
-    <> "  status status NOT NULL\n"
-    <> ");"
+    "CREATE TYPE status AS ENUM ('active', 'inactive', 'banned');
+CREATE TABLE users (
+  id BIGSERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  status status NOT NULL
+);"
 
   let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([#("enum.sql", schema)])
@@ -568,10 +568,10 @@ pub fn compound_query_column_count_mismatch_test() {
   let naming_ctx = naming.new()
   let catalog = test_catalog()
   let content =
-    "-- name: BadUnion :many\n"
-    <> "SELECT id, name FROM authors\n"
-    <> "UNION\n"
-    <> "SELECT id FROM authors;"
+    "-- name: BadUnion :many
+SELECT id, name FROM authors
+UNION
+SELECT id FROM authors;"
 
   let assert Ok(queries) =
     query_parser.parse_file("union.sql", model.PostgreSQL, naming_ctx, content)
@@ -592,10 +592,10 @@ pub fn compound_query_valid_union_test() {
   let naming_ctx = naming.new()
   let catalog = test_catalog()
   let content =
-    "-- name: GoodUnion :many\n"
-    <> "SELECT id, name FROM authors\n"
-    <> "UNION ALL\n"
-    <> "SELECT id, name FROM authors;"
+    "-- name: GoodUnion :many
+SELECT id, name FROM authors
+UNION ALL
+SELECT id, name FROM authors;"
 
   let assert Ok(queries) =
     query_parser.parse_file("union.sql", model.PostgreSQL, naming_ctx, content)
@@ -614,10 +614,10 @@ pub fn compound_query_except_mismatch_test() {
   let naming_ctx = naming.new()
   let catalog = test_catalog()
   let content =
-    "-- name: BadExcept :many\n"
-    <> "SELECT id, name FROM authors\n"
-    <> "EXCEPT\n"
-    <> "SELECT id, name, bio FROM authors;"
+    "-- name: BadExcept :many
+SELECT id, name FROM authors
+EXCEPT
+SELECT id, name, bio FROM authors;"
 
   let assert Ok(queries) =
     query_parser.parse_file("except.sql", model.PostgreSQL, naming_ctx, content)
@@ -915,8 +915,8 @@ pub fn sqlite_repeated_named_placeholder_single_param_test() {
   let naming_ctx = naming.new()
   let catalog = test_catalog()
   let sql =
-    "-- name: ReusedNamed :one\n"
-    <> "SELECT id FROM authors WHERE name = :name OR bio = :name;"
+    "-- name: ReusedNamed :one
+SELECT id FROM authors WHERE name = :name OR bio = :name;"
 
   let assert Ok(queries) =
     query_parser.parse_file("dedup.sql", model.SQLite, naming_ctx, sql)
@@ -935,8 +935,8 @@ pub fn sqlite_repeated_and_distinct_placeholders_correct_index_test() {
   let naming_ctx = naming.new()
   let catalog = test_catalog()
   let sql =
-    "-- name: MixedDedup :one\n"
-    <> "SELECT id FROM authors WHERE name = :name AND bio = :name AND id = :id;"
+    "-- name: MixedDedup :one
+SELECT id FROM authors WHERE name = :name AND bio = :name AND id = :id;"
 
   let assert Ok(queries) =
     query_parser.parse_file("mixed.sql", model.SQLite, naming_ctx, sql)
@@ -959,8 +959,8 @@ pub fn sqlite_repeated_at_placeholder_single_param_test() {
   // Same placeholder used with columns of different types (id:Int, name:String)
   // should produce a type conflict error
   let sql =
-    "-- name: ReusedAt :one\n"
-    <> "SELECT id FROM authors WHERE id = @id OR name = @id;"
+    "-- name: ReusedAt :one
+SELECT id FROM authors WHERE id = @id OR name = @id;"
 
   let assert Ok(queries) =
     query_parser.parse_file("at.sql", model.SQLite, naming_ctx, sql)
@@ -979,8 +979,8 @@ pub fn sqlite_repeated_at_placeholder_same_type_test() {
   let catalog = test_catalog()
   // Same placeholder used with columns of the same type should succeed
   let sql =
-    "-- name: ReusedSameType :one\n"
-    <> "SELECT id FROM authors WHERE id = @id OR id > @id;"
+    "-- name: ReusedSameType :one
+SELECT id FROM authors WHERE id = @id OR id > @id;"
 
   let assert Ok(queries) =
     query_parser.parse_file("at.sql", model.SQLite, naming_ctx, sql)
@@ -2326,8 +2326,8 @@ pub fn arithmetic_int_operands_stay_int_test() {
 pub fn case_unifies_int_and_float_branches_test() {
   let query =
     analyze_single(
-      "-- name: Mixed :many\n"
-        <> "SELECT CASE WHEN id = 1 THEN 1 WHEN id = 2 THEN 2.5 ELSE 3 END AS value FROM items;",
+      "-- name: Mixed :many
+SELECT CASE WHEN id = 1 THEN 1 WHEN id = 2 THEN 2.5 ELSE 3 END AS value FROM items;",
       pricing_catalog(),
     )
   let assert [model.ScalarResult(col)] = query.result_columns
@@ -2338,8 +2338,8 @@ pub fn case_unifies_int_and_float_branches_test() {
 pub fn case_without_else_is_nullable_test() {
   let query =
     analyze_single(
-      "-- name: Opt :many\n"
-        <> "SELECT CASE WHEN id = 1 THEN 10 END AS maybe FROM items;",
+      "-- name: Opt :many
+SELECT CASE WHEN id = 1 THEN 10 END AS maybe FROM items;",
       pricing_catalog(),
     )
   let assert [model.ScalarResult(col)] = query.result_columns
@@ -2350,8 +2350,8 @@ pub fn case_without_else_is_nullable_test() {
 pub fn case_with_else_not_null_is_not_nullable_test() {
   let query =
     analyze_single(
-      "-- name: Strict :many\n"
-        <> "SELECT CASE WHEN id = 1 THEN 10 ELSE 20 END AS value FROM items;",
+      "-- name: Strict :many
+SELECT CASE WHEN id = 1 THEN 10 ELSE 20 END AS value FROM items;",
       pricing_catalog(),
     )
   let assert [model.ScalarResult(col)] = query.result_columns
@@ -2362,8 +2362,8 @@ pub fn case_with_else_not_null_is_not_nullable_test() {
 pub fn case_with_null_branch_is_nullable_test() {
   let query =
     analyze_single(
-      "-- name: WithNull :many\n"
-        <> "SELECT CASE WHEN id = 1 THEN NULL ELSE 42 END AS value FROM items;",
+      "-- name: WithNull :many
+SELECT CASE WHEN id = 1 THEN NULL ELSE 42 END AS value FROM items;",
       pricing_catalog(),
     )
   let assert [model.ScalarResult(col)] = query.result_columns
@@ -2374,10 +2374,8 @@ pub fn case_with_null_branch_is_nullable_test() {
 pub fn case_nested_inherits_unified_type_test() {
   let query =
     analyze_single(
-      "-- name: Nested :many\n"
-        <> "SELECT CASE WHEN id = 1"
-        <> " THEN CASE WHEN quantity > 0 THEN 1.0 ELSE 2 END"
-        <> " ELSE 3 END AS value FROM items;",
+      "-- name: Nested :many
+SELECT CASE WHEN id = 1 THEN CASE WHEN quantity > 0 THEN 1.0 ELSE 2 END ELSE 3 END AS value FROM items;",
       pricing_catalog(),
     )
   let assert [model.ScalarResult(col)] = query.result_columns
@@ -2388,8 +2386,8 @@ pub fn case_nested_inherits_unified_type_test() {
 pub fn case_nullable_column_branch_propagates_test() {
   let query =
     analyze_single(
-      "-- name: MaybeDiscount :many\n"
-        <> "SELECT CASE WHEN id = 1 THEN discount ELSE 0.0 END AS value FROM items;",
+      "-- name: MaybeDiscount :many
+SELECT CASE WHEN id = 1 THEN discount ELSE 0.0 END AS value FROM items;",
       pricing_catalog(),
     )
   let assert [model.ScalarResult(col)] = query.result_columns
@@ -2476,8 +2474,8 @@ pub fn param_type_conflict_detection_test() {
   let naming_ctx = naming.new()
   let catalog = test_catalog()
   let sql =
-    "-- name: ConflictTest :one\n"
-    <> "SELECT id FROM authors WHERE id = $1 AND name = $1;"
+    "-- name: ConflictTest :one
+SELECT id FROM authors WHERE id = $1 AND name = $1;"
   let assert Ok(queries) =
     query_parser.parse_file("conflict.sql", model.PostgreSQL, naming_ctx, sql)
   let result =
@@ -2553,8 +2551,8 @@ pub fn ir_walker_infers_multiple_equality_params_in_order_test() {
   let naming_ctx = naming.new()
   let catalog = test_catalog()
   let sql =
-    "-- name: GetByIdAndName :one\n"
-    <> "SELECT id, name FROM authors WHERE id = $1 AND name = $2;"
+    "-- name: GetByIdAndName :one
+SELECT id, name FROM authors WHERE id = $1 AND name = $2;"
   let assert Ok(queries) =
     query_parser.parse_file("eq.sql", model.PostgreSQL, naming_ctx, sql)
   let assert Ok(analyzed) =
@@ -2588,8 +2586,8 @@ pub fn ir_walker_resolves_qualified_equality_param_test() {
   let naming_ctx = naming.new()
   let catalog = test_catalog()
   let sql =
-    "-- name: GetByQualifiedId :one\n"
-    <> "SELECT id, name FROM authors AS a WHERE a.id = $1;"
+    "-- name: GetByQualifiedId :one
+SELECT id, name FROM authors AS a WHERE a.id = $1;"
   let assert Ok(queries) =
     query_parser.parse_file("qualified.sql", model.PostgreSQL, naming_ctx, sql)
   let assert Ok(analyzed) =
@@ -2614,8 +2612,8 @@ pub fn ir_walker_infers_like_predicate_param_test() {
   let naming_ctx = naming.new()
   let catalog = test_catalog()
   let sql =
-    "-- name: SearchByName :many\n"
-    <> "SELECT id, name FROM authors WHERE name LIKE $1;"
+    "-- name: SearchByName :many
+SELECT id, name FROM authors WHERE name LIKE $1;"
   let assert Ok(queries) =
     query_parser.parse_file("like.sql", model.PostgreSQL, naming_ctx, sql)
   let assert Ok(analyzed) =
@@ -2638,8 +2636,8 @@ pub fn ir_walker_handles_reversed_operand_order_test() {
   let naming_ctx = naming.new()
   let catalog = test_catalog()
   let sql =
-    "-- name: GetByReversedId :one\n"
-    <> "SELECT id, name FROM authors WHERE $1 = id;"
+    "-- name: GetByReversedId :one
+SELECT id, name FROM authors WHERE $1 = id;"
   let assert Ok(queries) =
     query_parser.parse_file("reversed.sql", model.PostgreSQL, naming_ctx, sql)
   let assert Ok(analyzed) =
@@ -2684,8 +2682,8 @@ pub fn ir_walker_infers_single_element_in_param_test() {
   let naming_ctx = naming.new()
   let catalog = test_catalog()
   let sql =
-    "-- name: GetAuthorsByIdList :many\n"
-    <> "SELECT id, name FROM authors WHERE id IN ($1);"
+    "-- name: GetAuthorsByIdList :many
+SELECT id, name FROM authors WHERE id IN ($1);"
   assert_ir_select(sql)
   let assert Ok(queries) =
     query_parser.parse_file("in.sql", model.PostgreSQL, naming_ctx, sql)
@@ -2709,8 +2707,8 @@ pub fn ir_walker_infers_qualified_in_param_test() {
   let naming_ctx = naming.new()
   let catalog = test_catalog()
   let sql =
-    "-- name: GetQualifiedAuthorsById :many\n"
-    <> "SELECT a.id, a.name FROM authors AS a WHERE a.id IN ($1);"
+    "-- name: GetQualifiedAuthorsById :many
+SELECT a.id, a.name FROM authors AS a WHERE a.id IN ($1);"
   assert_ir_select(sql)
   let assert Ok(queries) =
     query_parser.parse_file(
@@ -2739,8 +2737,8 @@ pub fn ir_walker_infers_quantified_any_param_test() {
   let naming_ctx = naming.new()
   let catalog = test_catalog()
   let sql =
-    "-- name: GetAuthorsAnyId :many\n"
-    <> "SELECT id, name FROM authors WHERE id = ANY($1);"
+    "-- name: GetAuthorsAnyId :many
+SELECT id, name FROM authors WHERE id = ANY($1);"
   assert_ir_select(sql)
   let assert Ok(queries) =
     query_parser.parse_file("any.sql", model.PostgreSQL, naming_ctx, sql)
@@ -2767,9 +2765,8 @@ pub fn ir_walker_infers_update_assignment_in_subquery_test() {
   let naming_ctx = naming.new()
   let catalog = test_catalog()
   let sql =
-    "-- name: UpdateBioFromId :exec\n"
-    <> "UPDATE authors SET bio = "
-    <> "(SELECT bio FROM authors WHERE id IN ($1)) WHERE id = $2;"
+    "-- name: UpdateBioFromId :exec
+UPDATE authors SET bio = (SELECT bio FROM authors WHERE id IN ($1)) WHERE id = $2;"
   let assert Ok(queries) =
     query_parser.parse_file(
       "update_in_subquery.sql",
@@ -2802,9 +2799,8 @@ pub fn ir_walker_skips_in_subquery_test() {
   let naming_ctx = naming.new()
   let catalog = test_catalog()
   let sql =
-    "-- name: GetAuthorsByIdSub :many\n"
-    <> "SELECT id, name FROM authors "
-    <> "WHERE id IN (SELECT id FROM authors WHERE name = $1);"
+    "-- name: GetAuthorsByIdSub :many
+SELECT id, name FROM authors WHERE id IN (SELECT id FROM authors WHERE name = $1);"
   assert_ir_select(sql)
   let assert Ok(queries) =
     query_parser.parse_file("in_sub.sql", model.PostgreSQL, naming_ctx, sql)
@@ -2839,8 +2835,8 @@ pub fn ir_cte_virtual_table_resolves_test() {
   let naming_ctx = naming.new()
   let catalog = test_catalog()
   let sql =
-    "-- name: GetCteIds :many\n"
-    <> "WITH cte AS (SELECT id FROM authors) SELECT id FROM cte;"
+    "-- name: GetCteIds :many
+WITH cte AS (SELECT id FROM authors) SELECT id FROM cte;"
   assert_ir_select(sql)
   let assert Ok(queries) =
     query_parser.parse_file("cte.sql", model.PostgreSQL, naming_ctx, sql)
@@ -2867,8 +2863,8 @@ pub fn ir_values_virtual_table_infers_param_test() {
   let naming_ctx = naming.new()
   let catalog = test_catalog()
   let sql =
-    "-- name: GetValuesRows :many\n"
-    <> "SELECT n FROM (VALUES (1), (2)) AS v(n) WHERE n > $1;"
+    "-- name: GetValuesRows :many
+SELECT n FROM (VALUES (1), (2)) AS v(n) WHERE n > $1;"
   assert_ir_select(sql)
   let assert Ok(queries) =
     query_parser.parse_file("values.sql", model.PostgreSQL, naming_ctx, sql)
@@ -2895,8 +2891,8 @@ pub fn ir_derived_table_virtual_resolves_test() {
   let naming_ctx = naming.new()
   let catalog = test_catalog()
   let sql =
-    "-- name: GetDerivedIds :many\n"
-    <> "SELECT t.id FROM (SELECT id FROM authors) AS t;"
+    "-- name: GetDerivedIds :many
+SELECT t.id FROM (SELECT id FROM authors) AS t;"
   assert_ir_select(sql)
   let assert Ok(queries) =
     query_parser.parse_file("derived.sql", model.PostgreSQL, naming_ctx, sql)
@@ -2918,7 +2914,7 @@ pub fn ir_derived_table_virtual_resolves_test() {
 pub fn ir_table_alias_resolves_qualified_column_test() {
   let naming_ctx = naming.new()
   let catalog = test_catalog()
-  let sql = "-- name: GetAliasedIds :many\n" <> "SELECT a.id FROM authors AS a;"
+  let sql = "-- name: GetAliasedIds :many\nSELECT a.id FROM authors AS a;"
   assert_ir_select(sql)
   let assert Ok(queries) =
     query_parser.parse_file("alias.sql", model.PostgreSQL, naming_ctx, sql)

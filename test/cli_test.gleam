@@ -8,13 +8,13 @@ import sqlode/cli
 const base_dir = "test_output/cli_test"
 
 fn cleanup(subdir: String) {
-  let _ = simplifile.delete(base_dir <> "/" <> subdir)
+  let _delete_result = simplifile.delete(base_dir <> "/" <> subdir)
   Nil
 }
 
 fn setup(subdir: String) {
   cleanup(subdir)
-  let _ = simplifile.create_directory_all(base_dir <> "/" <> subdir)
+  let _mkdir_result = simplifile.create_directory_all(base_dir <> "/" <> subdir)
   Nil
 }
 

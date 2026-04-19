@@ -20,13 +20,12 @@ pub fn manifest_matches_tracked_file_test() {
     True -> Nil
     False -> {
       let message =
-        "doc/capabilities.md is out of sync with src/sqlode/capabilities.gleam.\n"
-        <> "Regenerate the file with:\n"
-        <> "  just regen-capabilities\n"
-        <> "or copy the expected output below verbatim:\n"
-        <> "--- expected ---\n"
-        <> rendered
-        <> "--- end expected ---"
+        "doc/capabilities.md is out of sync with src/sqlode/capabilities.gleam.
+Regenerate the file with:
+  just regen-capabilities
+or copy the expected output below verbatim:
+--- expected ---
+" <> rendered <> "--- end expected ---"
       should.equal(message, "")
     }
   }

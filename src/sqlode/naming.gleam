@@ -12,9 +12,12 @@ pub type NamingContext {
 }
 
 pub fn new() -> NamingContext {
+  // nolint: assert_ok_pattern -- the regex literal is a compile-time constant
   let assert Ok(word_separator) = regexp.from_string("[_\\-\\s./]+")
+  // nolint: assert_ok_pattern -- the regex literal is a compile-time constant
   let assert Ok(camel_case) =
     regexp.from_string("([A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|[0-9]+)")
+  // nolint: assert_ok_pattern -- the regex literal is a compile-time constant
   let assert Ok(underscore_before_caps) =
     regexp.from_string("([a-z0-9])([A-Z])")
   NamingContext(word_separator:, camel_case:, underscore_before_caps:)
