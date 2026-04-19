@@ -2823,3 +2823,115 @@ pub fn ir_walker_skips_in_subquery_test() {
   param.field_name |> should.equal("name")
   param.scalar_type |> should.equal(model.StringType)
 }
+
+// ============================================================
+// Issue #406: IR-driven virtual-table scope integration tests.
+//
+// Each of the four IR extractors (CTE / VALUES / derived / alias)
+// gets a realistic query that is driven through the full
+// `query_analyzer.analyze_queries` pipeline. `assert_ir_select`
+// pins that `expr_parser.parse_stmt` produced a structured Stmt
+// (not UnstructuredStmt), guaranteeing the IR path is exercised
+// rather than the token fallback.
+// ============================================================
+
+pub fn ir_cte_virtual_table_resolves_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: GetCteIds :many\n"
+    <> "WITH cte AS (SELECT id FROM authors) SELECT id FROM cte;"
+  assert_ir_select(sql)
+  let assert Ok(queries) =
+    query_parser.parse_file("cte.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  query.result_columns
+  |> should.equal([
+    model.ScalarResult(model.ResultColumn(
+      name: "id",
+      scalar_type: model.IntType,
+      nullable: False,
+      source_table: Some("cte"),
+    )),
+  ])
+}
+
+pub fn ir_values_virtual_table_infers_param_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: GetValuesRows :many\n"
+    <> "SELECT n FROM (VALUES (1), (2)) AS v(n) WHERE n > $1;"
+  assert_ir_select(sql)
+  let assert Ok(queries) =
+    query_parser.parse_file("values.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  // Result column `n` resolves through the VALUES virtual table as IntType.
+  let assert [model.ScalarResult(col)] = query.result_columns
+  col.name |> should.equal("n")
+  col.scalar_type |> should.equal(model.IntType)
+  // The $1 placeholder compared against `n` must infer IntType too.
+  let assert [param] = query.params
+  param.index |> should.equal(1)
+  param.field_name |> should.equal("n")
+  param.scalar_type |> should.equal(model.IntType)
+}
+
+pub fn ir_derived_table_virtual_resolves_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: GetDerivedIds :many\n"
+    <> "SELECT t.id FROM (SELECT id FROM authors) AS t;"
+  assert_ir_select(sql)
+  let assert Ok(queries) =
+    query_parser.parse_file("derived.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  // The column resolves through the derived-table alias `t`, whose
+  // columns are inferred from the subquery body.
+  let assert [model.ScalarResult(col)] = query.result_columns
+  col.name |> should.equal("id")
+  col.scalar_type |> should.equal(model.IntType)
+}
+
+pub fn ir_table_alias_resolves_qualified_column_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql = "-- name: GetAliasedIds :many\n" <> "SELECT a.id FROM authors AS a;"
+  assert_ir_select(sql)
+  let assert Ok(queries) =
+    query_parser.parse_file("alias.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  // `a.id` must resolve via the `authors AS a` alias back to `authors`.
+  let assert [model.ScalarResult(col)] = query.result_columns
+  col.name |> should.equal("id")
+  col.scalar_type |> should.equal(model.IntType)
+}

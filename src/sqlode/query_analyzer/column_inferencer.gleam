@@ -886,6 +886,251 @@ fn parse_derived_alias(
   }
 }
 
+// ============================================================
+// IR-driven virtual-table scope (Issue #406)
+//
+// These four `*_from_stmt` helpers drive table / alias / derived-
+// table / CTE scope from the expression-aware IR produced by
+// `expr_parser.parse_stmt`, instead of rescanning the raw token
+// stream. `query_analyzer.analyze_query` dispatches to them when
+// the parser returns a structured `Stmt`; it falls back to the
+// token-based extractors above when the parser hits an IR gap
+// (`UnstructuredStmt`), mirroring the defensive pattern PRs #412
+// and #413 used for equality / IN / quantified parameter
+// inference.
+//
+// For CTE bodies and derived-table subquery bodies, the IR
+// extractors delegate to the existing token-based body inference
+// (same token input): the `Stmt` drives WHICH virtual tables
+// exist, but column-type inference inside a body still flows
+// through `infer_columns_from_tokens`. Re-serialising a nested
+// `Stmt` / `SelectCore` back to tokens is not practical without
+// a dedicated printer, and wiring a `SelectCore`-native body
+// resolver is deferred to a future refactor. VALUES / alias
+// classification is fully IR-native because the `FromValues` and
+// `FromTable(_, Some(alias))` variants already carry everything
+// we need.
+// ============================================================
+
+/// IR-driven counterpart to `extract_cte_tables`. Walks
+/// `stmt.ctes` to enumerate CTE definitions, then re-uses the
+/// existing token-based extractor for body-column inference.
+/// Returning `Ok([])` when the IR reports no CTEs matches the
+/// behaviour of the token-based extractor when no `WITH …` prefix
+/// is present.
+pub fn extract_cte_tables_from_stmt(
+  query_name: String,
+  stmt: query_ir.Stmt,
+  tokens: List(lexer.Token),
+  catalog: model.Catalog,
+) -> Result(List(model.Table), AnalysisError) {
+  case stmt_ctes(stmt) {
+    [] -> Ok([])
+    _ -> extract_cte_tables(query_name, tokens, catalog)
+  }
+}
+
+fn stmt_ctes(stmt: query_ir.Stmt) -> List(query_ir.CteDef) {
+  case stmt {
+    query_ir.SelectStmt(ctes:, ..) -> ctes
+    query_ir.InsertStmt(ctes:, ..) -> ctes
+    query_ir.UpdateStmt(ctes:, ..) -> ctes
+    query_ir.DeleteStmt(ctes:, ..) -> ctes
+    query_ir.UnstructuredStmt(..) -> []
+  }
+}
+
+/// IR-driven counterpart to `extract_values_tables`. Walks the
+/// statement's FROM clauses (and nested `FromJoin` trees, plus
+/// UPDATE/DELETE `from`/`using`) to find every `FromValues` and
+/// builds a `model.Table` using the first row's literal types.
+/// Rows whose expressions do not classify as simple literals are
+/// skipped silently, matching the token-based extractor.
+pub fn extract_values_tables_from_stmt(stmt: query_ir.Stmt) -> List(model.Table) {
+  list.filter_map(collect_from_items(stmt), ir_from_item_to_values_table)
+}
+
+fn ir_from_item_to_values_table(
+  from_item: query_ir.FromItemEx,
+) -> Result(model.Table, Nil) {
+  case from_item {
+    query_ir.FromValues(rows:, alias:, column_aliases:) ->
+      case alias, column_aliases, rows {
+        "", _, _ -> Error(Nil)
+        _, [], _ -> Error(Nil)
+        _, _, [] -> Error(Nil)
+        _, names, [first_row, ..] -> {
+          use types <- result.try(list.try_map(
+            first_row,
+            ir_literal_expr_to_type,
+          ))
+          Ok(model.Table(
+            name: string.lowercase(alias),
+            columns: build_values_columns(names, types),
+          ))
+        }
+      }
+    _ -> Error(Nil)
+  }
+}
+
+fn ir_literal_expr_to_type(
+  expr: query_ir.Expr,
+) -> Result(#(model.ScalarType, Bool), Nil) {
+  case expr {
+    query_ir.NumberLit(value: n) -> Ok(#(number_scalar_type(n), False))
+    query_ir.Unary(op: "-", arg: query_ir.NumberLit(value: n)) ->
+      Ok(#(number_scalar_type(n), False))
+    query_ir.Unary(op: "+", arg: query_ir.NumberLit(value: n)) ->
+      Ok(#(number_scalar_type(n), False))
+    query_ir.StringLit(_) -> Ok(#(model.StringType, False))
+    query_ir.BoolLit(_) -> Ok(#(model.BoolType, False))
+    query_ir.NullLit -> Ok(#(model.StringType, True))
+    _ -> Error(Nil)
+  }
+}
+
+/// IR-driven counterpart to `extract_derived_tables`. Walks the
+/// statement's FROM clauses (including nested `FromJoin` trees
+/// and UPDATE/DELETE `from`/`using`) to check whether any derived
+/// subquery exists. When one does, delegates to the existing
+/// token-based extractor for body-column inference — see the
+/// module-level comment for the rationale.
+pub fn extract_derived_tables_from_stmt(
+  query_name: String,
+  stmt: query_ir.Stmt,
+  tokens: List(lexer.Token),
+  catalog: model.Catalog,
+) -> Result(List(model.Table), AnalysisError) {
+  case list.any(collect_from_items(stmt), is_from_subquery) {
+    False -> Ok([])
+    True -> extract_derived_tables(query_name, tokens, catalog)
+  }
+}
+
+fn is_from_subquery(from_item: query_ir.FromItemEx) -> Bool {
+  case from_item {
+    query_ir.FromSubquery(..) -> True
+    _ -> False
+  }
+}
+
+/// IR-driven counterpart to `extract_table_aliases`. Walks the
+/// statement's FROM clauses (including nested `FromJoin` trees
+/// and UPDATE/DELETE target/alias) to register every `FROM table
+/// AS alias` as a virtual table pointing at the underlying
+/// table's columns. Same skip guards as the token-based path:
+/// aliases identical to the base name are skipped, aliases that
+/// shadow an existing catalog entry are skipped, and duplicate
+/// alias registrations collapse to the first occurrence.
+pub fn extract_table_aliases_from_stmt(
+  stmt: query_ir.Stmt,
+  catalog: model.Catalog,
+) -> List(model.Table) {
+  let aliased_pairs = collect_aliased_tables(stmt)
+  let acc_init: List(model.Table) = []
+  list.fold(aliased_pairs, acc_init, fn(acc, pair) {
+    let #(table_name, alias_name) = pair
+    case alias_name == table_name {
+      True -> acc
+      False ->
+        case
+          list.find(catalog.tables, fn(t: model.Table) { t.name == table_name })
+        {
+          Ok(found) ->
+            case list.any(acc, fn(t: model.Table) { t.name == alias_name }) {
+              True -> acc
+              False ->
+                case
+                  list.any(catalog.tables, fn(t: model.Table) {
+                    t.name == alias_name
+                  })
+                {
+                  True -> acc
+                  False -> [
+                    model.Table(name: alias_name, columns: found.columns),
+                    ..acc
+                  ]
+                }
+            }
+          Error(_) -> acc
+        }
+    }
+  })
+  |> list.reverse
+}
+
+/// Gather every `FromItemEx` from the top-level FROM clauses of
+/// the outer statement. Nested subqueries inside `FromSubquery`
+/// are not descended — they have their own scope and are
+/// discovered separately when the subquery is analysed.
+/// `FromJoin` trees are flattened so left/right sides are visited
+/// in source order.
+fn collect_from_items(stmt: query_ir.Stmt) -> List(query_ir.FromItemEx) {
+  case stmt {
+    query_ir.SelectStmt(core:, ..) ->
+      list.flat_map(core.from, flatten_from_item)
+    query_ir.UpdateStmt(from:, ..) -> list.flat_map(from, flatten_from_item)
+    query_ir.DeleteStmt(using:, ..) -> list.flat_map(using, flatten_from_item)
+    query_ir.InsertStmt(..) -> []
+    query_ir.UnstructuredStmt(..) -> []
+  }
+}
+
+fn flatten_from_item(from: query_ir.FromItemEx) -> List(query_ir.FromItemEx) {
+  case from {
+    query_ir.FromJoin(left:, right:, ..) ->
+      list.append(flatten_from_item(left), flatten_from_item(right))
+    _ -> [from]
+  }
+}
+
+/// Collect every `(table_name, alias_name)` pair reachable from
+/// the outer statement. Covers SELECT/UPDATE/DELETE FROM clauses
+/// (through `FromJoin` recursion) as well as UPDATE/DELETE target
+/// tables. INSERT target tables do not carry an alias in the IR,
+/// so they are not emitted. Unaliased tables (`FromTable(name,
+/// None)`) are skipped.
+fn collect_aliased_tables(stmt: query_ir.Stmt) -> List(#(String, String)) {
+  let from_aliases =
+    list.filter_map(collect_from_items(stmt), fn(item) {
+      case item {
+        query_ir.FromTable(name:, alias: Some(a)) -> {
+          let n = string.lowercase(name)
+          let al = string.lowercase(a)
+          case n, al {
+            "", _ -> Error(Nil)
+            _, "" -> Error(Nil)
+            _, _ -> Ok(#(n, al))
+          }
+        }
+        _ -> Error(Nil)
+      }
+    })
+  let dml_target = case stmt {
+    query_ir.UpdateStmt(table:, alias: Some(a), ..) -> {
+      let n = string.lowercase(table)
+      let al = string.lowercase(a)
+      case n, al {
+        "", _ -> []
+        _, "" -> []
+        _, _ -> [#(n, al)]
+      }
+    }
+    query_ir.DeleteStmt(table:, alias: Some(a), ..) -> {
+      let n = string.lowercase(table)
+      let al = string.lowercase(a)
+      case n, al {
+        "", _ -> []
+        _, "" -> []
+        _, _ -> [#(n, al)]
+      }
+    }
+    _ -> []
+  }
+  list.append(dml_target, from_aliases)
+}
+
 /// Extract RETURNING columns from tokens using token-based analysis.
 fn tok_extract_returning_columns(
   tokens: List(lexer.Token),
