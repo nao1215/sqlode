@@ -1376,7 +1376,10 @@ pub fn render_mysql_set_param_uses_set_to_string_helper_test() {
   // The params record exposes the SET column as `List(<Name>Value)`
   // and the encoder routes it through `<name>_set_to_string` before
   // calling `runtime.string`.
-  string.contains(params_rendered, "tags: Option(List(AuthorsTagsValue))")
+  string.contains(
+    params_rendered,
+    "tags: Option(List(models.AuthorsTagsValue))",
+  )
   |> should.be_true()
   string.contains(params_rendered, "models.authors_tags_set_to_string")
   |> should.be_true()

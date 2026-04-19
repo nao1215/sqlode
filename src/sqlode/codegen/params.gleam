@@ -155,8 +155,7 @@ fn param_fields(
 ) -> List(String) {
   params
   |> list.map(fn(param) {
-    let base_type =
-      type_mapping.scalar_type_to_gleam_type(param.scalar_type, type_mapping)
+    let base_type = qualified_param_type(param.scalar_type, type_mapping)
     let typed = case param.is_list {
       True -> "List(" <> base_type <> ")"
       False ->
@@ -167,6 +166,30 @@ fn param_fields(
     }
     param.field_name <> ": " <> typed
   })
+}
+
+/// Render a param field's Gleam type, prefixing generated enum / set
+/// types with `models.` so params.gleam — which lives in a different
+/// module from the generated `models.gleam` — reaches them through the
+/// plain `import db/models` header. `models.gleam` itself uses
+/// unqualified names because the types are defined in that same
+/// module, so only callers in other generated modules need the
+/// qualifier. `ArrayType` recurses so nested enum/set references
+/// inside an array are also qualified.
+fn qualified_param_type(
+  scalar_type: model.ScalarType,
+  type_mapping_mode: model.TypeMapping,
+) -> String {
+  case scalar_type {
+    model.EnumType(_) ->
+      "models."
+      <> type_mapping.scalar_type_to_gleam_type(scalar_type, type_mapping_mode)
+    model.SetType(name) ->
+      "List(models." <> type_mapping.set_value_type_name(name) <> ")"
+    model.ArrayType(element) ->
+      "List(" <> qualified_param_type(element, type_mapping_mode) <> ")"
+    _ -> type_mapping.scalar_type_to_gleam_type(scalar_type, type_mapping_mode)
+  }
 }
 
 fn param_accessors(
