@@ -197,8 +197,14 @@ fn find_equality_matches_in_stmt(
       // assignments were caught by `find_equality_patterns` as well.
       // Mirror that by emitting matches for the assignment targets so
       // `UPDATE t SET col = $1 WHERE id = $2` still resolves $1's type.
+      //
+      // The RHS of each assignment may itself host an equality against
+      // a placeholder (`col = (SELECT x WHERE id = $1)`), so walk the
+      // value expression too — a top-level `Param` is consumed by
+      // `assignment_match`, but nested equalities need the recursion.
       list.flatten([
         list.filter_map(assignments, assignment_match),
+        list.flat_map(assignments, fn(a) { walk_expr(a.value) }),
         walk_optional_expr(where_),
       ])
     query_ir.DeleteStmt(where_:, ..) -> walk_optional_expr(where_)
@@ -232,12 +238,42 @@ fn walk_select_core(
   // the inner placeholder. The legacy token scanner saw every
   // placeholder in the main body; mirror that by descending through
   // each select-list expression.
+  //
+  // `order_by` / `limit` / `offset` / `set_op` are also walked so the
+  // IR walker stays shape-compatible with the legacy token scanner,
+  // which saw placeholders anywhere in the statement body.
   list.flatten([
     list.flat_map(core.select_items, walk_select_item),
     list.flat_map(core.from, walk_from_item_joins),
     walk_optional_expr(core.where_),
     list.flat_map(core.group_by, walk_expr),
     walk_optional_expr(core.having),
+    list.flat_map(core.order_by, walk_order_key),
+    walk_optional_expr(core.limit),
+    walk_optional_expr(core.offset),
+    walk_set_op(core.set_op),
+  ])
+}
+
+fn walk_order_key(key: query_ir.OrderKey) -> List(token_utils.EqualityMatch) {
+  walk_expr(key.expr)
+}
+
+fn walk_set_op(
+  set_op: Option(query_ir.SetOp),
+) -> List(token_utils.EqualityMatch) {
+  case set_op {
+    Some(query_ir.SetOp(right:, ..)) -> walk_select_core(right)
+    None -> []
+  }
+}
+
+fn walk_window_spec(
+  spec: query_ir.WindowSpec,
+) -> List(token_utils.EqualityMatch) {
+  list.flatten([
+    list.flat_map(spec.partition_by, walk_expr),
+    list.flat_map(spec.order_by, walk_order_key),
   ])
 }
 
@@ -326,7 +362,15 @@ fn walk_expr(expr: query_ir.Expr) -> List(token_utils.EqualityMatch) {
         walk_optional_expr(else_),
       ])
     query_ir.Cast(expr: subject, ..) -> walk_expr(subject)
-    query_ir.Func(args:, ..) -> list.flat_map(args, fn(a) { walk_expr(a.expr) })
+    query_ir.Func(args:, filter:, over:, ..) ->
+      list.flatten([
+        list.flat_map(args, fn(a) { walk_expr(a.expr) }),
+        walk_optional_expr(filter),
+        case over {
+          Some(spec) -> walk_window_spec(spec)
+          None -> []
+        },
+      ])
     query_ir.Tuple(elements:) -> list.flat_map(elements, walk_expr)
     query_ir.ArrayLit(elements:) -> list.flat_map(elements, walk_expr)
     // Nested subqueries — descend so `SELECT EXISTS(SELECT 1 FROM t
@@ -454,7 +498,14 @@ fn find_in_quantified_matches_in_stmt(
 ) -> List(token_utils.EqualityMatch) {
   case stmt {
     query_ir.SelectStmt(core:, ..) -> walk_select_core_iq(core)
-    query_ir.UpdateStmt(where_:, ..) -> walk_optional_expr_iq(where_)
+    query_ir.UpdateStmt(assignments:, where_:, ..) ->
+      // `UPDATE t SET col = (SELECT x WHERE id IN ($1))` is a realistic
+      // case the token scanner caught; descend into each assignment
+      // value so IN / quantified placeholders in the RHS still surface.
+      list.flatten([
+        list.flat_map(assignments, fn(a) { walk_expr_iq(a.value) }),
+        walk_optional_expr_iq(where_),
+      ])
     query_ir.DeleteStmt(where_:, ..) -> walk_optional_expr_iq(where_)
     // InsertStmt and UnstructuredStmt fall back to token scanning at
     // the call site; the IR walker is never invoked for those branches.
@@ -466,12 +517,44 @@ fn find_in_quantified_matches_in_stmt(
 fn walk_select_core_iq(
   core: query_ir.SelectCore,
 ) -> List(token_utils.EqualityMatch) {
+  // Walk every expression-bearing field of the SelectCore so the IR
+  // walker stays shape-compatible with the legacy token scanner —
+  // `order_by`, `limit`, `offset`, and the `set_op` continuation could
+  // all host IN / quantified placeholders in practice, and the token
+  // path saw every placeholder in the main body after the `WITH`
+  // prefix is stripped.
   list.flatten([
     list.flat_map(core.select_items, walk_select_item_iq),
     list.flat_map(core.from, walk_from_item_joins_iq),
     walk_optional_expr_iq(core.where_),
     list.flat_map(core.group_by, walk_expr_iq),
     walk_optional_expr_iq(core.having),
+    list.flat_map(core.order_by, walk_order_key_iq),
+    walk_optional_expr_iq(core.limit),
+    walk_optional_expr_iq(core.offset),
+    walk_set_op_iq(core.set_op),
+  ])
+}
+
+fn walk_order_key_iq(key: query_ir.OrderKey) -> List(token_utils.EqualityMatch) {
+  walk_expr_iq(key.expr)
+}
+
+fn walk_set_op_iq(
+  set_op: Option(query_ir.SetOp),
+) -> List(token_utils.EqualityMatch) {
+  case set_op {
+    Some(query_ir.SetOp(right:, ..)) -> walk_select_core_iq(right)
+    None -> []
+  }
+}
+
+fn walk_window_spec_iq(
+  spec: query_ir.WindowSpec,
+) -> List(token_utils.EqualityMatch) {
+  list.flatten([
+    list.flat_map(spec.partition_by, walk_expr_iq),
+    list.flat_map(spec.order_by, walk_order_key_iq),
   ])
 }
 
@@ -566,8 +649,15 @@ fn walk_expr_iq(expr: query_ir.Expr) -> List(token_utils.EqualityMatch) {
         walk_optional_expr_iq(else_),
       ])
     query_ir.Cast(expr: subject, ..) -> walk_expr_iq(subject)
-    query_ir.Func(args:, ..) ->
-      list.flat_map(args, fn(a) { walk_expr_iq(a.expr) })
+    query_ir.Func(args:, filter:, over:, ..) ->
+      list.flatten([
+        list.flat_map(args, fn(a) { walk_expr_iq(a.expr) }),
+        walk_optional_expr_iq(filter),
+        case over {
+          Some(spec) -> walk_window_spec_iq(spec)
+          None -> []
+        },
+      ])
     query_ir.Tuple(elements:) -> list.flat_map(elements, walk_expr_iq)
     query_ir.ArrayLit(elements:) -> list.flat_map(elements, walk_expr_iq)
     query_ir.Exists(core:, ..) -> walk_select_core_iq(core)

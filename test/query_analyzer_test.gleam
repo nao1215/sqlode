@@ -2664,12 +2664,29 @@ pub fn ir_walker_handles_reversed_operand_order_test() {
 // through the public `query_analyzer.analyze_queries` pipeline so the
 // wiring is covered end-to-end.
 
+/// Pin the IR path for the IN / quantified walker tests. Without this
+/// a future regression that made `expr_parser.parse_stmt` return
+/// `UnstructuredStmt` would silently fall back to the token scanner,
+/// letting the test still pass through the legacy path.
+fn assert_ir_select(sql: String) -> Nil {
+  let stmt =
+    expr_parser.parse_stmt(
+      lexer.tokenize(sql, model.PostgreSQL),
+      model.PostgreSQL,
+    )
+  case stmt {
+    query_ir.SelectStmt(..) -> Nil
+    _ -> panic as "expected SelectStmt from expr_parser.parse_stmt"
+  }
+}
+
 pub fn ir_walker_infers_single_element_in_param_test() {
   let naming_ctx = naming.new()
   let catalog = test_catalog()
   let sql =
     "-- name: GetAuthorsByIdList :many\n"
     <> "SELECT id, name FROM authors WHERE id IN ($1);"
+  assert_ir_select(sql)
   let assert Ok(queries) =
     query_parser.parse_file("in.sql", model.PostgreSQL, naming_ctx, sql)
   let assert Ok(analyzed) =
@@ -2694,6 +2711,7 @@ pub fn ir_walker_infers_qualified_in_param_test() {
   let sql =
     "-- name: GetQualifiedAuthorsById :many\n"
     <> "SELECT a.id, a.name FROM authors AS a WHERE a.id IN ($1);"
+  assert_ir_select(sql)
   let assert Ok(queries) =
     query_parser.parse_file(
       "in_qualified.sql",
@@ -2723,6 +2741,7 @@ pub fn ir_walker_infers_quantified_any_param_test() {
   let sql =
     "-- name: GetAuthorsAnyId :many\n"
     <> "SELECT id, name FROM authors WHERE id = ANY($1);"
+  assert_ir_select(sql)
   let assert Ok(queries) =
     query_parser.parse_file("any.sql", model.PostgreSQL, naming_ctx, sql)
   let assert Ok(analyzed) =
@@ -2739,6 +2758,43 @@ pub fn ir_walker_infers_quantified_any_param_test() {
   param.scalar_type |> should.equal(model.IntType)
 }
 
+pub fn ir_walker_infers_update_assignment_in_subquery_test() {
+  // The IR walker for UPDATE must descend into each assignment's
+  // value expression: `UPDATE authors SET bio = (SELECT bio FROM
+  // authors WHERE id IN ($1)) WHERE id = $2`. $1 is the IN
+  // placeholder inside the scalar-subquery RHS of the assignment,
+  // which the previous walker (WHERE-only) would have missed.
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: UpdateBioFromId :exec\n"
+    <> "UPDATE authors SET bio = "
+    <> "(SELECT bio FROM authors WHERE id IN ($1)) WHERE id = $2;"
+  let assert Ok(queries) =
+    query_parser.parse_file(
+      "update_in_subquery.sql",
+      model.PostgreSQL,
+      naming_ctx,
+      sql,
+    )
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  // $1 (inner IN) and $2 (outer equality) should both bind to `id`.
+  let assert [p1, p2] = query.params
+  p1.index |> should.equal(1)
+  p1.field_name |> should.equal("id")
+  p1.scalar_type |> should.equal(model.IntType)
+  p2.index |> should.equal(2)
+  p2.field_name |> should.equal("id")
+  p2.scalar_type |> should.equal(model.IntType)
+}
+
 pub fn ir_walker_skips_in_subquery_test() {
   // `id IN (SELECT …)` is the subquery form — the walker must not
   // emit an IN match for it (subquery inference is the subquery's
@@ -2749,6 +2805,7 @@ pub fn ir_walker_skips_in_subquery_test() {
     "-- name: GetAuthorsByIdSub :many\n"
     <> "SELECT id, name FROM authors "
     <> "WHERE id IN (SELECT id FROM authors WHERE name = $1);"
+  assert_ir_select(sql)
   let assert Ok(queries) =
     query_parser.parse_file("in_sub.sql", model.PostgreSQL, naming_ctx, sql)
   let assert Ok(analyzed) =
