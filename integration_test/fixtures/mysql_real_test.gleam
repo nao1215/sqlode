@@ -21,7 +21,6 @@ import db/models
 import db/mysql_adapter
 import db/params
 import envoy
-import gleam/dynamic/decode
 import gleam/int
 import gleam/io
 import gleam/list
@@ -79,20 +78,15 @@ fn connect_or_fail() -> shork.Connection {
   parse_mysql_url(url) |> shork.connect
 }
 
-fn ignore() -> decode.Decoder(Nil) {
-  decode.success(Nil)
-}
-
 fn reset_authors(db: shork.Connection) -> Nil {
+  // Match shork's own test fixture pattern: no `returning` decoder
+  // for DDL — Query(Nil) plus a discarded result is enough.
   let _ =
-    shork.query("DROP TABLE IF EXISTS authors")
-    |> shork.returning(ignore())
-    |> shork.execute(db)
+    shork.query("DROP TABLE IF EXISTS authors") |> shork.execute(db)
   let _ =
     shork.query(
       "CREATE TABLE authors (id BIGINT AUTO_INCREMENT PRIMARY KEY, email VARCHAR(255) NOT NULL UNIQUE, display_name VARCHAR(255) NOT NULL, bio TEXT NULL, is_active BOOLEAN NOT NULL DEFAULT TRUE, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)",
     )
-    |> shork.returning(ignore())
     |> shork.execute(db)
   Nil
 }

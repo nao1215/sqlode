@@ -1298,28 +1298,30 @@ pub fn render_mysql_native_adapter_uses_shork_test() {
   |> should.be_false()
 }
 
-pub fn render_mysql_native_adapter_emits_last_insert_id_test() {
-  // :execlastid must call SELECT LAST_INSERT_ID() after the INSERT,
-  // not rely on a client-side counter.
+pub fn render_mysql_native_adapter_decodes_last_insert_id_test() {
+  // :execlastid extracts shork's synthetic
+  // [last_insert_id, affected_rows, warning_count] result row by
+  // decoding column 0 as an int — no follow-up SELECT needed.
   let naming_ctx = naming.new()
   let catalog = mysql_native_catalog()
   let queries = mysql_native_queries(naming_ctx, catalog)
   let block = mysql_native_block()
   let rendered = adapter.render(naming_ctx, block, queries, dict.new())
 
-  string.contains(rendered, "SELECT LAST_INSERT_ID()") |> should.be_true()
+  string.contains(rendered, "shork.returning({") |> should.be_true()
+  string.contains(rendered, "decode.field(0, decode.int)") |> should.be_true()
 }
 
-pub fn render_mysql_native_adapter_emits_row_count_for_execrows_test() {
-  // :execrows must call SELECT ROW_COUNT() after the statement,
-  // matching the sqlight changes() pattern.
+pub fn render_mysql_native_adapter_decodes_affected_rows_for_execrows_test() {
+  // :execrows extracts the affected-row count from column 1 of
+  // shork's synthetic INSERT/UPDATE/DELETE result row.
   let naming_ctx = naming.new()
   let catalog = mysql_native_catalog()
   let queries = mysql_native_queries(naming_ctx, catalog)
   let block = mysql_native_block()
   let rendered = adapter.render(naming_ctx, block, queries, dict.new())
 
-  string.contains(rendered, "SELECT ROW_COUNT()") |> should.be_true()
+  string.contains(rendered, "decode.field(1, decode.int)") |> should.be_true()
 }
 
 fn mysql_native_catalog() -> model.Catalog {
