@@ -243,8 +243,7 @@ fn render_adapter(
       // be imported even when the queries themselves carry no
       // nullable params or results.
       case
-        block.engine == model.MySQL
-        && !needs_option_import_for_adapter(queries)
+        block.engine == model.MySQL && !needs_option_import_for_adapter(queries)
       {
         True -> ["import gleam/option"]
         False -> []

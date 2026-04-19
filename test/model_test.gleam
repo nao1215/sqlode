@@ -643,10 +643,7 @@ pub fn mysql_decimal_does_not_leak_to_postgres_test() {
 }
 
 pub fn type_mapping_decimal_renders_as_string_test() {
-  type_mapping.scalar_type_to_gleam_type(
-    model.DecimalType,
-    model.StringMapping,
-  )
+  type_mapping.scalar_type_to_gleam_type(model.DecimalType, model.StringMapping)
   |> should.equal("String")
   type_mapping.scalar_type_to_gleam_type(model.DecimalType, model.RichMapping)
   |> should.equal("SqlDecimal")

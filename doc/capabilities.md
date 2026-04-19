@@ -15,6 +15,14 @@ update the capabilities module and run `just regen-capabilities`.
 - `raw`
 - `native`
 
+## Engine / runtime support
+
+| Engine | Raw | Native | Native driver |
+| --- | --- | --- | --- |
+| `postgresql` | yes | yes | `pog` |
+| `mysql` | yes | yes | `gmysql` |
+| `sqlite` | yes | yes | `sqlight` |
+
 ## Type mappings
 
 - `string`

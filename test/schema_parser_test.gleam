@@ -829,9 +829,7 @@ pub fn mysql_migration_history_resolves_to_expected_catalog_test() {
 
   let column_names = list.map(table.columns, fn(c) { c.name })
   column_names
-  |> should.equal([
-    "id", "email", "name", "bio", "created_at", "updated_at",
-  ])
+  |> should.equal(["id", "email", "name", "bio", "created_at", "updated_at"])
 
   let assert Ok(bio_col) = list.find(table.columns, fn(c) { c.name == "bio" })
   bio_col.scalar_type |> should.equal(model.StringType)
@@ -901,10 +899,7 @@ pub fn mysql_alter_change_renames_and_retypes_column_test() {
     <> "ALTER TABLE `notes` CHANGE COLUMN `body` `content` LONGTEXT NULL;"
 
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files_with_engine(
-      [#("notes.sql", create)],
-      model.MySQL,
-    )
+    schema_parser.parse_files_with_engine([#("notes.sql", create)], model.MySQL)
 
   let assert [table] = catalog.tables
   let column_names = list.map(table.columns, fn(c) { c.name })
@@ -927,14 +922,10 @@ pub fn mysql_alter_modify_decimal_uses_lossless_contract_test() {
     <> "ALTER TABLE `prices` MODIFY COLUMN `amount` DECIMAL(20,6) NOT NULL;"
 
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files_with_engine(
-      [#("prices.sql", sql)],
-      model.MySQL,
-    )
+    schema_parser.parse_files_with_engine([#("prices.sql", sql)], model.MySQL)
 
   let assert [table] = catalog.tables
-  let assert Ok(amount) =
-    list.find(table.columns, fn(c) { c.name == "amount" })
+  let assert Ok(amount) = list.find(table.columns, fn(c) { c.name == "amount" })
   amount.scalar_type |> should.equal(model.DecimalType)
 }
 
@@ -946,10 +937,7 @@ pub fn mysql_create_view_with_backticks_test() {
     <> "CREATE VIEW `post_titles` AS SELECT `id`, `title` FROM `posts`;"
 
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files_with_engine(
-      [#("posts.sql", sql)],
-      model.MySQL,
-    )
+    schema_parser.parse_files_with_engine([#("posts.sql", sql)], model.MySQL)
 
   list.length(catalog.tables) |> should.equal(2)
   let assert Ok(view) =
@@ -971,10 +959,7 @@ pub fn mysql_create_table_strips_auto_increment_and_charset_noise_test() {
     <> ");"
 
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files_with_engine(
-      [#("posts.sql", sql)],
-      model.MySQL,
-    )
+    schema_parser.parse_files_with_engine([#("posts.sql", sql)], model.MySQL)
 
   let assert [table] = catalog.tables
   let column_names = list.map(table.columns, fn(c) { c.name })

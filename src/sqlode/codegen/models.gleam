@@ -250,7 +250,9 @@ fn render_set_type(enum_def: model.EnumDef) -> String {
       <> ")) -> String {",
     ),
     builder.line(
-      "  values |> mysql_set_list.map(" <> value_to_string_fn <> ") |> mysql_set_string.join(\",\")",
+      "  values |> mysql_set_list.map("
+      <> value_to_string_fn
+      <> ") |> mysql_set_string.join(\",\")",
     ),
     builder.line("}"),
     builder.blank(),

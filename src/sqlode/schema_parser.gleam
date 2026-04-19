@@ -1018,9 +1018,7 @@ fn apply_ddl_action(
     )
     AlterColumnType(table_name:, column_name:, type_tokens:) -> {
       let type_text = render_type_tokens(type_tokens)
-      let new_type = case
-        model.parse_sql_type_for_engine(type_text, engine)
-      {
+      let new_type = case model.parse_sql_type_for_engine(type_text, engine) {
         Ok(t) -> Some(t)
         Error(_) -> None
       }
@@ -1066,7 +1064,11 @@ fn apply_ddl_action(
         )
       let updated_tables =
         rewrite_column(tables, table_name, old_name, fn(_) {
-          model.Column(name: string.lowercase(new_name), scalar_type:, nullable:)
+          model.Column(
+            name: string.lowercase(new_name),
+            scalar_type:,
+            nullable:,
+          )
         })
       #(updated_tables, new_enums)
     }
@@ -1159,7 +1161,8 @@ fn resolve_mysql_alter_type(
   enums: List(model.EnumDef),
   engine: model.Engine,
 ) -> #(model.ScalarType, List(model.EnumDef)) {
-  case detect_mysql_inline_enum_set(type_tokens, table_name, column_name, engine)
+  case
+    detect_mysql_inline_enum_set(type_tokens, table_name, column_name, engine)
   {
     Some(InlineEnum(scalar_type:, new_enum:)) -> #(
       scalar_type,
