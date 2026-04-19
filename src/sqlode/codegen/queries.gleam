@@ -288,8 +288,7 @@ fn param_arg_type(
   param: model.QueryParam,
   type_mapping: model.TypeMapping,
 ) -> String {
-  let base =
-    type_mapping.scalar_type_to_gleam_type(param.scalar_type, type_mapping)
+  let base = common.qualified_field_type(param.scalar_type, type_mapping)
   case param.is_list {
     True -> "List(" <> base <> ")"
     False ->
@@ -334,7 +333,11 @@ fn render_decoder_function(
           ..,
         )) -> {
           let field_name = naming.to_snake_case(naming_ctx, name)
-          let base = type_mapping.scalar_type_to_decoder(engine, scalar_type)
+          let base =
+            common.render_enum_or_set_decoder(
+              scalar_type,
+              type_mapping.scalar_type_to_decoder(engine, _),
+            )
           let decoder = case nullable {
             True -> "decode.optional(" <> base <> ")"
             False -> base
@@ -366,7 +369,10 @@ fn render_decoder_function(
               let #(i, ls) = inner_acc
               let field_name = naming.to_snake_case(naming_ctx, c.name)
               let base =
-                type_mapping.scalar_type_to_decoder(engine, c.scalar_type)
+                common.render_enum_or_set_decoder(
+                  c.scalar_type,
+                  type_mapping.scalar_type_to_decoder(engine, _),
+                )
               let decoder = case c.nullable {
                 True -> "decode.optional(" <> base <> ")"
                 False -> base

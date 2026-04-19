@@ -1146,6 +1146,64 @@ pub fn execresult_rejected_on_native_runtime_test() {
   }
 }
 
+pub fn execresult_rejected_on_mysql_native_runtime_test() {
+  // Issue #418: `:execresult` is rejected for every native target,
+  // and MySQL is no exception. The shared `validate_native_annotations`
+  // pass refuses generation before any MySQL-specific code runs.
+  let block =
+    model.SqlBlock(
+      name: option.None,
+      engine: model.MySQL,
+      schema: ["test/fixtures/mysql_schema.sql"],
+      queries: ["test/fixtures/mysql_execresult_query.sql"],
+      gleam: model.GleamOutput(
+        out: "test_output/mysql_execresult_reject",
+        runtime: model.Native,
+        type_mapping: model.StringMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: False,
+        omit_unused_models: False,
+        vendor_runtime: False,
+        strict_views: False,
+        query_parameter_limit: option.None,
+      ),
+      overrides: model.empty_overrides(),
+    )
+  let cfg = model.Config(version: 2, sql: [block])
+  case generate.generate_config(cfg) {
+    Error(generate.UnsupportedAnnotation(command: ":execresult", ..)) -> Nil
+    _ -> should.fail()
+  }
+}
+
+pub fn execresult_allowed_on_mysql_raw_runtime_test() {
+  // The corresponding positive case: in raw mode the same query
+  // generates without complaint, mirroring the SQLite + PostgreSQL
+  // raw-mode contract.
+  let block =
+    model.SqlBlock(
+      name: option.None,
+      engine: model.MySQL,
+      schema: ["test/fixtures/mysql_schema.sql"],
+      queries: ["test/fixtures/mysql_execresult_query.sql"],
+      gleam: model.GleamOutput(
+        out: "test_output/mysql_execresult_raw",
+        runtime: model.Raw,
+        type_mapping: model.StringMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: False,
+        omit_unused_models: False,
+        vendor_runtime: False,
+        strict_views: False,
+        query_parameter_limit: option.None,
+      ),
+      overrides: model.empty_overrides(),
+    )
+  let _delete_result = simplifile.delete("test_output/mysql_execresult_raw")
+  let cfg = model.Config(version: 2, sql: [block])
+  let assert Ok(_) = generate.generate_config(cfg)
+}
+
 pub fn execresult_allowed_on_raw_runtime_test() {
   let block =
     model.SqlBlock(

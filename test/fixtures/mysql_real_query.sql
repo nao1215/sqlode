@@ -1,9 +1,9 @@
 -- name: CreateAuthor :execlastid
-INSERT INTO authors (email, display_name, bio, is_active)
-VALUES (?, ?, ?, ?);
+INSERT INTO authors (email, display_name, bio, is_active, avatar, balance, status, tags)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetAuthor :one
-SELECT id, email, display_name, bio, is_active
+SELECT id, email, display_name, bio, is_active, avatar, balance, status, tags
 FROM authors
 WHERE id = ?;
 
@@ -22,8 +22,8 @@ DELETE FROM authors
 WHERE id = ?;
 
 -- name: UpsertAuthor :execrows
-INSERT INTO authors (email, display_name, bio, is_active)
-VALUES (?, ?, ?, ?)
+INSERT INTO authors (email, display_name, bio, is_active, avatar, balance, status, tags)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON DUPLICATE KEY UPDATE
   display_name = VALUES(display_name),
   bio = VALUES(bio);

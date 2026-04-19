@@ -283,6 +283,14 @@ pub fn enum_from_string_fn(name: String) -> String {
   string.lowercase(name) <> "_from_string"
 }
 
+/// Name of the helper that returns the enum's first variant as a
+/// `zero`-style fallback. Used by generated adapter / queries
+/// decoders where `decode.failure(zero, msg)` needs a concrete value
+/// of the target type.
+pub fn enum_default_fn(name: String) -> String {
+  string.lowercase(name) <> "_default"
+}
+
 // --- Set naming utilities ---
 
 /// Gleam type name for a single value of a MySQL `SET` column. The

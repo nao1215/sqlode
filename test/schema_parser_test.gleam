@@ -949,6 +949,38 @@ CREATE VIEW `post_titles` AS SELECT `id`, `title` FROM `posts`;"
   column_names |> should.equal(["id", "title"])
 }
 
+pub fn mysql_unsupported_ddl_fails_fast_test() {
+  // Issue #419: MySQL schema files containing DDL sqlode does not
+  // model must surface an actionable error rather than silently
+  // dropping the statement on the floor.
+  let sql =
+    "CREATE TABLE `events` (`id` BIGINT NOT NULL, PRIMARY KEY (`id`));
+RENAME TABLE `events` TO `events_archive`;"
+
+  let assert Error(error) =
+    schema_parser.parse_files_with_engine([#("events.sql", sql)], model.MySQL)
+  let msg = schema_parser.error_to_string(error)
+  string.contains(msg, "events.sql") |> should.be_true()
+  string.contains(msg, "Unsupported MySQL DDL") |> should.be_true()
+  string.contains(msg, "RENAME TABLE") |> should.be_true()
+}
+
+pub fn mysql_unknown_statement_for_postgresql_stays_silent_test() {
+  // The fail-fast policy is scoped to MySQL — PostgreSQL keeps the
+  // legacy permissive behaviour so existing schemas with adjacent
+  // unrecognised DDL (e.g. plpgsql function bodies) do not break.
+  let sql =
+    "CREATE TABLE events (id BIGINT NOT NULL, PRIMARY KEY (id));
+GRANT SELECT ON events TO some_role;"
+
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files_with_engine(
+      [#("events.sql", sql)],
+      model.PostgreSQL,
+    )
+  list.length(catalog.tables) |> should.equal(1)
+}
+
 pub fn mysql_create_table_strips_auto_increment_and_charset_noise_test() {
   // AUTO_INCREMENT, CHARACTER SET, COLLATE, and COMMENT all appear
   // after the column type in real MySQL DDL. They must not bleed

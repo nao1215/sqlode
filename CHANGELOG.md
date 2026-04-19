@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **MySQL completeness pass.** Closes the documented gaps left over
+  from the #417 epic:
+  - `BLOB` / `BINARY` columns now round-trip byte-for-byte in native
+    mode by routing `SqlBytes` through `shork_ffi.coerce` (an internal
+    FFI binding mirroring shork's own `text` / `int` constructors).
+  - The MySQL `SET(...)` column type is now wired end-to-end. The
+    generated params record exposes the field as `List(<Name>Value)`
+    and the encoder routes it through the new `<name>_set_to_string`
+    helper; the adapter decoder calls `<name>_set_from_string` on
+    the wire string.
+  - The MySQL real-DB integration lane now exercises bytes, decimal
+    (lossless `DecimalType`), enum, and SET round-trips against the
+    live MySQL service.
+  - MySQL schema files containing DDL sqlode does not (yet) model
+    fail with a new `UnsupportedMysqlDdl` parse error rather than
+    silently dropping the statement on the floor (Issue #419
+    fail-fast acceptance).
+  - `:execresult` rejection on `runtime: "native"` is now pinned by
+    a MySQL-specific test (positive: same query in `runtime: "raw"`
+    generates without complaint).
+
+### Added
+
 - **End-to-end MySQL support** (#417 epic; #418, #419, #420, #421,
   #422, #423). MySQL is now a first-class engine in both `raw` and
   `native` runtime modes. The native MySQL adapter targets the

@@ -190,20 +190,26 @@ fn shork_adapter_config() -> AdapterConfig {
 }
 
 /// Encode a `runtime.Value` into a `shork.Value`. shork's public
-/// `Value` type does not (yet) expose a bytes/blob constructor, so
-/// `SqlBytes` falls back to `shork.null()` — bytes columns in native
-/// MySQL mode round-trip as NULL until the driver grows a bytes
-/// helper. SqlArray likewise resolves to NULL because MySQL has no
-/// first-class array type.
+/// `Value` type currently exposes constructors for bool / int / float
+/// / text / null / calendar but not for bytes — so we add a private
+/// `bit_array_to_shork` FFI binding that calls into `shork_ffi.coerce`
+/// (the same underlying identity FFI that `shork.text` and friends
+/// dispatch through) and pass `BitArray` parameters through unchanged.
+/// The Erlang `mysql` library underneath stores them as `BLOB` /
+/// `BINARY` byte-for-byte. `SqlArray` still resolves to NULL because
+/// MySQL has no first-class array type.
 ///
 /// `SqlBool` is encoded as `shork.int(1 | 0)` rather than
-/// `shork.bool(...)`. The Erlang `mysql` library underneath shork
-/// expects integers 1/0 on the wire for `TINYINT(1)` / `BOOLEAN`
-/// columns; passing the Gleam `True` / `False` atoms verbatim (which
-/// is what `shork.bool` does — it is a `coerce` identity FFI) trips
-/// `mysql:query/4` with `badarg` during parameter binding.
+/// `shork.bool(...)`. The Erlang `mysql` library expects integers 1/0
+/// on the wire for `TINYINT(1)` / `BOOLEAN` columns; passing the
+/// Gleam `True` / `False` atoms verbatim (which is what `shork.bool`
+/// does — it is a `coerce` identity FFI) trips `mysql:query/4` with
+/// `badarg` during parameter binding.
 fn shork_value_to_driver_helper() -> String {
-  "fn value_to_shork(value: runtime.Value) -> shork.Value {
+  "@external(erlang, \"shork_ffi\", \"coerce\")
+fn bit_array_to_shork(value: BitArray) -> shork.Value
+
+fn value_to_shork(value: runtime.Value) -> shork.Value {
   case value {
     runtime.SqlNull -> shork.null()
     runtime.SqlString(v) -> shork.text(v)
@@ -211,7 +217,7 @@ fn shork_value_to_driver_helper() -> String {
     runtime.SqlFloat(v) -> shork.float(v)
     runtime.SqlBool(True) -> shork.int(1)
     runtime.SqlBool(False) -> shork.int(0)
-    runtime.SqlBytes(_) -> shork.null()
+    runtime.SqlBytes(v) -> bit_array_to_shork(v)
     runtime.SqlArray(_) -> shork.null()
   }
 }"
@@ -455,12 +461,8 @@ fn render_base_decoder(
   type_mapping: model.TypeMapping,
 ) -> String {
   case scalar_type {
-    model.EnumType(enum_name) ->
-      "decode.then(decode.string, fn(s) { case models."
-      <> type_mapping.enum_from_string_fn(enum_name)
-      <> "(s) { Ok(v) -> decode.success(v) Error(_) -> decode.failure(s, \"valid "
-      <> enum_name
-      <> " value\") } })"
+    model.EnumType(_) | model.SetType(_) ->
+      common.render_enum_or_set_decoder(scalar_type, config.decoder_function)
     _ ->
       case
         type_mapping == model.StrongMapping

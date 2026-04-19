@@ -10,6 +10,12 @@ import sqlode/query_analyzer/token_utils
 pub type ParseError {
   InvalidCreateTable(path: String, detail: String)
   InvalidColumn(path: String, table: String, detail: String)
+  /// Issue #419: emitted when a MySQL schema file contains a DDL
+  /// statement sqlode does not yet understand, instead of silently
+  /// dropping it on the floor. The detail names the leading
+  /// keywords of the offending statement so the user can tell at a
+  /// glance which line triggered the failure.
+  UnsupportedMysqlDdl(path: String, detail: String)
 }
 
 pub type SchemaWarning {
@@ -673,9 +679,10 @@ fn parse_statement_tokens(
       }
     }
     False ->
-      case classify_unknown_statement(tokens) {
+      case classify_unknown_statement(tokens, engine) {
         DestructiveDDL(action) -> Ok(DDLApplied(action:))
         SilentlyIgnored -> Ok(Ignored)
+        UnsupportedMysql(detail:) -> Error(UnsupportedMysqlDdl(path:, detail:))
       }
   }
 }
@@ -683,6 +690,10 @@ fn parse_statement_tokens(
 type UnknownStatementKind {
   DestructiveDDL(DDLAction)
   SilentlyIgnored
+  /// Issue #419: surfaced when a MySQL schema file contains a DDL
+  /// shape sqlode does not yet model. The detail is a short summary
+  /// (the leading keywords) used directly in the user-facing error.
+  UnsupportedMysql(detail: String)
 }
 
 type DDLAction {
@@ -730,7 +741,10 @@ type DDLAction {
 /// like `rename`, `savepoint`, and `comment` arrive as `Ident` tokens, so
 /// we normalise the first few tokens of the statement to lowercase strings
 /// before matching, treating Keyword and Ident uniformly.
-fn classify_unknown_statement(tokens: List(lexer.Token)) -> UnknownStatementKind {
+fn classify_unknown_statement(
+  tokens: List(lexer.Token),
+  engine: model.Engine,
+) -> UnknownStatementKind {
   let words = tokens |> list.take(8) |> list.map(token_keyword_text)
   case words {
     ["create", "index", ..] -> SilentlyIgnored
@@ -750,7 +764,18 @@ fn classify_unknown_statement(tokens: List(lexer.Token)) -> UnknownStatementKind
 
     ["alter", "table", ..] -> classify_alter_table_from_tokens(tokens)
 
-    _ -> SilentlyIgnored
+    _ ->
+      case engine {
+        // Issue #419: MySQL schema files that contain DDL we do not
+        // (yet) understand now surface an actionable error instead
+        // of being silently dropped on the floor. PostgreSQL /
+        // SQLite keep the legacy permissive behaviour — extending
+        // the fail-fast policy to every engine is out of scope for
+        // the MySQL completeness work.
+        model.MySQL ->
+          UnsupportedMysql(detail: summarise_unknown_mysql_statement(words))
+        model.PostgreSQL | model.SQLite -> SilentlyIgnored
+      }
   }
 }
 
@@ -1108,6 +1133,26 @@ fn apply_ddl_action(
       }),
       enums,
     )
+  }
+}
+
+/// Render the leading words of a statement back into a short summary
+/// suitable for the user-facing `UnsupportedMysqlDdl` detail. We only
+/// take the first three non-empty words so a `RENAME TABLE a TO b ...`
+/// reads as `RENAME TABLE a` rather than the entire token stream.
+fn summarise_unknown_mysql_statement(words: List(String)) -> String {
+  let summary =
+    words
+    |> list.filter(fn(word) { word != "" })
+    |> list.take(3)
+    |> list.map(string.uppercase)
+    |> string.join(" ")
+  case summary {
+    "" -> "(empty statement)"
+    _ ->
+      summary
+      <> " ... — sqlode does not (yet) understand this statement; file"
+      <> " an issue or pre-process the schema to remove it."
   }
 }
 
@@ -1687,6 +1732,8 @@ pub fn error_to_string(error: ParseError) -> String {
       <> table
       <> ": "
       <> detail
+    UnsupportedMysqlDdl(path:, detail:) ->
+      path_prefix(path) <> "Unsupported MySQL DDL statement: " <> detail
   }
 }
 

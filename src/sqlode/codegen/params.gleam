@@ -155,8 +155,7 @@ fn param_fields(
 ) -> List(String) {
   params
   |> list.map(fn(param) {
-    let base_type =
-      type_mapping.scalar_type_to_gleam_type(param.scalar_type, type_mapping)
+    let base_type = common.qualified_field_type(param.scalar_type, type_mapping)
     let typed = case param.is_list {
       True -> "List(" <> base_type <> ")"
       False ->
@@ -203,6 +202,15 @@ fn plan_encoding(
     model.EnumType(name) -> {
       let runtime_fn = type_mapping.scalar_type_to_runtime_function(scalar_type)
       let to_str = "models." <> type_mapping.enum_to_string_fn(name)
+      EnumEncode(runtime_fn:, to_string_fn: to_str)
+    }
+    // SetType reuses the EnumEncode shape: project the
+    // `List(<Name>Value)` field through `<name>_set_to_string` (the
+    // helper emitted by `codegen/models.gleam`) before handing the
+    // resulting comma-joined `String` to `runtime.string`.
+    model.SetType(name) -> {
+      let runtime_fn = type_mapping.scalar_type_to_runtime_function(scalar_type)
+      let to_str = "models." <> type_mapping.set_to_string_fn(name)
       EnumEncode(runtime_fn:, to_string_fn: to_str)
     }
     model.ArrayType(element) -> {
