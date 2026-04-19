@@ -2540,3 +2540,118 @@ pub fn ambiguous_unqualified_param_column_is_rejected_test() {
   list.contains(tables, "active_users") |> should.be_true()
   list.contains(tables, "teams") |> should.be_true()
 }
+
+// --- IR-based equality walker tests (Issue #406) ---
+//
+// These queries exercise the `find_equality_matches_in_stmt` walker
+// that `infer_equality_params` now prefers over the token-based
+// `find_equality_patterns`. Each case is driven through the public
+// `query_analyzer.analyze_queries` pipeline so the wiring is covered
+// end-to-end, not just the helper in isolation.
+
+pub fn ir_walker_infers_multiple_equality_params_in_order_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: GetByIdAndName :one\n"
+    <> "SELECT id, name FROM authors WHERE id = $1 AND name = $2;"
+  let assert Ok(queries) =
+    query_parser.parse_file("eq.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  query.params
+  |> should.equal([
+    model.QueryParam(
+      index: 1,
+      field_name: "id",
+      scalar_type: model.IntType,
+      nullable: False,
+      is_list: False,
+    ),
+    model.QueryParam(
+      index: 2,
+      field_name: "name",
+      scalar_type: model.StringType,
+      nullable: False,
+      is_list: False,
+    ),
+  ])
+}
+
+pub fn ir_walker_resolves_qualified_equality_param_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: GetByQualifiedId :one\n"
+    <> "SELECT id, name FROM authors AS a WHERE a.id = $1;"
+  let assert Ok(queries) =
+    query_parser.parse_file("qualified.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  let assert [param] = query.params
+  param.index |> should.equal(1)
+  param.field_name |> should.equal("id")
+  param.scalar_type |> should.equal(model.IntType)
+}
+
+pub fn ir_walker_infers_like_predicate_param_test() {
+  // `WHERE name LIKE $1` must infer $1 as the column's type via the
+  // IR `LikeExpr(ColumnRef, _, Param, …)` branch. The pre-refactor
+  // token scanner covered this via its `column LIKE placeholder`
+  // patterns; the IR walker must match exactly.
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: SearchByName :many\n"
+    <> "SELECT id, name FROM authors WHERE name LIKE $1;"
+  let assert Ok(queries) =
+    query_parser.parse_file("like.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  let assert [param] = query.params
+  param.index |> should.equal(1)
+  param.field_name |> should.equal("name")
+  param.scalar_type |> should.equal(model.StringType)
+}
+
+pub fn ir_walker_handles_reversed_operand_order_test() {
+  // `$1 = id` binds `id` just like `id = $1` — the walker handles both
+  // `Binary(_, ColumnRef, Param)` and `Binary(_, Param, ColumnRef)`.
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: GetByReversedId :one\n"
+    <> "SELECT id, name FROM authors WHERE $1 = id;"
+  let assert Ok(queries) =
+    query_parser.parse_file("reversed.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  let assert [param] = query.params
+  param.index |> should.equal(1)
+  param.field_name |> should.equal("id")
+  param.scalar_type |> should.equal(model.IntType)
+}
