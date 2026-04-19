@@ -3,9 +3,9 @@ import gleam/option
 import gleam/string
 import sqlode/model.{
   type Engine, type ScalarType, type TypeMapping, ArrayType, BoolType, BytesType,
-  CustomType, DateTimeType, DateType, EnumType, FloatType, IntType, JsonType,
-  MySQL, PostgreSQL, RichMapping, SQLite, StringType, StrongMapping, TimeType,
-  UuidType,
+  CustomType, DateTimeType, DateType, DecimalType, EnumType, FloatType, IntType,
+  JsonType, MySQL, PostgreSQL, RichMapping, SQLite, SetType, StringType,
+  StrongMapping, TimeType, UuidType,
 }
 
 // --- ScalarType property table ---
@@ -27,6 +27,7 @@ type ScalarTypeInfo {
 type TypeResolution {
   LeafType(ScalarTypeInfo)
   EnumResolution(name: String)
+  SetResolution(name: String)
   CustomResolution(
     name: String,
     module: option.Option(String),
@@ -137,7 +138,18 @@ fn resolve_type(scalar_type: ScalarType) -> TypeResolution {
         decoder: "decode.string",
         unwrap_fn: option.Some("sql_json_to_string"),
       ))
+    DecimalType ->
+      LeafType(ScalarTypeInfo(
+        gleam_type: "String",
+        rich_type: option.Some("SqlDecimal"),
+        runtime_fn: "runtime.string",
+        db_name: "decimal",
+        value_fn: "text",
+        decoder: "decode.string",
+        unwrap_fn: option.Some("sql_decimal_to_string"),
+      ))
     EnumType(name) -> EnumResolution(name)
+    SetType(name) -> SetResolution(name)
     CustomType(name, module, underlying) ->
       CustomResolution(name, module, underlying)
     ArrayType(element) -> ArrayResolution(element)
@@ -158,6 +170,7 @@ pub fn scalar_type_to_gleam_type(
         _, _ -> info.gleam_type
       }
     EnumResolution(name) -> enum_type_name(name)
+    SetResolution(name) -> "List(" <> set_value_type_name(name) <> ")"
     CustomResolution(name, _, _) -> name
     ArrayResolution(element) ->
       "List(" <> scalar_type_to_gleam_type(element, type_mapping) <> ")"
@@ -167,15 +180,20 @@ pub fn scalar_type_to_gleam_type(
 pub fn is_rich_type(scalar_type: ScalarType) -> Bool {
   case resolve_type(scalar_type) {
     LeafType(info) -> option.is_some(info.rich_type)
-    EnumResolution(_) | CustomResolution(_, _, _) | ArrayResolution(_) -> False
+    EnumResolution(_)
+    | SetResolution(_)
+    | CustomResolution(_, _, _)
+    | ArrayResolution(_) -> False
   }
 }
 
 pub fn strong_type_unwrap_fn(scalar_type: ScalarType) -> option.Option(String) {
   case resolve_type(scalar_type) {
     LeafType(info) -> info.unwrap_fn
-    EnumResolution(_) | CustomResolution(_, _, _) | ArrayResolution(_) ->
-      option.None
+    EnumResolution(_)
+    | SetResolution(_)
+    | CustomResolution(_, _, _)
+    | ArrayResolution(_) -> option.None
   }
 }
 
@@ -183,6 +201,7 @@ pub fn scalar_type_to_runtime_function(scalar_type: ScalarType) -> String {
   case resolve_type(scalar_type) {
     LeafType(info) -> info.runtime_fn
     EnumResolution(_) -> "runtime.string"
+    SetResolution(_) -> "runtime.string"
     CustomResolution(_, _, underlying) ->
       scalar_type_to_runtime_function(underlying)
     ArrayResolution(element) -> scalar_type_to_runtime_function(element)
@@ -193,6 +212,7 @@ pub fn scalar_type_to_db_name(scalar_type: ScalarType) -> String {
   case resolve_type(scalar_type) {
     LeafType(info) -> info.db_name
     EnumResolution(name) -> name
+    SetResolution(name) -> name
     CustomResolution(_, _, underlying) -> scalar_type_to_db_name(underlying)
     ArrayResolution(element) -> scalar_type_to_db_name(element) <> "[]"
   }
@@ -213,6 +233,7 @@ pub fn scalar_type_to_value_function(
         _ -> info.value_fn
       }
     EnumResolution(_) -> "text"
+    SetResolution(_) -> "text"
     CustomResolution(_, _, underlying) ->
       scalar_type_to_value_function(engine, underlying)
     ArrayResolution(element) ->
@@ -226,13 +247,17 @@ pub fn scalar_type_to_decoder(engine: Engine, scalar_type: ScalarType) -> String
       case scalar_type {
         BoolType ->
           case engine {
-            SQLite ->
+            // SQLite stores booleans as 0/1 INTEGER; MySQL's TINYINT(1)
+            // and BOOLEAN come back from the Erlang `mysql` driver as
+            // 0/1 too, so they share the int → boolean adapter.
+            SQLite | MySQL ->
               "decode.then(decode.int, fn(v) { decode.success(v != 0) })"
-            PostgreSQL | MySQL -> "decode.bool"
+            PostgreSQL -> "decode.bool"
           }
         _ -> info.decoder
       }
     EnumResolution(_) -> "decode.string"
+    SetResolution(_) -> "decode.string"
     CustomResolution(_, _, underlying) ->
       scalar_type_to_decoder(engine, underlying)
     ArrayResolution(element) ->
@@ -256,6 +281,25 @@ pub fn enum_to_string_fn(name: String) -> String {
 
 pub fn enum_from_string_fn(name: String) -> String {
   string.lowercase(name) <> "_from_string"
+}
+
+// --- Set naming utilities ---
+
+/// Gleam type name for a single value of a MySQL `SET` column. The
+/// generated value type ends in `Value` to disambiguate it from the
+/// containing list — `SET('red','green')` on a column called `tags`
+/// surfaces as `List(TagsValue)` so callers can pattern-match on each
+/// chosen flag without colliding with the SET column name.
+pub fn set_value_type_name(name: String) -> String {
+  simple_pascal_case(name) <> "Value"
+}
+
+pub fn set_to_string_fn(name: String) -> String {
+  string.lowercase(name) <> "_set_to_string"
+}
+
+pub fn set_from_string_fn(name: String) -> String {
+  string.lowercase(name) <> "_set_from_string"
 }
 
 fn simple_pascal_case(input: String) -> String {

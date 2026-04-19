@@ -1251,11 +1251,11 @@ pub fn render_mysql_inline_enum_emits_sum_type_test() {
   |> should.be_true()
 }
 
-pub fn render_mysql_inline_set_skips_sum_type_test() {
-  // A MySqlSet EnumDef must not produce a Gleam sum type — the column
-  // is a StringType fallback, so an unreferenced sum type would be
-  // dead code. Values are still kept on the catalog for future native
-  // SET support.
+pub fn render_mysql_inline_set_emits_value_type_and_helpers_test() {
+  // Issue #420: MySQL SET is now first-class in generated APIs. The
+  // value type carries the constructors and the `_set_to_string` /
+  // `_set_from_string` helpers translate the comma-joined wire format
+  // to and from `List(<Name>Value)`.
   let naming_ctx = naming.new()
   let catalog = mysql_enum_set_catalog()
   let rendered =
@@ -1268,10 +1268,111 @@ pub fn render_mysql_inline_set_skips_sum_type_test() {
       False,
     )
 
-  string.contains(rendered, "pub type ItemsTags")
+  string.contains(rendered, "pub type ItemsTagsValue")
+  |> should.be_true()
+  string.contains(rendered, "items_tags_set_to_string")
+  |> should.be_true()
+  string.contains(rendered, "items_tags_set_from_string")
+  |> should.be_true()
+}
+
+// --- Issue #418: MySQL native adapter codegen ---
+
+pub fn render_mysql_native_adapter_uses_shork_test() {
+  // The MySQL adapter is no longer a stub. It imports shork, binds
+  // parameters via runtime.prepare → value_to_shork, and uses
+  // shork.query / shork.returning / shork.execute as the execution
+  // chain (mirroring the pog adapter shape).
+  let naming_ctx = naming.new()
+  let catalog = mysql_native_catalog()
+  let queries = mysql_native_queries(naming_ctx, catalog)
+  let block = mysql_native_block()
+  let rendered = adapter.render(naming_ctx, block, queries, dict.new())
+
+  string.contains(rendered, "import shork") |> should.be_true()
+  string.contains(rendered, "value_to_shork") |> should.be_true()
+  string.contains(rendered, "shork.query(") |> should.be_true()
+  string.contains(rendered, "shork.execute(db)") |> should.be_true()
+  // The stub message must not be present anywhere.
+  string.contains(rendered, "MySQL adapter generation is not yet available")
   |> should.be_false()
-  string.contains(rendered, "items_tags_to_string")
-  |> should.be_false()
-  string.contains(rendered, "items_tags_from_string")
-  |> should.be_false()
+}
+
+pub fn render_mysql_native_adapter_decodes_last_insert_id_test() {
+  // :execlastid extracts shork's synthetic
+  // [last_insert_id, affected_rows, warning_count] result row by
+  // decoding column 0 as an int — no follow-up SELECT needed.
+  let naming_ctx = naming.new()
+  let catalog = mysql_native_catalog()
+  let queries = mysql_native_queries(naming_ctx, catalog)
+  let block = mysql_native_block()
+  let rendered = adapter.render(naming_ctx, block, queries, dict.new())
+
+  string.contains(rendered, "shork.returning({") |> should.be_true()
+  string.contains(rendered, "decode.field(0, decode.int)") |> should.be_true()
+}
+
+pub fn render_mysql_native_adapter_decodes_affected_rows_for_execrows_test() {
+  // :execrows extracts the affected-row count from column 1 of
+  // shork's synthetic INSERT/UPDATE/DELETE result row.
+  let naming_ctx = naming.new()
+  let catalog = mysql_native_catalog()
+  let queries = mysql_native_queries(naming_ctx, catalog)
+  let block = mysql_native_block()
+  let rendered = adapter.render(naming_ctx, block, queries, dict.new())
+
+  string.contains(rendered, "decode.field(1, decode.int)") |> should.be_true()
+}
+
+fn mysql_native_catalog() -> model.Catalog {
+  let assert Ok(content) = simplifile.read("test/fixtures/mysql_schema.sql")
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files_with_engine(
+      [#("test/fixtures/mysql_schema.sql", content)],
+      model.MySQL,
+    )
+  catalog
+}
+
+fn mysql_native_queries(
+  naming_ctx: naming.NamingContext,
+  catalog: model.Catalog,
+) -> List(model.AnalyzedQuery) {
+  let sql =
+    "-- name: GetAuthor :one\n"
+    <> "SELECT id, name, bio, created_at FROM authors WHERE id = ?;\n"
+    <> "-- name: ListAuthors :many\n"
+    <> "SELECT id, name FROM authors ORDER BY id;\n"
+    <> "-- name: CreateAuthor :execlastid\n"
+    <> "INSERT INTO authors (name, bio, created_at) VALUES (?, ?, ?);\n"
+    <> "-- name: DeleteAuthor :exec\n"
+    <> "DELETE FROM authors WHERE id = ?;\n"
+    <> "-- name: UpdateBio :execrows\n"
+    <> "UPDATE authors SET bio = ? WHERE id = ?;\n"
+  let assert Ok(parsed) =
+    query_parser.parse_file("q.sql", model.MySQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(model.MySQL, catalog, naming_ctx, parsed)
+  analyzed
+}
+
+fn mysql_native_block() -> model.SqlBlock {
+  model.SqlBlock(
+    name: None,
+    engine: model.MySQL,
+    schema: ["test/fixtures/mysql_schema.sql"],
+    queries: ["q.sql"],
+    gleam: model.GleamOutput(
+      out: "src/db",
+      runtime: model.Native,
+      type_mapping: model.StringMapping,
+      emit_sql_as_comment: False,
+      emit_exact_table_names: False,
+      omit_unused_models: False,
+      vendor_runtime: False,
+      strict_views: True,
+      query_parameter_limit: option.None,
+    ),
+    overrides: model.empty_overrides(),
+  )
 }

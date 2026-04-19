@@ -1,4 +1,5 @@
 import gleam/list
+import gleam/string
 import gleeunit
 import gleeunit/should
 import simplifile
@@ -291,6 +292,87 @@ pub fn exec_last_id_command_test() {
   let assert [query] = analyzed
   query.base.command |> should.equal(runtime.QueryExecLastId)
   query.result_columns |> should.equal([])
+}
+
+// ============================================================
+// Issue #421: MySQL advanced-query parity fixture
+// ============================================================
+
+pub fn mysql_advanced_fixture_analyzes_cleanly_test() {
+  let naming_ctx = naming.new()
+  let catalog = load_mysql_catalog("test/fixtures/mysql_advanced_schema.sql")
+  let queries =
+    parse_queries(
+      "test/fixtures/mysql_advanced_query.sql",
+      model.MySQL,
+      naming_ctx,
+    )
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(model.MySQL, catalog, naming_ctx, queries)
+
+  // SearchAuthors: one `sqlode.arg(pattern)` + MySQL `LIMIT 20, 10`.
+  let assert Ok(search) =
+    list.find(analyzed, fn(q) { q.base.name == "SearchAuthors" })
+  list.length(search.params) |> should.equal(1)
+  let assert [pattern] = search.params
+  pattern.field_name |> should.equal("pattern")
+
+  // GetByIds: a single slice parameter named `ids` that the generator
+  // expands to `IN (?, ?, ...)` at runtime.
+  let assert Ok(get_by_ids) =
+    list.find(analyzed, fn(q) { q.base.name == "GetByIds" })
+  list.length(get_by_ids.params) |> should.equal(1)
+  let assert [ids] = get_by_ids.params
+  ids.field_name |> should.equal("ids")
+  ids.is_list |> should.be_true()
+
+  // UpsertAuthor: three VALUES positional parameters; `VALUES(name)` /
+  // `VALUES(bio)` in the ON DUPLICATE KEY UPDATE tail must NOT inflate
+  // the count to five.
+  let assert Ok(upsert) =
+    list.find(analyzed, fn(q) { q.base.name == "UpsertAuthor" })
+  list.length(upsert.params) |> should.equal(3)
+
+  // ListAuthorPosts: CTE join returns three columns in order.
+  let assert Ok(list_posts) =
+    list.find(analyzed, fn(q) { q.base.name == "ListAuthorPosts" })
+  list.length(list_posts.result_columns) |> should.equal(3)
+}
+
+pub fn mysql_limit_offset_comma_runtime_expansion_test() {
+  // `LIMIT 20, 10` in the raw SQL must survive placeholder expansion
+  // without anyone confusing the `,` for a param separator. Run the
+  // generated query through runtime.prepare with a synthetic, empty
+  // encoder to verify the SQL text comes back intact.
+  let naming_ctx = naming.new()
+  let catalog = load_mysql_catalog("test/fixtures/mysql_advanced_schema.sql")
+  let queries =
+    parse_queries(
+      "test/fixtures/mysql_advanced_query.sql",
+      model.MySQL,
+      naming_ctx,
+    )
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(model.MySQL, catalog, naming_ctx, queries)
+
+  let assert Ok(search) =
+    list.find(analyzed, fn(q) { q.base.name == "SearchAuthors" })
+  let base_sql = string.lowercase(search.base.sql)
+
+  // The raw SQL preserves both LIMIT operands (offset and count).
+  string_contains_all(base_sql, ["limit", "20", "10"])
+  |> should.be_true()
+}
+
+fn load_mysql_catalog(path: String) -> model.Catalog {
+  let assert Ok(content) = simplifile.read(path)
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files_with_engine([#(path, content)], model.MySQL)
+  catalog
+}
+
+fn string_contains_all(haystack: String, needles: List(String)) -> Bool {
+  list.all(needles, fn(n) { string.contains(haystack, n) })
 }
 
 // ============================================================

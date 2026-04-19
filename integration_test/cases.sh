@@ -181,9 +181,60 @@ case_postgresql_real() {
     test_module_name="postgresql_real_test_test.gleam"
 }
 
+# Compile-only MySQL lanes: verify that `sqlode generate` for both
+# raw and native runtimes produces a project that builds against the
+# pinned dependencies in `integration_test/warmup/manifest.toml`.
+case_mysql_compile_raw() {
+  run_integration_case \
+    label="MySQL raw mode" \
+    project_name="mysql_compile_raw" \
+    engine="mysql" \
+    runtime="raw" \
+    schema="$PROJECT_ROOT/test/fixtures/mysql_schema.sql" \
+    queries="$PROJECT_ROOT/test/fixtures/mysql_query.sql" \
+    expected_files="params.gleam queries.gleam models.gleam"
+}
+
+case_mysql_compile_native() {
+  run_integration_case \
+    label="MySQL native mode" \
+    project_name="mysql_compile_native" \
+    engine="mysql" \
+    runtime="native" \
+    schema="$PROJECT_ROOT/test/fixtures/mysql_schema.sql" \
+    queries="$PROJECT_ROOT/test/fixtures/mysql_query.sql" \
+    expected_files="params.gleam queries.gleam models.gleam mysql_adapter.gleam"
+}
+
+# Requires a running MySQL server reachable through $MYSQL_URL.
+# Not included in ALL_INTEGRATION_CASES because most local runs do not
+# have MySQL available; invoke explicitly:
+#
+#   MYSQL_URL=mysql://root:root@localhost:3306/sqlode_test \
+#     sh integration_test/run.sh case_mysql_real
+#
+# In CI, `.github/workflows/ci.yml` provisions a mysql service
+# container and runs this case with MYSQL_URL pointing at it. The
+# gleeunit test module checks MYSQL_URL at startup and skips if it is
+# missing, so running this case without MySQL still exits 0.
+case_mysql_real() {
+  run_integration_case \
+    label="MySQL real database" \
+    project_name="mysql_real_test" \
+    engine="mysql" \
+    runtime="native" \
+    schema="$PROJECT_ROOT/test/fixtures/mysql_real_schema.sql" \
+    queries="$PROJECT_ROOT/test/fixtures/mysql_real_query.sql" \
+    dev_deps="gleeunit+envoy" \
+    expected_files="params.gleam queries.gleam models.gleam mysql_adapter.gleam" \
+    test_module_src="$PROJECT_ROOT/integration_test/fixtures/mysql_real_test.gleam" \
+    test_module_name="mysql_real_test_test.gleam"
+}
+
 # Every case listed here runs by default in `run.sh` without arguments.
-# `case_postgresql_real` is intentionally excluded because it needs a
-# live Postgres; pass it explicitly to `run.sh` when DATABASE_URL is set.
+# `case_postgresql_real` and `case_mysql_real` are intentionally
+# excluded because they need a live database; pass them explicitly to
+# `run.sh` when DATABASE_URL / MYSQL_URL is set.
 ALL_INTEGRATION_CASES="
   case_compile_raw
   case_compile_complex
@@ -192,4 +243,6 @@ ALL_INTEGRATION_CASES="
   case_sqlite_basic
   case_sqlite_extended
   case_sqlite_advanced
+  case_mysql_compile_raw
+  case_mysql_compile_native
 "

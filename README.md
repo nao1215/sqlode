@@ -11,7 +11,11 @@ sqlode reads SQL schema and query files, then generates typed Gleam code. The wo
 > Macro syntax uses the `sqlode.*` prefix exclusively (e.g., `sqlode.arg(name)`,
 > `sqlode.embed(table)`). The `sqlc.*` prefix is not supported.
 
-Supported engines: PostgreSQL, MySQL (parsing only), SQLite.
+Supported engines (raw + native): PostgreSQL (`pog`), MySQL 8.0
+(`shork`), SQLite (`sqlight`). See
+[`doc/capabilities.md`](doc/capabilities.md) for the full
+engine/runtime support matrix and per-engine query-annotation
+details.
 
 ## Getting started
 
@@ -278,9 +282,24 @@ re-running `sqlode generate` to pick up runtime changes.
 
 ## Adapter generation
 
-When `runtime` is set to `native`, sqlode generates adapter modules that wrap [pog](https://hexdocs.pm/pog/) (PostgreSQL) or [sqlight](https://hexdocs.pm/sqlight/) (SQLite).
+When `runtime` is set to `native`, sqlode generates adapter modules
+that wrap [pog](https://hexdocs.pm/pog/) (PostgreSQL),
+[sqlight](https://hexdocs.pm/sqlight/) (SQLite), or
+[shork](https://hexdocs.pm/shork/) (MySQL 8.0). The MySQL adapter
+follows the same shape as the others — `:execrows` is implemented via
+`SELECT ROW_COUNT()` and `:execlastid` via `SELECT LAST_INSERT_ID()`,
+both invoked through the underlying `shork` connection — so callers
+do not need to know the MySQL wire protocol.
 
-MySQL adapter generation is not available. MySQL works with `runtime: "raw"` only; `runtime: "native"` is rejected at config validation.
+> **Out of scope (today):** MariaDB is not separately validated; the
+> `mysql` engine targets MySQL 8.0 specifically. `:execresult` is
+> rejected for every native target — use `:exec`, `:execrows`, or
+> `:execlastid` instead. `BLOB` / `BINARY` columns are encoded as
+> NULL by the generated MySQL adapter because shork's public `Value`
+> type does not yet expose a bytes constructor — schemas with bytes
+> columns parse and generate cleanly, but the native round-trip is
+> a documented gap until shork (or our adapter) gains a bytes
+> encoder.
 
 ```yaml
 gen:
@@ -371,15 +390,94 @@ pub fn main() {
 }
 ```
 
+#### MySQL examples
+
+The MySQL engine works in both runtime modes. The raw runtime gives
+you the prepared SQL plus encoded params; the native runtime
+generates a `mysql_adapter` module that wraps `shork`.
+
+##### MySQL raw mode
+
+```yaml
+sql:
+  - engine: "mysql"
+    schema: "db/schema.sql"
+    queries: "db/query.sql"
+    gen:
+      gleam:
+        out: "src/db"
+        runtime: "raw"
+```
+
+```sql
+-- name: GetAuthor :one
+SELECT id, email, display_name
+FROM authors
+WHERE id = ?;
+```
+
+```gleam
+import db/params
+import db/queries
+import sqlode/runtime
+
+pub fn fetch(id: Int) -> #(String, List(runtime.Value)) {
+  runtime.prepare(queries.get_author(), params.GetAuthorParams(id:))
+}
+```
+
+##### MySQL native mode
+
+```yaml
+sql:
+  - engine: "mysql"
+    schema: "db/schema.sql"
+    queries: "db/query.sql"
+    gen:
+      gleam:
+        out: "src/db"
+        runtime: "native"
+```
+
+```gleam
+import db/mysql_adapter
+import db/params
+import gleam/option
+import shork
+
+pub fn main() {
+  let assert Ok(db) = shork.connect(shork.default_config())
+
+  // :execlastid — returns the AUTO_INCREMENT id of the new row.
+  let assert Ok(id) =
+    mysql_adapter.create_author(
+      db,
+      params.CreateAuthorParams(
+        email: "alice@example.com",
+        display_name: "Alice",
+        bio: option.None,
+        is_active: True,
+        avatar: option.None,
+      ),
+    )
+
+  // :one — returns Result(Option(Row), shork.QueryError).
+  let assert Ok(option.Some(author)) =
+    mysql_adapter.get_author(db, params.GetAuthorParams(id:))
+  let _ = author.display_name
+  Nil
+}
+```
+
 #### Return types by annotation
 
-| Annotation | sqlight return type | pog return type |
-|---|---|---|
-| `:one` | `Result(Option(Row), sqlight.Error)` | `Result(Option(Row), pog.QueryError)` |
-| `:many` | `Result(List(Row), sqlight.Error)` | `Result(List(Row), pog.QueryError)` |
-| `:exec` | `Result(Nil, sqlight.Error)` | `Result(Nil, pog.QueryError)` |
-| `:execrows` | `Result(Int, sqlight.Error)` | `Result(Int, pog.QueryError)` |
-| `:execlastid` | `Result(Int, sqlight.Error)` | `Result(Int, pog.QueryError)` |
+| Annotation | sqlight return type | pog return type | shork return type |
+|---|---|---|---|
+| `:one` | `Result(Option(Row), sqlight.Error)` | `Result(Option(Row), pog.QueryError)` | `Result(Option(Row), shork.QueryError)` |
+| `:many` | `Result(List(Row), sqlight.Error)` | `Result(List(Row), pog.QueryError)` | `Result(List(Row), shork.QueryError)` |
+| `:exec` | `Result(Nil, sqlight.Error)` | `Result(Nil, pog.QueryError)` | `Result(Nil, shork.QueryError)` |
+| `:execrows` | `Result(Int, sqlight.Error)` | `Result(Int, pog.QueryError)` | `Result(Int, shork.QueryError)` |
+| `:execlastid` | `Result(Int, sqlight.Error)` | `Result(Int, pog.QueryError)` | `Result(Int, shork.QueryError)` |
 
 `:batchone`, `:batchmany`, `:batchexec`, and `:copyfrom` are not yet implemented. Using them currently fails generation with an unsupported-annotation error. See the Planned annotations section below.
 
@@ -791,7 +889,6 @@ sqlode follows sqlc conventions, so most SQL files work without changes. Key dif
 - `sqlc.yaml` v1 format
 - `vet` and `verify` commands
 - `emit_json_tags` and other sqlc-specific emit options not listed above
-- MySQL adapter generation (`runtime: "raw"` works for MySQL)
 
 ## License
 

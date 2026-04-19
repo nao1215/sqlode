@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **End-to-end MySQL support** (#417 epic; #418, #419, #420, #421,
+  #422, #423). MySQL is now a first-class engine in both `raw` and
+  `native` runtime modes. The native MySQL adapter targets the
+  [`shork`](https://hexdocs.pm/shork/) Hex package; `:execrows` and
+  `:execlastid` resolve via `SELECT ROW_COUNT()` / `SELECT
+  LAST_INSERT_ID()` follow-up queries. The previous config guard
+  rejecting `engine: "mysql"` + `runtime: "native"` is gone.
+- **Modifier-aware MySQL type contract** (#420). `TINYINT(1)` and
+  `BOOLEAN` resolve to `BoolType`, `UNSIGNED` / `SIGNED` /
+  `ZEROFILL` noise no longer blocks classification, and a new
+  `DecimalType` keeps `DECIMAL` / `NUMERIC` columns lossless (a
+  `String` Gleam type) instead of silently collapsing into `Float`.
+  MySQL `SET(...)` columns are now first-class `SetType(name)` and
+  surface as `List(<Name>Value)` in generated code, with
+  `_set_to_string` / `_set_from_string` helpers for the comma-joined
+  wire format.
+- **MySQL migration DDL** (#419). `ALTER TABLE ... MODIFY COLUMN`
+  rewrites a column's type and nullability; `ALTER TABLE ... CHANGE
+  COLUMN` renames and retypes in one step. Multi-file migration
+  fixtures see the catalog from previously-parsed files, so an ALTER
+  in `002_*.sql` can operate on a CREATE TABLE in `001_*.sql`.
+  `AUTO_INCREMENT`, `ON UPDATE CURRENT_TIMESTAMP`, `CHARACTER SET`,
+  `COLLATE`, `COMMENT`, and `VISIBLE`/`INVISIBLE` no longer bleed
+  into column-type classification.
+- **MySQL query parity fixtures** (#421). A dedicated MySQL advanced
+  fixture pins the supported query subset: backtick-quoted
+  identifiers, `LIMIT offset, count`, `INSERT ... ON DUPLICATE KEY
+  UPDATE` (without phantom params from `VALUES(...)` references), CTE
+  + JOIN result-column resolution, and `sqlode.slice` expansion
+  through positional placeholders.
+- **MySQL integration lanes** (#422). Three new integration cases —
+  `case_mysql_compile_raw`, `case_mysql_compile_native`, and
+  `case_mysql_real` — exercise the generated MySQL adapter against
+  pinned dependencies and a live MySQL 8.0 service container. CI
+  provisions MySQL 8.0 alongside the existing PostgreSQL service.
+- **Per-engine/runtime capability matrix** (#423).
+  `doc/capabilities.md` now expresses support at engine/runtime
+  granularity (raw/native flag plus the Hex driver each native
+  adapter imports) instead of relying on the flat engine list to
+  imply parity.
+
 ## [0.4.0] - 2026-04-19
 
 ### Added

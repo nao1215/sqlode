@@ -17,6 +17,7 @@ target = "erlang"
 gleam_stdlib = ">= 0.44.0 and < 2.0.0"
 pog = ">= 4.0.0 and < 5.0.0"
 sqlight = ">= 1.0.0 and < 2.0.0"
+shork = ">= 1.0.0 and < 2.0.0"
 sqlode = { path = "../.." }
 
 [dev-dependencies]

@@ -37,6 +37,12 @@ type AdapterConfig {
     /// `runtime.prepare(q, p)` through this helper instead of
     /// re-encoding parameters per call.
     value_to_driver_helper: String,
+    /// Decoder source text that `render_adapter_exec_rows` passes
+    /// through to `render_query_call`. pog/sqlight rely on a follow-up
+    /// `SELECT` for the affected-row count, so they decode `Nil`;
+    /// shork's `Returned` surfaces the count as column index 1 of the
+    /// synthetic INSERT/UPDATE/DELETE row, so it needs a real decoder.
+    exec_rows_decoder: String,
   )
 }
 
@@ -74,7 +80,14 @@ pub fn render(
         table_matches,
         sqlight_adapter_config(),
       )
-    model.MySQL -> render_mysql_adapter()
+    model.MySQL ->
+      render_adapter(
+        naming_ctx,
+        block,
+        queries,
+        table_matches,
+        shork_adapter_config(),
+      )
   }
 }
 
@@ -100,6 +113,7 @@ fn pog_adapter_config() -> AdapterConfig {
     render_exec_last_id: render_pog_exec_last_id,
     placeholder_prefix: "$",
     value_to_driver_helper: pog_value_to_driver_helper(),
+    exec_rows_decoder: "decode.success(Nil)",
   )
 }
 
@@ -118,6 +132,7 @@ fn sqlight_adapter_config() -> AdapterConfig {
     render_exec_last_id: render_sqlight_exec_last_id,
     placeholder_prefix: "?",
     value_to_driver_helper: sqlight_value_to_driver_helper(),
+    exec_rows_decoder: "decode.success(Nil)",
   )
 }
 
@@ -145,6 +160,59 @@ fn sqlight_value_to_driver_helper() -> String {
     runtime.SqlBool(v) -> sqlight.bool(v)
     runtime.SqlBytes(v) -> sqlight.blob(v)
     runtime.SqlArray(_) -> sqlight.null()
+  }
+}"
+}
+
+fn shork_adapter_config() -> AdapterConfig {
+  AdapterConfig(
+    library_import: "import shork",
+    connection_type: "shork.Connection",
+    error_type: "shork.QueryError",
+    value_function: type_mapping.scalar_type_to_value_function(model.MySQL, _),
+    decoder_function: type_mapping.scalar_type_to_decoder(model.MySQL, _),
+    render_params: render_shork_params,
+    render_query_call: render_shork_query_call,
+    render_one_result: render_shork_one_result,
+    render_many_result: render_shork_many_result,
+    render_exec_rows_result: render_shork_exec_rows_result,
+    render_exec_last_id: render_shork_exec_last_id,
+    placeholder_prefix: "?",
+    value_to_driver_helper: shork_value_to_driver_helper(),
+    // Pull the `affected_rows` field (column 1) out of shork's
+    // synthetic INSERT/UPDATE/DELETE row. The exec_rows result path
+    // then just projects `returned.rows` without a follow-up SELECT.
+    exec_rows_decoder: "{
+    use affected <- decode.field(1, decode.int)
+    decode.success(affected)
+  }",
+  )
+}
+
+/// Encode a `runtime.Value` into a `shork.Value`. shork's public
+/// `Value` type does not (yet) expose a bytes/blob constructor, so
+/// `SqlBytes` falls back to `shork.null()` — bytes columns in native
+/// MySQL mode round-trip as NULL until the driver grows a bytes
+/// helper. SqlArray likewise resolves to NULL because MySQL has no
+/// first-class array type.
+///
+/// `SqlBool` is encoded as `shork.int(1 | 0)` rather than
+/// `shork.bool(...)`. The Erlang `mysql` library underneath shork
+/// expects integers 1/0 on the wire for `TINYINT(1)` / `BOOLEAN`
+/// columns; passing the Gleam `True` / `False` atoms verbatim (which
+/// is what `shork.bool` does — it is a `coerce` identity FFI) trips
+/// `mysql:query/4` with `badarg` during parameter binding.
+fn shork_value_to_driver_helper() -> String {
+  "fn value_to_shork(value: runtime.Value) -> shork.Value {
+  case value {
+    runtime.SqlNull -> shork.null()
+    runtime.SqlString(v) -> shork.text(v)
+    runtime.SqlInt(v) -> shork.int(v)
+    runtime.SqlFloat(v) -> shork.float(v)
+    runtime.SqlBool(True) -> shork.int(1)
+    runtime.SqlBool(False) -> shork.int(0)
+    runtime.SqlBytes(_) -> shork.null()
+    runtime.SqlArray(_) -> shork.null()
   }
 }"
 }
@@ -637,7 +705,7 @@ fn render_adapter_exec_rows(
     builder.lines(config.render_query_call(
       fn_name,
       params_str,
-      "decode.success(Nil)",
+      config.exec_rows_decoder,
       "q.sql",
       query.params,
     )),
@@ -860,19 +928,80 @@ fn render_sqlight_exec_last_id(
 }
 
 // ============================================================
-// MySQL stub
+// shork-specific rendering
 // ============================================================
+//
+// shork's `shork.execute` always returns `Returned(t)` regardless of
+// the statement shape. For SELECT queries `Returned.rows` holds the
+// decoded result rows; for INSERT / UPDATE / DELETE it holds exactly
+// one synthetic row with the columns
+// `[last_insert_id, affected_rows, warning_count]`, which is why the
+// :execrows / :execlastid paths decode field 0 or 1 of that synthetic
+// row instead of issuing a follow-up `SELECT ROW_COUNT()` /
+// `SELECT LAST_INSERT_ID()`.
 
-fn render_mysql_adapter() -> String {
-  string.join(
+fn render_shork_query_call(
+  _fn_name: String,
+  _params_str: String,
+  decoder: String,
+  _sql_expr: String,
+  params: List(model.QueryParam),
+) -> List(String) {
+  list.flatten([
+    render_prepare_lines("shork", "value_to_shork", params),
+    ["  |> shork.returning(" <> decoder <> ")", "  |> shork.execute(db)"],
+  ])
+}
+
+/// Unused under the prepare-and-fold adapter shape; kept so the
+/// AdapterConfig record shape stays uniform across drivers.
+fn render_shork_params(
+  _params: List(model.QueryParam),
+  _prefix: String,
+) -> String {
+  ""
+}
+
+fn render_shork_one_result() -> List(String) {
+  render_one_result_with("returned", "returned.rows")
+}
+
+fn render_shork_many_result() -> List(String) {
+  ["  |> result.map(fn(returned) { returned.rows })"]
+}
+
+/// `:execrows` — shork's synthetic INSERT/UPDATE/DELETE row has
+/// `affected_rows` in column index 1.
+fn render_shork_exec_rows_result() -> List(String) {
+  [
+    "  |> result.map(fn(returned) {",
+    "    case returned.rows {",
+    "      [rows, ..] -> rows",
+    "      [] -> 0",
+    "    }",
+    "  })",
+  ]
+}
+
+/// `:execlastid` — shork's synthetic INSERT row has
+/// `last_insert_id` in column index 0. No follow-up SELECT needed.
+fn render_shork_exec_last_id(
+  _fn_name: String,
+  _params_str: String,
+  _sql_expr: String,
+  params: List(model.QueryParam),
+) -> List(String) {
+  list.flatten([
+    render_prepare_lines("shork", "value_to_shork", params),
     [
-      "// Code generated by sqlode. DO NOT EDIT.",
-      "// MySQL adapter generation is not yet available.",
-      "// No Gleam MySQL driver package is currently supported.",
-      "// Use runtime: \"raw\" and handle database interaction manually.",
+      "  |> shork.returning({",
+      "    use id <- decode.field(0, decode.int)",
+      "    decode.success(id)",
+      "  })",
+      "  |> shork.execute(db)",
     ],
-    "\n",
-  )
+    render_first_or_default("returned", "returned.rows", "0"),
+  ])
 }
 
 // ============================================================

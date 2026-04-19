@@ -74,6 +74,47 @@ pub fn supported_placeholder_styles() -> List(#(model.Engine, String)) {
   ]
 }
 
+/// Per-engine runtime support matrix. Each entry pairs an engine with
+/// the runtimes sqlode can target for it and the Hex driver the
+/// generated native adapter imports. `raw` mode is always supported
+/// because the generated code never needs a driver; `native` mode
+/// requires a driver and is enumerated here so docs and the manifest
+/// stop relying on the flat "supported engines" list to imply parity.
+pub type EngineSupport {
+  EngineSupport(
+    engine: model.Engine,
+    raw: Bool,
+    native: Bool,
+    /// Hex package name imported by the generated native adapter, or
+    /// `"—"` when no native runtime is supported. Avoids dragging
+    /// `gleam/option` into the public API for a single field.
+    native_driver: String,
+  )
+}
+
+pub fn engine_runtime_support() -> List(EngineSupport) {
+  [
+    EngineSupport(
+      engine: model.PostgreSQL,
+      raw: True,
+      native: True,
+      native_driver: "pog",
+    ),
+    EngineSupport(
+      engine: model.MySQL,
+      raw: True,
+      native: True,
+      native_driver: "shork",
+    ),
+    EngineSupport(
+      engine: model.SQLite,
+      raw: True,
+      native: True,
+      native_driver: "sqlight",
+    ),
+  ]
+}
+
 /// Render a Markdown manifest that the test suite pins against
 /// `doc/capabilities.md`. The generated shape is intentionally stable:
 /// adding a new capability changes the file, adding a new *section*
@@ -101,6 +142,28 @@ pub fn manifest_markdown() -> String {
         list.map(supported_runtimes(), fn(runtime) {
           "- `" <> model.runtime_to_string(runtime) <> "`"
         }),
+      ),
+      "",
+      "## Engine / runtime support",
+      "",
+      "| Engine | Raw | Native | Native driver |",
+      "| --- | --- | --- | --- |",
+      string.join(
+        list.map(engine_runtime_support(), fn(e) {
+          "| `"
+          <> model.engine_to_string(e.engine)
+          <> "` | "
+          <> yes_no(e.raw)
+          <> " | "
+          <> yes_no(e.native)
+          <> " | "
+          <> case e.native {
+            True -> "`" <> e.native_driver <> "`"
+            False -> "—"
+          }
+          <> " |"
+        }),
+        "\n",
       ),
       "",
       "## Type mappings",
@@ -161,6 +224,13 @@ fn bullet_list(lines: List(String)) -> String {
   case lines {
     [] -> "(none)"
     _ -> string.join(lines, "\n")
+  }
+}
+
+fn yes_no(supported: Bool) -> String {
+  case supported {
+    True -> "yes"
+    False -> "no"
   }
 }
 

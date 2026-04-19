@@ -96,13 +96,14 @@ pub fn reject_multiple_unsupported_root_fields_test() {
   string.contains(msg, "analyzer") |> should.be_true()
 }
 
-// MySQL + native runtime rejection
+// MySQL + native runtime is now accepted (#418): a generated
+// MySQL adapter targets `gmysql`.
 
-pub fn reject_mysql_native_runtime_test() {
-  let assert Error(error) = config.load("test/fixtures/mysql_native.yaml")
-  let msg = config.error_to_string(error)
-  string.contains(msg, "MySQL") |> should.be_true()
-  string.contains(msg, "raw") |> should.be_true()
+pub fn accept_mysql_native_runtime_test() {
+  let assert Ok(cfg) = config.load("test/fixtures/mysql_native.yaml")
+  let assert [block] = cfg.sql
+  block.engine |> should.equal(model.MySQL)
+  block.gleam.runtime |> should.equal(model.Native)
 }
 
 // type_mapping config
