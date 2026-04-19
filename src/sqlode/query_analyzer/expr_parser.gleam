@@ -12,6 +12,15 @@
 //// StringType" never happens — every gap is tied to a concrete IR
 //// node an operator can point at.
 ////
+//// Every public parsing entry takes an `engine: model.Engine` parameter
+//// so MySQL-only constructs (`ON DUPLICATE KEY UPDATE`,
+//// `LIMIT offset, count`) can be recognised without polluting the
+//// PostgreSQL / SQLite paths. The engine is threaded through every
+//// internal helper that (directly or transitively) parses another
+//// expression, select core, or statement. Pure token-shape helpers
+//// (paren collection, comma splitting, keyword scanning, etc.) do not
+//// receive it — they are dialect-agnostic.
+////
 //// Precedence roughly follows PostgreSQL's operator table:
 ////
 ////   1. OR
@@ -31,6 +40,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 import sqlode/lexer
+import sqlode/model
 import sqlode/naming
 import sqlode/query_ir
 
@@ -38,19 +48,22 @@ import sqlode/query_ir
 /// constructs surface as `UnstructuredStmt(reason, tokens)` with the
 /// raw tokens preserved for legacy passes and the reason string
 /// bubbled up to analyzer diagnostics.
-pub fn parse_stmt(tokens: List(lexer.Token)) -> query_ir.Stmt {
-  let #(ctes, recursive, after_ctes) = parse_with_clause(tokens)
+pub fn parse_stmt(
+  tokens: List(lexer.Token),
+  engine: model.Engine,
+) -> query_ir.Stmt {
+  let #(ctes, recursive, after_ctes) = parse_with_clause(tokens, engine)
   case after_ctes {
     [lexer.Keyword("select"), ..] -> {
-      let #(core, _rest) = parse_select_core(after_ctes)
+      let #(core, _rest) = parse_select_core(after_ctes, engine)
       query_ir.SelectStmt(ctes: attach_recursive(ctes, recursive), core: core)
     }
     [lexer.Keyword("insert"), ..rest] ->
-      parse_insert_body(attach_recursive(ctes, recursive), rest)
+      parse_insert_body(attach_recursive(ctes, recursive), rest, engine)
     [lexer.Keyword("update"), ..rest] ->
-      parse_update_body(attach_recursive(ctes, recursive), rest)
+      parse_update_body(attach_recursive(ctes, recursive), rest, engine)
     [lexer.Keyword("delete"), ..rest] ->
-      parse_delete_body(attach_recursive(ctes, recursive), rest)
+      parse_delete_body(attach_recursive(ctes, recursive), rest, engine)
     _ ->
       query_ir.UnstructuredStmt(
         reason: "unrecognised top-level statement",
@@ -83,14 +96,15 @@ fn attach_recursive(
 
 fn parse_with_clause(
   tokens: List(lexer.Token),
+  engine: model.Engine,
 ) -> #(List(query_ir.CteDef), Bool, List(lexer.Token)) {
   case tokens {
     [lexer.Keyword("with"), lexer.Keyword("recursive"), ..rest] -> {
-      let #(ctes, remaining) = parse_cte_list(rest, [])
+      let #(ctes, remaining) = parse_cte_list(rest, [], engine)
       #(ctes, True, remaining)
     }
     [lexer.Keyword("with"), ..rest] -> {
-      let #(ctes, remaining) = parse_cte_list(rest, [])
+      let #(ctes, remaining) = parse_cte_list(rest, [], engine)
       #(ctes, False, remaining)
     }
     _ -> #([], False, tokens)
@@ -100,11 +114,12 @@ fn parse_with_clause(
 fn parse_cte_list(
   tokens: List(lexer.Token),
   acc: List(query_ir.CteDef),
+  engine: model.Engine,
 ) -> #(List(query_ir.CteDef), List(lexer.Token)) {
-  case parse_single_cte(tokens) {
+  case parse_single_cte(tokens, engine) {
     Some(#(cte, after)) ->
       case after {
-        [lexer.Comma, ..more] -> parse_cte_list(more, [cte, ..acc])
+        [lexer.Comma, ..more] -> parse_cte_list(more, [cte, ..acc], engine)
         _ -> #(list.reverse([cte, ..acc]), after)
       }
     None -> #(list.reverse(acc), tokens)
@@ -113,11 +128,13 @@ fn parse_cte_list(
 
 fn parse_single_cte(
   tokens: List(lexer.Token),
+  engine: model.Engine,
 ) -> Option(#(query_ir.CteDef, List(lexer.Token))) {
   case tokens {
-    [lexer.Ident(name), ..after_name] -> parse_cte_after_name(name, after_name)
+    [lexer.Ident(name), ..after_name] ->
+      parse_cte_after_name(name, after_name, engine)
     [lexer.QuotedIdent(name), ..after_name] ->
-      parse_cte_after_name(name, after_name)
+      parse_cte_after_name(name, after_name, engine)
     _ -> None
   }
 }
@@ -125,6 +142,7 @@ fn parse_single_cte(
 fn parse_cte_after_name(
   name: String,
   tokens: List(lexer.Token),
+  engine: model.Engine,
 ) -> Option(#(query_ir.CteDef, List(lexer.Token))) {
   let #(columns, after_cols) = case tokens {
     [lexer.LParen, ..after_lp] -> {
@@ -136,7 +154,7 @@ fn parse_cte_after_name(
   case after_cols {
     [lexer.Keyword("as"), lexer.LParen, ..after_as_lp] -> {
       let #(inner, after) = collect_parens(after_as_lp)
-      let body = parse_stmt(inner)
+      let body = parse_stmt(inner, engine)
       Some(#(
         query_ir.CteDef(
           name: string.lowercase(name),
@@ -169,6 +187,7 @@ fn parse_ident_list(tokens: List(lexer.Token)) -> List(String) {
 
 pub fn parse_select_core(
   tokens: List(lexer.Token),
+  engine: model.Engine,
 ) -> #(query_ir.SelectCore, List(lexer.Token)) {
   let #(distinct, after_distinct) = case tokens {
     [lexer.Keyword("select"), lexer.Keyword("distinct"), ..rest] -> #(
@@ -183,9 +202,9 @@ pub fn parse_select_core(
       "from", "where", "group", "having", "order", "limit", "offset", "union",
       "intersect", "except", "window",
     ])
-  let items = parse_select_items(select_tokens)
+  let items = parse_select_items(select_tokens, engine)
   let #(from_list, rest_after_from) = case rest_after_select {
-    [lexer.Keyword("from"), ..rest] -> parse_from_clause(rest)
+    [lexer.Keyword("from"), ..rest] -> parse_from_clause(rest, engine)
     _ -> #([], rest_after_select)
   }
   let #(where_expr, rest_after_where) = case rest_after_from {
@@ -195,7 +214,7 @@ pub fn parse_select_core(
           "group", "having", "order", "limit", "offset", "union", "intersect",
           "except", "window",
         ])
-      #(Some(parse_expr(where_toks)), after)
+      #(Some(parse_expr(where_toks, engine)), after)
     }
     _ -> #(None, rest_after_from)
   }
@@ -206,7 +225,7 @@ pub fn parse_select_core(
           "having", "order", "limit", "offset", "union", "intersect", "except",
           "window",
         ])
-      #(parse_expr_list(gb_toks), after)
+      #(parse_expr_list(gb_toks, engine), after)
     }
     _ -> #([], rest_after_where)
   }
@@ -216,7 +235,7 @@ pub fn parse_select_core(
         collect_until_keyword(rest, [
           "order", "limit", "offset", "union", "intersect", "except", "window",
         ])
-      #(Some(parse_expr(h_toks)), after)
+      #(Some(parse_expr(h_toks, engine)), after)
     }
     _ -> #(None, rest_after_group)
   }
@@ -236,27 +255,49 @@ pub fn parse_select_core(
         collect_until_keyword(rest, [
           "limit", "offset", "union", "intersect", "except",
         ])
-      #(parse_order_keys(o_toks), after)
+      #(parse_order_keys(o_toks, engine), after)
     }
     _ -> #([], rest_after_window)
   }
-  let #(limit, rest_after_limit) = case rest_after_order {
+  // LIMIT handling. MySQL additionally supports the two-argument form
+  // `LIMIT offset, count` which assigns in the opposite order from
+  // PostgreSQL's `LIMIT count OFFSET offset`. For MySQL we split the
+  // collected LIMIT tokens on a top-level comma and populate
+  // `offset` / `limit` accordingly; if no comma is present the single
+  // expression is a plain count, matching the other dialects.
+  let #(limit, offset_from_limit, rest_after_limit) = case rest_after_order {
     [lexer.Keyword("limit"), ..rest] -> {
       let #(l_toks, after) =
         collect_until_keyword(rest, ["offset", "union", "intersect", "except"])
-      #(Some(parse_expr(l_toks)), after)
+      case engine {
+        model.MySQL -> {
+          case split_on_top_commas(l_toks) {
+            [offset_toks, count_toks] -> {
+              // MySQL `LIMIT a, b` means offset=a, count=b — the
+              // OPPOSITE assignment from `LIMIT a OFFSET b`.
+              #(
+                Some(parse_expr(count_toks, engine)),
+                Some(parse_expr(offset_toks, engine)),
+                after,
+              )
+            }
+            _ -> #(Some(parse_expr(l_toks, engine)), None, after)
+          }
+        }
+        _ -> #(Some(parse_expr(l_toks, engine)), None, after)
+      }
     }
-    _ -> #(None, rest_after_order)
+    _ -> #(None, None, rest_after_order)
   }
   let #(offset, rest_after_offset) = case rest_after_limit {
     [lexer.Keyword("offset"), ..rest] -> {
       let #(o_toks, after) =
         collect_until_keyword(rest, ["union", "intersect", "except"])
-      #(Some(parse_expr(o_toks)), after)
+      #(Some(parse_expr(o_toks, engine)), after)
     }
-    _ -> #(None, rest_after_limit)
+    _ -> #(offset_from_limit, rest_after_limit)
   }
-  let #(set_op, remaining) = parse_set_op(rest_after_offset)
+  let #(set_op, remaining) = parse_set_op(rest_after_offset, engine)
   #(
     query_ir.SelectCore(
       distinct: distinct,
@@ -276,6 +317,7 @@ pub fn parse_select_core(
 
 fn parse_set_op(
   tokens: List(lexer.Token),
+  engine: model.Engine,
 ) -> #(Option(query_ir.SetOp), List(lexer.Token)) {
   case tokens {
     [lexer.Keyword(kw), ..rest]
@@ -285,7 +327,7 @@ fn parse_set_op(
         [lexer.Keyword("all"), ..more] -> #(True, more)
         _ -> #(False, rest)
       }
-      let #(core, after) = parse_select_core(rest2)
+      let #(core, after) = parse_select_core(rest2, engine)
       let kind = case kw {
         "union" -> query_ir.Union
         "intersect" -> query_ir.Intersect
@@ -297,13 +339,19 @@ fn parse_set_op(
   }
 }
 
-fn parse_order_keys(tokens: List(lexer.Token)) -> List(query_ir.OrderKey) {
+fn parse_order_keys(
+  tokens: List(lexer.Token),
+  engine: model.Engine,
+) -> List(query_ir.OrderKey) {
   tokens
   |> split_on_top_commas()
-  |> list.map(parse_order_key)
+  |> list.map(fn(group) { parse_order_key(group, engine) })
 }
 
-fn parse_order_key(tokens: List(lexer.Token)) -> query_ir.OrderKey {
+fn parse_order_key(
+  tokens: List(lexer.Token),
+  engine: model.Engine,
+) -> query_ir.OrderKey {
   let reversed = list.reverse(tokens)
   let #(nulls, reversed2) = case reversed {
     [lexer.Keyword("first"), lexer.Keyword("nulls"), ..rest] -> #(
@@ -323,7 +371,7 @@ fn parse_order_key(tokens: List(lexer.Token)) -> query_ir.OrderKey {
   }
   let expr_tokens = list.reverse(reversed3)
   query_ir.OrderKey(
-    expr: parse_expr(expr_tokens),
+    expr: parse_expr(expr_tokens, engine),
     descending: descending,
     nulls: nulls,
   )
@@ -333,13 +381,19 @@ fn parse_order_key(tokens: List(lexer.Token)) -> query_ir.OrderKey {
 // SELECT items
 // ============================================================
 
-fn parse_select_items(tokens: List(lexer.Token)) -> List(query_ir.SelectItemEx) {
+fn parse_select_items(
+  tokens: List(lexer.Token),
+  engine: model.Engine,
+) -> List(query_ir.SelectItemEx) {
   tokens
   |> split_on_top_commas()
-  |> list.map(parse_select_item)
+  |> list.map(fn(group) { parse_select_item(group, engine) })
 }
 
-fn parse_select_item(tokens: List(lexer.Token)) -> query_ir.SelectItemEx {
+fn parse_select_item(
+  tokens: List(lexer.Token),
+  engine: model.Engine,
+) -> query_ir.SelectItemEx {
   case tokens {
     [lexer.Operator("*")] -> query_ir.StarEx(table_prefix: None)
     [lexer.Star] -> query_ir.StarEx(table_prefix: None)
@@ -349,7 +403,7 @@ fn parse_select_item(tokens: List(lexer.Token)) -> query_ir.SelectItemEx {
       query_ir.StarEx(table_prefix: Some(string.lowercase(t)))
     _ -> {
       let #(expr_tokens, alias) = split_trailing_alias(tokens)
-      query_ir.ExprItem(expr: parse_expr(expr_tokens), alias: alias)
+      query_ir.ExprItem(expr: parse_expr(expr_tokens, engine), alias: alias)
     }
   }
 }
@@ -400,6 +454,7 @@ fn is_expr_end(token: lexer.Token) -> Bool {
 
 fn parse_from_clause(
   tokens: List(lexer.Token),
+  engine: model.Engine,
 ) -> #(List(query_ir.FromItemEx), List(lexer.Token)) {
   let #(items_tokens, rest) =
     collect_until_keyword(tokens, [
@@ -407,32 +462,37 @@ fn parse_from_clause(
       "intersect", "except", "window", "returning",
     ])
   let groups = split_on_top_commas(items_tokens)
-  let from_items = list.map(groups, parse_from_element)
+  let from_items =
+    list.map(groups, fn(group) { parse_from_element(group, engine) })
   #(from_items, rest)
 }
 
-fn parse_from_element(tokens: List(lexer.Token)) -> query_ir.FromItemEx {
-  let #(first, after_first) = parse_primary_from(tokens)
-  parse_join_tail(first, after_first)
+fn parse_from_element(
+  tokens: List(lexer.Token),
+  engine: model.Engine,
+) -> query_ir.FromItemEx {
+  let #(first, after_first) = parse_primary_from(tokens, engine)
+  parse_join_tail(first, after_first, engine)
 }
 
 fn parse_primary_from(
   tokens: List(lexer.Token),
+  engine: model.Engine,
 ) -> #(query_ir.FromItemEx, List(lexer.Token)) {
   case tokens {
     [lexer.LParen, lexer.Keyword("values"), ..rest] -> {
       let #(_, after) = collect_parens([lexer.Keyword("values"), ..rest])
       let #(body, _) = collect_parens([lexer.Keyword("values"), ..rest])
-      parse_values_from_body(body, after)
+      parse_values_from_body(body, after, engine)
     }
     [lexer.LParen, lexer.Keyword("select"), ..] -> {
       let #(inner, after_rp) = collect_parens(drop_first(tokens))
-      let #(core, _) = parse_select_core(inner)
+      let #(core, _) = parse_select_core(inner, engine)
       parse_subquery_alias(core, after_rp, False)
     }
     [lexer.LParen, lexer.Keyword("with"), ..] -> {
       let #(inner, after_rp) = collect_parens(drop_first(tokens))
-      let stmt = parse_stmt(inner)
+      let stmt = parse_stmt(inner, engine)
       let core = case stmt {
         query_ir.SelectStmt(core: c, ..) -> c
         _ -> empty_core()
@@ -441,7 +501,7 @@ fn parse_primary_from(
     }
     [lexer.Keyword("lateral"), lexer.LParen, lexer.Keyword("select"), ..] -> {
       let #(inner, after_rp) = collect_parens(drop_first(drop_first(tokens)))
-      let #(core, _) = parse_select_core(inner)
+      let #(core, _) = parse_select_core(inner, engine)
       parse_subquery_alias(core, after_rp, True)
     }
     [lexer.Ident(_), lexer.Dot, lexer.Ident(name), ..rest] -> {
@@ -463,8 +523,9 @@ fn parse_primary_from(
 fn parse_values_from_body(
   body: List(lexer.Token),
   after: List(lexer.Token),
+  engine: model.Engine,
 ) -> #(query_ir.FromItemEx, List(lexer.Token)) {
-  let rows = parse_values_rows(body)
+  let rows = parse_values_rows(body, engine)
   let #(alias_opt, col_aliases, rest) = parse_aliased_column_list(after)
   let alias = option.unwrap(alias_opt, "")
   #(
@@ -473,9 +534,12 @@ fn parse_values_from_body(
   )
 }
 
-fn parse_values_rows(body: List(lexer.Token)) -> List(List(query_ir.Expr)) {
+fn parse_values_rows(
+  body: List(lexer.Token),
+  engine: model.Engine,
+) -> List(List(query_ir.Expr)) {
   case body {
-    [lexer.Keyword("values"), ..rest] -> collect_values_rows(rest, [])
+    [lexer.Keyword("values"), ..rest] -> collect_values_rows(rest, [], engine)
     _ -> []
   }
 }
@@ -483,13 +547,17 @@ fn parse_values_rows(body: List(lexer.Token)) -> List(List(query_ir.Expr)) {
 fn collect_values_rows(
   tokens: List(lexer.Token),
   acc: List(List(query_ir.Expr)),
+  engine: model.Engine,
 ) -> List(List(query_ir.Expr)) {
   case tokens {
     [lexer.LParen, ..rest] -> {
       let #(inner, after) = collect_parens(rest)
-      let row = list.map(split_on_top_commas(inner), parse_expr)
+      let row =
+        list.map(split_on_top_commas(inner), fn(group) {
+          parse_expr(group, engine)
+        })
       case after {
-        [lexer.Comma, ..more] -> collect_values_rows(more, [row, ..acc])
+        [lexer.Comma, ..more] -> collect_values_rows(more, [row, ..acc], engine)
         _ -> list.reverse([row, ..acc])
       }
     }
@@ -584,12 +652,13 @@ fn is_reserved_after_table(name: String) -> Bool {
 fn parse_join_tail(
   left: query_ir.FromItemEx,
   tokens: List(lexer.Token),
+  engine: model.Engine,
 ) -> query_ir.FromItemEx {
   case detect_join(tokens) {
     Some(#(kind, after_kw, lateral)) -> {
-      let #(right_raw, after_right) = parse_primary_from(after_kw)
-      let #(on, after_on) = parse_join_on(after_right)
-      let right = parse_join_tail(right_raw, after_on)
+      let #(right_raw, after_right) = parse_primary_from(after_kw, engine)
+      let #(on, after_on) = parse_join_on(after_right, engine)
+      let right = parse_join_tail(right_raw, after_on, engine)
       parse_join_tail(
         query_ir.FromJoin(
           left: left,
@@ -599,6 +668,7 @@ fn parse_join_tail(
           lateral: lateral,
         ),
         [],
+        engine,
       )
     }
     None -> left
@@ -659,6 +729,7 @@ fn detect_join(
 
 fn parse_join_on(
   tokens: List(lexer.Token),
+  engine: model.Engine,
 ) -> #(query_ir.JoinOn, List(lexer.Token)) {
   case tokens {
     [lexer.Keyword("on"), ..rest] -> {
@@ -668,7 +739,7 @@ fn parse_join_on(
           "group", "having", "order", "limit", "offset", "union", "intersect",
           "except", "returning", "window",
         ])
-      #(query_ir.JoinOnExpr(expr: parse_expr(on_toks)), after)
+      #(query_ir.JoinOnExpr(expr: parse_expr(on_toks, engine)), after)
     }
     [lexer.Keyword("using"), lexer.LParen, ..rest] -> {
       let #(cols, after) = collect_parens(rest)
@@ -685,10 +756,11 @@ fn parse_join_on(
 fn parse_insert_body(
   ctes: List(query_ir.CteDef),
   tokens: List(lexer.Token),
+  engine: model.Engine,
 ) -> query_ir.Stmt {
   case tokens {
     [lexer.Keyword("into"), ..after_into] ->
-      parse_insert_target(ctes, after_into)
+      parse_insert_target(ctes, after_into, engine)
     _ ->
       query_ir.UnstructuredStmt(reason: "INSERT without INTO", tokens: [
         lexer.Keyword("insert"),
@@ -700,6 +772,7 @@ fn parse_insert_body(
 fn parse_insert_target(
   ctes: List(query_ir.CteDef),
   tokens: List(lexer.Token),
+  engine: model.Engine,
 ) -> query_ir.Stmt {
   let #(table_name, after_name) = read_qualified_name(tokens)
   let #(columns, after_cols) = case after_name {
@@ -709,19 +782,58 @@ fn parse_insert_target(
     }
     _ -> #([], after_name)
   }
-  let #(source, after_source) = parse_insert_source(after_cols)
-  let returning = parse_returning(after_source)
+  let #(source, after_source) = parse_insert_source(after_cols, engine)
+  // MySQL-only: consume an `ON DUPLICATE KEY UPDATE ...` tail if
+  // present. For PostgreSQL and SQLite we leave the tail untouched —
+  // any unexpected tokens will simply be ignored by `parse_returning`
+  // (which scans for RETURNING or yields []).
+  let #(on_duplicate, after_on_dup) = case engine {
+    model.MySQL -> parse_on_duplicate_key_update(after_source, engine)
+    _ -> #([], after_source)
+  }
+  let returning = parse_returning(after_on_dup, engine)
   query_ir.InsertStmt(
     ctes: ctes,
     table: table_name,
     columns: columns,
     source: source,
+    on_duplicate_key_update: on_duplicate,
     returning: returning,
   )
 }
 
+fn parse_on_duplicate_key_update(
+  tokens: List(lexer.Token),
+  engine: model.Engine,
+) -> #(List(query_ir.Assignment), List(lexer.Token)) {
+  // `DUPLICATE` is not in the lexer's keyword list, so it arrives as an
+  // `Ident`. Compare case-insensitively so users can write either case.
+  case tokens {
+    [
+      lexer.Keyword("on"),
+      lexer.Ident(duplicate),
+      lexer.Keyword("key"),
+      lexer.Keyword("update"),
+      ..rest
+    ] ->
+      case string.lowercase(duplicate) {
+        "duplicate" -> {
+          // Collect assignments up to RETURNING or end-of-stream. Other
+          // tail keywords shouldn't appear here (INSERT has no WHERE /
+          // ORDER BY in MySQL's upsert form), but we stop at RETURNING
+          // so the later parse_returning can still see it.
+          let #(assign_toks, after) = collect_until_keyword(rest, ["returning"])
+          #(parse_assignments(assign_toks, engine), after)
+        }
+        _ -> #([], tokens)
+      }
+    _ -> #([], tokens)
+  }
+}
+
 fn parse_insert_source(
   tokens: List(lexer.Token),
+  engine: model.Engine,
 ) -> #(query_ir.InsertSource, List(lexer.Token)) {
   case tokens {
     [lexer.Keyword("default"), lexer.Keyword("values"), ..rest] -> #(
@@ -729,18 +841,20 @@ fn parse_insert_source(
       rest,
     )
     [lexer.Keyword("values"), ..rest] -> {
-      let rows = collect_values_rows(rest, [])
-      // After the values rows, the stream is already past the closing
-      // paren of the last row. Scan forward until RETURNING / end.
-      let after = skip_to_returning_or_end(rest)
+      let rows = collect_values_rows(rest, [], engine)
+      // Return the tokens that sit after the last VALUES row intact.
+      // For MySQL, the tail may start with ON DUPLICATE KEY UPDATE,
+      // which parse_insert_target handles. For PostgreSQL / SQLite,
+      // anything non-RETURNING is simply ignored downstream.
+      let after = skip_values_rows(rest)
       #(query_ir.InsertValues(rows: rows), after)
     }
     [lexer.Keyword("select"), ..] -> {
-      let #(core, after) = parse_select_core(tokens)
+      let #(core, after) = parse_select_core(tokens, engine)
       #(query_ir.InsertSelect(core: core), after)
     }
     [lexer.Keyword("with"), ..] -> {
-      let stmt = parse_stmt(tokens)
+      let stmt = parse_stmt(tokens, engine)
       case stmt {
         query_ir.SelectStmt(core: c, ..) -> #(
           query_ir.InsertSelect(core: c),
@@ -753,17 +867,26 @@ fn parse_insert_source(
   }
 }
 
-fn skip_to_returning_or_end(tokens: List(lexer.Token)) -> List(lexer.Token) {
+/// Walk past VALUES rows without consuming the tokens that follow the
+/// final row. Mirrors `collect_values_rows` but returns the leftover
+/// tokens instead of the parsed expression lists.
+fn skip_values_rows(tokens: List(lexer.Token)) -> List(lexer.Token) {
   case tokens {
-    [] -> []
-    [lexer.Keyword("returning"), ..] as t -> t
-    [_, ..rest] -> skip_to_returning_or_end(rest)
+    [lexer.LParen, ..rest] -> {
+      let #(_inner, after) = collect_parens(rest)
+      case after {
+        [lexer.Comma, ..more] -> skip_values_rows(more)
+        _ -> after
+      }
+    }
+    _ -> tokens
   }
 }
 
 fn parse_update_body(
   ctes: List(query_ir.CteDef),
   tokens: List(lexer.Token),
+  engine: model.Engine,
 ) -> query_ir.Stmt {
   let #(table_name, after_name) = read_qualified_name(tokens)
   let #(alias, after_alias) = parse_optional_alias(after_name)
@@ -771,19 +894,19 @@ fn parse_update_body(
     [lexer.Keyword("set"), ..after_set] -> {
       let #(set_toks, after_set_block) =
         collect_until_keyword(after_set, ["from", "where", "returning"])
-      let assignments = parse_assignments(set_toks)
+      let assignments = parse_assignments(set_toks, engine)
       let #(from_list, after_from) = case after_set_block {
-        [lexer.Keyword("from"), ..rest] -> parse_from_clause(rest)
+        [lexer.Keyword("from"), ..rest] -> parse_from_clause(rest, engine)
         _ -> #([], after_set_block)
       }
       let #(where_expr, after_where) = case after_from {
         [lexer.Keyword("where"), ..rest] -> {
           let #(where_toks, after) = collect_until_keyword(rest, ["returning"])
-          #(Some(parse_expr(where_toks)), after)
+          #(Some(parse_expr(where_toks, engine)), after)
         }
         _ -> #(None, after_from)
       }
-      let returning = parse_returning(after_where)
+      let returning = parse_returning(after_where, engine)
       query_ir.UpdateStmt(
         ctes: ctes,
         table: table_name,
@@ -802,25 +925,29 @@ fn parse_update_body(
   }
 }
 
-fn parse_assignments(tokens: List(lexer.Token)) -> List(query_ir.Assignment) {
+fn parse_assignments(
+  tokens: List(lexer.Token),
+  engine: model.Engine,
+) -> List(query_ir.Assignment) {
   tokens
   |> split_on_top_commas()
-  |> list.filter_map(parse_assignment)
+  |> list.filter_map(fn(group) { parse_assignment(group, engine) })
 }
 
 fn parse_assignment(
   tokens: List(lexer.Token),
+  engine: model.Engine,
 ) -> Result(query_ir.Assignment, Nil) {
   case tokens {
     [lexer.Ident(col), lexer.Operator("="), ..rest] ->
       Ok(query_ir.Assignment(
         column: string.lowercase(col),
-        value: parse_expr(rest),
+        value: parse_expr(rest, engine),
       ))
     [lexer.QuotedIdent(col), lexer.Operator("="), ..rest] ->
       Ok(query_ir.Assignment(
         column: string.lowercase(col),
-        value: parse_expr(rest),
+        value: parse_expr(rest, engine),
       ))
     _ -> Error(Nil)
   }
@@ -829,23 +956,24 @@ fn parse_assignment(
 fn parse_delete_body(
   ctes: List(query_ir.CteDef),
   tokens: List(lexer.Token),
+  engine: model.Engine,
 ) -> query_ir.Stmt {
   case tokens {
     [lexer.Keyword("from"), ..after_from] -> {
       let #(table_name, after_name) = read_qualified_name(after_from)
       let #(alias, after_alias) = parse_optional_alias(after_name)
       let #(using_list, after_using) = case after_alias {
-        [lexer.Keyword("using"), ..rest] -> parse_from_clause(rest)
+        [lexer.Keyword("using"), ..rest] -> parse_from_clause(rest, engine)
         _ -> #([], after_alias)
       }
       let #(where_expr, after_where) = case after_using {
         [lexer.Keyword("where"), ..rest] -> {
           let #(where_toks, after) = collect_until_keyword(rest, ["returning"])
-          #(Some(parse_expr(where_toks)), after)
+          #(Some(parse_expr(where_toks, engine)), after)
         }
         _ -> #(None, after_using)
       }
-      let returning = parse_returning(after_where)
+      let returning = parse_returning(after_where, engine)
       query_ir.DeleteStmt(
         ctes: ctes,
         table: table_name,
@@ -863,8 +991,16 @@ fn parse_delete_body(
   }
 }
 
-fn parse_returning(tokens: List(lexer.Token)) -> List(query_ir.SelectItemEx) {
-  case tokens {
+fn parse_returning(
+  tokens: List(lexer.Token),
+  engine: model.Engine,
+) -> List(query_ir.SelectItemEx) {
+  // Scan the remaining tokens for a RETURNING keyword at top level.
+  // This is deliberately permissive so any leading garbage left by
+  // previous parsing steps (e.g. unconsumed MySQL-only tails on a
+  // PostgreSQL engine) is tolerated without losing the RETURNING
+  // projection when it does appear.
+  case skip_to_returning_or_end(tokens) {
     [lexer.Keyword("returning"), ..rest] -> {
       let filtered =
         list.filter(rest, fn(t) {
@@ -873,7 +1009,7 @@ fn parse_returning(tokens: List(lexer.Token)) -> List(query_ir.SelectItemEx) {
             _ -> True
           }
         })
-      parse_select_items(filtered)
+      parse_select_items(filtered, engine)
     }
     _ -> []
   }
@@ -883,8 +1019,11 @@ fn parse_returning(tokens: List(lexer.Token)) -> List(query_ir.SelectItemEx) {
 // Expressions
 // ============================================================
 
-pub fn parse_expr(tokens: List(lexer.Token)) -> query_ir.Expr {
-  let #(expr, rest) = parse_or(trim_noise(tokens))
+pub fn parse_expr(
+  tokens: List(lexer.Token),
+  engine: model.Engine,
+) -> query_ir.Expr {
+  let #(expr, rest) = parse_or(trim_noise(tokens), engine)
   case rest {
     [] -> expr
     _ ->
@@ -895,71 +1034,92 @@ pub fn parse_expr(tokens: List(lexer.Token)) -> query_ir.Expr {
   }
 }
 
-fn parse_expr_list(tokens: List(lexer.Token)) -> List(query_ir.Expr) {
+fn parse_expr_list(
+  tokens: List(lexer.Token),
+  engine: model.Engine,
+) -> List(query_ir.Expr) {
   tokens
   |> split_on_top_commas()
-  |> list.map(parse_expr)
+  |> list.map(fn(group) { parse_expr(group, engine) })
 }
 
-fn parse_or(tokens: List(lexer.Token)) -> #(query_ir.Expr, List(lexer.Token)) {
-  let #(left, rest) = parse_and(tokens)
-  parse_or_tail(left, rest)
+fn parse_or(
+  tokens: List(lexer.Token),
+  engine: model.Engine,
+) -> #(query_ir.Expr, List(lexer.Token)) {
+  let #(left, rest) = parse_and(tokens, engine)
+  parse_or_tail(left, rest, engine)
 }
 
 fn parse_or_tail(
   left: query_ir.Expr,
   tokens: List(lexer.Token),
+  engine: model.Engine,
 ) -> #(query_ir.Expr, List(lexer.Token)) {
   case tokens {
     [lexer.Keyword("or"), ..rest] -> {
-      let #(right, after) = parse_and(rest)
-      parse_or_tail(query_ir.Binary(op: "or", left: left, right: right), after)
-    }
-    _ -> #(left, tokens)
-  }
-}
-
-fn parse_and(tokens: List(lexer.Token)) -> #(query_ir.Expr, List(lexer.Token)) {
-  let #(left, rest) = parse_not(tokens)
-  parse_and_tail(left, rest)
-}
-
-fn parse_and_tail(
-  left: query_ir.Expr,
-  tokens: List(lexer.Token),
-) -> #(query_ir.Expr, List(lexer.Token)) {
-  case tokens {
-    [lexer.Keyword("and"), ..rest] -> {
-      let #(right, after) = parse_not(rest)
-      parse_and_tail(
-        query_ir.Binary(op: "and", left: left, right: right),
+      let #(right, after) = parse_and(rest, engine)
+      parse_or_tail(
+        query_ir.Binary(op: "or", left: left, right: right),
         after,
+        engine,
       )
     }
     _ -> #(left, tokens)
   }
 }
 
-fn parse_not(tokens: List(lexer.Token)) -> #(query_ir.Expr, List(lexer.Token)) {
+fn parse_and(
+  tokens: List(lexer.Token),
+  engine: model.Engine,
+) -> #(query_ir.Expr, List(lexer.Token)) {
+  let #(left, rest) = parse_not(tokens, engine)
+  parse_and_tail(left, rest, engine)
+}
+
+fn parse_and_tail(
+  left: query_ir.Expr,
+  tokens: List(lexer.Token),
+  engine: model.Engine,
+) -> #(query_ir.Expr, List(lexer.Token)) {
+  case tokens {
+    [lexer.Keyword("and"), ..rest] -> {
+      let #(right, after) = parse_not(rest, engine)
+      parse_and_tail(
+        query_ir.Binary(op: "and", left: left, right: right),
+        after,
+        engine,
+      )
+    }
+    _ -> #(left, tokens)
+  }
+}
+
+fn parse_not(
+  tokens: List(lexer.Token),
+  engine: model.Engine,
+) -> #(query_ir.Expr, List(lexer.Token)) {
   case tokens {
     [lexer.Keyword("not"), ..rest] -> {
-      let #(inner, after) = parse_not(rest)
+      let #(inner, after) = parse_not(rest, engine)
       #(query_ir.Unary(op: "not", arg: inner), after)
     }
-    _ -> parse_comparison(tokens)
+    _ -> parse_comparison(tokens, engine)
   }
 }
 
 fn parse_comparison(
   tokens: List(lexer.Token),
+  engine: model.Engine,
 ) -> #(query_ir.Expr, List(lexer.Token)) {
-  let #(left, rest) = parse_additive(tokens)
-  parse_comparison_tail(left, rest)
+  let #(left, rest) = parse_additive(tokens, engine)
+  parse_comparison_tail(left, rest, engine)
 }
 
 fn parse_comparison_tail(
   left: query_ir.Expr,
   tokens: List(lexer.Token),
+  engine: model.Engine,
 ) -> #(query_ir.Expr, List(lexer.Token)) {
   case tokens {
     [lexer.Operator(op), ..rest]
@@ -979,7 +1139,7 @@ fn parse_comparison_tail(
       case rest {
         [lexer.Keyword("any"), lexer.LParen, ..after_lp] -> {
           let #(inner, after) = collect_parens(after_lp)
-          let right = parse_expr(inner)
+          let right = parse_expr(inner, engine)
           #(
             query_ir.Quantified(
               op: op,
@@ -992,7 +1152,7 @@ fn parse_comparison_tail(
         }
         [lexer.Keyword("all"), lexer.LParen, ..after_lp] -> {
           let #(inner, after) = collect_parens(after_lp)
-          let right = parse_expr(inner)
+          let right = parse_expr(inner, engine)
           #(
             query_ir.Quantified(
               op: op,
@@ -1004,7 +1164,7 @@ fn parse_comparison_tail(
           )
         }
         _ -> {
-          let #(right, after) = parse_additive(rest)
+          let #(right, after) = parse_additive(rest, engine)
           #(query_ir.Binary(op: op, left: left, right: right), after)
         }
       }
@@ -1051,19 +1211,20 @@ fn parse_comparison_tail(
       rest,
     )
     [lexer.Keyword("not"), lexer.Keyword("in"), ..rest] ->
-      parse_in_tail(left, rest, True)
-    [lexer.Keyword("in"), ..rest] -> parse_in_tail(left, rest, False)
+      parse_in_tail(left, rest, True, engine)
+    [lexer.Keyword("in"), ..rest] -> parse_in_tail(left, rest, False, engine)
     [lexer.Keyword("not"), lexer.Keyword("between"), ..rest] ->
-      parse_between_tail(left, rest, True)
-    [lexer.Keyword("between"), ..rest] -> parse_between_tail(left, rest, False)
+      parse_between_tail(left, rest, True, engine)
+    [lexer.Keyword("between"), ..rest] ->
+      parse_between_tail(left, rest, False, engine)
     [lexer.Keyword("not"), lexer.Keyword("like"), ..rest] ->
-      parse_like_tail(left, rest, query_ir.Like, True)
+      parse_like_tail(left, rest, query_ir.Like, True, engine)
     [lexer.Keyword("like"), ..rest] ->
-      parse_like_tail(left, rest, query_ir.Like, False)
+      parse_like_tail(left, rest, query_ir.Like, False, engine)
     [lexer.Keyword("not"), lexer.Keyword("ilike"), ..rest] ->
-      parse_like_tail(left, rest, query_ir.Ilike, True)
+      parse_like_tail(left, rest, query_ir.Ilike, True, engine)
     [lexer.Keyword("ilike"), ..rest] ->
-      parse_like_tail(left, rest, query_ir.Ilike, False)
+      parse_like_tail(left, rest, query_ir.Ilike, False, engine)
     _ -> #(left, tokens)
   }
 }
@@ -1072,11 +1233,12 @@ fn parse_in_tail(
   left: query_ir.Expr,
   tokens: List(lexer.Token),
   negated: Bool,
+  engine: model.Engine,
 ) -> #(query_ir.Expr, List(lexer.Token)) {
   case tokens {
     [lexer.LParen, lexer.Keyword("select"), ..] -> {
       let #(inner, after) = collect_parens(drop_first(tokens))
-      let #(core, _) = parse_select_core(inner)
+      let #(core, _) = parse_select_core(inner, engine)
       #(
         query_ir.InExpr(
           expr: left,
@@ -1098,7 +1260,7 @@ fn parse_in_tail(
           after,
         )
         None -> {
-          let values = parse_expr_list(inner)
+          let values = parse_expr_list(inner, engine)
           #(
             query_ir.InExpr(
               expr: left,
@@ -1139,11 +1301,12 @@ fn parse_between_tail(
   left: query_ir.Expr,
   tokens: List(lexer.Token),
   negated: Bool,
+  engine: model.Engine,
 ) -> #(query_ir.Expr, List(lexer.Token)) {
-  let #(low, rest) = parse_additive(tokens)
+  let #(low, rest) = parse_additive(tokens, engine)
   case rest {
     [lexer.Keyword("and"), ..after_and] -> {
-      let #(high, after) = parse_additive(after_and)
+      let #(high, after) = parse_additive(after_and, engine)
       #(
         query_ir.Between(expr: left, low: low, high: high, negated: negated),
         after,
@@ -1158,11 +1321,12 @@ fn parse_like_tail(
   tokens: List(lexer.Token),
   op: query_ir.LikeOp,
   negated: Bool,
+  engine: model.Engine,
 ) -> #(query_ir.Expr, List(lexer.Token)) {
-  let #(pattern, rest) = parse_additive(tokens)
+  let #(pattern, rest) = parse_additive(tokens, engine)
   let #(escape, rest2) = case rest {
     [lexer.Keyword("escape"), ..more] -> {
-      let #(esc, after) = parse_additive(more)
+      let #(esc, after) = parse_additive(more, engine)
       #(Some(esc), after)
     }
     _ -> #(None, rest)
@@ -1181,14 +1345,16 @@ fn parse_like_tail(
 
 fn parse_additive(
   tokens: List(lexer.Token),
+  engine: model.Engine,
 ) -> #(query_ir.Expr, List(lexer.Token)) {
-  let #(left, rest) = parse_multiplicative(tokens)
-  parse_additive_tail(left, rest)
+  let #(left, rest) = parse_multiplicative(tokens, engine)
+  parse_additive_tail(left, rest, engine)
 }
 
 fn parse_additive_tail(
   left: query_ir.Expr,
   tokens: List(lexer.Token),
+  engine: model.Engine,
 ) -> #(query_ir.Expr, List(lexer.Token)) {
   case tokens {
     [lexer.Operator(op), ..rest]
@@ -1200,10 +1366,11 @@ fn parse_additive_tail(
       || op == "#>"
       || op == "#>>"
     -> {
-      let #(right, after) = parse_multiplicative(rest)
+      let #(right, after) = parse_multiplicative(rest, engine)
       parse_additive_tail(
         query_ir.Binary(op: op, left: left, right: right),
         after,
+        engine,
       )
     }
     _ -> #(left, tokens)
@@ -1212,53 +1379,66 @@ fn parse_additive_tail(
 
 fn parse_multiplicative(
   tokens: List(lexer.Token),
+  engine: model.Engine,
 ) -> #(query_ir.Expr, List(lexer.Token)) {
-  let #(left, rest) = parse_unary(tokens)
-  parse_multiplicative_tail(left, rest)
+  let #(left, rest) = parse_unary(tokens, engine)
+  parse_multiplicative_tail(left, rest, engine)
 }
 
 fn parse_multiplicative_tail(
   left: query_ir.Expr,
   tokens: List(lexer.Token),
+  engine: model.Engine,
 ) -> #(query_ir.Expr, List(lexer.Token)) {
   case tokens {
     [lexer.Star, ..rest] -> {
-      let #(right, after) = parse_unary(rest)
+      let #(right, after) = parse_unary(rest, engine)
       parse_multiplicative_tail(
         query_ir.Binary(op: "*", left: left, right: right),
         after,
+        engine,
       )
     }
     [lexer.Operator(op), ..rest] if op == "/" || op == "%" -> {
-      let #(right, after) = parse_unary(rest)
+      let #(right, after) = parse_unary(rest, engine)
       parse_multiplicative_tail(
         query_ir.Binary(op: op, left: left, right: right),
         after,
+        engine,
       )
     }
     _ -> #(left, tokens)
   }
 }
 
-fn parse_unary(tokens: List(lexer.Token)) -> #(query_ir.Expr, List(lexer.Token)) {
+fn parse_unary(
+  tokens: List(lexer.Token),
+  engine: model.Engine,
+) -> #(query_ir.Expr, List(lexer.Token)) {
   case tokens {
     [lexer.Operator("-"), ..rest] -> {
-      let #(inner, after) = parse_unary(rest)
+      let #(inner, after) = parse_unary(rest, engine)
       #(query_ir.Unary(op: "-", arg: inner), after)
     }
     [lexer.Operator("+"), ..rest] -> {
-      let #(inner, after) = parse_unary(rest)
+      let #(inner, after) = parse_unary(rest, engine)
       #(query_ir.Unary(op: "+", arg: inner), after)
     }
-    _ -> parse_cast(tokens)
+    _ -> parse_cast(tokens, engine)
   }
 }
 
-fn parse_cast(tokens: List(lexer.Token)) -> #(query_ir.Expr, List(lexer.Token)) {
-  let #(atom, rest) = parse_atom(tokens)
+fn parse_cast(
+  tokens: List(lexer.Token),
+  engine: model.Engine,
+) -> #(query_ir.Expr, List(lexer.Token)) {
+  let #(atom, rest) = parse_atom(tokens, engine)
   parse_cast_tail(atom, rest)
 }
 
+// `parse_cast_tail` does not take `engine` because the `::type` suffix
+// parses only a type name via `read_type_tokens`, which is a pure
+// token-shape helper and not dialect-sensitive.
 fn parse_cast_tail(
   atom: query_ir.Expr,
   tokens: List(lexer.Token),
@@ -1317,7 +1497,10 @@ fn render_type_parens(tokens: List(lexer.Token)) -> String {
   |> string.join("")
 }
 
-fn parse_atom(tokens: List(lexer.Token)) -> #(query_ir.Expr, List(lexer.Token)) {
+fn parse_atom(
+  tokens: List(lexer.Token),
+  engine: model.Engine,
+) -> #(query_ir.Expr, List(lexer.Token)) {
   case tokens {
     [] -> #(query_ir.RawExpr(reason: "empty expression", tokens: []), [])
     [lexer.Keyword("null"), ..rest] -> #(query_ir.NullLit, rest)
@@ -1329,7 +1512,7 @@ fn parse_atom(tokens: List(lexer.Token)) -> #(query_ir.Expr, List(lexer.Token)) 
       let idx = decode_placeholder(raw)
       #(query_ir.Param(index: idx, raw: raw), rest)
     }
-    [lexer.Keyword("case"), ..rest] -> parse_case(rest)
+    [lexer.Keyword("case"), ..rest] -> parse_case(rest, engine)
     [lexer.Keyword("cast"), lexer.LParen, ..rest] -> {
       let #(inside, after) = collect_parens(rest)
       let #(expr_tokens, as_rest) = split_on_as(inside)
@@ -1345,37 +1528,40 @@ fn parse_atom(tokens: List(lexer.Token)) -> #(query_ir.Expr, List(lexer.Token)) 
         |> list.filter(fn(s) { s != "" })
         |> string.join(" ")
       #(
-        query_ir.Cast(expr: parse_expr(expr_tokens), target_type: target),
+        query_ir.Cast(
+          expr: parse_expr(expr_tokens, engine),
+          target_type: target,
+        ),
         after,
       )
     }
     [lexer.Keyword("not"), lexer.Keyword("exists"), lexer.LParen, ..rest] -> {
       let #(inside, after) = collect_parens(rest)
-      let #(core, _) = parse_select_core(inside)
+      let #(core, _) = parse_select_core(inside, engine)
       #(query_ir.Exists(core: core, negated: True), after)
     }
     [lexer.Keyword("exists"), lexer.LParen, ..rest] -> {
       let #(inside, after) = collect_parens(rest)
-      let #(core, _) = parse_select_core(inside)
+      let #(core, _) = parse_select_core(inside, engine)
       #(query_ir.Exists(core: core, negated: False), after)
     }
     [lexer.Keyword("array"), lexer.LParen, ..rest] -> {
       let #(inside, after) = collect_parens(rest)
-      let #(core, _) = parse_select_core(inside)
+      let #(core, _) = parse_select_core(inside, engine)
       #(query_ir.ScalarSubquery(core: core), after)
     }
     [lexer.Keyword("array"), lexer.Operator("["), ..rest] -> {
       let #(inside, after) = collect_brackets(rest)
-      #(query_ir.ArrayLit(elements: parse_expr_list(inside)), after)
+      #(query_ir.ArrayLit(elements: parse_expr_list(inside, engine)), after)
     }
     [lexer.LParen, lexer.Keyword("select"), ..] -> {
       let #(inside, after) = collect_parens(drop_first(tokens))
-      let #(core, _) = parse_select_core(inside)
+      let #(core, _) = parse_select_core(inside, engine)
       #(query_ir.ScalarSubquery(core: core), after)
     }
     [lexer.LParen, lexer.Keyword("with"), ..] -> {
       let #(inside, after) = collect_parens(drop_first(tokens))
-      let stmt = parse_stmt(inside)
+      let stmt = parse_stmt(inside, engine)
       case stmt {
         query_ir.SelectStmt(core: c, ..) -> #(
           query_ir.ScalarSubquery(core: c),
@@ -1393,8 +1579,13 @@ fn parse_atom(tokens: List(lexer.Token)) -> #(query_ir.Expr, List(lexer.Token)) 
     [lexer.LParen, ..rest] -> {
       let #(inside, after) = collect_parens(rest)
       case split_on_top_commas(inside) {
-        [single] -> #(parse_expr(single), after)
-        many -> #(query_ir.Tuple(elements: list.map(many, parse_expr)), after)
+        [single] -> #(parse_expr(single, engine), after)
+        many -> #(
+          query_ir.Tuple(
+            elements: list.map(many, fn(group) { parse_expr(group, engine) }),
+          ),
+          after,
+        )
       }
     }
     [lexer.Keyword("interval"), lexer.StringLit(val), ..rest] -> #(
@@ -1413,9 +1604,10 @@ fn parse_atom(tokens: List(lexer.Token)) -> #(query_ir.Expr, List(lexer.Token)) 
           let #(inside, after) = collect_parens(rest)
           #(query_ir.Macro(name: string.lowercase(name), body: inside), after)
         }
-        _ -> parse_function_call(name, [lexer.LParen, ..rest])
+        _ -> parse_function_call(name, [lexer.LParen, ..rest], engine)
       }
-    [lexer.Ident(name), lexer.LParen, ..rest] -> parse_function_call(name, rest)
+    [lexer.Ident(name), lexer.LParen, ..rest] ->
+      parse_function_call(name, rest, engine)
     [lexer.Ident(table), lexer.Dot, lexer.Star, ..rest] -> #(
       query_ir.StarRef(table: Some(string.lowercase(table))),
       rest,
@@ -1455,6 +1647,7 @@ fn parse_atom(tokens: List(lexer.Token)) -> #(query_ir.Expr, List(lexer.Token)) 
 fn parse_function_call(
   name: String,
   tokens: List(lexer.Token),
+  engine: model.Engine,
 ) -> #(query_ir.Expr, List(lexer.Token)) {
   let #(inside, after) = collect_parens(tokens)
   let #(distinct, args_tokens) = case inside {
@@ -1466,10 +1659,12 @@ fn parse_function_call(
     _ ->
       args_tokens
       |> split_on_top_commas()
-      |> list.map(fn(group) { query_ir.FuncArg(expr: parse_expr(group)) })
+      |> list.map(fn(group) {
+        query_ir.FuncArg(expr: parse_expr(group, engine))
+      })
   }
-  let #(filter, after_filter) = parse_filter_clause(after)
-  let #(over, after_over) = parse_over_clause(after_filter)
+  let #(filter, after_filter) = parse_filter_clause(after, engine)
+  let #(over, after_over) = parse_over_clause(after_filter, engine)
   #(
     query_ir.Func(
       name: string.lowercase(name),
@@ -1484,11 +1679,12 @@ fn parse_function_call(
 
 fn parse_filter_clause(
   tokens: List(lexer.Token),
+  engine: model.Engine,
 ) -> #(Option(query_ir.Expr), List(lexer.Token)) {
   case tokens {
     [lexer.Keyword("filter"), lexer.LParen, lexer.Keyword("where"), ..rest] -> {
       let #(inside, after) = collect_parens_after_where(rest)
-      #(Some(parse_expr(inside)), after)
+      #(Some(parse_expr(inside, engine)), after)
     }
     _ -> #(None, tokens)
   }
@@ -1504,11 +1700,12 @@ fn collect_parens_after_where(
 
 fn parse_over_clause(
   tokens: List(lexer.Token),
+  engine: model.Engine,
 ) -> #(Option(query_ir.WindowSpec), List(lexer.Token)) {
   case tokens {
     [lexer.Keyword("over"), lexer.LParen, ..rest] -> {
       let #(inside, after) = collect_parens(rest)
-      #(Some(parse_window_spec(inside)), after)
+      #(Some(parse_window_spec(inside, engine)), after)
     }
     [lexer.Keyword("over"), lexer.Ident(_), ..rest] -> {
       // Named window reference — treat as empty spec; the named
@@ -1522,7 +1719,10 @@ fn parse_over_clause(
   }
 }
 
-fn parse_window_spec(tokens: List(lexer.Token)) -> query_ir.WindowSpec {
+fn parse_window_spec(
+  tokens: List(lexer.Token),
+  engine: model.Engine,
+) -> query_ir.WindowSpec {
   let #(_name_skipped, rest) = case tokens {
     [lexer.Ident(_), ..rest] -> #(True, rest)
     _ -> #(False, tokens)
@@ -1531,7 +1731,7 @@ fn parse_window_spec(tokens: List(lexer.Token)) -> query_ir.WindowSpec {
     [lexer.Keyword("partition"), lexer.Keyword("by"), ..more] -> {
       let #(p_toks, after) =
         collect_until_keyword(more, ["order", "range", "rows", "groups"])
-      #(parse_expr_list(p_toks), after)
+      #(parse_expr_list(p_toks, engine), after)
     }
     _ -> #([], rest)
   }
@@ -1539,7 +1739,7 @@ fn parse_window_spec(tokens: List(lexer.Token)) -> query_ir.WindowSpec {
     [lexer.Keyword("order"), lexer.Keyword("by"), ..more] -> {
       let #(o_toks, after) =
         collect_until_keyword(more, ["range", "rows", "groups"])
-      #(parse_order_keys(o_toks), after)
+      #(parse_order_keys(o_toks, engine), after)
     }
     _ -> #([], rest2)
   }
@@ -1554,7 +1754,10 @@ fn parse_window_spec(tokens: List(lexer.Token)) -> query_ir.WindowSpec {
   )
 }
 
-fn parse_case(tokens: List(lexer.Token)) -> #(query_ir.Expr, List(lexer.Token)) {
+fn parse_case(
+  tokens: List(lexer.Token),
+  engine: model.Engine,
+) -> #(query_ir.Expr, List(lexer.Token)) {
   let #(scrutinee, rest) = case tokens {
     [lexer.Keyword("when"), ..] -> #(None, tokens)
     _ -> {
@@ -1562,17 +1765,18 @@ fn parse_case(tokens: List(lexer.Token)) -> #(query_ir.Expr, List(lexer.Token)) 
         collect_until_keyword(tokens, ["when", "else", "end"])
       case scr_toks {
         [] -> #(None, after)
-        _ -> #(Some(parse_expr(scr_toks)), after)
+        _ -> #(Some(parse_expr(scr_toks, engine)), after)
       }
     }
   }
-  collect_case_branches(rest, scrutinee, [])
+  collect_case_branches(rest, scrutinee, [], engine)
 }
 
 fn collect_case_branches(
   tokens: List(lexer.Token),
   scrutinee: Option(query_ir.Expr),
   branches: List(query_ir.CaseBranch),
+  engine: model.Engine,
 ) -> #(query_ir.Expr, List(lexer.Token)) {
   case tokens {
     [lexer.Keyword("when"), ..rest] -> {
@@ -1585,10 +1789,15 @@ fn collect_case_branches(
         collect_until_keyword(after_then, ["when", "else", "end"])
       let branch =
         query_ir.CaseBranch(
-          when_: parse_expr(when_toks),
-          then: parse_expr(then_toks),
+          when_: parse_expr(when_toks, engine),
+          then: parse_expr(then_toks, engine),
         )
-      collect_case_branches(after_then_block, scrutinee, [branch, ..branches])
+      collect_case_branches(
+        after_then_block,
+        scrutinee,
+        [branch, ..branches],
+        engine,
+      )
     }
     [lexer.Keyword("else"), ..rest] -> {
       let #(else_toks, after_else) = collect_until_keyword(rest, ["end"])
@@ -1600,7 +1809,7 @@ fn collect_case_branches(
         query_ir.Case(
           scrutinee: scrutinee,
           branches: list.reverse(branches),
-          else_: Some(parse_expr(else_toks)),
+          else_: Some(parse_expr(else_toks, engine)),
         ),
         after_end,
       )
@@ -1808,6 +2017,14 @@ fn split_on_as_loop(
       split_on_as_loop(rest, depth - 1, [lexer.RParen, ..acc])
     [lexer.Keyword("as"), ..rest] if depth == 0 -> #(list.reverse(acc), rest)
     [t, ..rest] -> split_on_as_loop(rest, depth, [t, ..acc])
+  }
+}
+
+fn skip_to_returning_or_end(tokens: List(lexer.Token)) -> List(lexer.Token) {
+  case tokens {
+    [] -> []
+    [lexer.Keyword("returning"), ..] as t -> t
+    [_, ..rest] -> skip_to_returning_or_end(rest)
   }
 }
 

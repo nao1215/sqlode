@@ -1123,7 +1123,10 @@ fn infer_expression_type_from_tokens(
   table_names: List(String),
   query_name: String,
 ) -> Result(#(model.ScalarType, Bool), AnalysisError) {
-  let ir_expr = expr_parser.parse_expr(tokens)
+  // Engine threading through column inference is tracked by Issue #406;
+  // passing PostgreSQL here is a temporary default and only affects
+  // engine-specific subquery LIMIT parsing, which is not reached today.
+  let ir_expr = expr_parser.parse_expr(tokens, model.PostgreSQL)
   case ir_expr {
     query_ir.RawExpr(..) ->
       infer_expression_type_token_path(tokens, catalog, table_names, query_name)

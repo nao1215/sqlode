@@ -9,6 +9,7 @@ import sqlode/model
 import sqlode/naming
 import sqlode/query_analyzer
 import sqlode/query_analyzer/context
+import sqlode/query_analyzer/expr_parser
 import sqlode/query_analyzer/token_utils
 import sqlode/query_ir
 import sqlode/query_parser
@@ -2164,6 +2165,73 @@ pub fn mysql_on_duplicate_key_update_test() {
     query_analyzer.analyze_queries(model.MySQL, catalog, naming_ctx, queries)
   let assert [query] = analyzed
   query.params |> list.length |> should.equal(2)
+}
+
+// ------------------------------------------------------------
+// Engine-aware expression parser (Issue #405)
+// ------------------------------------------------------------
+
+/// MySQL `ON DUPLICATE KEY UPDATE` is captured as first-class IR state
+/// on `InsertStmt`, not silently skipped. Asserting on the assignment
+/// column names confirms the clause survived parsing.
+pub fn expr_parser_preserves_mysql_on_duplicate_key_update_test() {
+  let sql =
+    "INSERT INTO items (id, name) VALUES (?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name);"
+  let tokens = lexer.tokenize(sql, model.MySQL)
+  let stmt = expr_parser.parse_stmt(tokens, model.MySQL)
+  let assert query_ir.InsertStmt(on_duplicate_key_update: assignments, ..) =
+    stmt
+  assignments
+  |> list.map(fn(assignment) { assignment.column })
+  |> should.equal(["name"])
+}
+
+/// For non-MySQL engines the same token stream must not invent any
+/// upsert assignments — the clause is simply absent from the IR so
+/// downstream passes do not emit MySQL-specific code on PostgreSQL.
+pub fn expr_parser_skips_on_duplicate_key_update_for_postgresql_test() {
+  let sql =
+    "INSERT INTO items (id, name) VALUES ($1, $2) ON DUPLICATE KEY UPDATE name = VALUES(name);"
+  let tokens = lexer.tokenize(sql, model.PostgreSQL)
+  let stmt = expr_parser.parse_stmt(tokens, model.PostgreSQL)
+  let assert query_ir.InsertStmt(on_duplicate_key_update: assignments, ..) =
+    stmt
+  assignments |> should.equal([])
+}
+
+/// MySQL's `LIMIT offset, count` two-argument syntax is the reverse of
+/// PostgreSQL's `LIMIT count OFFSET offset`: the first expression is
+/// the offset and the second is the row limit. The parser has to notice
+/// the top-level comma and populate `offset` / `limit` in that order.
+pub fn expr_parser_mysql_limit_offset_count_test() {
+  let sql = "SELECT id FROM items LIMIT 10, 5;"
+  let tokens = lexer.tokenize(sql, model.MySQL)
+  let #(core, _rest) = expr_parser.parse_select_core(tokens, model.MySQL)
+  case core.offset {
+    Some(query_ir.NumberLit(value)) -> value |> should.equal("10")
+    other -> should.equal(other, Some(query_ir.NumberLit(value: "10")))
+  }
+  case core.limit {
+    Some(query_ir.NumberLit(value)) -> value |> should.equal("5")
+    other -> should.equal(other, Some(query_ir.NumberLit(value: "5")))
+  }
+}
+
+/// PostgreSQL keeps its canonical `LIMIT count OFFSET offset` semantic.
+/// This pins the non-MySQL branch so the MySQL swap above cannot
+/// regress the default behaviour.
+pub fn expr_parser_postgresql_limit_offset_test() {
+  let sql = "SELECT id FROM items LIMIT 5 OFFSET 10;"
+  let tokens = lexer.tokenize(sql, model.PostgreSQL)
+  let #(core, _rest) = expr_parser.parse_select_core(tokens, model.PostgreSQL)
+  case core.limit {
+    Some(query_ir.NumberLit(value)) -> value |> should.equal("5")
+    other -> should.equal(other, Some(query_ir.NumberLit(value: "5")))
+  }
+  case core.offset {
+    Some(query_ir.NumberLit(value)) -> value |> should.equal("10")
+    other -> should.equal(other, Some(query_ir.NumberLit(value: "10")))
+  }
 }
 
 // ------------------------------------------------------------
