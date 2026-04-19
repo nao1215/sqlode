@@ -1,6 +1,7 @@
 *.beam
 *.ez
 /build
+integration_test/warmup/build/
 erl_crash.dump
 .codex
 .claude

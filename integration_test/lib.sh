@@ -61,7 +61,30 @@ integration_write_project() {
 
   mkdir -p "$dir/src/db"
   _integration_write_gleam_toml "$dir" "$name" "$engine" "$runtime" "$dev_deps"
+  _integration_write_manifest "$dir"
   _integration_write_sqlode_yaml "$dir" "$schema" "$queries" "$engine" "$runtime"
+}
+
+# Seed the test project with the pinned `manifest.toml` shared by every
+# integration scenario. Gleam trims it to the subset each project
+# actually declares on the first `gleam build`, but every integration
+# case picks the same pinned versions instead of re-resolving against
+# the current Hex registry. The warmup's own `sqlode` entry is stripped
+# because its path (`../..` relative to the warmup dir) is meaningless
+# in the destination project, which supplies its own path dep via
+# `gleam.toml`.
+_integration_write_manifest() {
+  dir="$1"
+  src="$PROJECT_ROOT/integration_test/warmup/manifest.toml"
+  if [ ! -f "$src" ]; then
+    echo "integration_write_project: missing $src; run \`just integration-prepare\` first" >&2
+    return 2
+  fi
+  awk '
+    /^  { name = "sqlode",/ { next }
+    /^sqlode = / { next }
+    { print }
+  ' "$src" > "$dir/manifest.toml"
 }
 
 _integration_driver_dep() {
