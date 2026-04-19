@@ -26,18 +26,6 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
-      mysql:
-        image: mysql:8.0
-        env:
-          MYSQL_ROOT_PASSWORD: root
-          MYSQL_DATABASE: sqlode_integration
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd "mysqladmin ping -h localhost -uroot -proot"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 20
 
     steps:
       - uses: actions/checkout@v6
@@ -79,6 +67,18 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/sqlode_integration
         run: sh integration_test/run.sh case_postgresql_real
+
+      # Use the MySQL that ships with the GitHub-hosted ubuntu runner
+      # rather than a docker service container — the same approach
+      # shork itself uses in its CI. The runner-bundled root account
+      # uses `mysql_native_password`, which avoids the
+      # caching_sha2_password handshake friction that mysql_otp 1.9
+      # (the Erlang library underneath shork) hits with a fresh
+      # mysql:8.0 container.
+      - name: Set up MySQL
+        run: |
+          sudo /etc/init.d/mysql start
+          mysql -e 'CREATE DATABASE sqlode_integration;' -uroot -proot
 
       - name: MySQL integration test
         env:
