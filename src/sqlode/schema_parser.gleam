@@ -1284,7 +1284,7 @@ fn build_column_from_type_tokens(
       use scalar_type <- result.try(case find_enum(type_text, enums) {
         Some(enum_name) -> Ok(model.EnumType(enum_name))
         None ->
-          infer_scalar_type(type_text)
+          infer_scalar_type_for_engine(type_text, engine)
           |> result.map_error(fn(detail) {
             InvalidColumn(path:, table: table_name, detail:)
           })
@@ -1333,7 +1333,7 @@ fn detect_mysql_inline_enum_set(
           let values = extract_enum_values(rest, [])
           let synthetic = synthetic_enum_name(table_name, column_name)
           Some(InlineEnum(
-            scalar_type: model.StringType,
+            scalar_type: model.SetType(synthetic),
             new_enum: model.EnumDef(
               name: synthetic,
               values:,
@@ -1425,14 +1425,18 @@ fn tokens_contain_keyword(tokens: List(lexer.Token), keyword: String) -> Bool {
   })
 }
 
-fn infer_scalar_type(type_text: String) -> Result(model.ScalarType, String) {
-  model.parse_sql_type(type_text)
+fn infer_scalar_type_for_engine(
+  type_text: String,
+  engine: model.Engine,
+) -> Result(model.ScalarType, String) {
+  model.parse_sql_type_for_engine(type_text, engine)
   |> result.replace_error(
     "unrecognized SQL type \""
     <> type_text
-    <> "\". Supported types: int, serial, float, numeric, bool, text, char, bytea,"
-    <> " uuid, json, jsonb, timestamp, datetime, date, time, interval."
-    <> " Hint: add a type override in sqlode.yaml under overrides.db_type",
+    <> "\". Supported types: int, serial, float, numeric, decimal, bool, text,"
+    <> " char, bytea, uuid, json, jsonb, timestamp, datetime, date, time,"
+    <> " interval. Hint: add a type override in sqlode.yaml under"
+    <> " overrides.db_type",
   )
 }
 

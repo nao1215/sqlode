@@ -106,7 +106,9 @@ fn scalar_type_label(t: model.ScalarType) -> String {
     model.TimeType -> "Time"
     model.UuidType -> "Uuid"
     model.JsonType -> "Json"
+    model.DecimalType -> "Decimal"
     model.EnumType(name) -> "Enum(" <> name <> ")"
+    model.SetType(name) -> "Set(" <> name <> ")"
     model.CustomType(name, ..) -> name
     model.ArrayType(element) -> "List(" <> scalar_type_label(element) <> ")"
   }

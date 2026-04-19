@@ -1251,11 +1251,11 @@ pub fn render_mysql_inline_enum_emits_sum_type_test() {
   |> should.be_true()
 }
 
-pub fn render_mysql_inline_set_skips_sum_type_test() {
-  // A MySqlSet EnumDef must not produce a Gleam sum type — the column
-  // is a StringType fallback, so an unreferenced sum type would be
-  // dead code. Values are still kept on the catalog for future native
-  // SET support.
+pub fn render_mysql_inline_set_emits_value_type_and_helpers_test() {
+  // Issue #420: MySQL SET is now first-class in generated APIs. The
+  // value type carries the constructors and the `_set_to_string` /
+  // `_set_from_string` helpers translate the comma-joined wire format
+  // to and from `List(<Name>Value)`.
   let naming_ctx = naming.new()
   let catalog = mysql_enum_set_catalog()
   let rendered =
@@ -1268,10 +1268,10 @@ pub fn render_mysql_inline_set_skips_sum_type_test() {
       False,
     )
 
-  string.contains(rendered, "pub type ItemsTags")
-  |> should.be_false()
-  string.contains(rendered, "items_tags_to_string")
-  |> should.be_false()
-  string.contains(rendered, "items_tags_from_string")
-  |> should.be_false()
+  string.contains(rendered, "pub type ItemsTagsValue")
+  |> should.be_true()
+  string.contains(rendered, "items_tags_set_to_string")
+  |> should.be_true()
+  string.contains(rendered, "items_tags_set_from_string")
+  |> should.be_true()
 }

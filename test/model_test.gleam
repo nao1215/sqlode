@@ -583,3 +583,79 @@ pub fn parse_sql_type_interval_is_time_not_int_test() {
   model.parse_sql_type("INTERVAL")
   |> should.equal(Ok(model.TimeType))
 }
+
+// Issue #420: MySQL type-contract tests. These exercise the
+// engine-aware classifier so the modifier-aware rules (TINYINT(1) =
+// Bool, UNSIGNED noise, lossless DECIMAL) are pinned by tests.
+
+pub fn mysql_tinyint_one_is_bool_test() {
+  model.parse_sql_type_for_engine("TINYINT(1)", model.MySQL)
+  |> should.equal(Ok(model.BoolType))
+}
+
+pub fn mysql_tinyint_two_stays_int_test() {
+  model.parse_sql_type_for_engine("TINYINT(2)", model.MySQL)
+  |> should.equal(Ok(model.IntType))
+}
+
+pub fn mysql_bare_tinyint_stays_int_test() {
+  model.parse_sql_type_for_engine("TINYINT", model.MySQL)
+  |> should.equal(Ok(model.IntType))
+}
+
+pub fn mysql_bool_keyword_is_bool_test() {
+  model.parse_sql_type_for_engine("BOOL", model.MySQL)
+  |> should.equal(Ok(model.BoolType))
+  model.parse_sql_type_for_engine("BOOLEAN", model.MySQL)
+  |> should.equal(Ok(model.BoolType))
+}
+
+pub fn mysql_bigint_unsigned_is_int_test() {
+  model.parse_sql_type_for_engine("BIGINT UNSIGNED", model.MySQL)
+  |> should.equal(Ok(model.IntType))
+  model.parse_sql_type_for_engine("INT UNSIGNED ZEROFILL", model.MySQL)
+  |> should.equal(Ok(model.IntType))
+}
+
+pub fn mysql_decimal_is_lossless_decimal_test() {
+  model.parse_sql_type_for_engine("DECIMAL(20,6)", model.MySQL)
+  |> should.equal(Ok(model.DecimalType))
+  model.parse_sql_type_for_engine("NUMERIC(10,2)", model.MySQL)
+  |> should.equal(Ok(model.DecimalType))
+  model.parse_sql_type_for_engine("DEC(5,0)", model.MySQL)
+  |> should.equal(Ok(model.DecimalType))
+}
+
+pub fn mysql_double_stays_float_test() {
+  // FLOAT/DOUBLE/REAL are lossy by definition; only DECIMAL/NUMERIC
+  // get the lossless contract.
+  model.parse_sql_type_for_engine("DOUBLE", model.MySQL)
+  |> should.equal(Ok(model.FloatType))
+  model.parse_sql_type_for_engine("FLOAT", model.MySQL)
+  |> should.equal(Ok(model.FloatType))
+}
+
+pub fn mysql_decimal_does_not_leak_to_postgres_test() {
+  // Other engines keep the legacy DECIMAL → FloatType behaviour so the
+  // change is scoped to MySQL until a follow-up extends the contract.
+  model.parse_sql_type_for_engine("DECIMAL(20,6)", model.PostgreSQL)
+  |> should.equal(Ok(model.FloatType))
+}
+
+pub fn type_mapping_decimal_renders_as_string_test() {
+  type_mapping.scalar_type_to_gleam_type(
+    model.DecimalType,
+    model.StringMapping,
+  )
+  |> should.equal("String")
+  type_mapping.scalar_type_to_gleam_type(model.DecimalType, model.RichMapping)
+  |> should.equal("SqlDecimal")
+}
+
+pub fn type_mapping_set_renders_as_list_of_value_test() {
+  type_mapping.scalar_type_to_gleam_type(
+    model.SetType("items_tags"),
+    model.StringMapping,
+  )
+  |> should.equal("List(ItemsTagsValue)")
+}

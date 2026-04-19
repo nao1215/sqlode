@@ -160,10 +160,10 @@ pub fn schema_enum_type_test() {
 }
 
 pub fn mysql_inline_enum_and_set_columns_test() {
-  // Issue #407: MySQL `CREATE TABLE` may declare ENUM / SET inline on a
-  // column. The parser should preserve the allowed values in the catalog
-  // — ENUM columns as synthesized EnumType references, SET columns as
-  // a StringType fallback with values kept on the catalog side.
+  // Issue #407 / #420: MySQL `CREATE TABLE` may declare ENUM / SET
+  // inline on a column. The parser preserves the allowed values in
+  // the catalog and surfaces ENUM as `EnumType(name)` and SET as
+  // first-class `SetType(name)` (no longer a StringType fallback).
   let content =
     "CREATE TABLE items (\n"
     <> "  id BIGINT NOT NULL,\n"
@@ -185,7 +185,7 @@ pub fn mysql_inline_enum_and_set_columns_test() {
   status_col.nullable |> should.equal(False)
 
   let assert Ok(tags_col) = list.find(table.columns, fn(c) { c.name == "tags" })
-  tags_col.scalar_type |> should.equal(model.StringType)
+  tags_col.scalar_type |> should.equal(model.SetType("items_tags"))
 
   let assert Ok(status_enum) =
     list.find(catalog.enums, fn(e) { e.name == "items_status" })

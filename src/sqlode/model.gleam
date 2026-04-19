@@ -216,7 +216,18 @@ pub type ScalarType {
   TimeType
   UuidType
   JsonType
+  /// Lossless exact-numeric column (MySQL `DECIMAL(p,s)` / `NUMERIC(p,s)`).
+  /// Surfaces as `String` in generated Gleam code so the precision and
+  /// scale chosen at the schema level survive a round-trip without
+  /// silently collapsing into a `Float`.
+  DecimalType
   EnumType(name: String)
+  /// MySQL `SET('a','b',...)` column. `name` references the synthetic
+  /// `EnumDef` (with `kind: MySqlSet`) that lists the legal values.
+  /// Codegen emits a value type plus `*_set_to_string` /
+  /// `*_set_from_string` helpers so the column appears as a list of
+  /// the value type rather than an opaque string.
+  SetType(name: String)
   CustomType(
     name: String,
     module: option.Option(String),
@@ -264,6 +275,76 @@ pub fn parse_sql_type(type_text: String) -> Result(ScalarType, Nil) {
       }
     Error(Nil) -> Error(Nil)
   }
+}
+
+/// Engine-aware variant of `parse_sql_type`. Used when the column type
+/// classification depends on more than the first keyword:
+///
+///   * MySQL `TINYINT(1)` (and only the (1) variant) is a Boolean by
+///     convention; bare `TINYINT` and `TINYINT(N>1)` stay `Int`.
+///   * MySQL `UNSIGNED` / `SIGNED` suffixes are noise — strip them
+///     before classification so `BIGINT UNSIGNED` still resolves to
+///     `Int`.
+///   * MySQL `DECIMAL(p,s)` / `NUMERIC(p,s)` / `DEC(p,s)` resolve to
+///     `DecimalType` (lossless `String`) instead of being silently
+///     collapsed to `Float` like for other engines.
+pub fn parse_sql_type_for_engine(
+  type_text: String,
+  engine: Engine,
+) -> Result(ScalarType, Nil) {
+  case engine {
+    MySQL ->
+      case classify_mysql_type_text(type_text) {
+        Ok(t) -> Ok(t)
+        Error(Nil) -> parse_sql_type(type_text)
+      }
+    PostgreSQL | SQLite -> parse_sql_type(type_text)
+  }
+}
+
+fn classify_mysql_type_text(type_text: String) -> Result(ScalarType, Nil) {
+  let lowered =
+    type_text
+    |> string.lowercase
+    |> string.trim
+  let stripped = strip_mysql_signedness(lowered)
+  case detect_tinyint_one(stripped) {
+    True -> Ok(BoolType)
+    False ->
+      case is_mysql_decimal_text(stripped) {
+        True -> Ok(DecimalType)
+        False -> parse_sql_type(stripped)
+      }
+  }
+}
+
+fn strip_mysql_signedness(text: String) -> String {
+  text
+  |> string.replace(" unsigned zerofill", "")
+  |> string.replace(" zerofill unsigned", "")
+  |> string.replace(" unsigned", "")
+  |> string.replace(" signed", "")
+  |> string.replace(" zerofill", "")
+  |> string.trim
+}
+
+fn detect_tinyint_one(text: String) -> Bool {
+  case string.split_once(text, "(") {
+    Ok(#(head, rest)) ->
+      case string.trim(head) == "tinyint", string.split_once(rest, ")") {
+        True, Ok(#(arg, _)) -> string.trim(arg) == "1"
+        _, _ -> False
+      }
+    Error(Nil) -> False
+  }
+}
+
+fn is_mysql_decimal_text(text: String) -> Bool {
+  let base = case string.split_once(text, "(") {
+    Ok(#(head, _)) -> string.trim(head)
+    Error(Nil) -> string.trim(text)
+  }
+  base == "decimal" || base == "numeric" || base == "dec" || base == "fixed"
 }
 
 /// Classify by exact compound name first (e.g. "timestamp with time zone"),

@@ -62,7 +62,15 @@ pub fn render(
     ])
     |> common.custom_type_imports
 
-  let imports = list.flatten([option_imports, custom_imports])
+  let set_imports = case has_mysql_set(catalog) {
+    True -> [
+      "import gleam/list as mysql_set_list",
+      "import gleam/string as mysql_set_string",
+    ]
+    False -> []
+  }
+
+  let imports = list.flatten([option_imports, set_imports, custom_imports])
 
   let custom_type_warning = case has_custom_types_in_results(queries) {
     True -> [
@@ -76,11 +84,7 @@ pub fn render(
 
   let enum_types =
     catalog.enums
-    // MySqlSet resolves to a plain StringType column, so emitting a
-    // Gleam sum type for it would be unreferenced dead code. Values
-    // are still preserved in the catalog for future native SET support.
-    |> list.filter(fn(e) { e.kind != model.MySqlSet })
-    |> list.map(render_enum_type)
+    |> list.map(render_enum_or_set_type)
     |> string.join("\n\n")
 
   let body_parts =
@@ -105,6 +109,17 @@ pub fn render(
     ])
 
   string.join(lines, "\n")
+}
+
+fn render_enum_or_set_type(enum_def: model.EnumDef) -> String {
+  case enum_def.kind {
+    model.PostgresEnum | model.MySqlEnum -> render_enum_type(enum_def)
+    model.MySqlSet -> render_set_type(enum_def)
+  }
+}
+
+fn has_mysql_set(catalog: model.Catalog) -> Bool {
+  list.any(catalog.enums, fn(e) { e.kind == model.MySqlSet })
 }
 
 fn render_enum_type(enum_def: model.EnumDef) -> String {
@@ -156,6 +171,102 @@ fn render_enum_type(enum_def: model.EnumDef) -> String {
     from_string_cases,
     builder.line(
       "    _ -> Error(\"Unknown " <> enum_def.name <> " value: \" <> value)",
+    ),
+    builder.line("  }"),
+    builder.line("}"),
+  ])
+  |> builder.render
+}
+
+/// Render a MySQL `SET('a','b',...)` definition as a Gleam value type
+/// plus comma-list helpers. The column itself is typed as
+/// `List(<Name>Value)` in generated row models; the helpers below let
+/// raw-mode callers turn that list into the comma-joined string MySQL
+/// expects on the wire (and back again).
+fn render_set_type(enum_def: model.EnumDef) -> String {
+  let value_type = type_mapping.set_value_type_name(enum_def.name)
+  let value_to_string_fn = type_mapping.enum_to_string_fn(enum_def.name)
+  let value_from_string_fn = type_mapping.enum_from_string_fn(enum_def.name)
+  let set_to_string_fn = type_mapping.set_to_string_fn(enum_def.name)
+  let set_from_string_fn = type_mapping.set_from_string_fn(enum_def.name)
+
+  let constructors =
+    builder.lines(list.map(enum_def.values, type_mapping.enum_value_name))
+    |> builder.indent(by: 2)
+
+  let to_string_cases =
+    builder.lines(
+      list.map(enum_def.values, fn(v) {
+        type_mapping.enum_value_name(v) <> " -> \"" <> v <> "\""
+      }),
+    )
+    |> builder.indent(by: 4)
+
+  let from_string_cases =
+    builder.lines(
+      list.map(enum_def.values, fn(v) {
+        "\"" <> v <> "\" -> Ok(" <> type_mapping.enum_value_name(v) <> ")"
+      }),
+    )
+    |> builder.indent(by: 4)
+
+  builder.concat([
+    builder.line("pub type " <> value_type <> " {"),
+    constructors,
+    builder.line("}"),
+    builder.blank(),
+    builder.line(
+      "pub fn "
+      <> value_to_string_fn
+      <> "(value: "
+      <> value_type
+      <> ") -> String {",
+    ),
+    builder.line("  case value {"),
+    to_string_cases,
+    builder.line("  }"),
+    builder.line("}"),
+    builder.blank(),
+    builder.line(
+      "pub fn "
+      <> value_from_string_fn
+      <> "(value: String) -> Result("
+      <> value_type
+      <> ", String) {",
+    ),
+    builder.line("  case value {"),
+    from_string_cases,
+    builder.line(
+      "    _ -> Error(\"Unknown " <> enum_def.name <> " value: \" <> value)",
+    ),
+    builder.line("  }"),
+    builder.line("}"),
+    builder.blank(),
+    builder.line(
+      "pub fn "
+      <> set_to_string_fn
+      <> "(values: List("
+      <> value_type
+      <> ")) -> String {",
+    ),
+    builder.line(
+      "  values |> mysql_set_list.map(" <> value_to_string_fn <> ") |> mysql_set_string.join(\",\")",
+    ),
+    builder.line("}"),
+    builder.blank(),
+    builder.line(
+      "pub fn "
+      <> set_from_string_fn
+      <> "(value: String) -> Result(List("
+      <> value_type
+      <> "), String) {",
+    ),
+    builder.line("  case value {"),
+    builder.line("    \"\" -> Ok([])"),
+    builder.line(
+      "    _ -> value |> mysql_set_string.split(\",\") |> mysql_set_list.try_map("
+      <> value_from_string_fn
+      <> ")",
     ),
     builder.line("  }"),
     builder.line("}"),
