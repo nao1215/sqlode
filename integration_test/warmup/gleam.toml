@@ -1,0 +1,24 @@
+name = "sqlode_integration_warmup"
+version = "0.1.0"
+target = "erlang"
+
+# Superset of every dependency the generated-project compile spec may
+# exercise. This project exists only so that `gleam deps download` here
+# pre-populates the shared Hex cache once, instead of every individual
+# compile_spec case doing its own live resolution.
+#
+# Refresh the pinned versions (`manifest.toml`) with:
+#
+#   just integration-refresh
+#
+# and commit the result so the compile spec stays reproducible.
+
+[dependencies]
+gleam_stdlib = ">= 0.44.0 and < 2.0.0"
+pog = ">= 4.0.0 and < 5.0.0"
+sqlight = ">= 1.0.0 and < 2.0.0"
+sqlode = { path = "../.." }
+
+[dev-dependencies]
+gleeunit = ">= 1.0.0 and < 2.0.0"
+envoy = ">= 1.0.0 and < 2.0.0"

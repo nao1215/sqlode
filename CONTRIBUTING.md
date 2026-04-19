@@ -25,7 +25,7 @@ Run the full test suite with:
 just all
 ```
 
-This runs format check, type check, build, unit tests, and ShellSpec integration tests in order. You can also run individual steps:
+This runs format check, type check, build, unit tests, integration dependency prepare, and ShellSpec integration tests in order. You can also run individual steps:
 
 | Command | What it does |
 |---------|-------------|
@@ -33,7 +33,16 @@ This runs format check, type check, build, unit tests, and ShellSpec integration
 | `gleam check` | Type check |
 | `gleam build --warnings-as-errors` | Build (warnings fail the build) |
 | `gleam test` | Run Gleam unit tests |
+| `just integration-prepare` | Pre-populate Hex cache for the integration harness |
 | `shellspec` | Run ShellSpec integration tests |
+
+### Online/offline contract for the integration harness
+
+`spec/compile_spec.sh` scaffolds temporary Gleam projects and runs `gleam build` on each one. `just integration-prepare` is the single step that requires network access: it resolves and downloads every dependency allowed by `integration_test/warmup/gleam.toml` into the shared Hex cache. The resulting `integration_test/warmup/manifest.toml` is checked in, so the pinned versions are reproducible from repository state.
+
+Each generated test project picks up a copy of that pinned manifest, so compile cases use the same versions on every run instead of re-resolving against the current Hex registry.
+
+To bump the pinned versions, run `just integration-refresh` and commit the regenerated `integration_test/warmup/manifest.toml`.
 
 ## Project architecture
 
