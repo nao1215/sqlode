@@ -1,0 +1,14 @@
+CREATE TABLE `authors` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `email` VARCHAR(255) NOT NULL,
+  `full_name` VARCHAR(255) NOT NULL,
+  `bio` TEXT NULL,
+  `created_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `updated_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `authors_email_key` (`email`)
+);
+
+CREATE VIEW `author_names` AS
+SELECT `id`, `full_name`
+FROM `authors`;

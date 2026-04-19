@@ -805,3 +805,183 @@ pub fn transaction_control_stays_silent_test() {
   let assert [table] = catalog.tables
   table.name |> should.equal("users")
 }
+
+// Issue #419: MySQL migration history tests. The same logical schema
+// expressed as either a multi-step migration or a single snapshot must
+// resolve to the same final catalog.
+
+pub fn mysql_migration_history_resolves_to_expected_catalog_test() {
+  let assert Ok(create) =
+    simplifile.read("test/fixtures/mysql_migration_001_create_authors.sql")
+  let assert Ok(alter) =
+    simplifile.read("test/fixtures/mysql_migration_002_alter_authors.sql")
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files_with_engine(
+      [
+        #("001_create_authors.sql", create),
+        #("002_alter_authors.sql", alter),
+      ],
+      model.MySQL,
+    )
+
+  let assert [table] = catalog.tables
+  table.name |> should.equal("authors")
+
+  let column_names = list.map(table.columns, fn(c) { c.name })
+  column_names
+  |> should.equal([
+    "id", "email", "name", "bio", "created_at", "updated_at",
+  ])
+
+  let assert Ok(bio_col) = list.find(table.columns, fn(c) { c.name == "bio" })
+  bio_col.scalar_type |> should.equal(model.StringType)
+  bio_col.nullable |> should.be_true()
+}
+
+pub fn mysql_snapshot_matches_migration_history_test() {
+  let assert Ok(create) =
+    simplifile.read("test/fixtures/mysql_migration_001_create_authors.sql")
+  let assert Ok(alter) =
+    simplifile.read("test/fixtures/mysql_migration_002_alter_authors.sql")
+  let assert Ok(snapshot) =
+    simplifile.read("test/fixtures/mysql_snapshot_authors.sql")
+
+  let assert Ok(#(history_catalog, _)) =
+    schema_parser.parse_files_with_engine(
+      [
+        #("001_create_authors.sql", create),
+        #("002_alter_authors.sql", alter),
+      ],
+      model.MySQL,
+    )
+  let assert Ok(#(snapshot_catalog, _)) =
+    schema_parser.parse_files_with_engine(
+      [#("snapshot.sql", snapshot)],
+      model.MySQL,
+    )
+
+  let history_columns =
+    history_catalog.tables
+    |> list.flat_map(fn(t) { list.map(t.columns, fn(c) { c.name }) })
+  let snapshot_columns =
+    snapshot_catalog.tables
+    |> list.flat_map(fn(t) { list.map(t.columns, fn(c) { c.name }) })
+  history_columns |> should.equal(snapshot_columns)
+}
+
+pub fn mysql_alter_modify_changes_column_type_test() {
+  let create =
+    "CREATE TABLE `events` (\n"
+    <> "  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,\n"
+    <> "  `payload` TEXT NULL,\n"
+    <> "  PRIMARY KEY (`id`)\n"
+    <> ");\n"
+    <> "ALTER TABLE `events` MODIFY COLUMN `payload` JSON NOT NULL;"
+
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files_with_engine(
+      [#("events.sql", create)],
+      model.MySQL,
+    )
+
+  let assert [table] = catalog.tables
+  let assert Ok(payload_col) =
+    list.find(table.columns, fn(c) { c.name == "payload" })
+  payload_col.scalar_type |> should.equal(model.JsonType)
+  payload_col.nullable |> should.be_false()
+}
+
+pub fn mysql_alter_change_renames_and_retypes_column_test() {
+  let create =
+    "CREATE TABLE `notes` (\n"
+    <> "  `id` BIGINT NOT NULL,\n"
+    <> "  `body` TEXT NOT NULL,\n"
+    <> "  PRIMARY KEY (`id`)\n"
+    <> ");\n"
+    <> "ALTER TABLE `notes` CHANGE COLUMN `body` `content` LONGTEXT NULL;"
+
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files_with_engine(
+      [#("notes.sql", create)],
+      model.MySQL,
+    )
+
+  let assert [table] = catalog.tables
+  let column_names = list.map(table.columns, fn(c) { c.name })
+  column_names |> should.equal(["id", "content"])
+  let assert Ok(content_col) =
+    list.find(table.columns, fn(c) { c.name == "content" })
+  content_col.scalar_type |> should.equal(model.StringType)
+  content_col.nullable |> should.be_true()
+}
+
+pub fn mysql_alter_modify_decimal_uses_lossless_contract_test() {
+  // Verifies that the engine-aware classifier reaches the ALTER path:
+  // a MODIFY changing a column to DECIMAL must produce DecimalType,
+  // not the legacy FloatType collapse.
+  let sql =
+    "CREATE TABLE `prices` (\n"
+    <> "  `id` BIGINT NOT NULL,\n"
+    <> "  `amount` INT NOT NULL\n"
+    <> ");\n"
+    <> "ALTER TABLE `prices` MODIFY COLUMN `amount` DECIMAL(20,6) NOT NULL;"
+
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files_with_engine(
+      [#("prices.sql", sql)],
+      model.MySQL,
+    )
+
+  let assert [table] = catalog.tables
+  let assert Ok(amount) =
+    list.find(table.columns, fn(c) { c.name == "amount" })
+  amount.scalar_type |> should.equal(model.DecimalType)
+}
+
+pub fn mysql_create_view_with_backticks_test() {
+  // Backtick-quoted identifiers in CREATE VIEW must round-trip
+  // through the parser (#419 acceptance criteria).
+  let sql =
+    "CREATE TABLE `posts` (`id` BIGINT NOT NULL, `title` VARCHAR(255) NOT NULL);\n"
+    <> "CREATE VIEW `post_titles` AS SELECT `id`, `title` FROM `posts`;"
+
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files_with_engine(
+      [#("posts.sql", sql)],
+      model.MySQL,
+    )
+
+  list.length(catalog.tables) |> should.equal(2)
+  let assert Ok(view) =
+    list.find(catalog.tables, fn(t) { t.name == "post_titles" })
+  let column_names = list.map(view.columns, fn(c) { c.name })
+  column_names |> should.equal(["id", "title"])
+}
+
+pub fn mysql_create_table_strips_auto_increment_and_charset_noise_test() {
+  // AUTO_INCREMENT, CHARACTER SET, COLLATE, and COMMENT all appear
+  // after the column type in real MySQL DDL. They must not bleed
+  // into the type text and must not produce phantom columns.
+  let sql =
+    "CREATE TABLE `posts` (\n"
+    <> "  `id` BIGINT NOT NULL AUTO_INCREMENT,\n"
+    <> "  `title` VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin"
+    <> " NOT NULL COMMENT 'post title',\n"
+    <> "  PRIMARY KEY (`id`)\n"
+    <> ");"
+
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files_with_engine(
+      [#("posts.sql", sql)],
+      model.MySQL,
+    )
+
+  let assert [table] = catalog.tables
+  let column_names = list.map(table.columns, fn(c) { c.name })
+  column_names |> should.equal(["id", "title"])
+  let assert Ok(id_col) = list.find(table.columns, fn(c) { c.name == "id" })
+  id_col.scalar_type |> should.equal(model.IntType)
+  let assert Ok(title_col) =
+    list.find(table.columns, fn(c) { c.name == "title" })
+  title_col.scalar_type |> should.equal(model.StringType)
+}

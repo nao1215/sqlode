@@ -43,10 +43,16 @@ pub fn parse_files_with_engine(
     ParsedSchema(tables: [], enums: [], warnings: []),
     fn(acc, entry) {
       let #(path, content) = entry
-      use parsed <- result.try(parse_content(path, content, acc.enums, engine))
+      use parsed <- result.try(parse_content(
+        path,
+        content,
+        acc.tables,
+        acc.enums,
+        engine,
+      ))
       Ok(ParsedSchema(
-        tables: list.append(acc.tables, parsed.tables),
-        enums: list.append(acc.enums, parsed.enums),
+        tables: parsed.tables,
+        enums: parsed.enums,
         warnings: list.append(acc.warnings, parsed.warnings),
       ))
     },
@@ -59,9 +65,14 @@ pub fn parse_files_with_engine(
   })
 }
 
+/// Parse a single schema file. Accepts the catalog accumulated from
+/// previously-parsed files so migration-history fixtures that split
+/// CREATE TABLE and later ALTER statements across files can still
+/// apply the ALTERs against the real table list.
 fn parse_content(
   path: String,
   content: String,
+  existing_tables: List(model.Table),
   known_enums: List(model.EnumDef),
   engine: model.Engine,
 ) -> Result(ParsedSchema, ParseError) {
@@ -79,9 +90,14 @@ fn parse_content(
 
   let all_enums = list.append(known_enums, enums)
 
+  // Seed the fold with tables from earlier files in reverse, matching
+  // the newest-first convention used inside the fold; the final
+  // `list.reverse` restores declaration order.
+  let initial_tables = list.reverse(existing_tables)
+
   use #(tables, final_enums, warnings) <- result.try(
     statements
-    |> list.try_fold(#([], all_enums, []), fn(acc, stmt_tokens) {
+    |> list.try_fold(#(initial_tables, all_enums, []), fn(acc, stmt_tokens) {
       let #(tables, current_enums, warnings) = acc
       case is_create_view_tokens(stmt_tokens) {
         True -> {
@@ -127,7 +143,7 @@ fn parse_content(
                   ))
                 DDLApplied(action:) -> {
                   let #(new_tables, new_enums) =
-                    apply_ddl_action(action, tables, current_enums)
+                    apply_ddl_action(action, tables, current_enums, engine)
                   Ok(#(new_tables, new_enums, warnings))
                 }
                 Ignored -> Ok(#(tables, current_enums, warnings))
@@ -681,6 +697,25 @@ type DDLAction {
     column_name: String,
     type_tokens: List(lexer.Token),
   )
+  /// MySQL `ALTER TABLE x MODIFY [COLUMN] <name> <type>`. The column
+  /// keeps its name; both the type and the nullable flag are
+  /// rewritten from the supplied tokens.
+  AlterModifyColumn(
+    table_name: String,
+    column_name: String,
+    type_tokens: List(lexer.Token),
+    nullable: Bool,
+  )
+  /// MySQL `ALTER TABLE x CHANGE [COLUMN] <old> <new> <type>`. Renames
+  /// the column and rewrites its type/nullable flag from the supplied
+  /// tokens.
+  AlterChangeColumn(
+    table_name: String,
+    old_name: String,
+    new_name: String,
+    type_tokens: List(lexer.Token),
+    nullable: Bool,
+  )
   AlterColumnSetNotNull(table_name: String, column_name: String)
   AlterColumnDropNotNull(table_name: String, column_name: String)
 }
@@ -816,12 +851,77 @@ fn classify_alter_action_tokens(
         column_name: extract_alter_column_name(tokens),
         type_tokens: extract_alter_type_tokens(tokens),
       ))
+    // MySQL: MODIFY [COLUMN] <name> <type> [constraints...]
+    ["modify", "column", ..] -> classify_mysql_modify(table_name, tokens)
+    ["modify", _, ..] -> classify_mysql_modify(table_name, tokens)
+    // MySQL: CHANGE [COLUMN] <old> <new> <type> [constraints...]
+    ["change", "column", ..] -> classify_mysql_change(table_name, tokens)
+    ["change", _, _, ..] -> classify_mysql_change(table_name, tokens)
     ["add", "constraint", ..] -> SilentlyIgnored
     ["add", "primary", ..] -> SilentlyIgnored
     ["add", "unique", ..] -> SilentlyIgnored
     ["add", "foreign", ..] -> SilentlyIgnored
     ["add", "check", ..] -> SilentlyIgnored
     ["add", "index", ..] -> SilentlyIgnored
+    _ -> SilentlyIgnored
+  }
+}
+
+/// Parse `MODIFY [COLUMN] <name> <type-and-constraints>` into an
+/// `AlterModifyColumn` action. The type tokens are everything between
+/// the column name and the next column-constraint keyword; the
+/// nullability is derived from a `NOT NULL` presence check on the
+/// remaining tokens (MySQL columns default to nullable).
+fn classify_mysql_modify(
+  table_name: String,
+  tokens: List(lexer.Token),
+) -> UnknownStatementKind {
+  let after_modify = case tokens {
+    [_, lexer.Keyword("column"), ..rest] -> rest
+    [_, ..rest] -> rest
+    _ -> []
+  }
+  case after_modify {
+    [name_tok, ..rest] -> {
+      let column_name = extract_ident(name_tok)
+      let type_tokens = take_type_tokens_from_lexer(rest, [])
+      let nullable = !tokens_contain_not_null(rest)
+      DestructiveDDL(AlterModifyColumn(
+        table_name:,
+        column_name:,
+        type_tokens:,
+        nullable:,
+      ))
+    }
+    [] -> SilentlyIgnored
+  }
+}
+
+/// Parse `CHANGE [COLUMN] <old> <new> <type-and-constraints>` into an
+/// `AlterChangeColumn` action — MySQL's combined rename + retype.
+fn classify_mysql_change(
+  table_name: String,
+  tokens: List(lexer.Token),
+) -> UnknownStatementKind {
+  let after_change = case tokens {
+    [_, lexer.Keyword("column"), ..rest] -> rest
+    [_, ..rest] -> rest
+    _ -> []
+  }
+  case after_change {
+    [old_tok, new_tok, ..rest] -> {
+      let old_name = extract_ident(old_tok)
+      let new_name = extract_ident(new_tok)
+      let type_tokens = take_type_tokens_from_lexer(rest, [])
+      let nullable = !tokens_contain_not_null(rest)
+      DestructiveDDL(AlterChangeColumn(
+        table_name:,
+        old_name:,
+        new_name:,
+        type_tokens:,
+        nullable:,
+      ))
+    }
     _ -> SilentlyIgnored
   }
 }
@@ -844,11 +944,16 @@ fn extract_alter_type_tokens(tokens: List(lexer.Token)) -> List(lexer.Token) {
   }
 }
 
-/// Apply a destructive DDL action to the tables and enums lists.
+/// Apply a destructive DDL action to the tables and enums lists. The
+/// engine parameter is threaded through so MySQL `ALTER TABLE ...
+/// MODIFY/CHANGE COLUMN <type>` can resolve modifier-aware types
+/// (TINYINT(1), DECIMAL, UNSIGNED, ENUM/SET) using the same
+/// classification rules as CREATE TABLE.
 fn apply_ddl_action(
   action: DDLAction,
   tables: List(model.Table),
   enums: List(model.EnumDef),
+  engine: model.Engine,
 ) -> #(List(model.Table), List(model.EnumDef)) {
   case action {
     DropTable(table_name:) -> #(
@@ -913,33 +1018,57 @@ fn apply_ddl_action(
     )
     AlterColumnType(table_name:, column_name:, type_tokens:) -> {
       let type_text = render_type_tokens(type_tokens)
-      let new_type = case model.parse_sql_type(type_text) {
+      let new_type = case
+        model.parse_sql_type_for_engine(type_text, engine)
+      {
         Ok(t) -> Some(t)
         Error(_) -> None
       }
       case new_type {
         Some(scalar_type) -> #(
-          list.map(tables, fn(t) {
-            case string.lowercase(t.name) == string.lowercase(table_name) {
-              True ->
-                model.Table(
-                  ..t,
-                  columns: list.map(t.columns, fn(c) {
-                    case
-                      string.lowercase(c.name) == string.lowercase(column_name)
-                    {
-                      True -> model.Column(..c, scalar_type:)
-                      False -> c
-                    }
-                  }),
-                )
-              False -> t
-            }
+          rewrite_column(tables, table_name, column_name, fn(c) {
+            model.Column(..c, scalar_type:)
           }),
           enums,
         )
         None -> #(tables, enums)
       }
+    }
+    AlterModifyColumn(table_name:, column_name:, type_tokens:, nullable:) -> {
+      let #(scalar_type, new_enums) =
+        resolve_mysql_alter_type(
+          type_tokens,
+          table_name,
+          column_name,
+          enums,
+          engine,
+        )
+      let updated_tables =
+        rewrite_column(tables, table_name, column_name, fn(c) {
+          model.Column(..c, scalar_type:, nullable:)
+        })
+      #(updated_tables, new_enums)
+    }
+    AlterChangeColumn(
+      table_name:,
+      old_name:,
+      new_name:,
+      type_tokens:,
+      nullable:,
+    ) -> {
+      let #(scalar_type, new_enums) =
+        resolve_mysql_alter_type(
+          type_tokens,
+          table_name,
+          new_name,
+          enums,
+          engine,
+        )
+      let updated_tables =
+        rewrite_column(tables, table_name, old_name, fn(_) {
+          model.Column(name: string.lowercase(new_name), scalar_type:, nullable:)
+        })
+      #(updated_tables, new_enums)
     }
     AlterColumnSetNotNull(table_name:, column_name:) -> #(
       list.map(tables, fn(t) {
@@ -984,7 +1113,69 @@ fn token_keyword_text(token: lexer.Token) -> String {
   case token {
     lexer.Keyword(k) -> k
     lexer.Ident(i) -> string.lowercase(i)
+    lexer.QuotedIdent(i) -> string.lowercase(i)
     _ -> ""
+  }
+}
+
+/// Apply `update` to the column named `column_name` inside `table_name`,
+/// leaving all other columns and tables untouched. Used by every ALTER
+/// path that rewrites a single column in place so the per-action code
+/// does not repeat the table/column-walking boilerplate.
+fn rewrite_column(
+  tables: List(model.Table),
+  table_name: String,
+  column_name: String,
+  update: fn(model.Column) -> model.Column,
+) -> List(model.Table) {
+  list.map(tables, fn(t) {
+    case string.lowercase(t.name) == string.lowercase(table_name) {
+      True ->
+        model.Table(
+          ..t,
+          columns: list.map(t.columns, fn(c) {
+            case string.lowercase(c.name) == string.lowercase(column_name) {
+              True -> update(c)
+              False -> c
+            }
+          }),
+        )
+      False -> t
+    }
+  })
+}
+
+/// Resolve the new column type for a MySQL ALTER MODIFY/CHANGE: the
+/// type tokens may contain an inline `ENUM(...)` / `SET(...)`, in
+/// which case we synthesize a fresh `EnumDef` (named after the target
+/// column) and return it for the caller to append to the catalog.
+/// Otherwise we fall back to the engine-aware classifier; an
+/// unrecognised type leaves the existing column type unchanged
+/// (`StringType` is *not* used as a silent fallback).
+fn resolve_mysql_alter_type(
+  type_tokens: List(lexer.Token),
+  table_name: String,
+  column_name: String,
+  enums: List(model.EnumDef),
+  engine: model.Engine,
+) -> #(model.ScalarType, List(model.EnumDef)) {
+  case detect_mysql_inline_enum_set(type_tokens, table_name, column_name, engine)
+  {
+    Some(InlineEnum(scalar_type:, new_enum:)) -> #(
+      scalar_type,
+      list.append(enums, [new_enum]),
+    )
+    None -> {
+      let type_text = render_type_tokens(type_tokens)
+      let resolved = case find_enum(type_text, enums) {
+        Some(enum_name) -> Ok(model.EnumType(enum_name))
+        None -> model.parse_sql_type_for_engine(type_text, engine)
+      }
+      case resolved {
+        Ok(t) -> #(t, enums)
+        Error(_) -> #(model.StringType, enums)
+      }
+    }
   }
 }
 
@@ -1362,6 +1553,11 @@ fn take_type_tokens_from_lexer(
         True -> list.reverse(acc)
         False -> take_type_tokens_from_lexer(rest, [lexer.Keyword(k), ..acc])
       }
+    [lexer.Ident(name), ..rest] ->
+      case is_column_constraint(string.lowercase(name)) {
+        True -> list.reverse(acc)
+        False -> take_type_tokens_from_lexer(rest, [lexer.Ident(name), ..acc])
+      }
     [tok, ..rest] -> take_type_tokens_from_lexer(rest, [tok, ..acc])
   }
 }
@@ -1454,6 +1650,16 @@ fn is_column_constraint(keyword: String) -> Bool {
       "generated",
       "collate",
       "autoincrement",
+      // MySQL noise that appears after the type and must end type
+      // collection so `BIGINT AUTO_INCREMENT` does not bleed
+      // `auto_increment` into the type text and so
+      // `DATETIME ON UPDATE CURRENT_TIMESTAMP` resolves cleanly.
+      "auto_increment",
+      "on",
+      "character",
+      "comment",
+      "invisible",
+      "visible",
     ],
     keyword,
   )
