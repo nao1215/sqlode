@@ -58,7 +58,7 @@ jobs:
         run: bash scripts/smoke_escript.sh ./sqlode
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sqlode
           path: sqlode
