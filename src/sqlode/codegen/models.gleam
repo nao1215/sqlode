@@ -76,6 +76,10 @@ pub fn render(
 
   let enum_types =
     catalog.enums
+    // MySqlSet resolves to a plain StringType column, so emitting a
+    // Gleam sum type for it would be unreferenced dead code. Values
+    // are still preserved in the catalog for future native SET support.
+    |> list.filter(fn(e) { e.kind != model.MySqlSet })
     |> list.map(render_enum_type)
     |> string.join("\n\n")
 

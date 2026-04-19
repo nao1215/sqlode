@@ -1202,3 +1202,76 @@ pub fn readme_runtime_prepare_is_two_arg_test() {
   string.contains(readme, "\"$\",  // \"$\" for PostgreSQL")
   |> should.be_false()
 }
+
+// --- Issue #407: MySQL inline ENUM / SET codegen ---
+
+fn mysql_enum_set_catalog() -> model.Catalog {
+  let content =
+    "CREATE TABLE items (\n"
+    <> "  id BIGINT NOT NULL,\n"
+    <> "  status ENUM('active', 'inactive', 'archived') NOT NULL,\n"
+    <> "  tags SET('red', 'green', 'blue')\n"
+    <> ");"
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files_with_engine(
+      [#("items.sql", content)],
+      model.MySQL,
+    )
+  catalog
+}
+
+pub fn render_mysql_inline_enum_emits_sum_type_test() {
+  // A MySqlEnum EnumDef should emit a Gleam sum type + helpers, just
+  // like a PostgresEnum. The column references the synthesized name
+  // (`items_status` → `ItemsStatus`) so the generated models module
+  // compiles against the table type.
+  let naming_ctx = naming.new()
+  let catalog = mysql_enum_set_catalog()
+  let rendered =
+    models.render(
+      naming_ctx,
+      catalog,
+      [],
+      dict.new(),
+      model.StringMapping,
+      False,
+    )
+
+  string.contains(rendered, "pub type ItemsStatus {")
+  |> should.be_true()
+  string.contains(rendered, "Active")
+  |> should.be_true()
+  string.contains(rendered, "Inactive")
+  |> should.be_true()
+  string.contains(rendered, "Archived")
+  |> should.be_true()
+  string.contains(rendered, "pub fn items_status_to_string(")
+  |> should.be_true()
+  string.contains(rendered, "pub fn items_status_from_string(")
+  |> should.be_true()
+}
+
+pub fn render_mysql_inline_set_skips_sum_type_test() {
+  // A MySqlSet EnumDef must not produce a Gleam sum type — the column
+  // is a StringType fallback, so an unreferenced sum type would be
+  // dead code. Values are still kept on the catalog for future native
+  // SET support.
+  let naming_ctx = naming.new()
+  let catalog = mysql_enum_set_catalog()
+  let rendered =
+    models.render(
+      naming_ctx,
+      catalog,
+      [],
+      dict.new(),
+      model.StringMapping,
+      False,
+    )
+
+  string.contains(rendered, "pub type ItemsTags")
+  |> should.be_false()
+  string.contains(rendered, "items_tags_to_string")
+  |> should.be_false()
+  string.contains(rendered, "items_tags_from_string")
+  |> should.be_false()
+}

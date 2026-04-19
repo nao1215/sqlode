@@ -225,8 +225,25 @@ pub type ScalarType {
   ArrayType(element: ScalarType)
 }
 
+pub type EnumKind {
+  /// PostgreSQL `CREATE TYPE name AS ENUM (...)` — declared as a
+  /// standalone type in the catalog. Codegen emits a Gleam sum type
+  /// plus `*_to_string` / `*_from_string` helpers.
+  PostgresEnum
+  /// MySQL inline `ENUM(...)` on a column. Synthesized at parse time
+  /// with a name of `<table>_<column>`. Codegen treats this
+  /// identically to `PostgresEnum` (sum type + helpers) — the column
+  /// is typed as `EnumType(synthetic_name)`.
+  MySqlEnum
+  /// MySQL inline `SET(...)` on a column. Values are preserved in the
+  /// catalog for future native SET support, but the column itself is
+  /// typed as `StringType` (documented fallback). Codegen skips
+  /// emission so there is no unreferenced sum type in the output.
+  MySqlSet
+}
+
 pub type EnumDef {
-  EnumDef(name: String, values: List(String))
+  EnumDef(name: String, values: List(String), kind: EnumKind)
 }
 
 /// Parse a SQL type name into a ScalarType by normalizing the type token
