@@ -96,23 +96,35 @@ fn parse_content(
         False ->
           case is_alter_table_add_column_tokens(stmt_tokens) {
             True -> {
-              use new_tables <- result.try(apply_alter_table_add_column(
-                path,
-                stmt_tokens,
-                current_enums,
-                tables,
+              use #(new_tables, added_enums) <- result.try(
+                apply_alter_table_add_column(
+                  path,
+                  stmt_tokens,
+                  current_enums,
+                  tables,
+                  engine,
+                ),
+              )
+              Ok(#(
+                new_tables,
+                list.append(current_enums, added_enums),
+                warnings,
               ))
-              Ok(#(new_tables, current_enums, warnings))
             }
             False -> {
               use stmt_result <- result.try(parse_statement_tokens(
                 path,
                 stmt_tokens,
                 current_enums,
+                engine,
               ))
               case stmt_result {
-                CreateTableResult(table:) ->
-                  Ok(#([table, ..tables], current_enums, warnings))
+                CreateTableResult(table:, new_enums:) ->
+                  Ok(#(
+                    [table, ..tables],
+                    list.append(current_enums, new_enums),
+                    warnings,
+                  ))
                 DDLApplied(action:) -> {
                   let #(new_tables, new_enums) =
                     apply_ddl_action(action, tables, current_enums)
@@ -187,7 +199,7 @@ fn parse_create_enum_from_tokens(
         _ -> ""
       }
       let values = extract_enum_values(rest, [])
-      Ok(model.EnumDef(name:, values:))
+      Ok(model.EnumDef(name:, values:, kind: model.PostgresEnum))
     }
     _ -> Error(Nil)
   }
@@ -548,34 +560,41 @@ fn is_alter_table_add_column_tokens(tokens: List(lexer.Token)) -> Bool {
 }
 
 /// Parse ALTER TABLE <name> ADD [COLUMN] <col_def> and apply to existing tables.
+///
+/// Returns both the updated table list and any enum definitions synthesized
+/// from inline MySQL `ENUM(...)` / `SET(...)` column types, so the caller can
+/// thread them into the running catalog.
 fn apply_alter_table_add_column(
   path: String,
   tokens: List(lexer.Token),
   enums: List(model.EnumDef),
   tables: List(model.Table),
-) -> Result(List(model.Table), ParseError) {
+  engine: model.Engine,
+) -> Result(#(List(model.Table), List(model.EnumDef)), ParseError) {
   let #(table_name, col_tokens) = extract_alter_table_parts(tokens)
 
   case table_name {
-    "" -> Ok(tables)
+    "" -> Ok(#(tables, []))
     _ -> {
       use maybe_col <- result.try(parse_column_tokens(
         path,
         table_name,
         col_tokens,
         enums,
+        engine,
       ))
       case maybe_col {
-        None -> Ok(tables)
-        Some(col) ->
-          Ok(
+        None -> Ok(#(tables, []))
+        Some(#(col, new_enums)) ->
+          Ok(#(
             list.map(tables, fn(t) {
               case t.name == table_name {
                 True -> model.Table(..t, columns: list.append(t.columns, [col]))
                 False -> t
               }
             }),
-          )
+            new_enums,
+          ))
       }
     }
   }
@@ -613,7 +632,7 @@ fn extract_ident(token: lexer.Token) -> String {
 }
 
 type StatementResult {
-  CreateTableResult(table: model.Table)
+  CreateTableResult(table: model.Table, new_enums: List(model.EnumDef))
   DDLApplied(action: DDLAction)
   Ignored
 }
@@ -622,6 +641,7 @@ fn parse_statement_tokens(
   path: String,
   tokens: List(lexer.Token),
   enums: List(model.EnumDef),
+  engine: model.Engine,
 ) -> Result(StatementResult, ParseError) {
   case is_create_table_tokens(tokens) {
     True -> {
@@ -629,9 +649,10 @@ fn parse_statement_tokens(
         path,
         tokens,
         enums,
+        engine,
       ))
       case maybe_table {
-        Some(table) -> Ok(CreateTableResult(table:))
+        Some(#(table, new_enums)) -> Ok(CreateTableResult(table:, new_enums:))
         None -> Ok(Ignored)
       }
     }
@@ -1005,7 +1026,8 @@ fn parse_create_table_tokens(
   path: String,
   tokens: List(lexer.Token),
   enums: List(model.EnumDef),
-) -> Result(Option(model.Table), ParseError) {
+  engine: model.Engine,
+) -> Result(Option(#(model.Table, List(model.EnumDef))), ParseError) {
   // Find the table name: last Ident/QuotedIdent before the first LParen
   let #(header, body) = split_at_lparen(tokens, [])
 
@@ -1026,13 +1048,14 @@ fn parse_create_table_tokens(
       // Strip trailing RParen from body
       let body_tokens = strip_trailing_rparen(body)
 
-      use columns <- result.try(parse_columns_tokens(
+      use #(columns, new_enums) <- result.try(parse_columns_tokens(
         path,
         table_name,
         body_tokens,
         enums,
+        engine,
       ))
-      Ok(Some(model.Table(name: table_name, columns:)))
+      Ok(Some(#(model.Table(name: table_name, columns:), new_enums)))
     }
   }
 }
@@ -1082,21 +1105,31 @@ fn parse_columns_tokens(
   table_name: String,
   tokens: List(lexer.Token),
   enums: List(model.EnumDef),
-) -> Result(List(model.Column), ParseError) {
+  engine: model.Engine,
+) -> Result(#(List(model.Column), List(model.EnumDef)), ParseError) {
   split_tokens_by_comma(tokens)
-  |> list.try_fold([], fn(columns, col_tokens) {
+  |> list.try_fold(#([], []), fn(acc, col_tokens) {
+    let #(columns, collected_enums) = acc
+    // Each column sees all enums known so far (including ones synthesized
+    // from earlier inline MySQL ENUM(...) columns in the same table), so a
+    // later column referencing the synthesized name could in theory resolve
+    // it. This is symmetrical to how top-level CREATE TYPE enums are
+    // threaded through the fold in parse_content.
+    let visible_enums = list.append(enums, collected_enums)
     use maybe_column <- result.try(parse_column_tokens(
       path,
       table_name,
       col_tokens,
-      enums,
+      visible_enums,
+      engine,
     ))
-    Ok(case maybe_column {
-      Some(column) -> [column, ..columns]
-      None -> columns
-    })
+    case maybe_column {
+      Some(#(column, new_enums)) ->
+        Ok(#([column, ..columns], list.append(collected_enums, new_enums)))
+      None -> Ok(acc)
+    }
   })
-  |> result.map(list.reverse)
+  |> result.map(fn(pair) { #(list.reverse(pair.0), pair.1) })
 }
 
 /// Split a token list by top-level commas (depth-0 only).
@@ -1147,7 +1180,8 @@ fn parse_named_column(
   all_tokens: List(lexer.Token),
   rest: List(lexer.Token),
   enums: List(model.EnumDef),
-) -> Result(Option(model.Column), ParseError) {
+  engine: model.Engine,
+) -> Result(Option(#(model.Column, List(model.EnumDef))), ParseError) {
   let name = naming.normalize_identifier(raw_name)
   let type_toks = take_type_tokens_from_lexer(rest, [])
   case type_toks {
@@ -1157,32 +1191,16 @@ fn parse_named_column(
         table: table_name,
         detail: "missing type for column " <> name,
       ))
-    _ -> {
-      let type_text = render_type_tokens(type_toks)
-      let nullable = case
-        tokens_contain_not_null(all_tokens)
-        || tokens_contain_keyword(all_tokens, "primary")
-        || string.contains(type_text, "serial")
-      {
-        True -> False
-        False -> True
-      }
-      use scalar_type <- result.try(case find_enum(type_text, enums) {
-        Some(enum_name) -> Ok(model.EnumType(enum_name))
-        None ->
-          infer_scalar_type(type_text)
-          |> result.map_error(fn(detail) {
-            InvalidColumn(path: path, table: table_name, detail: detail)
-          })
-      })
-      Ok(
-        Some(model.Column(
-          name: name,
-          scalar_type: scalar_type,
-          nullable: nullable,
-        )),
+    _ ->
+      build_column_from_type_tokens(
+        path,
+        table_name,
+        name,
+        all_tokens,
+        type_toks,
+        enums,
+        engine,
       )
-    }
   }
 }
 
@@ -1191,7 +1209,8 @@ fn parse_column_tokens(
   table_name: String,
   tokens: List(lexer.Token),
   enums: List(model.EnumDef),
-) -> Result(Option(model.Column), ParseError) {
+  engine: model.Engine,
+) -> Result(Option(#(model.Column, List(model.EnumDef))), ParseError) {
   case tokens {
     [] -> Ok(None)
     [first, ..rest] ->
@@ -1205,7 +1224,7 @@ fn parse_column_tokens(
         // are frequently used as column identifiers in user schemas.
         // Accept them here the same way Ident/QuotedIdent are handled.
         lexer.Keyword(n) ->
-          parse_named_column(path, table_name, n, tokens, rest, enums)
+          parse_named_column(path, table_name, n, tokens, rest, enums, engine)
         lexer.Ident(n) | lexer.QuotedIdent(n) -> {
           let name = naming.normalize_identifier(n)
           let type_toks = take_type_tokens_from_lexer(rest, [])
@@ -1217,33 +1236,119 @@ fn parse_column_tokens(
                 table: table_name,
                 detail: "missing type for column " <> name,
               ))
-            _ -> {
-              let type_text = render_type_tokens(type_toks)
-              let nullable = case
-                tokens_contain_not_null(tokens)
-                || tokens_contain_keyword(tokens, "primary")
-                || string.contains(type_text, "serial")
-              {
-                True -> False
-                False -> True
-              }
-
-              use scalar_type <- result.try(case find_enum(type_text, enums) {
-                Some(enum_name) -> Ok(model.EnumType(enum_name))
-                None ->
-                  infer_scalar_type(type_text)
-                  |> result.map_error(fn(detail) {
-                    InvalidColumn(path:, table: table_name, detail:)
-                  })
-              })
-
-              Ok(Some(model.Column(name:, scalar_type:, nullable:)))
-            }
+            _ ->
+              build_column_from_type_tokens(
+                path,
+                table_name,
+                name,
+                tokens,
+                type_toks,
+                enums,
+                engine,
+              )
           }
         }
         _ -> Ok(None)
       }
   }
+}
+
+/// Shared logic for `parse_named_column` and `parse_column_tokens`.
+/// Inspects the column's type tokens, detects MySQL inline `ENUM(...)`
+/// or `SET(...)` when `engine == MySQL`, synthesizes enum definitions,
+/// and falls through to the shared lookup / `parse_sql_type` pipeline
+/// otherwise.
+fn build_column_from_type_tokens(
+  path: String,
+  table_name: String,
+  name: String,
+  all_tokens: List(lexer.Token),
+  type_toks: List(lexer.Token),
+  enums: List(model.EnumDef),
+  engine: model.Engine,
+) -> Result(Option(#(model.Column, List(model.EnumDef))), ParseError) {
+  let type_text = render_type_tokens(type_toks)
+  let nullable = case
+    tokens_contain_not_null(all_tokens)
+    || tokens_contain_keyword(all_tokens, "primary")
+    || string.contains(type_text, "serial")
+  {
+    True -> False
+    False -> True
+  }
+
+  case detect_mysql_inline_enum_set(type_toks, table_name, name, engine) {
+    Some(InlineEnum(scalar_type:, new_enum:)) ->
+      Ok(Some(#(model.Column(name:, scalar_type:, nullable:), [new_enum])))
+    None -> {
+      use scalar_type <- result.try(case find_enum(type_text, enums) {
+        Some(enum_name) -> Ok(model.EnumType(enum_name))
+        None ->
+          infer_scalar_type(type_text)
+          |> result.map_error(fn(detail) {
+            InvalidColumn(path:, table: table_name, detail:)
+          })
+      })
+      Ok(Some(#(model.Column(name:, scalar_type:, nullable:), [])))
+    }
+  }
+}
+
+type InlineEnumDetection {
+  InlineEnum(scalar_type: model.ScalarType, new_enum: model.EnumDef)
+}
+
+/// Detect MySQL inline `ENUM(...)` / `SET(...)` on a column's type
+/// tokens. Gated by `engine == MySQL` so PostgreSQL/SQLite schemas —
+/// where `enum` / `set` could conceivably appear as a non-type keyword
+/// elsewhere — keep their existing behavior.
+///
+/// The name synthesis rule is `<lowercased_table>_<column>`, which
+/// lets two tables carry columns with overlapping value sets without
+/// colliding. For SET the column resolves to `StringType` (the
+/// documented fallback per Issue #407) but the values are still
+/// preserved in the catalog for future native SET support.
+fn detect_mysql_inline_enum_set(
+  type_toks: List(lexer.Token),
+  table_name: String,
+  column_name: String,
+  engine: model.Engine,
+) -> Option(InlineEnumDetection) {
+  case engine {
+    model.MySQL ->
+      case type_toks {
+        [lexer.Keyword("enum"), lexer.LParen, ..rest] -> {
+          let values = extract_enum_values(rest, [])
+          let synthetic = synthetic_enum_name(table_name, column_name)
+          Some(InlineEnum(
+            scalar_type: model.EnumType(synthetic),
+            new_enum: model.EnumDef(
+              name: synthetic,
+              values:,
+              kind: model.MySqlEnum,
+            ),
+          ))
+        }
+        [lexer.Keyword("set"), lexer.LParen, ..rest] -> {
+          let values = extract_enum_values(rest, [])
+          let synthetic = synthetic_enum_name(table_name, column_name)
+          Some(InlineEnum(
+            scalar_type: model.StringType,
+            new_enum: model.EnumDef(
+              name: synthetic,
+              values:,
+              kind: model.MySqlSet,
+            ),
+          ))
+        }
+        _ -> None
+      }
+    _ -> None
+  }
+}
+
+fn synthetic_enum_name(table_name: String, column_name: String) -> String {
+  string.lowercase(table_name) <> "_" <> string.lowercase(column_name)
 }
 
 fn take_type_tokens_from_lexer(

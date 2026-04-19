@@ -159,6 +159,45 @@ pub fn schema_enum_type_test() {
   mood_col.scalar_type |> should.equal(model.EnumType("mood"))
 }
 
+pub fn mysql_inline_enum_and_set_columns_test() {
+  // Issue #407: MySQL `CREATE TABLE` may declare ENUM / SET inline on a
+  // column. The parser should preserve the allowed values in the catalog
+  // — ENUM columns as synthesized EnumType references, SET columns as
+  // a StringType fallback with values kept on the catalog side.
+  let content =
+    "CREATE TABLE items (\n"
+    <> "  id BIGINT NOT NULL,\n"
+    <> "  status ENUM('active', 'inactive', 'archived') NOT NULL,\n"
+    <> "  tags SET('red', 'green', 'blue')\n"
+    <> ");"
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files_with_engine(
+      [#("items.sql", content)],
+      model.MySQL,
+    )
+
+  let assert [table] = catalog.tables
+  table.name |> should.equal("items")
+
+  let assert Ok(status_col) =
+    list.find(table.columns, fn(c) { c.name == "status" })
+  status_col.scalar_type |> should.equal(model.EnumType("items_status"))
+  status_col.nullable |> should.equal(False)
+
+  let assert Ok(tags_col) = list.find(table.columns, fn(c) { c.name == "tags" })
+  tags_col.scalar_type |> should.equal(model.StringType)
+
+  let assert Ok(status_enum) =
+    list.find(catalog.enums, fn(e) { e.name == "items_status" })
+  status_enum.values |> should.equal(["active", "inactive", "archived"])
+  status_enum.kind |> should.equal(model.MySqlEnum)
+
+  let assert Ok(tags_enum) =
+    list.find(catalog.enums, fn(e) { e.name == "items_tags" })
+  tags_enum.values |> should.equal(["red", "green", "blue"])
+  tags_enum.kind |> should.equal(model.MySqlSet)
+}
+
 pub fn view_with_cast_expression_test() {
   let content =
     "CREATE TABLE t (x TEXT NOT NULL, y TEXT NOT NULL);\n"
