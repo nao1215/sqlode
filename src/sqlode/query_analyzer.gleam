@@ -8,6 +8,7 @@ import sqlode/naming
 import sqlode/query_analyzer/column_inferencer
 import sqlode/query_analyzer/context
 import sqlode/query_analyzer/embed_rewriter
+import sqlode/query_analyzer/expr_parser
 import sqlode/query_analyzer/param_inferencer
 import sqlode/query_analyzer/placeholder
 import sqlode/query_analyzer/token_utils
@@ -42,27 +43,55 @@ fn analyze_query(
   // in FROM, and derived-table subqueries — so both result-column and
   // parameter inference see them. Nested subqueries rediscover their
   // own VALUES / derived tables inside infer_columns_from_tokens_scoped.
-  use cte_tables <- result.try(column_inferencer.extract_cte_tables(
-    query.name,
-    tokens,
-    catalog,
-  ))
+  //
+  // Issue #406: drive the virtual-table classification from the
+  // expression-aware IR (`query_ir.Stmt`) instead of rescanning the
+  // raw token stream. The parsed `Stmt` is the single source of
+  // truth for WHICH virtual tables exist; when the parser produces
+  // `UnstructuredStmt` (an IR gap), we fall back to the token-based
+  // extractors. This mirrors the dispatch pattern PRs #412 and #413
+  // established for equality / IN / quantified parameter inference.
+  let stmt = expr_parser.parse_stmt(tokens, engine)
+  use cte_tables <- result.try(case stmt {
+    query_ir.UnstructuredStmt(..) ->
+      column_inferencer.extract_cte_tables(query.name, tokens, catalog)
+    _ ->
+      column_inferencer.extract_cte_tables_from_stmt(
+        query.name,
+        stmt,
+        tokens,
+        catalog,
+      )
+  })
   let with_ctes = merge_virtual_tables(catalog, cte_tables)
-  let values_tables = column_inferencer.extract_values_tables(tokens)
+  let values_tables = case stmt {
+    query_ir.UnstructuredStmt(..) ->
+      column_inferencer.extract_values_tables(tokens)
+    _ -> column_inferencer.extract_values_tables_from_stmt(stmt)
+  }
   let with_values = merge_virtual_tables(with_ctes, values_tables)
-  use derived_tables <- result.try(column_inferencer.extract_derived_tables(
-    query.name,
-    tokens,
-    with_values,
-  ))
+  use derived_tables <- result.try(case stmt {
+    query_ir.UnstructuredStmt(..) ->
+      column_inferencer.extract_derived_tables(query.name, tokens, with_values)
+    _ ->
+      column_inferencer.extract_derived_tables_from_stmt(
+        query.name,
+        stmt,
+        tokens,
+        with_values,
+      )
+  })
   let with_derived = merge_virtual_tables(with_values, derived_tables)
   // Register `FROM table AS alias` / `JOIN table AS alias` aliases so
   // qualified refs like `p.user_id` in a query that writes
   // `FROM posts AS p` resolve to `posts`. This is the single hook
   // that lets the expression-aware IR reason about aliased column
   // references without re-implementing alias resolution everywhere.
-  let alias_tables =
-    column_inferencer.extract_table_aliases(tokens, with_derived)
+  let alias_tables = case stmt {
+    query_ir.UnstructuredStmt(..) ->
+      column_inferencer.extract_table_aliases(tokens, with_derived)
+    _ -> column_inferencer.extract_table_aliases_from_stmt(stmt, with_derived)
+  }
   let augmented = merge_virtual_tables(with_derived, alias_tables)
 
   let occurrences = placeholder.extract(ctx, engine, tokens)
