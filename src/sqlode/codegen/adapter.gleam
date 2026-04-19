@@ -195,6 +195,13 @@ fn shork_adapter_config() -> AdapterConfig {
 /// MySQL mode round-trip as NULL until the driver grows a bytes
 /// helper. SqlArray likewise resolves to NULL because MySQL has no
 /// first-class array type.
+///
+/// `SqlBool` is encoded as `shork.int(1 | 0)` rather than
+/// `shork.bool(...)`. The Erlang `mysql` library underneath shork
+/// expects integers 1/0 on the wire for `TINYINT(1)` / `BOOLEAN`
+/// columns; passing the Gleam `True` / `False` atoms verbatim (which
+/// is what `shork.bool` does — it is a `coerce` identity FFI) trips
+/// `mysql:query/4` with `badarg` during parameter binding.
 fn shork_value_to_driver_helper() -> String {
   "fn value_to_shork(value: runtime.Value) -> shork.Value {
   case value {
@@ -202,7 +209,8 @@ fn shork_value_to_driver_helper() -> String {
     runtime.SqlString(v) -> shork.text(v)
     runtime.SqlInt(v) -> shork.int(v)
     runtime.SqlFloat(v) -> shork.float(v)
-    runtime.SqlBool(v) -> shork.bool(v)
+    runtime.SqlBool(True) -> shork.int(1)
+    runtime.SqlBool(False) -> shork.int(0)
     runtime.SqlBytes(_) -> shork.null()
     runtime.SqlArray(_) -> shork.null()
   }

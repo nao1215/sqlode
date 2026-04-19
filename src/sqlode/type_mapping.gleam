@@ -247,9 +247,12 @@ pub fn scalar_type_to_decoder(engine: Engine, scalar_type: ScalarType) -> String
       case scalar_type {
         BoolType ->
           case engine {
-            SQLite ->
+            // SQLite stores booleans as 0/1 INTEGER; MySQL's TINYINT(1)
+            // and BOOLEAN come back from the Erlang `mysql` driver as
+            // 0/1 too, so they share the int → boolean adapter.
+            SQLite | MySQL ->
               "decode.then(decode.int, fn(v) { decode.success(v != 0) })"
-            PostgreSQL | MySQL -> "decode.bool"
+            PostgreSQL -> "decode.bool"
           }
         _ -> info.decoder
       }
