@@ -427,6 +427,213 @@ fn normalize_table_qualifier(table: Option(String)) -> Option(String) {
   }
 }
 
+// ============================================================
+// IR-based IN / quantified walker (Issue #406)
+// ============================================================
+
+/// Walk a parsed `Stmt` in source order and emit an `EqualityMatch`
+/// for every `col IN (placeholder)` or `col <op> ANY|ALL|SOME(placeholder)`
+/// predicate reachable from the outer statement.
+///
+/// Matches are returned in source order (interleaved). The legacy
+/// token path used `list.append(find_in_patterns, find_quantified_patterns)`
+/// which concatenated all IN matches before all quantified matches;
+/// for `$N` placeholders the index comes from the raw text so the
+/// ordering has no observable effect, and for sequential placeholders
+/// the combined walker preserves source order just like the equality
+/// walker that already shipped.
+///
+/// Only the single-placeholder shapes the token scanners matched are
+/// emitted: `col IN ($1)` (one element, no subquery) and
+/// `col = ANY($1)` / `= ALL` / `= SOME` (with or without an extra
+/// paren wrapping the placeholder). Multi-element `IN (a, b, c)` and
+/// `IN (SELECT …)` / `ANY (SELECT …)` are intentionally skipped —
+/// those aren't simple single-parameter bindings.
+fn find_in_quantified_matches_in_stmt(
+  stmt: query_ir.Stmt,
+) -> List(token_utils.EqualityMatch) {
+  case stmt {
+    query_ir.SelectStmt(core:, ..) -> walk_select_core_iq(core)
+    query_ir.UpdateStmt(where_:, ..) -> walk_optional_expr_iq(where_)
+    query_ir.DeleteStmt(where_:, ..) -> walk_optional_expr_iq(where_)
+    // InsertStmt and UnstructuredStmt fall back to token scanning at
+    // the call site; the IR walker is never invoked for those branches.
+    query_ir.InsertStmt(..) -> []
+    query_ir.UnstructuredStmt(..) -> []
+  }
+}
+
+fn walk_select_core_iq(
+  core: query_ir.SelectCore,
+) -> List(token_utils.EqualityMatch) {
+  list.flatten([
+    list.flat_map(core.select_items, walk_select_item_iq),
+    list.flat_map(core.from, walk_from_item_joins_iq),
+    walk_optional_expr_iq(core.where_),
+    list.flat_map(core.group_by, walk_expr_iq),
+    walk_optional_expr_iq(core.having),
+  ])
+}
+
+fn walk_select_item_iq(
+  item: query_ir.SelectItemEx,
+) -> List(token_utils.EqualityMatch) {
+  case item {
+    query_ir.ExprItem(expr:, ..) -> walk_expr_iq(expr)
+    query_ir.StarEx(..) -> []
+  }
+}
+
+fn walk_from_item_joins_iq(
+  from: query_ir.FromItemEx,
+) -> List(token_utils.EqualityMatch) {
+  case from {
+    query_ir.FromJoin(left:, right:, on:, ..) ->
+      list.flatten([
+        walk_from_item_joins_iq(left),
+        walk_from_item_joins_iq(right),
+        walk_join_on_iq(on),
+      ])
+    _ -> []
+  }
+}
+
+fn walk_join_on_iq(on: query_ir.JoinOn) -> List(token_utils.EqualityMatch) {
+  case on {
+    query_ir.JoinOnExpr(expr:) -> walk_expr_iq(expr)
+    _ -> []
+  }
+}
+
+fn walk_optional_expr_iq(
+  expr: Option(query_ir.Expr),
+) -> List(token_utils.EqualityMatch) {
+  case expr {
+    Some(e) -> walk_expr_iq(e)
+    None -> []
+  }
+}
+
+/// Walk an expression in left-to-right source order, emitting an
+/// `EqualityMatch` for every `col IN (placeholder)` / `col <op> ANY|ALL|SOME
+/// (placeholder)` predicate. Nested subqueries (`EXISTS`, scalar,
+/// `IN (SELECT …)`) are traversed too so placeholders buried inside
+/// them still surface, matching the token path which scans the full
+/// main body after `strip_leading_with`.
+fn walk_expr_iq(expr: query_ir.Expr) -> List(token_utils.EqualityMatch) {
+  case expr {
+    // `col IN (<single placeholder>)` — emit the match. Multi-element
+    // lists and subquery sources fall through to the recursive branch.
+    query_ir.InExpr(expr: subject, source: query_ir.InList(values), ..) ->
+      case in_list_match(subject, values) {
+        Some(m) -> [m]
+        None ->
+          list.append(
+            walk_expr_iq(subject),
+            list.flat_map(values, walk_expr_iq),
+          )
+      }
+    query_ir.InExpr(expr: subject, source:, ..) ->
+      list.append(walk_expr_iq(subject), walk_in_source_iq(source))
+    // `col <op> ANY|ALL|SOME(<placeholder>)` — emit the match, or
+    // recurse when the shape doesn't match.
+    query_ir.Quantified(left:, quantifier:, right:, ..) ->
+      case quantified_match(left, quantifier, right) {
+        Some(m) -> [m]
+        None -> list.append(walk_expr_iq(left), walk_expr_iq(right))
+      }
+    // Remaining expression shapes: descend like the equality walker
+    // so placeholders buried inside nested boolean/CASE/function/etc.
+    // still surface.
+    query_ir.Binary(left:, right:, ..) ->
+      list.append(walk_expr_iq(left), walk_expr_iq(right))
+    query_ir.LikeExpr(expr: subject, pattern:, ..) ->
+      list.append(walk_expr_iq(subject), walk_expr_iq(pattern))
+    query_ir.Unary(arg:, ..) -> walk_expr_iq(arg)
+    query_ir.Between(expr: subject, low:, high:, ..) ->
+      list.flatten([
+        walk_expr_iq(subject),
+        walk_expr_iq(low),
+        walk_expr_iq(high),
+      ])
+    query_ir.IsCheck(expr: subject, ..) -> walk_expr_iq(subject)
+    query_ir.Case(scrutinee:, branches:, else_:) ->
+      list.flatten([
+        walk_optional_expr_iq(scrutinee),
+        list.flat_map(branches, fn(b) {
+          list.append(walk_expr_iq(b.when_), walk_expr_iq(b.then))
+        }),
+        walk_optional_expr_iq(else_),
+      ])
+    query_ir.Cast(expr: subject, ..) -> walk_expr_iq(subject)
+    query_ir.Func(args:, ..) ->
+      list.flat_map(args, fn(a) { walk_expr_iq(a.expr) })
+    query_ir.Tuple(elements:) -> list.flat_map(elements, walk_expr_iq)
+    query_ir.ArrayLit(elements:) -> list.flat_map(elements, walk_expr_iq)
+    query_ir.Exists(core:, ..) -> walk_select_core_iq(core)
+    query_ir.ScalarSubquery(core:) -> walk_select_core_iq(core)
+    // NullLit / BoolLit / StringLit / NumberLit / Param / ColumnRef /
+    // StarRef / Macro / RawExpr — no sub-expressions to descend into.
+    _ -> []
+  }
+}
+
+fn walk_in_source_iq(
+  source: query_ir.InSource,
+) -> List(token_utils.EqualityMatch) {
+  case source {
+    query_ir.InSubquery(core:) -> walk_select_core_iq(core)
+    query_ir.InList(values:) -> list.flat_map(values, walk_expr_iq)
+    // Slice macros are handled by a separate inference pass; leave
+    // them alone here (matches the token scanner's behaviour).
+    query_ir.InSliceMacro(..) -> []
+  }
+}
+
+/// `col IN ($1)` with exactly one placeholder on the RHS. Anything
+/// else (empty list, multiple elements, non-placeholder elements)
+/// returns `None` so the caller descends into the sub-expressions
+/// instead of emitting a bogus single-param binding. `Cast(Param, _)`
+/// on the placeholder is transparently unwrapped.
+fn in_list_match(
+  subject: query_ir.Expr,
+  values: List(query_ir.Expr),
+) -> Option(token_utils.EqualityMatch) {
+  case values {
+    [only] ->
+      case column_of(subject), param_of(only) {
+        Some(#(table, name)), Some(raw) -> Some(build_match(table, name, raw))
+        _, _ -> None
+      }
+    _ -> None
+  }
+}
+
+/// `col <op> ANY|ALL|SOME(<placeholder>)`. The token scanner matches
+/// on the literal `ANY ( placeholder )` paren shape, which the IR
+/// parses as either `Quantified(right: Param)` or — when the
+/// placeholder is itself parenthesised inside the ANY expression —
+/// `Quantified(right: Tuple([Param]))`. Both are accepted so the
+/// walker is shape-compatible with `find_quantified_patterns`.
+/// `Cast(Param)` on the placeholder side is transparently unwrapped.
+fn quantified_match(
+  left: query_ir.Expr,
+  _quantifier: query_ir.Quantifier,
+  right: query_ir.Expr,
+) -> Option(token_utils.EqualityMatch) {
+  case column_of(left), quantified_param_of(right) {
+    Some(#(table, name)), Some(raw) -> Some(build_match(table, name, raw))
+    _, _ -> None
+  }
+}
+
+fn quantified_param_of(expr: query_ir.Expr) -> Option(String) {
+  case expr {
+    query_ir.Tuple(elements: [only]) -> param_of(only)
+    _ -> param_of(expr)
+  }
+}
+
 /// Walk each `column <op> placeholder` / `column IN (placeholder)` /
 /// quantified pattern the token scanners found and bind a parameter
 /// type when the referenced column exists. Ambiguity (the column name
@@ -528,11 +735,28 @@ pub fn infer_in_params(
   case all_tables {
     [] -> Ok([])
     _ -> {
-      let matches =
-        list.append(
-          token_utils.find_in_patterns(main_tokens),
-          token_utils.find_quantified_patterns(main_tokens),
-        )
+      // Prefer the IR-based walker, mirroring `infer_equality_params`.
+      // Token-based scanning remains the fallback for:
+      //
+      //   * `UnstructuredStmt(..)` — the IR parser hit a construct it
+      //     does not yet model; keep the existing token coverage.
+      //
+      //   * `InsertStmt(..)` — the IR does not carry the full upsert
+      //     tail (see `infer_equality_params` for context), so we keep
+      //     token scanning to cover IN / quantified predicates that
+      //     live inside INSERT … SELECT subqueries or similar bodies.
+      //
+      // The IR walker itself descends into nested subqueries and
+      // transparently unwraps `Cast(Param)` on the placeholder side so
+      // `col IN ($1::int)` and `col = ANY($1::int[])` still resolve.
+      let matches = case expr_parser.parse_stmt(tokens, engine) {
+        query_ir.UnstructuredStmt(..) | query_ir.InsertStmt(..) ->
+          list.append(
+            token_utils.find_in_patterns(main_tokens),
+            token_utils.find_quantified_patterns(main_tokens),
+          )
+        stmt -> find_in_quantified_matches_in_stmt(stmt)
+      }
       scan_token_matches(
         engine,
         catalog,
