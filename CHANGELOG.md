@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-19
+
+### Added
+
+- **Engine-aware expression parser with MySQL clause preservation**
+  (#405). `expr_parser.parse_stmt` / `parse_select_core` / `parse_expr`
+  now accept a `model.Engine` argument. `InsertStmt` grows an
+  `on_duplicate_key_update: List(Assignment)` field so MySQL
+  `ON DUPLICATE KEY UPDATE` survives parsing as first-class IR instead
+  of being silently skipped. MySQL's two-argument `LIMIT offset, count`
+  form is now recognised and populates `offset` / `limit` in the
+  expected order, while PostgreSQL's `LIMIT count OFFSET offset`
+  semantics are preserved.
+- **First-class MySQL `ENUM(...)` and `SET(...)` columns** (#407).
+  Inline `ENUM` and `SET` column types on a MySQL `CREATE TABLE` no
+  longer require a type override. `EnumDef` gains an `EnumKind`
+  discriminator (`PostgresEnum | MySqlEnum | MySqlSet`). `ENUM`
+  columns resolve to `EnumType(<table>_<column>)` and codegen emits
+  the same Gleam sum type it has always emitted for PostgreSQL enums.
+  `SET` columns resolve to `StringType` as a documented fallback,
+  with the allowed values preserved on the catalog `EnumDef` for
+  future consumers.
+- **`sqlode init` creates missing parent directories** (#402). Running
+  `sqlode init --output=./config/sqlode.yaml` used to fail with a
+  generic write error when `config/` did not exist; the CLI now
+  creates the parent directory and distinguishes directory-creation
+  failures from file-write failures in diagnostics.
+- **`just regen-capabilities` target** (#403). The capabilities
+  snapshot test used to point contributors at a `gleam run -m
+  sqlode/scripts/print_capabilities` entry point that did not exist;
+  the script and just target are now real, and the failure message
+  plus the tracked file header point at `just regen-capabilities`.
+
+### Changed
+
+- **Query analysis now consumes the expression-aware IR end-to-end**
+  (#406). `analyze_query` parses the statement once via
+  `expr_parser.parse_stmt` and drives parameter equality / `IN` /
+  quantified inference from the rich `Expr` tree, plus table-scope
+  (CTE / VALUES / derived / alias) extraction from `Stmt.ctes` and
+  `SelectCore.from`. Token scanners remain as an explicit fallback
+  only for `UnstructuredStmt` and for PostgreSQL / SQLite `ON
+  CONFLICT` tails the IR does not yet model. Result: new parser
+  features no longer need to be taught in parallel to several
+  token scanners.
+- **Generated-project compile checks are reproducible** (#404). The
+  `spec/compile_spec.sh` harness now seeds each temporary Gleam
+  project with a pinned `manifest.toml` copied from a checked-in
+  `integration_test/warmup/` project. A new `just integration-prepare`
+  target pre-populates the Hex cache and is the single explicit
+  online step `just all` requires; `just integration-refresh` refreshes
+  the committed pins. `CONTRIBUTING.md` documents the online/offline
+  contract.
+
+### Fixed
+
+- None.
+
 ## [0.3.0] - 2026-04-18
 
 ### Added
