@@ -61,7 +61,7 @@ integration_write_project() {
 
   mkdir -p "$dir/src/db"
   _integration_write_gleam_toml "$dir" "$name" "$engine" "$runtime" "$dev_deps"
-  _integration_write_manifest "$dir"
+  _integration_write_manifest "$dir" || return $?
   _integration_write_sqlode_yaml "$dir" "$schema" "$queries" "$engine" "$runtime"
 }
 
