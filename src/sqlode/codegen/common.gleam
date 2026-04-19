@@ -39,9 +39,9 @@ pub fn queries_have_enums(queries: List(model.AnalyzedQuery)) -> Bool {
           ..,
         ))
         | model.ScalarResult(model.ResultColumn(
-          scalar_type: model.SetType(_),
-          ..,
-        )) -> True
+            scalar_type: model.SetType(_),
+            ..,
+          )) -> True
         _ -> False
       }
     })
