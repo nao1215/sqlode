@@ -27,7 +27,7 @@ packages = [
   { name = "simplifile", version = "2.4.0", build_tools = ["gleam"], requirements = ["filepath", "gleam_stdlib"], otp_app = "simplifile", source = "hex", outer_checksum = "7C18AFA4FED0B4CE1FA5B0B4BAC1FA1744427054EA993565F6F3F82E5453170D" },
   { name = "snag", version = "1.2.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "snag", source = "hex", outer_checksum = "274F41D6C3ECF99F7686FDCE54183333E41D2C1CA5A3A673F9A8B2C7A4401077" },
   { name = "sqlight", version = "1.1.0", build_tools = ["gleam"], requirements = ["esqlite", "gleam_stdlib"], otp_app = "sqlight", source = "hex", outer_checksum = "ECA1A4B45C35EB9EFCEEB7FAAC7BF5D8B2C777A7C1FC8A9C12CB67D54CED42E7" },
-  { name = "sqlode", version = "0.4.0", build_tools = ["gleam"], requirements = ["argv", "filepath", "gleam_regexp", "gleam_stdlib", "glint", "simplifile", "yay"], source = "local", path = "../.." },
+  { name = "sqlode", version = "0.5.0", build_tools = ["gleam"], requirements = ["argv", "filepath", "gleam_regexp", "gleam_stdlib", "glint", "simplifile", "yay"], source = "local", path = "../.." },
   { name = "yamerl", version = "0.10.0", build_tools = ["rebar3"], requirements = [], otp_app = "yamerl", source = "hex", outer_checksum = "346ADB2963F1051DC837A2364E4ACF6EB7D80097C0F53CBDC3046EC8EC4B4E6E" },
   { name = "yay", version = "2.0.2", build_tools = ["gleam"], requirements = ["gleam_stdlib", "yamerl"], otp_app = "yay", source = "hex", outer_checksum = "B208F9A14FA2B5E306728812814B01E760BC7F3BCAC4BD6889E9CA8088ACFD48" },
 ]

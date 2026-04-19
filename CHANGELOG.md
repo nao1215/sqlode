@@ -7,45 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Added
-
-- **MySQL completeness pass.** Closes the documented gaps left over
-  from the #417 epic:
-  - `BLOB` / `BINARY` columns now round-trip byte-for-byte in native
-    mode by routing `SqlBytes` through `shork_ffi.coerce` (an internal
-    FFI binding mirroring shork's own `text` / `int` constructors).
-  - The MySQL `SET(...)` column type is now wired end-to-end. The
-    generated params record exposes the field as `List(<Name>Value)`
-    and the encoder routes it through the new `<name>_set_to_string`
-    helper; the adapter decoder calls `<name>_set_from_string` on
-    the wire string.
-  - The MySQL real-DB integration lane now exercises bytes, decimal
-    (lossless `DecimalType`), enum, and SET round-trips against the
-    live MySQL service.
-  - MySQL schema files containing DDL sqlode does not (yet) model
-    fail with a new `UnsupportedMysqlDdl` parse error rather than
-    silently dropping the statement on the floor (Issue #419
-    fail-fast acceptance).
-  - `:execresult` rejection on `runtime: "native"` is now pinned by
-    a MySQL-specific test (positive: same query in `runtime: "raw"`
-    generates without complaint).
+## [0.5.0] - 2026-04-19
 
 ### Added
 
 - **End-to-end MySQL support** (#417 epic; #418, #419, #420, #421,
   #422, #423). MySQL is now a first-class engine in both `raw` and
   `native` runtime modes. The native MySQL adapter targets the
-  [`shork`](https://hexdocs.pm/shork/) Hex package; `:execrows` and
-  `:execlastid` resolve via `SELECT ROW_COUNT()` / `SELECT
-  LAST_INSERT_ID()` follow-up queries. The previous config guard
-  rejecting `engine: "mysql"` + `runtime: "native"` is gone.
+  [`shork`](https://hexdocs.pm/shork/) Hex package. The previous
+  config guard rejecting `engine: "mysql"` + `runtime: "native"` is
+  gone.
 - **Modifier-aware MySQL type contract** (#420). `TINYINT(1)` and
   `BOOLEAN` resolve to `BoolType`, `UNSIGNED` / `SIGNED` /
   `ZEROFILL` noise no longer blocks classification, and a new
   `DecimalType` keeps `DECIMAL` / `NUMERIC` columns lossless (a
   `String` Gleam type) instead of silently collapsing into `Float`.
   MySQL `SET(...)` columns are now first-class `SetType(name)` and
-  surface as `List(<Name>Value)` in generated code, with
+  surface as `List(<Name>Value)` in generated code with
   `_set_to_string` / `_set_from_string` helpers for the comma-joined
   wire format.
 - **MySQL migration DDL** (#419). `ALTER TABLE ... MODIFY COLUMN`
@@ -55,23 +33,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   in `002_*.sql` can operate on a CREATE TABLE in `001_*.sql`.
   `AUTO_INCREMENT`, `ON UPDATE CURRENT_TIMESTAMP`, `CHARACTER SET`,
   `COLLATE`, `COMMENT`, and `VISIBLE`/`INVISIBLE` no longer bleed
-  into column-type classification.
+  into column-type classification. Unsupported MySQL DDL now fails
+  with an actionable `UnsupportedMysqlDdl` parse error instead of
+  being silently dropped on the floor.
 - **MySQL query parity fixtures** (#421). A dedicated MySQL advanced
   fixture pins the supported query subset: backtick-quoted
   identifiers, `LIMIT offset, count`, `INSERT ... ON DUPLICATE KEY
   UPDATE` (without phantom params from `VALUES(...)` references), CTE
   + JOIN result-column resolution, and `sqlode.slice` expansion
   through positional placeholders.
-- **MySQL integration lanes** (#422). Three new integration cases —
+- **MySQL integration lanes** (#422). Three integration cases —
   `case_mysql_compile_raw`, `case_mysql_compile_native`, and
   `case_mysql_real` — exercise the generated MySQL adapter against
-  pinned dependencies and a live MySQL 8.0 service container. CI
-  provisions MySQL 8.0 alongside the existing PostgreSQL service.
+  pinned dependencies and a live MySQL 8.0 server. CI provisions
+  MySQL alongside the existing PostgreSQL service. The live lane
+  covers the full CRUD contract plus bytes / decimal / enum / SET
+  round-trips.
 - **Per-engine/runtime capability matrix** (#423).
   `doc/capabilities.md` now expresses support at engine/runtime
   granularity (raw/native flag plus the Hex driver each native
-  adapter imports) instead of relying on the flat engine list to
-  imply parity.
+  adapter imports).
+- **MySQL completeness follow-ups** (#430). Closes the gaps the #417
+  epic had deferred:
+  - `BLOB` / `BINARY` columns round-trip byte-for-byte in native
+    mode via a private `@external(erlang, "shork_ffi", "coerce")`
+    binding (`bit_array_to_shork`).
+  - `SetType` is wired end-to-end through `params.gleam`,
+    `queries.gleam`, and `mysql_adapter.gleam` — the new
+    `common.qualified_field_type` helper prefixes generated enum /
+    set types with `models.` in the consumer modules.
+  - A new `<name>_default() -> <EnumType>` helper in `models.gleam`
+    gives generated adapter / queries decoders a typed zero for
+    `decode.failure`, so the case expression resolves as
+    `Decoder(<EnumType>)` instead of `Decoder(String)`.
+  - MySQL-native `:execresult` rejection is now pinned by a direct
+    `generate_test` case; a positive raw-mode test covers the same
+    query shape.
+- **Glinter adoption** (#429). The project now runs
+  [glinter](https://github.com/pairshaped/glinter) with
+  `warnings_as_errors = true` via `just lint` / `just all` and a
+  new CI step. 180+ `unnecessary_string_concatenation` findings
+  were rewritten as multi-line literals; `discarded_result`,
+  `short_variable_name`, `unqualified_import`, `redundant_case`,
+  `missing_type_annotation`, and `assert_ok_pattern` violations
+  are fixed (single inline `// nolint:` for the compile-time regex
+  literals in `naming.new()`).
+
+### Maintenance
+
+- Dependabot version bumps replayed on top of the #417 main:
+  `actions/upload-artifact` v4→v7 (#424),
+  `actions/download-artifact` v4→v8 (#428),
+  `softprops/action-gh-release` v2→v3 (#428).
 
 ## [0.4.0] - 2026-04-19
 
