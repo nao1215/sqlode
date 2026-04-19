@@ -113,6 +113,11 @@ pub type Stmt {
     table: String,
     columns: List(String),
     source: InsertSource,
+    /// MySQL `ON DUPLICATE KEY UPDATE` assignment list. Empty when the
+    /// statement has no upsert tail or the engine is not MySQL. Preserved
+    /// here so downstream passes see the clause instead of the legacy
+    /// "skip to RETURNING" silent drop.
+    on_duplicate_key_update: List(Assignment),
     returning: List(SelectItemEx),
   )
   UpdateStmt(
