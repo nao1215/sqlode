@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-04-21
+
+### Added
+
+- **First-class Docker distribution path** (#438). `Dockerfile`,
+  `scripts/smoke_docker.sh`, and `.github/workflows/docker.yml` now
+  build, smoke-test, and publish a container image for sqlode. Users
+  can run the CLI via `ghcr.io/nao1215/sqlode` without installing
+  Erlang/OTP on the host, and tagged releases publish semver image
+  tags in addition to the escript artifact.
+- **Tutorial-first SQLite onboarding** (#437).
+  `doc/tutorials/getting-started-sqlite.md` now walks through install,
+  `sqlode init`, `sqlode generate`, and a minimal `sqlight` runtime
+  example end to end. The new `examples/sqlite-basic/` project is the
+  runnable counterpart, and `spec/example_spec.sh` keeps the tutorial
+  commands from drifting by asserting the generated modules exist.
+
+### Changed
+
+- **README install/reference cleanup**. The top-level README now points
+  readers to the SQLite tutorial and runnable example first, documents
+  the Docker install path alongside the existing release artifacts, and
+  removes decorative callouts in favor of tighter reference prose.
+
+### Fixed
+
+- **`sqlode init --engine=mysql --runtime=native` now works** (#436).
+  The stale CLI validation guard that still rejected MySQL native mode
+  after v0.5.0 support shipped has been removed. Both Gleam tests and
+  ShellSpec coverage now pin the generated config and starter schema
+  for the MySQL native path.
+
 ## [0.5.0] - 2026-04-19
 
 ### Added
