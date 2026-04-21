@@ -17,6 +17,12 @@ Supported engines (raw + native): PostgreSQL (`pog`), MySQL 8.0
 engine/runtime support matrix and per-engine query-annotation
 details.
 
+**New to sqlode?** Work through the
+[SQLite quickstart tutorial](doc/tutorials/getting-started-sqlite.md)
+for a five-minute, end-to-end walkthrough, or copy the runnable
+[`examples/sqlite-basic/`](examples/sqlite-basic/) project. The rest
+of this README stays reference-oriented.
+
 ## Getting started
 
 ### Install

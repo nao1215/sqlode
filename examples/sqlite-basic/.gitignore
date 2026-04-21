@@ -1,0 +1,6 @@
+build/
+src/db/
+manifest.toml
+*.beam
+*.ez
+erl_crash.dump
