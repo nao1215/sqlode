@@ -5,92 +5,65 @@
 [![CI](https://github.com/nao1215/sqlode/actions/workflows/ci.yml/badge.svg)](https://github.com/nao1215/sqlode/actions/workflows/ci.yml)
 [![license](https://img.shields.io/github/license/nao1215/sqlode)](./LICENSE)
 
-sqlode reads SQL schema and query files, then generates typed Gleam code. The workflow follows [sqlc](https://sqlc.dev/) conventions: write SQL, run the generator, get type-safe functions.
+sqlode reads SQL schema and query files and generates typed Gleam code. It follows the sqlc workflow: write SQL, run the generator, call the generated functions.
 
-> **Note:** sqlode is inspired by sqlc's workflow but is **not** a drop-in replacement.
-> Macro syntax uses the `sqlode.*` prefix exclusively (e.g., `sqlode.arg(name)`,
-> `sqlode.embed(table)`). The `sqlc.*` prefix is not supported.
+sqlode is inspired by [sqlc](https://sqlc.dev/) but is not a drop-in replacement. Macros use the `sqlode.*` prefix — `sqlc.*` is not accepted.
 
-Supported engines (raw + native): PostgreSQL (`pog`), MySQL 8.0
-(`shork`), SQLite (`sqlight`). See
-[`doc/capabilities.md`](doc/capabilities.md) for the full
-engine/runtime support matrix and per-engine query-annotation
-details.
+Supported engines (raw and native): PostgreSQL (`pog`), MySQL 8.0 (`shork`), SQLite (`sqlight`). The per-engine support matrix lives in [`doc/capabilities.md`](doc/capabilities.md).
 
-**New to sqlode?** Work through the
-[SQLite quickstart tutorial](doc/tutorials/getting-started-sqlite.md)
-for a five-minute, end-to-end walkthrough, or copy the runnable
-[`examples/sqlite-basic/`](examples/sqlite-basic/) project. The rest
-of this README stays reference-oriented.
+First time here? [`doc/tutorials/getting-started-sqlite.md`](doc/tutorials/getting-started-sqlite.md) walks through a SQLite project end to end, and [`examples/sqlite-basic/`](examples/sqlite-basic/) is the runnable version of the same tutorial. The rest of this README is reference material.
 
 ## Getting started
 
 ### Install
 
-sqlode ships as an Erlang escript. Most install paths therefore need an Erlang/OTP runtime on the host (`escript` on PATH); the Docker image (Option D) bundles Erlang so you can evaluate sqlode without installing one yourself.
+sqlode ships as an Erlang escript, so most paths need Erlang/OTP on the host. Option D (Docker) bundles Erlang and is the one exception.
 
-#### Option A: One-line install (recommended)
+Whichever install path you pick, your Gleam project still needs `gleam add sqlode` because generated code imports `sqlode/runtime`.
+
+#### A. One-line installer
 
 ```console
 curl -fsSL https://raw.githubusercontent.com/nao1215/sqlode/main/scripts/install.sh | sh
 ```
 
-Prefer to inspect the script before executing it? Download it first, read it, then run it:
-
-```console
-curl -fsSL -o install.sh https://raw.githubusercontent.com/nao1215/sqlode/main/scripts/install.sh
-sh install.sh
-```
-
-The installer writes the latest release's escript to `$HOME/.local/bin/sqlode`, makes it executable, and warns if Erlang/OTP is missing (with a per-distro install hint).
+Writes the latest release escript to `$HOME/.local/bin/sqlode` and warns if Erlang/OTP is missing. To review the script first, download it, read it, then `sh install.sh`.
 
 Environment variables:
 
-- `SQLODE_VERSION=v0.1.0` — pin a specific release tag instead of `latest`.
-- `SQLODE_INSTALL_DIR=/path/to/bin` — install into a different directory. System paths such as `/usr/local/bin` require elevated privileges, e.g. `curl -fsSL ... | sudo SQLODE_INSTALL_DIR=/usr/local/bin sh`.
+- `SQLODE_VERSION=v0.1.0` pins a release tag instead of `latest`.
+- `SQLODE_INSTALL_DIR=/path/to/bin` installs elsewhere. System paths need `sudo`.
 
-If `$HOME/.local/bin` is not on your `PATH`, add it to your shell config:
+If `$HOME/.local/bin` is not on your `PATH`, add it:
 
 ```console
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-You still need sqlode as a project dependency because generated code imports `sqlode/runtime`:
+#### B. Manual escript download
 
-```console
-gleam add sqlode
-```
-
-#### Option B: Manual escript download
-
-Download the pre-built escript from [GitHub Releases](https://github.com/nao1215/sqlode/releases) and place it on your `PATH`:
+Grab the escript from [GitHub Releases](https://github.com/nao1215/sqlode/releases) and put it on your `PATH`:
 
 ```console
 chmod +x sqlode
 ./sqlode generate --config=sqlode.yaml
 ```
 
-#### Option C: Run via Gleam
-
-If you already have a Gleam project, you can invoke the CLI through `gleam run` without downloading a separate binary:
+#### C. Run via Gleam
 
 ```console
 gleam add sqlode
 gleam run -m sqlode -- generate
 ```
 
-#### Option D: Docker image (no Erlang install required)
-
-Prebuilt images are published to GitHub Container Registry. Use this path if you want to evaluate sqlode without installing Erlang/OTP on the host:
+#### D. Docker (no Erlang install)
 
 ```console
 docker run --rm -v "$PWD:/work" ghcr.io/nao1215/sqlode:latest init --engine=sqlite
 docker run --rm -v "$PWD:/work" ghcr.io/nao1215/sqlode:latest generate
 ```
 
-The container's working directory is `/work`, so bind-mounting your project there lets `init` / `generate` / `verify` write into the host directory. Pin a release by replacing `:latest` with `:0.5.0` (or any tag listed under the repository's Packages page).
-
-> Note: image tags are published by the repository's CI workflow. The first push that runs after this workflow lands is what materialises the `:latest` tag — until then, build locally with `docker build -t sqlode .` at the repo root.
+The container's working directory is `/work`, so mounting your project there lets `init` / `generate` / `verify` write into the host. Swap `:latest` for a version tag (`:0.5.0`) to pin a release. The `:latest` tag appears once the docker workflow has run on `main`; before that, `docker build -t sqlode .` at the repo root produces the same image.
 
 ### Initialize config
 
@@ -116,10 +89,9 @@ sql:
         runtime: "raw"
 ```
 
-`schema` and `queries` accept either a single file path, a list of file paths, or a directory path. When given a directory, sqlode auto-discovers every `.sql` file inside it. An optional `name` field can be set on each `sql` block for diagnostics when multiple blocks are configured.
+`schema` and `queries` each take a single path, a list of paths, or a directory (sqlode then picks up every `.sql` in it). An optional `name` on each `sql` block shows up in diagnostics when several blocks are configured.
 
-> [!IMPORTANT]
-> The schema parser accepts a **schema snapshot or migration history**. Supported DDL: `CREATE TABLE` / `CREATE VIEW` / `CREATE TYPE` / `ALTER TABLE ... ADD COLUMN` / `DROP TABLE` / `DROP VIEW` / `DROP TYPE` / `ALTER TABLE ... DROP COLUMN` / `ALTER TABLE ... RENAME` / `ALTER TABLE ... ALTER COLUMN TYPE` / `ALTER TABLE ... SET/DROP NOT NULL`. Both additive and destructive migrations can be processed. See [Limitations](#limitations) for the full list.
+The schema parser accepts either a schema snapshot or a migration history (additive and destructive DDL both work). The full supported-statement list is in [Schema DDL scope](#schema-ddl-scope).
 
 ### Write SQL
 
@@ -162,7 +134,7 @@ sqlode generate
 gleam run -m sqlode -- generate
 ```
 
-This produces `params.gleam` and `queries.gleam` in the configured output directory. `models.gleam` is also generated when the schema defines tables or when at least one query uses `:one` or `:many` and returns result columns.
+This writes `params.gleam` and `queries.gleam` under the configured output directory. `models.gleam` is added when the schema defines tables or when a `:one` / `:many` query returns result columns.
 
 ## Generated code
 
@@ -184,19 +156,19 @@ pub type CreateAuthorParams {
 
 ### models.gleam
 
-sqlode generates reusable record types for each table in the schema, plus per-query row types for queries that return results. When a query's result columns exactly match a table (same columns, types, nullability, and order), a type alias is emitted instead of a duplicate record type.
+One record per table in the schema, plus row types for queries that return results. When a query's columns exactly match a table (same columns, types, nullability, order), sqlode emits an alias instead of a duplicate record.
 
 ```gleam
-// Table record type (singularized) — reusable across queries
+// Table record (singularized), reusable across queries
 pub type Author {
   Author(id: Int, name: String, bio: Option(String), created_at: String)
 }
 
-// Exact table match — alias instead of duplicate
+// Exact match: alias
 pub type GetAuthorRow =
   Author
 
-// Partial match — separate row type
+// Partial match: separate row type
 pub type ListAuthorsRow {
   ListAuthorsRow(id: Int, name: String)
 }
@@ -204,9 +176,7 @@ pub type ListAuthorsRow {
 
 ### queries.gleam
 
-Each query function returns a `RawQuery(p)`:
-
-`QueryInfo` and `all()` list all queries in a module without type parameters.
+Each query is a `RawQuery(params)`. `all()` / `QueryInfo` enumerate queries without type parameters.
 
 ```gleam
 pub type QueryInfo {
@@ -220,72 +190,50 @@ pub fn list_authors() -> runtime.RawQuery(Nil) { ... }
 pub fn create_author() -> runtime.RawQuery(params.CreateAuthorParams) { ... }
 ```
 
-Usage example — for the common case, use the generated
-`prepare_<function_name>` helper. It constructs the params record
-and delegates to `runtime.prepare` in a single call, returning the
-`(sql, values)` pair that Gleam database drivers consume directly:
+For the common case, call the generated `prepare_*` helper. It builds the params record and returns the `(sql, values)` tuple that Gleam database drivers accept directly:
 
 ```gleam
 let #(sql, values) = queries.prepare_get_author(id: 1)
-// sql has final placeholders: "... WHERE id = $1"
-// values is the encoded parameter list
+// sql: "... WHERE id = $1"
 ```
 
-The generated SQL contains engine-agnostic markers for all parameter
-types (`sqlode.arg`, `sqlode.narg`, and `sqlode.slice`), and the
-helper substitutes the correct engine-specific placeholders at
-runtime.
-
-Slice parameters (`sqlode.slice`) work the same way — the helper
-accepts a `List` for each slice field and the generated SQL expands
-it into the correct number of placeholders:
+`sqlode.slice` works the same way — pass a `List`, the SQL expands to the right number of placeholders:
 
 ```gleam
 let #(sql, values) = queries.prepare_get_authors_by_ids(ids: [1, 2, 3])
-// sql has expanded placeholders: "... WHERE id IN ($1, $2, $3)"
-// values is the flattened parameter list
+// sql: "... WHERE id IN ($1, $2, $3)"
 ```
 
-If you need to hold the `RawQuery` descriptor (for caching, batch
-execution, or building custom wrappers), the low-level pieces are
-still exported. `queries.get_author()` returns the descriptor and
-`runtime.prepare` composes it with a params record:
+If you need the `RawQuery` descriptor (caching, batching, custom wrappers), the low-level shape is still there:
 
 ```gleam
 let q = queries.get_author()
-let #(sql, values) = runtime.prepare(
-  q,
-  params.GetAuthorParams(id: 1),
-)
+let #(sql, values) = runtime.prepare(q, params.GetAuthorParams(id: 1))
 ```
 
-The placeholder dialect (`$1` for PostgreSQL, `?` for SQLite) is baked into the `RawQuery` by the generator, so `runtime.prepare` does not take a placeholder argument.
+The placeholder dialect (`$1` / `?`) is baked into the `RawQuery`, so `runtime.prepare` does not take it as an argument.
 
 ## Runtime modes
 
-The `runtime` option controls what code sqlode generates and what dependencies your project needs.
+The `runtime` option controls what code sqlode emits.
 
-| Mode | Generated files | DB driver needed | Use case |
-|------|----------------|-----------------|----------|
-| `raw` | queries, params, models | No | You handle database interaction yourself |
-| `native` | queries, params, models, adapter | Yes (pog/sqlight) | Full adapter with parameter binding and result decoding |
+| Mode | Generated files | DB driver | Use case |
+|------|----------------|-----------|----------|
+| `raw` | queries, params, models | — | You run the queries yourself |
+| `native` | queries, params, models, adapter | pog / sqlight / shork | Full adapter: bind params, decode rows |
 
-In all modes, sqlode must be a dependency (not just a dev-dependency) because the generated code imports `sqlode/runtime`. The `native` mode additionally requires a database driver package:
+sqlode itself must be a runtime dependency (not just dev) because the generated code imports `sqlode/runtime`. `native` mode also needs a driver:
 
 ```console
 gleam add sqlode
-gleam add pog       # for PostgreSQL with native runtime
-gleam add sqlight   # for SQLite with native runtime
+gleam add pog       # PostgreSQL native
+gleam add sqlight   # SQLite native
+gleam add shork     # MySQL native
 ```
 
 ### Self-contained generation (`vendor_runtime`)
 
-Setting `gen.gleam.vendor_runtime: true` asks sqlode to copy the
-`sqlode/runtime` module into the output directory as `runtime.gleam`
-and rewrite the generated imports to point at the local copy. The
-generated package no longer needs sqlode as a runtime dependency,
-only as a dev dependency (the tool you invoke with `sqlode generate`).
-Native adapters still need their driver package (`pog` / `sqlight`).
+`gen.gleam.vendor_runtime: true` copies the `sqlode/runtime` module into the output directory as `runtime.gleam` and rewrites the generated imports to match. The generated package then only needs sqlode as a dev dependency. Native adapters still need their driver.
 
 ```yaml
 gen:
@@ -295,28 +243,13 @@ gen:
     vendor_runtime: true
 ```
 
-Trade-offs: shared-runtime code is smaller and auto-updates with
-`gleam update sqlode`; vendored code is self-contained at the cost of
-re-running `sqlode generate` to pick up runtime changes.
+Shared-runtime is smaller and updates with `gleam update sqlode`; vendored is self-contained but has to be regenerated to pick up runtime changes.
 
 ## Adapter generation
 
-When `runtime` is set to `native`, sqlode generates adapter modules
-that wrap [pog](https://hexdocs.pm/pog/) (PostgreSQL),
-[sqlight](https://hexdocs.pm/sqlight/) (SQLite), or
-[shork](https://hexdocs.pm/shork/) (MySQL 8.0). The MySQL adapter
-follows the same shape as the others — `:execrows` is implemented via
-`SELECT ROW_COUNT()` and `:execlastid` via `SELECT LAST_INSERT_ID()`,
-both invoked through the underlying `shork` connection — so callers
-do not need to know the MySQL wire protocol.
+With `runtime: "native"`, sqlode generates an adapter that wraps [pog](https://hexdocs.pm/pog/) (PostgreSQL), [sqlight](https://hexdocs.pm/sqlight/) (SQLite), or [shork](https://hexdocs.pm/shork/) (MySQL 8.0). The three adapters have the same shape; MySQL routes `:execrows` through `SELECT ROW_COUNT()` and `:execlastid` through `SELECT LAST_INSERT_ID()` under the hood.
 
-> **Out of scope (today):** MariaDB is not separately validated; the
-> `mysql` engine targets MySQL 8.0 specifically. `:execresult` is
-> rejected for every native target — use `:exec`, `:execrows`, or
-> `:execlastid` instead. `BLOB` / `BINARY` columns are encoded
-> byte-for-byte by routing through `shork_ffi.coerce` — the same
-> identity FFI shork's other value constructors use under the hood
-> — so the native round-trip works without a shork API extension.
+Out of scope today: MariaDB is not separately validated — the `mysql` engine targets MySQL 8.0. `:execresult` is rejected on every native target; use `:exec`, `:execrows`, or `:execlastid`. `BLOB` / `BINARY` round-trip through `shork_ffi.coerce` (the same identity FFI shork's value constructors use), so no shork API extension is needed.
 
 ```yaml
 gen:
@@ -325,7 +258,7 @@ gen:
     runtime: "native"
 ```
 
-The adapter provides functions that handle parameter binding, query execution, and result decoding:
+An adapter function handles parameter binding, execution, and decoding:
 
 ```gleam
 // pog_adapter.gleam (generated)
@@ -409,9 +342,7 @@ pub fn main() {
 
 #### MySQL examples
 
-The MySQL engine works in both runtime modes. The raw runtime gives
-you the prepared SQL plus encoded params; the native runtime
-generates a `mysql_adapter` module that wraps `shork`.
+MySQL works in both modes. `raw` returns the prepared SQL plus encoded params; `native` generates a `mysql_adapter` that wraps `shork`.
 
 ##### MySQL raw mode
 
@@ -496,9 +427,9 @@ pub fn main() {
 | `:execrows` | `Result(Int, sqlight.Error)` | `Result(Int, pog.QueryError)` | `Result(Int, shork.QueryError)` |
 | `:execlastid` | `Result(Int, sqlight.Error)` | `Result(Int, pog.QueryError)` | `Result(Int, shork.QueryError)` |
 
-`:batchone`, `:batchmany`, `:batchexec`, and `:copyfrom` are not yet implemented. Using them currently fails generation with an unsupported-annotation error. See the Planned annotations section below.
+`:batchone`, `:batchmany`, `:batchexec`, and `:copyfrom` are not implemented and fail generation — see [Planned annotations](#planned-annotations).
 
-`:execresult` is available with `raw` runtime only. It is rejected with `native` runtime because its semantics are not distinct from `:execrows`.
+`:execresult` is `raw` only. Native rejects it because it is indistinguishable from `:execrows` once rows are decoded.
 
 ## Query annotations
 
@@ -513,7 +444,7 @@ pub fn main() {
 
 ### Planned annotations
 
-The following annotations are reserved for future work. Using any of them currently fails generation with an unsupported-annotation error.
+Reserved for future work; any use fails generation today.
 
 | Annotation | Planned behavior |
 |---|---|
@@ -534,7 +465,7 @@ The following annotations are reserved for future work. Using any of them curren
 
 ### Skipping a query
 
-Prefix a query block with `-- sqlode:skip` to exclude it from generation. Useful for queries that rely on syntax sqlode cannot yet parse:
+Prefix with `-- sqlode:skip` to exclude a query from generation — useful when the SQL uses syntax sqlode cannot yet parse.
 
 ```sql
 -- sqlode:skip
@@ -568,7 +499,7 @@ JOIN authors ON books.author_id = authors.id
 WHERE books.id = $1;
 ```
 
-The embedded table becomes a nested field in the result type:
+The embedded table becomes a nested field:
 
 ```gleam
 pub type GetBookWithAuthorRow {
@@ -578,7 +509,7 @@ pub type GetBookWithAuthorRow {
 
 ## JOIN support
 
-Columns from JOINed tables are resolved when inferring result types:
+Columns from JOINed tables are resolved against their source tables:
 
 ```sql
 -- name: GetBookWithAuthor :one
@@ -587,11 +518,11 @@ FROM books
 JOIN authors ON books.author_id = authors.id;
 ```
 
-Both `title` from `books` and `name` from `authors` are correctly typed in the generated row type.
+`books.title` and `authors.name` end up correctly typed in the generated row.
 
 ## RETURNING clause
 
-Queries with a `RETURNING` clause (PostgreSQL) generate result types from the returned columns:
+PostgreSQL `RETURNING` columns become the result type:
 
 ```sql
 -- name: CreateAuthor :one
@@ -607,7 +538,7 @@ pub type CreateAuthorRow {
 
 ## CTE (WITH clause)
 
-Common Table Expressions are supported. sqlode strips the CTE prefix and infers types from the main query:
+Common Table Expressions are supported — sqlode strips the CTE prefix and infers types from the main query:
 
 ```sql
 -- name: GetRecentAuthors :many
@@ -638,11 +569,11 @@ JOIN filtered ON authors.id = filtered.id;
 | POINT, LINE, LSEG, BOX, PATH, POLYGON, CIRCLE | String |
 | PostgreSQL ENUM | Generated custom type (with to_string/from_string helpers) |
 
-Nullable columns (without `NOT NULL`) are wrapped in `Option(T)`.
+Nullable columns (no `NOT NULL`) are wrapped in `Option(T)`.
 
 ## Overrides
 
-Type overrides and column renames can be configured per SQL block:
+Each `sql` block can carry type overrides and column renames:
 
 ```yaml
 sql:
@@ -664,35 +595,34 @@ sql:
           rename_to: "biography"
 ```
 
-Type overrides support two targeting modes:
+Two targeting modes:
 
-- **`db_type`**: Overrides all columns of a given database type (e.g., all `uuid` columns become `String`)
-- **`column`**: Overrides a specific column using `table.column` format (e.g., only `users.id` becomes `String`)
+- `db_type` — every column of a given database type (e.g. every `uuid` becomes `String`).
+- `column` — a specific column via `table.column` (e.g. only `users.id`).
 
-Column-level overrides take precedence over `db_type` overrides.
+Column-level overrides win over `db_type` overrides.
 
 ### Custom type aliases
 
-> [!WARNING]
-> **Opaque types are not supported.** The custom type you map to **must be a transparent type alias** (`pub type UserId = Int`). Opaque single-constructor types (`pub opaque type UserId { UserId(Int) }`) will fail to compile because the generated code calls primitive encoders (e.g. `runtime.int(params.id)`) directly on the value. Adding a codec hook for opaque types is tracked for a future release.
+A non-primitive `gleam_type` (e.g. `UserId` instead of `Int`) keeps the name in generated record fields but encodes and decodes through the underlying primitive.
 
-When you specify a non-primitive `gleam_type` (e.g., `UserId` instead of `Int`), sqlode preserves the type name in generated record fields but uses the underlying primitive type for encoding and decoding.
+Opaque types are not supported — the mapped type must be a transparent alias. Opaque single-constructor types fail to compile because the generated code calls primitive encoders (like `runtime.int(params.id)`) directly on the value. A codec hook for opaque types is tracked for a future release.
 
 ```gleam
-// OK — transparent type alias
+// OK: transparent alias
 pub type UserId = Int
 
-// Error — opaque type (fails to compile against generated code)
+// Error: opaque
 pub opaque type UserId {
   UserId(Int)
 }
 ```
 
-sqlode validates that `gleam_type` values start with an uppercase letter (valid Gleam type name) and emits a warning during generation when custom types are used.
+sqlode checks that `gleam_type` starts with an uppercase letter and warns when custom types are in play.
 
 ### Semantic type mappings
 
-By default, sqlode maps UUID, JSON, DATE, TIME, and TIMESTAMP columns to `String`. You can enable semantic type aliases with the `type_mapping` option:
+By default UUID, JSON, DATE, TIME, TIMESTAMP become `String`. `type_mapping` opts into richer aliases:
 
 ```yaml
 gen:
@@ -700,8 +630,6 @@ gen:
     out: "src/db"
     type_mapping: "rich"
 ```
-
-sqlode emits type aliases for database types in `models.gleam`:
 
 | SQL type | `string` (default) | `rich` | `strong` |
 |----------|-------------------|--------|----------|
@@ -711,9 +639,7 @@ sqlode emits type aliases for database types in `models.gleam`:
 | UUID | `String` | `SqlUuid` | `SqlUuid(String)` |
 | JSON / JSONB | `String` | `SqlJson` | `SqlJson(String)` |
 
-**`rich`**: Type aliases over `String`. Readable in signatures but not enforced by the compiler.
-
-**`strong`**: Single-constructor wrapper types with unwrap helpers (e.g. `sql_uuid_to_string`). `SqlUuid` and `String` are distinct at compile time. Generated adapters wrap decoded values and unwrap encoded values automatically.
+`rich` is a plain `String` alias — readable in signatures, not enforced by the compiler. `strong` emits a single-constructor wrapper with an `*_to_string` helper; `SqlUuid` and `String` are then distinct at compile time, and adapters wrap / unwrap values automatically.
 
 Example with `type_mapping: "strong"`:
 
@@ -731,41 +657,40 @@ pub fn sql_uuid_to_string(value: SqlUuid) -> String {
 
 ## Limitations
 
-sqlode is in an early phase. The following constraints are worth checking before you adopt it; several are tracked for future releases.
+sqlode is still early. A few constraints to check before adopting it; most are tracked for future releases.
 
 ### Parameter type inference
 
-sqlode infers a parameter's type from the SQL *context* the parameter appears in. Inference currently fires in four contexts:
+sqlode infers a parameter's type from its surrounding SQL. Four contexts are recognised today:
 
-1. `INSERT INTO t (col) VALUES ($1)` — the parameter takes the type of `col`.
-2. `WHERE col = $1` (and `!=`, `<`, `<=`, `>`, `>=`) — the parameter takes the column type.
-3. `WHERE col IN ($1, $2, ...)` / `sqlode.slice($1)` — the parameter (or slice element type) takes the column type.
-4. `$1::int` / `CAST($1 AS int)` — explicit type cast.
+1. `INSERT INTO t (col) VALUES ($1)` — parameter inherits `col`'s type.
+2. `WHERE col = $1` (and `!=`, `<`, `<=`, `>`, `>=`).
+3. `WHERE col IN ($1, $2, ...)` and `sqlode.slice($1)`.
+4. `$1::int` / `CAST($1 AS int)` — explicit cast.
 
-Outside those contexts, sqlode cannot infer a type and fails with an actionable error:
+Anywhere else, sqlode fails generation with:
 
 > `Query "Name": could not infer type for parameter $N. Use a type cast (e.g. $N::int) to specify the type`
 
-Typical cases that need an explicit cast today: parameters inside scalar arithmetic (`price + $1`), inside `CASE WHEN` branches whose other branches are also parameters, or inside function calls whose arguments sqlode does not yet recognise. Adding more inference contexts is tracked for a future release; until then, pin the type with `$N::int` (PostgreSQL) / `CAST($N AS INTEGER)` (SQLite).
+Cases that need an explicit cast today: scalar arithmetic (`price + $1`), parameters inside `CASE WHEN` branches whose other branches are also parameters, and function arguments sqlode does not yet recognise. Pin the type with `$N::int` (PostgreSQL) or `CAST($N AS INTEGER)` (SQLite).
 
 ### Schema DDL scope
 
-The schema parser supports both **schema snapshots and migration histories** including destructive DDL. Supported statements:
+The schema parser accepts both schema snapshots and migration histories (including destructive DDL). Supported statements:
 
 - `CREATE TABLE`, `CREATE VIEW`, `CREATE TYPE` (enum)
-- `ALTER TABLE ... ADD COLUMN`
-- `DROP TABLE`, `DROP VIEW`, `DROP TYPE`
-- `ALTER TABLE ... DROP COLUMN`
+- `ALTER TABLE ... ADD COLUMN` / `DROP COLUMN`
 - `ALTER TABLE ... RENAME TO` / `RENAME COLUMN`
 - `ALTER TABLE ... ALTER COLUMN TYPE` / `SET NOT NULL` / `DROP NOT NULL`
+- `DROP TABLE`, `DROP VIEW`, `DROP TYPE`
 
-Other statements (`CREATE INDEX`, transaction blocks, comments) are silently skipped.
+Anything else (`CREATE INDEX`, transaction blocks, comments) is silently skipped.
 
 ### View resolution
 
-`CREATE VIEW ... AS SELECT ...` columns are resolved against the base tables so the generated models have correct types. By default sqlode fails generation when any view column cannot be resolved (unknown base table, ambiguous expression, etc.) — a partially resolved view almost always means the schema and the configuration are out of sync, and silently dropping the column would let that mismatch reach generated code.
+`CREATE VIEW ... AS SELECT ...` columns resolve against the base tables so generated models have real types. By default sqlode fails generation when any view column cannot be resolved — a partially resolved view is almost always a sign that the schema and the config have drifted, and silently dropping columns lets that drift reach generated code.
 
-For legacy schemas that still need the old warn-and-continue behaviour, set `strict_views: false` explicitly:
+If you need the old warn-and-continue behaviour, set `strict_views: false`:
 
 ```yaml
 sql:
@@ -778,17 +703,17 @@ sql:
         strict_views: false
 ```
 
-With `strict_views: false` each unresolvable column is reported to stderr and dropped from the generated model (and the view itself is dropped if every column is unresolvable).
+Unresolvable columns are then printed to stderr and dropped (or the whole view is dropped if nothing resolves).
 
 ### Custom types must be transparent aliases
 
-See [Custom type aliases](#custom-type-aliases) — opaque types (`pub opaque type Foo { ... }`) are not supported today.
+See [Custom type aliases](#custom-type-aliases). Opaque types (`pub opaque type Foo { ... }`) are not supported.
 
 ## Config options
 
 ### emit_sql_as_comment
 
-When set to `true`, each generated adapter function includes the original SQL as a comment:
+Attach the original SQL as a comment on each generated adapter function.
 
 ```yaml
 gen:
@@ -799,7 +724,7 @@ gen:
 
 ### emit_exact_table_names
 
-When set to `true`, table type names use the exact table name instead of singularized form:
+Keep table names as-is instead of singularising. `authors` stays `pub type Authors { ... }` (default would be `Author`).
 
 ```yaml
 gen:
@@ -807,8 +732,6 @@ gen:
     out: "src/db"
     emit_exact_table_names: true
 ```
-
-For example, a table named `authors` generates `pub type Authors { ... }` instead of the default `pub type Author { ... }`.
 
 ## CLI
 
@@ -826,11 +749,7 @@ gleam run -m sqlode -- init     [--output=./sqlode.yaml]
 
 ### `sqlode verify`
 
-`verify` is the static verification lane for CI. It loads the
-project the same way `generate` would — schema parsing, query
-parsing, analyser pass — but does not write files and collects
-every failure it can see into a single report instead of
-short-circuiting on the first error.
+`verify` is the static check lane for CI. It loads the project like `generate` does — schema parsing, query parsing, analyser pass — but writes no files and collects every failure into a single report instead of short-circuiting on the first error.
 
 ```
 $ sqlode verify
@@ -838,42 +757,29 @@ Verifying config: sqlode.yaml
 [src/db] query "FilterAuthors" has 4 inferred parameter(s), exceeds query_parameter_limit 3
 ```
 
-The command exits non-zero when at least one finding is reported,
-so it can gate generation in CI:
+Non-zero exit on any finding, so it gates generation in CI:
 
 ```yaml
 - run: sqlode verify
 - run: sqlode generate
 ```
 
-Per-block policies that influence `verify`:
+Per-block policies `verify` honours:
 
-- `strict_views` — view-resolution warnings are promoted to
-  findings (the same policy `generate` uses).
-- `query_parameter_limit` — per-query cap on inferred parameters,
-  mirroring the sqlc setting of the same name. Unset means no
-  limit.
+- `strict_views` — promote view-resolution warnings to findings (same as `generate`).
+- `query_parameter_limit` — per-query cap on inferred parameters, mirroring sqlc's option. Unset means no limit.
 
 ### Verification roadmap
 
-`verify` today covers the static phase of Issue #395. Later phases
-are expected to layer on:
+Today's command covers the static phase of Issue #395. Future phases are additive — new findings show up in the existing `Report` without breaking the CLI contract:
 
-1. **Static analysis (shipped).** The current command: schema +
-   query parsing, full analyser pass, `query_parameter_limit`.
-2. **DB-backed analysis.** A `database` / `analyzer` config concept
-   that runs queries through `EXPLAIN` (or equivalent) against a
-   real database to catch mistakes the local analyser cannot, such
-   as view drift or engine-specific typing.
-3. **Execution-lane validation.** Running generated code against
-   an ephemeral test database as part of the verify command.
-
-Each phase is additive: new findings show up in the existing
-`Report` without breaking the CLI contract.
+1. Static analysis (shipped) — schema + query parsing, analyser pass, `query_parameter_limit`.
+2. DB-backed analysis — a `database` / `analyzer` config that runs queries through `EXPLAIN` against a real database to catch view drift and engine-specific typing the local analyser misses.
+3. Execution-lane validation — running generated code against an ephemeral test DB as part of `verify`.
 
 ## Migrating from sqlc
 
-sqlode follows sqlc conventions, so most SQL files work without changes. Key differences:
+sqlode follows sqlc conventions, so most SQL files move over untouched. The differences:
 
 | | sqlc | sqlode |
 |---|---|---|
@@ -887,18 +793,17 @@ sqlode follows sqlc conventions, so most SQL files work without changes. Key dif
 
 ### Migration steps
 
-1. Install sqlode (see [Install](#install) above).
-2. Keep your existing `sqlc.yaml` / `sqlc.yml` / `sqlc.json` in place — `sqlode generate` auto-discovers them in the current directory when `--config` is not passed. (The search order is `sqlode.yaml`, `sqlode.yml`, `sqlc.yaml`, `sqlc.yml`, `sqlc.json`; if more than one exists, pass `--config=<path>` to pick explicitly.) If you prefer a dedicated file, copy the config to `sqlode.yaml`. Either way keep `version: "2"` and the `sql` blocks. Replace the `gen` section:
+1. Install sqlode — see [Install](#install).
+2. Keep your existing `sqlc.yaml` / `sqlc.yml` / `sqlc.json`. `sqlode generate` auto-discovers them in the current directory when no `--config` is passed (search order: `sqlode.yaml`, `sqlode.yml`, `sqlc.yaml`, `sqlc.yml`, `sqlc.json`; pass `--config=<path>` if more than one exists). If you prefer a dedicated file, copy the config to `sqlode.yaml`. Either way, keep `version: "2"` and the `sql` blocks and replace the `gen` section:
 
    ```yaml
    gen:
      gleam:
        out: "src/db"
-       runtime: "raw"   # or "native" for full adapter generation
+       runtime: "raw"   # or "native"
    ```
 
-3. Replace `sqlc.arg(...)`, `sqlc.narg(...)`, `sqlc.slice(...)`, and `sqlc.embed(...)` with `sqlode.arg(...)`, `sqlode.narg(...)`, `sqlode.slice(...)`, and `sqlode.embed(...)` in your `.sql` query files. The `@name` shorthand remains unchanged.
-
+3. Swap `sqlc.arg` / `sqlc.narg` / `sqlc.slice` / `sqlc.embed` for the `sqlode.*` versions in your `.sql` files. The `@name` shorthand is unchanged.
 4. Run `sqlode generate` (or `gleam run -m sqlode -- generate`).
 
 ### Unsupported sqlc features
