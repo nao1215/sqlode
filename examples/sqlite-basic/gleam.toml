@@ -1,0 +1,13 @@
+name = "sqlite_basic"
+version = "0.1.0"
+description = "Minimal runnable sqlode example for SQLite + sqlight native runtime."
+
+target = "erlang"
+
+[dependencies]
+gleam_stdlib = ">= 0.40.0 and < 2.0.0"
+sqlight = ">= 1.0.0 and < 2.0.0"
+sqlode = ">= 0.5.0 and < 1.0.0"
+
+[dev-dependencies]
+gleeunit = ">= 1.5.0 and < 2.0.0"
