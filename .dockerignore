@@ -1,0 +1,16 @@
+.git/
+.github/
+build/
+target/
+test_output/
+test_integration_sqlite_tmp/
+doc/
+examples/
+integration_test/
+spec/
+test/
+*.beam
+*.ez
+erl_crash.dump
+.codex
+.claude

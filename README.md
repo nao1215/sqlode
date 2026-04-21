@@ -27,7 +27,7 @@ of this README stays reference-oriented.
 
 ### Install
 
-sqlode ships as an Erlang escript. Every install path therefore needs an Erlang/OTP runtime on the host (`escript` on PATH). The easiest way to cover both downloading the escript and detecting a missing runtime is the one-line installer:
+sqlode ships as an Erlang escript. Most install paths therefore need an Erlang/OTP runtime on the host (`escript` on PATH); the Docker image (Option D) bundles Erlang so you can evaluate sqlode without installing one yourself.
 
 #### Option A: One-line install (recommended)
 
@@ -78,6 +78,19 @@ If you already have a Gleam project, you can invoke the CLI through `gleam run` 
 gleam add sqlode
 gleam run -m sqlode -- generate
 ```
+
+#### Option D: Docker image (no Erlang install required)
+
+Prebuilt images are published to GitHub Container Registry. Use this path if you want to evaluate sqlode without installing Erlang/OTP on the host:
+
+```console
+docker run --rm -v "$PWD:/work" ghcr.io/nao1215/sqlode:latest init --engine=sqlite
+docker run --rm -v "$PWD:/work" ghcr.io/nao1215/sqlode:latest generate
+```
+
+The container's working directory is `/work`, so bind-mounting your project there lets `init` / `generate` / `verify` write into the host directory. Pin a release by replacing `:latest` with `:0.5.0` (or any tag listed under the repository's Packages page).
+
+> Note: image tags are published by the repository's CI workflow. The first push that runs after this workflow lands is what materialises the `:latest` tag — until then, build locally with `docker build -t sqlode .` at the repo root.
 
 ### Initialize config
 
