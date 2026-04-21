@@ -1195,10 +1195,13 @@ pub fn readme_runtime_prepare_is_two_arg_test() {
   string.contains(readme, "let #(sql, values) = runtime.prepare(")
   |> should.be_true()
 
+  // Keep this resilient to README line-wrapping changes while still pinning
+  // the second argument to the generated params record.
+  string.contains(readme, "runtime.prepare(q, params.")
+  |> should.be_true()
+
   // Fail fast if anyone regresses the example back to a 3-arg call with the
   // placeholder prefix string ("$" or "?").
-  string.contains(readme, "runtime.prepare(\n  q,\n  params.")
-  |> should.be_true()
   string.contains(readme, "\"$\",  // \"$\" for PostgreSQL")
   |> should.be_false()
 }
