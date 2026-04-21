@@ -323,15 +323,6 @@ fn validate_init_flags(engine: String, runtime: String) -> Result(Nil, String) {
         )
     }
   })
-  |> result.try(fn(_) {
-    case engine, runtime {
-      "mysql", "native" ->
-        Error(
-          "MySQL does not support runtime: \"native\" because no Gleam MySQL driver is available; use runtime: \"raw\"",
-        )
-      _, _ -> Ok(Nil)
-    }
-  })
 }
 
 fn config_template(engine: String, runtime: String) -> String {

@@ -28,6 +28,16 @@ Describe 'sqlode CLI'
       The status should be failure
       The output should include 'already exists'
     End
+
+    It 'scaffolds mysql + native runtime'
+      When run init_cmd --output="$TEST_OUTPUT_DIR/sqlode.yaml" --engine=mysql --runtime=native
+      The status should be success
+      The output should include 'Created'
+      The path "$TEST_OUTPUT_DIR/sqlode.yaml" should be file
+      The contents of file "$TEST_OUTPUT_DIR/sqlode.yaml" should include 'engine: "mysql"'
+      The contents of file "$TEST_OUTPUT_DIR/sqlode.yaml" should include 'runtime: "native"'
+      The contents of file "$TEST_OUTPUT_DIR/db/schema.sql" should include 'BIGINT AUTO_INCREMENT PRIMARY KEY'
+    End
   End
 
   Describe 'generate command'

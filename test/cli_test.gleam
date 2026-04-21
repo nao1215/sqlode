@@ -201,3 +201,30 @@ pub fn init_mysql_engine_generates_mysql_schema_test() {
 
   cleanup("mysql_engine")
 }
+
+pub fn init_mysql_native_runtime_test() {
+  setup("mysql_native")
+  let dir = base_dir <> "/mysql_native"
+  let config_path = dir <> "/sqlode.yaml"
+
+  cli.app()
+  |> glint.execute([
+    "init",
+    "--output=" <> config_path,
+    "--engine=mysql",
+    "--runtime=native",
+  ])
+  |> result.is_ok
+  |> should.be_true
+
+  let assert Ok(config) = simplifile.read(config_path)
+  config |> string.contains("engine: \"mysql\"") |> should.be_true
+  config |> string.contains("runtime: \"native\"") |> should.be_true
+
+  let assert Ok(schema) = simplifile.read(dir <> "/db/schema.sql")
+  schema
+  |> string.contains("BIGINT AUTO_INCREMENT PRIMARY KEY")
+  |> should.be_true
+
+  cleanup("mysql_native")
+}
