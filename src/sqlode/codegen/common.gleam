@@ -51,10 +51,11 @@ pub fn render_enum_or_set_decoder(
 /// Render a param / record field's Gleam type for generated modules
 /// that are NOT `models.gleam` itself (currently `params.gleam` and
 /// `queries.gleam`). They reach the generated `EnumType` / `SetType`
-/// definitions through a plain `import db/models`, so every external
-/// reference must be qualified with `models.` — the bare names only
-/// work inside `models.gleam` where the types are declared.
-/// `ArrayType` recurses so arrays of enum / set stay qualified.
+/// definitions and rich-scalar aliases / wrappers through a plain
+/// `import db/models`, so every external reference must be qualified
+/// with `models.` — the bare names only work inside `models.gleam`
+/// where the types are declared. `ArrayType` recurses so arrays of
+/// enum / set / rich scalars stay qualified.
 pub fn qualified_field_type(
   scalar_type: model.ScalarType,
   type_mapping_mode: model.TypeMapping,
@@ -67,7 +68,34 @@ pub fn qualified_field_type(
       "List(models." <> type_mapping.set_value_type_name(name) <> ")"
     model.ArrayType(element) ->
       "List(" <> qualified_field_type(element, type_mapping_mode) <> ")"
-    _ -> type_mapping.scalar_type_to_gleam_type(scalar_type, type_mapping_mode)
+    _ ->
+      case needs_models_prefix_for_rich_type(scalar_type, type_mapping_mode) {
+        True ->
+          "models."
+          <> type_mapping.scalar_type_to_gleam_type(
+            scalar_type,
+            type_mapping_mode,
+          )
+        False ->
+          type_mapping.scalar_type_to_gleam_type(scalar_type, type_mapping_mode)
+      }
+  }
+}
+
+/// Rich scalars (`UUID` / `TIMESTAMP` / `DATE` / ...) only acquire a
+/// distinct Gleam type under `rich` / `strong` mapping — the string
+/// mapping keeps them as plain `String`. Under either rich mapping
+/// mode, the resulting type (an alias or a wrapper) lives in
+/// `models.gleam` and must be qualified when referenced from
+/// `params.gleam` / `queries.gleam`.
+fn needs_models_prefix_for_rich_type(
+  scalar_type: model.ScalarType,
+  type_mapping_mode: model.TypeMapping,
+) -> Bool {
+  case type_mapping_mode {
+    model.RichMapping | model.StrongMapping ->
+      type_mapping.is_rich_type(scalar_type)
+    model.StringMapping -> False
   }
 }
 

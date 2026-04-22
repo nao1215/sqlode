@@ -23,8 +23,15 @@ pub fn render(
     common.param_scalar_types(queries)
     |> common.custom_type_imports
 
-  let needs_models_for_strong =
-    type_mapping == model.StrongMapping
+  // Both `strong` and `rich` mappings qualify rich scalars through
+  // `models.<Alias|Wrapper>`. Under `strong` mapping the encoder
+  // also references `models.<type>_to_string(...)` to unwrap values
+  // before handing them to the runtime. Under `rich` mapping the
+  // aliases compile to plain `String` at runtime, but the
+  // `models.` qualifier in the record field types still needs the
+  // module import.
+  let needs_models_for_rich =
+    { type_mapping == model.StrongMapping || type_mapping == model.RichMapping }
     && list.any(queries, fn(q) {
       list.any(q.params, fn(p) { type_mapping.is_rich_type(p.scalar_type) })
     })
@@ -39,7 +46,7 @@ pub fn render(
           False -> []
         },
         ["import gleam/option.{type Option, None, Some}", runtime_import_line],
-        case has_enums || needs_models_for_strong {
+        case has_enums || needs_models_for_rich {
           True -> ["import " <> module_path <> "/models"]
           False -> []
         },
@@ -52,7 +59,7 @@ pub fn render(
           False -> []
         },
         [runtime_import_line],
-        case has_enums || needs_models_for_strong {
+        case has_enums || needs_models_for_rich {
           True -> ["import " <> module_path <> "/models"]
           False -> []
         },

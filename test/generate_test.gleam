@@ -312,6 +312,143 @@ pub fn module_qualified_custom_type_in_params_generates_import_test() {
   cleanup()
 }
 
+pub fn module_qualified_custom_type_in_queries_generates_import_test() {
+  // Before Issue #444, the `prepare_*` helpers emitted signatures
+  // like `pub fn prepare_get_author(id: UserId) -> ...` but
+  // `queries.gleam` only imported `db/models`, never the module
+  // the custom type came from. The generated file did not
+  // compile. `queries.gleam` must emit the same selective
+  // `import myapp/types.{type UserId}` that `params.gleam`
+  // already adds, so the `prepare_*` argument types resolve.
+  cleanup()
+  let block =
+    model.SqlBlock(
+      name: option.None,
+      engine: model.PostgreSQL,
+      schema: ["test/fixtures/schema.sql"],
+      queries: ["test/fixtures/query.sql"],
+      gleam: model.GleamOutput(
+        out: test_out,
+        runtime: model.Raw,
+        type_mapping: model.StringMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: False,
+        omit_unused_models: False,
+        vendor_runtime: False,
+        strict_views: False,
+        query_parameter_limit: option.None,
+      ),
+      overrides: model.Overrides(
+        type_overrides: [
+          model.DbTypeOverride(
+            db_type: "int",
+            gleam_type: "myapp/types.UserId",
+            nullable: option.None,
+          ),
+        ],
+        column_renames: [],
+      ),
+    )
+
+  run_generate(block)
+  let queries = read_generated("queries.gleam")
+
+  string.contains(queries, "import myapp/types.{type UserId}")
+  |> should.be_true()
+  // prepare_* signatures reference the custom type.
+  string.contains(queries, "id: UserId") |> should.be_true()
+
+  cleanup()
+}
+
+pub fn strong_mapping_qualifies_rich_types_in_params_test() {
+  // Before Issue #444, `params.gleam` emitted record fields like
+  // `id: SqlUuid` under strong mapping even though the file only
+  // imported `db/models`. The compiler rejected those bare names
+  // because `SqlUuid` is declared in `models.gleam`, not in
+  // `params.gleam`. Every reference must now be qualified
+  // through the `models.` prefix so the generated source
+  // compiles without the user writing additional imports.
+  cleanup()
+  let block =
+    model.SqlBlock(
+      name: option.None,
+      engine: model.PostgreSQL,
+      schema: ["test/fixtures/write_only_rich_schema.sql"],
+      queries: ["test/fixtures/write_only_rich_query.sql"],
+      gleam: model.GleamOutput(
+        out: test_out,
+        runtime: model.Raw,
+        type_mapping: model.StrongMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: False,
+        omit_unused_models: False,
+        vendor_runtime: False,
+        strict_views: False,
+        query_parameter_limit: option.None,
+      ),
+      overrides: model.empty_overrides(),
+    )
+
+  run_generate(block)
+
+  let params = read_generated("params.gleam")
+  string.contains(params, "id: models.SqlUuid") |> should.be_true()
+  string.contains(params, "created_at: models.SqlTimestamp")
+  |> should.be_true()
+
+  let queries = read_generated("queries.gleam")
+  string.contains(queries, "id: models.SqlUuid") |> should.be_true()
+  string.contains(queries, "created_at: models.SqlTimestamp")
+  |> should.be_true()
+  // queries.gleam needs the models import for `:exec` helpers too,
+  // not only for row decoders.
+  string.contains(queries, "/models") |> should.be_true()
+
+  cleanup()
+}
+
+pub fn rich_mapping_qualifies_rich_types_in_params_test() {
+  // Rich mapping emits plain `pub type SqlUuid = String` aliases,
+  // not wrapper variants, but the alias still lives in
+  // `models.gleam`. `params.gleam` / `queries.gleam` must still
+  // qualify references with `models.` or Gleam cannot resolve
+  // the name.
+  cleanup()
+  let block =
+    model.SqlBlock(
+      name: option.None,
+      engine: model.PostgreSQL,
+      schema: ["test/fixtures/write_only_rich_schema.sql"],
+      queries: ["test/fixtures/write_only_rich_query.sql"],
+      gleam: model.GleamOutput(
+        out: test_out,
+        runtime: model.Raw,
+        type_mapping: model.RichMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: False,
+        omit_unused_models: False,
+        vendor_runtime: False,
+        strict_views: False,
+        query_parameter_limit: option.None,
+      ),
+      overrides: model.empty_overrides(),
+    )
+
+  run_generate(block)
+
+  let params = read_generated("params.gleam")
+  string.contains(params, "id: models.SqlUuid") |> should.be_true()
+  string.contains(params, "created_at: models.SqlTimestamp")
+  |> should.be_true()
+
+  let queries = read_generated("queries.gleam")
+  string.contains(queries, "id: models.SqlUuid") |> should.be_true()
+  string.contains(queries, "/models") |> should.be_true()
+
+  cleanup()
+}
+
 pub fn bare_custom_type_omits_module_import_test() {
   cleanup()
   let block =

@@ -92,6 +92,27 @@ pub fn render(
     }
     || list.any(queries, fn(q) { list.any(q.params, fn(p) { p.nullable }) })
 
+  // Param rich scalars in `prepare_*` signatures flow through
+  // `common.qualified_field_type`, which prefixes them with
+  // `models.`. `queries.gleam` therefore needs the models import
+  // whenever any prepare-helper references a rich scalar, not only
+  // when the file has row-returning decoders.
+  let needs_models_for_rich_params =
+    {
+      gleam.type_mapping == model.StrongMapping
+      || gleam.type_mapping == model.RichMapping
+    }
+    && list.any(queries, fn(q) {
+      list.any(q.params, fn(p) { type_mapping.is_rich_type(p.scalar_type) })
+    })
+
+  // Module-qualified custom types referenced by `prepare_*` need
+  // their own selective `import myapp/types.{type UserId}` line so
+  // the generated signatures compile as written.
+  let custom_imports =
+    common.param_scalar_types(queries)
+    |> common.custom_type_imports
+
   let imports =
     list.flatten([
       case has_slices {
@@ -111,10 +132,11 @@ pub fn render(
         True -> ["import " <> module_path <> "/params"]
         False -> []
       },
-      case has_decoders {
+      case has_decoders || needs_models_for_rich_params {
         True -> ["import " <> module_path <> "/models"]
         False -> []
       },
+      custom_imports,
     ])
 
   string.join(
