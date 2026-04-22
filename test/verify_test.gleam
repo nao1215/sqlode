@@ -254,6 +254,28 @@ pub fn verify_rejects_duplicate_query_names_test() {
   string.contains(finding.detail, "GetAuthor") |> should.be_true()
 }
 
+pub fn verify_rejects_normalized_name_collision_test() {
+  // Different annotation names that normalize to the same
+  // snake_case `function_name` would produce duplicate Gleam
+  // declarations. `generate` (and therefore `verify`) must
+  // reject the config before it can reach the codegen stage.
+  let cfg =
+    model.Config(version: 2, sql: [
+      make_block(
+        "test/fixtures/verify_ok_schema.sql",
+        "test/fixtures/normalized_collision_query.sql",
+        "src/verify_normalized_out",
+        option.None,
+      ),
+    ])
+  let report = verify.verify_config(cfg)
+  let assert [finding] = report.findings
+  string.contains(finding.detail, "normalize to the generated identifier")
+  |> should.be_true()
+  string.contains(finding.detail, "get_user") |> should.be_true()
+  string.contains(finding.detail, "GetUser") |> should.be_true()
+}
+
 pub fn verify_rejects_unsupported_batch_annotation_test() {
   // :batchmany is not supported by any codegen path. `generate`
   // rejects it; `verify` must surface the same finding so CI

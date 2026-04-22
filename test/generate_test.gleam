@@ -1645,6 +1645,43 @@ pub fn reject_duplicate_query_names_test() {
   |> should.be_true
 }
 
+pub fn reject_normalized_name_collision_across_cases_test() {
+  // `GetUser` and `get_user` have distinct annotation text but
+  // share the same snake_case `function_name`, which would leave
+  // the generator emitting duplicate `get_user` functions,
+  // `prepare_get_user` helpers, and `GetUser*` types. Generation
+  // must stop before writing files and the error must identify
+  // both conflicting names so operators can rename one of them.
+  let block =
+    model.SqlBlock(
+      name: option.None,
+      engine: model.PostgreSQL,
+      schema: ["test/fixtures/schema.sql"],
+      queries: ["test/fixtures/normalized_collision_query.sql"],
+      gleam: model.GleamOutput(
+        out: test_out,
+        runtime: model.Raw,
+        type_mapping: model.StringMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: False,
+        omit_unused_models: False,
+        vendor_runtime: False,
+        strict_views: False,
+        query_parameter_limit: option.None,
+      ),
+      overrides: model.empty_overrides(),
+    )
+
+  let cfg = model.Config(version: 2, sql: [block])
+  let assert Error(error) = generate.generate_config(cfg)
+
+  let message = generate.error_to_string(error)
+  string.contains(message, "normalize to the generated identifier")
+  |> should.be_true
+  string.contains(message, "get_user") |> should.be_true
+  string.contains(message, "GetUser") |> should.be_true
+}
+
 // --- emit_sql_as_comment / emit_exact_table_names coverage ---
 
 pub fn emit_sql_as_comment_includes_sql_in_output_test() {
