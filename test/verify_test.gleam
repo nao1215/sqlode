@@ -197,3 +197,129 @@ pub fn verify_surfaces_empty_query_directory_as_finding_test() {
   let assert [finding] = report.findings
   string.contains(finding.detail, "no .sql files") |> should.be_true()
 }
+
+// ============================================================
+// Generate-parity validation tests (Issue #441)
+//
+// `verify` is meant to be a trustworthy pre-generation CI gate:
+// anything `generate` would reject must also be reported by
+// `verify`. Each test below locks in one of the four shared
+// post-parse checks.
+// ============================================================
+
+fn make_block_with(
+  schema_path: String,
+  query_path: String,
+  out: String,
+  engine: model.Engine,
+  runtime: model.Runtime,
+) -> model.SqlBlock {
+  model.SqlBlock(
+    name: option.None,
+    engine: engine,
+    schema: [schema_path],
+    queries: [query_path],
+    gleam: model.GleamOutput(
+      out: out,
+      runtime: runtime,
+      type_mapping: model.StringMapping,
+      emit_sql_as_comment: False,
+      emit_exact_table_names: False,
+      omit_unused_models: False,
+      vendor_runtime: False,
+      strict_views: False,
+      query_parameter_limit: option.None,
+    ),
+    overrides: model.empty_overrides(),
+  )
+}
+
+pub fn verify_rejects_duplicate_query_names_test() {
+  // duplicate_query.sql declares `GetAuthor` twice. `generate`
+  // rejects this immediately; `verify` used to print "All checks
+  // passed" for the same config. Both commands must now reject
+  // it with the same diagnostic.
+  let cfg =
+    model.Config(version: 2, sql: [
+      make_block(
+        "test/fixtures/verify_ok_schema.sql",
+        "test/fixtures/duplicate_query.sql",
+        "src/verify_dupe_out",
+        option.None,
+      ),
+    ])
+  let report = verify.verify_config(cfg)
+  let assert [finding] = report.findings
+  string.contains(finding.detail, "duplicate query name") |> should.be_true()
+  string.contains(finding.detail, "GetAuthor") |> should.be_true()
+}
+
+pub fn verify_rejects_unsupported_batch_annotation_test() {
+  // :batchmany is not supported by any codegen path. `generate`
+  // rejects it; `verify` must surface the same finding so CI
+  // catches the gap before generation.
+  let cfg =
+    model.Config(version: 2, sql: [
+      make_block_with(
+        "test/fixtures/all_commands_schema.sql",
+        "test/fixtures/batchmany_query.sql",
+        "src/verify_batch_out",
+        model.SQLite,
+        model.Raw,
+      ),
+    ])
+  let report = verify.verify_config(cfg)
+  let assert [finding] = report.findings
+  string.contains(finding.detail, ":batchmany") |> should.be_true()
+  string.contains(finding.detail, "ListPostsBatch") |> should.be_true()
+}
+
+pub fn verify_rejects_execresult_under_native_runtime_test() {
+  // :execresult is valid on the raw path but incompatible with
+  // the native runtime. `verify` must honour the runtime flag on
+  // the block when running this check so a native project
+  // cannot ship code the generator would refuse.
+  let cfg =
+    model.Config(version: 2, sql: [
+      make_block_with(
+        "test/fixtures/all_commands_schema.sql",
+        "test/fixtures/execresult_query.sql",
+        "src/verify_execresult_out",
+        model.SQLite,
+        model.Native,
+      ),
+    ])
+  let report = verify.verify_config(cfg)
+  let assert [finding] = report.findings
+  string.contains(finding.detail, ":execresult") |> should.be_true()
+  string.contains(finding.detail, "UpdatePost") |> should.be_true()
+}
+
+pub fn verify_execresult_under_raw_runtime_is_allowed_test() {
+  // The same fixture must pass verification when the block
+  // targets the raw runtime — :execresult is only forbidden in
+  // native mode. This guards against an over-eager check that
+  // would fire regardless of runtime.
+  let cfg =
+    model.Config(version: 2, sql: [
+      make_block_with(
+        "test/fixtures/all_commands_schema.sql",
+        "test/fixtures/execresult_query.sql",
+        "src/verify_execresult_raw_out",
+        model.SQLite,
+        model.Raw,
+      ),
+    ])
+  let report = verify.verify_config(cfg)
+  report.findings |> should.equal([])
+}
+// Note: the non-PostgreSQL array-parameter check
+// (`validate_array_engine_support`) is also shared with `generate`
+// via `sqlode/query_validation`. We do not add a fixture-based
+// regression test here because the current SQLite schema pipeline
+// does not surface `ArrayType` on inferred params for
+// `TEXT[]` / `INTEGER[]` columns, so neither command actually
+// reaches the rejection branch today. If a future change produces
+// array-typed params on a non-PostgreSQL engine, both `generate`
+// and `verify` will reject it with an identical message through
+// the shared validator.
