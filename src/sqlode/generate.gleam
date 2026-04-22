@@ -20,6 +20,7 @@ import sqlode/query_ir
 import sqlode/query_parser
 import sqlode/runtime
 import sqlode/schema_parser
+import sqlode/sql_paths
 import sqlode/type_mapping
 import sqlode/writer
 
@@ -391,49 +392,13 @@ fn enum_name(scalar_type: model.ScalarType) -> Result(String, Nil) {
   }
 }
 
-fn expand_sql_paths(
-  paths: List(String),
-  error_fn: fn(String, String) -> GenerateError,
-) -> Result(List(String), GenerateError) {
-  paths
-  |> list.try_map(fn(path) {
-    case simplifile.is_directory(path) {
-      Ok(True) ->
-        case simplifile.get_files(in: path) {
-          Ok(files) -> {
-            let sql_files =
-              files
-              |> list.filter(fn(f) { string.ends_with(f, ".sql") })
-              |> list.sort(string.compare)
-            case sql_files {
-              [] -> Error(error_fn(path, "Directory contains no .sql files"))
-              _ -> Ok(sql_files)
-            }
-          }
-          Error(error) ->
-            Error(error_fn(
-              path,
-              "Failed to read directory: " <> simplifile.describe_error(error),
-            ))
-        }
-      Ok(False) -> Ok([path])
-      Error(error) ->
-        Error(error_fn(
-          path,
-          "Failed to access path: " <> simplifile.describe_error(error),
-        ))
-    }
-  })
-  |> result.map(list.flatten)
-}
-
 fn load_catalog(
   paths: List(String),
   engine: model.Engine,
   strict_views: Bool,
 ) -> Result(model.Catalog, GenerateError) {
   use expanded <- result.try(
-    expand_sql_paths(paths, fn(path, detail) { SchemaReadError(path:, detail:) }),
+    sql_paths.expand(paths, fn(path, detail) { SchemaReadError(path:, detail:) }),
   )
   use entries <- result.try(
     expanded
@@ -483,7 +448,7 @@ fn load_queries(
   let model.SqlBlock(engine:, queries:, ..) = block
 
   use expanded <- result.try(
-    expand_sql_paths(queries, fn(path, detail) {
+    sql_paths.expand(queries, fn(path, detail) {
       QueryReadError(path:, detail:)
     }),
   )

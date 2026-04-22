@@ -29,6 +29,7 @@ import sqlode/query_analyzer
 import sqlode/query_ir
 import sqlode/query_parser
 import sqlode/schema_parser
+import sqlode/sql_paths
 
 /// Outcome of a single verification pass. A report with an empty
 /// `findings` list means every block in the config parsed, analysed
@@ -143,7 +144,10 @@ fn parse_all_queries(
 }
 
 fn read_files(paths: List(String)) -> Result(List(#(String, String)), String) {
-  paths
+  use expanded <- result.try(
+    sql_paths.expand(paths, fn(path, detail) { path <> ": " <> detail }),
+  )
+  expanded
   |> list.try_map(fn(path) {
     case simplifile.read(path) {
       Ok(content) -> Ok(#(path, content))
