@@ -633,15 +633,29 @@ fn extract_alter_table_parts(
       lexer.Keyword("add"),
       lexer.Keyword("column"),
       ..rest
-    ] -> #(extract_ident(name_tok), rest)
+    ] -> #(extract_ident(name_tok), strip_if_not_exists(rest))
     [
       lexer.Keyword("alter"),
       lexer.Keyword("table"),
       name_tok,
       lexer.Keyword("add"),
       ..rest
-    ] -> #(extract_ident(name_tok), rest)
+    ] -> #(extract_ident(name_tok), strip_if_not_exists(rest))
     _ -> #("", [])
+  }
+}
+
+/// Skip a leading `IF NOT EXISTS` idempotency modifier on an
+/// ADD COLUMN clause. Without this, the parser would treat `if`
+/// as the column name and fail with a misleading
+/// "missing type for column if" error. The column definition
+/// itself is unchanged by the modifier, so dropping the three
+/// keywords is enough.
+fn strip_if_not_exists(tokens: List(lexer.Token)) -> List(lexer.Token) {
+  case tokens {
+    [lexer.Keyword("if"), lexer.Keyword("not"), lexer.Keyword("exists"), ..rest] ->
+      rest
+    _ -> tokens
   }
 }
 
