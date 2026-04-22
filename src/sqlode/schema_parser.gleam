@@ -148,8 +148,13 @@ fn parse_content(
                     warnings,
                   ))
                 DDLApplied(action:) -> {
-                  let #(new_tables, new_enums) =
-                    apply_ddl_action(action, tables, current_enums, engine)
+                  use #(new_tables, new_enums) <- result.try(apply_ddl_action(
+                    action,
+                    path,
+                    tables,
+                    current_enums,
+                    engine,
+                  ))
                   Ok(#(new_tables, new_enums, warnings))
                 }
                 Ignored -> Ok(#(tables, current_enums, warnings))
@@ -975,11 +980,26 @@ fn extract_alter_column_name(tokens: List(lexer.Token)) -> String {
 }
 
 /// Extract TYPE tokens from ALTER [COLUMN] <name> [SET DATA] TYPE <tokens>.
+/// Stops at a trailing `USING <expr>` cast clause so the new type
+/// parses cleanly. Without this, the USING keywords would merge into
+/// the rendered type text and every ALTER TYPE with a USING cast
+/// would silently degrade into a parse failure.
 fn extract_alter_type_tokens(tokens: List(lexer.Token)) -> List(lexer.Token) {
   case tokens {
     [] -> []
-    [lexer.Keyword("type"), ..rest] -> rest
+    [lexer.Keyword("type"), ..rest] -> take_until_using(rest, [])
     [_, ..rest] -> extract_alter_type_tokens(rest)
+  }
+}
+
+fn take_until_using(
+  tokens: List(lexer.Token),
+  acc: List(lexer.Token),
+) -> List(lexer.Token) {
+  case tokens {
+    [] -> list.reverse(acc)
+    [lexer.Keyword("using"), ..] -> list.reverse(acc)
+    [tok, ..rest] -> take_until_using(rest, [tok, ..acc])
   }
 }
 
@@ -990,85 +1010,98 @@ fn extract_alter_type_tokens(tokens: List(lexer.Token)) -> List(lexer.Token) {
 /// classification rules as CREATE TABLE.
 fn apply_ddl_action(
   action: DDLAction,
+  path: String,
   tables: List(model.Table),
   enums: List(model.EnumDef),
   engine: model.Engine,
-) -> #(List(model.Table), List(model.EnumDef)) {
+) -> Result(#(List(model.Table), List(model.EnumDef)), ParseError) {
   case action {
-    DropTable(table_name:) -> #(
-      list.filter(tables, fn(t) {
-        string.lowercase(t.name) != string.lowercase(table_name)
-      }),
-      enums,
-    )
-    DropView(view_name:) -> #(
-      list.filter(tables, fn(t) {
-        string.lowercase(t.name) != string.lowercase(view_name)
-      }),
-      enums,
-    )
-    DropType(type_name:) -> #(
-      tables,
-      list.filter(enums, fn(e) {
-        string.lowercase(e.name) != string.lowercase(type_name)
-      }),
-    )
-    AlterDropColumn(table_name:, column_name:) -> #(
-      list.map(tables, fn(t) {
-        case string.lowercase(t.name) == string.lowercase(table_name) {
-          True ->
-            model.Table(
-              ..t,
-              columns: list.filter(t.columns, fn(c) {
-                string.lowercase(c.name) != string.lowercase(column_name)
-              }),
-            )
-          False -> t
-        }
-      }),
-      enums,
-    )
-    AlterRenameTable(old_name:, new_name:) -> #(
-      list.map(tables, fn(t) {
-        case string.lowercase(t.name) == string.lowercase(old_name) {
-          True -> model.Table(..t, name: string.lowercase(new_name))
-          False -> t
-        }
-      }),
-      enums,
-    )
-    AlterRenameColumn(table_name:, old_name:, new_name:) -> #(
-      list.map(tables, fn(t) {
-        case string.lowercase(t.name) == string.lowercase(table_name) {
-          True ->
-            model.Table(
-              ..t,
-              columns: list.map(t.columns, fn(c) {
-                case string.lowercase(c.name) == string.lowercase(old_name) {
-                  True -> model.Column(..c, name: string.lowercase(new_name))
-                  False -> c
-                }
-              }),
-            )
-          False -> t
-        }
-      }),
-      enums,
-    )
+    DropTable(table_name:) ->
+      Ok(#(
+        list.filter(tables, fn(t) {
+          string.lowercase(t.name) != string.lowercase(table_name)
+        }),
+        enums,
+      ))
+    DropView(view_name:) ->
+      Ok(#(
+        list.filter(tables, fn(t) {
+          string.lowercase(t.name) != string.lowercase(view_name)
+        }),
+        enums,
+      ))
+    DropType(type_name:) ->
+      Ok(#(
+        tables,
+        list.filter(enums, fn(e) {
+          string.lowercase(e.name) != string.lowercase(type_name)
+        }),
+      ))
+    AlterDropColumn(table_name:, column_name:) ->
+      Ok(#(
+        list.map(tables, fn(t) {
+          case string.lowercase(t.name) == string.lowercase(table_name) {
+            True ->
+              model.Table(
+                ..t,
+                columns: list.filter(t.columns, fn(c) {
+                  string.lowercase(c.name) != string.lowercase(column_name)
+                }),
+              )
+            False -> t
+          }
+        }),
+        enums,
+      ))
+    AlterRenameTable(old_name:, new_name:) ->
+      Ok(#(
+        list.map(tables, fn(t) {
+          case string.lowercase(t.name) == string.lowercase(old_name) {
+            True -> model.Table(..t, name: string.lowercase(new_name))
+            False -> t
+          }
+        }),
+        enums,
+      ))
+    AlterRenameColumn(table_name:, old_name:, new_name:) ->
+      Ok(#(
+        list.map(tables, fn(t) {
+          case string.lowercase(t.name) == string.lowercase(table_name) {
+            True ->
+              model.Table(
+                ..t,
+                columns: list.map(t.columns, fn(c) {
+                  case string.lowercase(c.name) == string.lowercase(old_name) {
+                    True -> model.Column(..c, name: string.lowercase(new_name))
+                    False -> c
+                  }
+                }),
+              )
+            False -> t
+          }
+        }),
+        enums,
+      ))
     AlterColumnType(table_name:, column_name:, type_tokens:) -> {
       let type_text = render_type_tokens(type_tokens)
-      let new_type = case model.parse_sql_type_for_engine(type_text, engine) {
-        Ok(t) -> Some(t)
-        Error(_) -> None
-      }
-      case new_type {
-        Some(scalar_type) -> #(
-          rewrite_column(tables, table_name, column_name, fn(c) {
-            model.Column(..c, scalar_type:)
-          }),
-          enums,
-        )
-        None -> #(tables, enums)
+      case model.parse_sql_type_for_engine(type_text, engine) {
+        Ok(scalar_type) ->
+          Ok(#(
+            rewrite_column(tables, table_name, column_name, fn(c) {
+              model.Column(..c, scalar_type:)
+            }),
+            enums,
+          ))
+        Error(_) ->
+          Error(InvalidColumn(
+            path:,
+            table: table_name,
+            detail: "ALTER COLUMN \""
+              <> column_name
+              <> "\" TYPE: unsupported or unrecognized type \""
+              <> type_text
+              <> "\". Use a supported SQL type; if this statement should be ignored, remove it from the schema file.",
+          ))
       }
     }
     AlterModifyColumn(table_name:, column_name:, type_tokens:, nullable:) -> {
@@ -1084,7 +1117,7 @@ fn apply_ddl_action(
         rewrite_column(tables, table_name, column_name, fn(c) {
           model.Column(..c, scalar_type:, nullable:)
         })
-      #(updated_tables, new_enums)
+      Ok(#(updated_tables, new_enums))
     }
     AlterChangeColumn(
       table_name:,
@@ -1109,44 +1142,50 @@ fn apply_ddl_action(
             nullable:,
           )
         })
-      #(updated_tables, new_enums)
+      Ok(#(updated_tables, new_enums))
     }
-    AlterColumnSetNotNull(table_name:, column_name:) -> #(
-      list.map(tables, fn(t) {
-        case string.lowercase(t.name) == string.lowercase(table_name) {
-          True ->
-            model.Table(
-              ..t,
-              columns: list.map(t.columns, fn(c) {
-                case string.lowercase(c.name) == string.lowercase(column_name) {
-                  True -> model.Column(..c, nullable: False)
-                  False -> c
-                }
-              }),
-            )
-          False -> t
-        }
-      }),
-      enums,
-    )
-    AlterColumnDropNotNull(table_name:, column_name:) -> #(
-      list.map(tables, fn(t) {
-        case string.lowercase(t.name) == string.lowercase(table_name) {
-          True ->
-            model.Table(
-              ..t,
-              columns: list.map(t.columns, fn(c) {
-                case string.lowercase(c.name) == string.lowercase(column_name) {
-                  True -> model.Column(..c, nullable: True)
-                  False -> c
-                }
-              }),
-            )
-          False -> t
-        }
-      }),
-      enums,
-    )
+    AlterColumnSetNotNull(table_name:, column_name:) ->
+      Ok(#(
+        list.map(tables, fn(t) {
+          case string.lowercase(t.name) == string.lowercase(table_name) {
+            True ->
+              model.Table(
+                ..t,
+                columns: list.map(t.columns, fn(c) {
+                  case
+                    string.lowercase(c.name) == string.lowercase(column_name)
+                  {
+                    True -> model.Column(..c, nullable: False)
+                    False -> c
+                  }
+                }),
+              )
+            False -> t
+          }
+        }),
+        enums,
+      ))
+    AlterColumnDropNotNull(table_name:, column_name:) ->
+      Ok(#(
+        list.map(tables, fn(t) {
+          case string.lowercase(t.name) == string.lowercase(table_name) {
+            True ->
+              model.Table(
+                ..t,
+                columns: list.map(t.columns, fn(c) {
+                  case
+                    string.lowercase(c.name) == string.lowercase(column_name)
+                  {
+                    True -> model.Column(..c, nullable: True)
+                    False -> c
+                  }
+                }),
+              )
+            False -> t
+          }
+        }),
+        enums,
+      ))
   }
 }
 

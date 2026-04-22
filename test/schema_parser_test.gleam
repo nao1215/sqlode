@@ -817,6 +817,36 @@ ALTER TABLE users ALTER COLUMN score TYPE TEXT;"
   col2.scalar_type |> should.equal(model.StringType)
 }
 
+pub fn alter_table_alter_column_type_with_using_cast_test() {
+  // Before Issue #447, sqlode rendered the entire
+  // "uuid using id::uuid" token stream as the new type text.
+  // parse_sql_type_for_engine failed, the generator silently
+  // preserved the old `text` type, and `models.gleam` was
+  // wrong without any diagnostic. The type extractor must now
+  // stop at the `USING` keyword so the new type parses.
+  let sql =
+    "CREATE TABLE users (id TEXT NOT NULL);
+ALTER TABLE users ALTER COLUMN id TYPE UUID USING id::uuid;"
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert [table] = catalog.tables
+  let assert [id] = table.columns
+  id.scalar_type |> should.equal(model.UuidType)
+}
+
+pub fn alter_table_alter_column_type_unsupported_fails_fast_test() {
+  // A genuinely unrecognized type must surface a hard error
+  // instead of the prior silent no-op. Operators need to see
+  // the unsupported type name so they can fix the schema
+  // rather than debug a subtly wrong generated model.
+  let sql =
+    "CREATE TABLE users (id TEXT NOT NULL);
+ALTER TABLE users ALTER COLUMN id TYPE nonexistent_type;"
+  let assert Error(error) = schema_parser.parse_files([#("bad.sql", sql)])
+  let msg = schema_parser.error_to_string(error)
+  string.contains(msg, "ALTER COLUMN") |> should.be_true()
+  string.contains(msg, "nonexistent_type") |> should.be_true()
+}
+
 pub fn alter_table_drop_constraint_stays_silent_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT NOT NULL);
