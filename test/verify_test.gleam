@@ -144,3 +144,56 @@ pub fn report_to_string_reports_all_clear_on_empty_findings_test() {
   let report = verify.Report(findings: [])
   verify.report_to_string(report) |> should.equal("All checks passed.")
 }
+
+pub fn verify_accepts_schema_and_queries_directories_test() {
+  // A directory-style config must verify cleanly the same way
+  // `generate` accepts it. Before Issue #440, verify tried to
+  // simplifile.read(dir) and reported an "Is a directory" OS
+  // error as a finding, which made the command unusable for
+  // every directory-based config.
+  let cfg =
+    model.Config(version: 2, sql: [
+      make_block(
+        "test/fixtures/schema_dir",
+        "test/fixtures/query_dir",
+        "src/verify_dir_out",
+        option.None,
+      ),
+    ])
+  let report = verify.verify_config(cfg)
+  report.findings |> should.equal([])
+}
+
+pub fn verify_surfaces_empty_schema_directory_as_finding_test() {
+  // Empty directories must produce the same user-facing error
+  // text generate reports ("no .sql files"), so a CI gate that
+  // runs verify before generate catches the same class of
+  // misconfiguration.
+  let cfg =
+    model.Config(version: 2, sql: [
+      make_block(
+        "test/fixtures/empty_dir",
+        "test/fixtures/verify_ok_query.sql",
+        "src/verify_empty_schema_out",
+        option.None,
+      ),
+    ])
+  let report = verify.verify_config(cfg)
+  let assert [finding] = report.findings
+  string.contains(finding.detail, "no .sql files") |> should.be_true()
+}
+
+pub fn verify_surfaces_empty_query_directory_as_finding_test() {
+  let cfg =
+    model.Config(version: 2, sql: [
+      make_block(
+        "test/fixtures/verify_ok_schema.sql",
+        "test/fixtures/empty_dir",
+        "src/verify_empty_query_out",
+        option.None,
+      ),
+    ])
+  let report = verify.verify_config(cfg)
+  let assert [finding] = report.findings
+  string.contains(finding.detail, "no .sql files") |> should.be_true()
+}
