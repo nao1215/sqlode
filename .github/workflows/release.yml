@@ -9,6 +9,10 @@ permissions:
   contents: write
 
 jobs:
+  # The build job's quality gate must stay aligned with CI
+  # (`.github/workflows/ci.yml`) and `just all`. Any step added to
+  # those contracts should be added here too so tag-driven releases
+  # cannot ship a commit the PR lane would have rejected.
   build:
     name: Build and verify
     runs-on: ubuntu-latest
@@ -41,6 +45,9 @@ jobs:
 
       - name: Build (warnings as errors)
         run: gleam build --warnings-as-errors
+
+      - name: Lint (glinter, warnings as errors)
+        run: gleam run -m glinter
 
       - name: Unit tests
         run: gleam test
