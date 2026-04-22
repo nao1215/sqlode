@@ -18,7 +18,7 @@ import sqlode/naming
 import sqlode/query_analyzer
 import sqlode/query_ir
 import sqlode/query_parser
-import sqlode/runtime
+import sqlode/query_validation
 import sqlode/schema_parser
 import sqlode/sql_paths
 import sqlode/type_mapping
@@ -478,20 +478,19 @@ fn load_queries(
 fn validate_no_duplicate_query_names(
   queries: List(query_ir.TokenizedQuery),
 ) -> Result(List(query_ir.TokenizedQuery), GenerateError) {
-  let grouped =
-    list.group(queries, fn(q) { q.base.name })
-    |> dict.to_list
-    |> list.filter(fn(entry) { list.length(entry.1) > 1 })
+  query_validation.validate_no_duplicate_names(queries)
+  |> result.map_error(wrap_validation_error)
+  |> result.map(fn(_) { queries })
+}
 
-  case grouped {
-    [] -> Ok(queries)
-    [#(name, dupes), ..] -> {
-      let paths =
-        dupes
-        |> list.map(fn(q) { q.base.source_path })
-        |> list.unique
-      Error(DuplicateQueryName(name:, paths:))
-    }
+fn wrap_validation_error(err: query_validation.ValidationError) -> GenerateError {
+  case err {
+    query_validation.DuplicateName(name:, paths:) ->
+      DuplicateQueryName(name:, paths:)
+    query_validation.UnsupportedAnnotation(query_name:, command:, detail:) ->
+      UnsupportedAnnotation(query_name:, command:, detail:)
+    query_validation.UnsupportedArrayForEngine(query_name:, engine:) ->
+      UnsupportedArrayForEngine(query_name:, engine:)
   }
 }
 
@@ -689,76 +688,23 @@ fn validate_out_path(out: String) -> Result(Nil, GenerateError) {
 fn validate_unsupported_annotations(
   queries: List(model.AnalyzedQuery),
 ) -> Result(Nil, GenerateError) {
-  let unsupported = fn(command: runtime.QueryCommand) -> Bool {
-    case command {
-      runtime.QueryBatchOne
-      | runtime.QueryBatchMany
-      | runtime.QueryBatchExec
-      | runtime.QueryCopyFrom -> True
-      _ -> False
-    }
-  }
-  case list.find(queries, fn(q) { unsupported(q.base.command) }) {
-    Ok(q) -> {
-      let #(command, alternative) = case q.base.command {
-        runtime.QueryBatchOne -> #(":batchone", ":one")
-        runtime.QueryBatchMany -> #(":batchmany", ":many")
-        runtime.QueryBatchExec -> #(":batchexec", ":exec")
-        runtime.QueryCopyFrom -> #(":copyfrom", ":exec")
-        _ -> #("", ":exec")
-      }
-      Error(UnsupportedAnnotation(
-        query_name: q.base.name,
-        command: command,
-        detail: command
-          <> " is not yet supported. Use "
-          <> alternative
-          <> " instead, or add '-- sqlode:skip' before the annotation to bypass this query",
-      ))
-    }
-    Error(_) -> Ok(Nil)
-  }
+  query_validation.validate_unsupported_annotations(queries)
+  |> result.map_error(wrap_validation_error)
 }
 
 fn validate_array_engine_support(
   engine: model.Engine,
   queries: List(model.AnalyzedQuery),
 ) -> Result(Nil, GenerateError) {
-  case engine {
-    model.PostgreSQL -> Ok(Nil)
-    _ -> {
-      let has_array = fn(q: model.AnalyzedQuery) {
-        list.any(q.params, fn(p) {
-          case p.scalar_type {
-            model.ArrayType(_) -> True
-            _ -> False
-          }
-        })
-      }
-      case list.find(queries, has_array) {
-        Ok(q) ->
-          Error(UnsupportedArrayForEngine(
-            query_name: q.base.name,
-            engine: model.engine_to_string(engine),
-          ))
-        Error(_) -> Ok(Nil)
-      }
-    }
-  }
+  query_validation.validate_array_engine_support(engine, queries)
+  |> result.map_error(wrap_validation_error)
 }
 
 fn validate_native_annotations(
   queries: List(model.AnalyzedQuery),
 ) -> Result(Nil, GenerateError) {
-  case list.find(queries, fn(q) { q.base.command == runtime.QueryExecResult }) {
-    Ok(q) ->
-      Error(UnsupportedAnnotation(
-        query_name: q.base.name,
-        command: ":execresult",
-        detail: ":execresult is not supported with native runtime. Use :exec, :execrows, or :execlastid instead",
-      ))
-    Error(_) -> Ok(Nil)
-  }
+  query_validation.validate_native_annotations(queries)
+  |> result.map_error(wrap_validation_error)
 }
 
 fn adapter_filename(engine: model.Engine) -> String {
@@ -914,12 +860,16 @@ pub fn error_to_string(error: GenerateError) -> String {
           }
       }
     DuplicateQueryName(name:, paths:) ->
-      "duplicate query name \""
-      <> name
-      <> "\" found in: "
-      <> string.join(paths, ", ")
+      query_validation.error_to_string(query_validation.DuplicateName(
+        name:,
+        paths:,
+      ))
     UnsupportedAnnotation(query_name:, command:, detail:) ->
-      "Query " <> query_name <> " uses " <> command <> ": " <> detail
+      query_validation.error_to_string(query_validation.UnsupportedAnnotation(
+        query_name:,
+        command:,
+        detail:,
+      ))
     InvalidOutPath(path:) ->
       "Invalid output path \""
       <> path
@@ -928,10 +878,8 @@ pub fn error_to_string(error: GenerateError) -> String {
     VendorRuntimeNotFound ->
       "vendor_runtime is enabled but the sqlode/runtime source file could not be found. Tried: src/sqlode/runtime.gleam, build/packages/sqlode/src/sqlode/runtime.gleam, build/dev/erlang/sqlode/src/sqlode/runtime.gleam"
     UnsupportedArrayForEngine(query_name:, engine:) ->
-      "Query \""
-      <> query_name
-      <> "\": array parameters are not supported for engine \""
-      <> engine
-      <> "\". Arrays are only supported with PostgreSQL"
+      query_validation.error_to_string(
+        query_validation.UnsupportedArrayForEngine(query_name:, engine:),
+      )
   }
 }

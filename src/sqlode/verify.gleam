@@ -28,6 +28,7 @@ import sqlode/naming
 import sqlode/query_analyzer
 import sqlode/query_ir
 import sqlode/query_parser
+import sqlode/query_validation
 import sqlode/schema_parser
 import sqlode/sql_paths
 
@@ -124,8 +125,29 @@ fn load_and_analyze(
 ) -> Result(List(model.AnalyzedQuery), String) {
   use entries <- result.try(read_files(block.queries))
   use queries <- result.try(parse_all_queries(entries, block.engine, naming_ctx))
-  query_analyzer.analyze_queries(block.engine, catalog, naming_ctx, queries)
-  |> result.map_error(query_analyzer.analysis_error_to_string)
+  use Nil <- result.try(
+    query_validation.validate_no_duplicate_names(queries)
+    |> result.map_error(query_validation.error_to_string),
+  )
+  use analyzed <- result.try(
+    query_analyzer.analyze_queries(block.engine, catalog, naming_ctx, queries)
+    |> result.map_error(query_analyzer.analysis_error_to_string),
+  )
+  use Nil <- result.try(
+    query_validation.validate_unsupported_annotations(analyzed)
+    |> result.map_error(query_validation.error_to_string),
+  )
+  use Nil <- result.try(
+    query_validation.validate_array_engine_support(block.engine, analyzed)
+    |> result.map_error(query_validation.error_to_string),
+  )
+  use Nil <- result.try(case block.gleam.runtime {
+    model.Native ->
+      query_validation.validate_native_annotations(analyzed)
+      |> result.map_error(query_validation.error_to_string)
+    model.Raw -> Ok(Nil)
+  })
+  Ok(analyzed)
 }
 
 fn parse_all_queries(
