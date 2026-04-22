@@ -527,6 +527,99 @@ pub fn strong_type_mapping_wraps_nullable_raw_decoder_fields_test() {
   cleanup()
 }
 
+pub fn omit_unused_models_keeps_strong_wrappers_for_exec_params_test() {
+  // Before Issue #446, `omit_unused_models: true` pruned every
+  // table that no result column referenced. An `:exec` query
+  // with rich scalar params (UUID / TIMESTAMP / ...) would leave
+  // `params.gleam` / `queries.gleam` referencing `models.SqlUuid`
+  // without `models.gleam` emitting the wrapper type — the
+  // generated project was internally inconsistent and failed to
+  // compile. The fix is to thread param rich types through the
+  // wrapper collection so they survive pruning.
+  cleanup()
+  let block =
+    model.SqlBlock(
+      name: option.None,
+      engine: model.PostgreSQL,
+      schema: ["test/fixtures/write_only_rich_schema.sql"],
+      queries: ["test/fixtures/write_only_rich_query.sql"],
+      gleam: model.GleamOutput(
+        out: test_out,
+        runtime: model.Raw,
+        type_mapping: model.StrongMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: False,
+        omit_unused_models: True,
+        vendor_runtime: False,
+        strict_views: False,
+        query_parameter_limit: option.None,
+      ),
+      overrides: model.empty_overrides(),
+    )
+
+  run_generate(block)
+  let models = read_generated("models.gleam")
+
+  // models.gleam must still emit the strong wrapper types the
+  // params reference, even though the users table was pruned.
+  string.contains(models, "pub type SqlUuid {\n  SqlUuid(String)\n}")
+  |> should.be_true()
+  string.contains(models, "pub type SqlTimestamp {\n  SqlTimestamp(String)\n}")
+  |> should.be_true()
+
+  // And the unwrap helpers that params.gleam depends on at runtime.
+  string.contains(models, "pub fn sql_uuid_to_string(value: SqlUuid) -> String")
+  |> should.be_true()
+  string.contains(
+    models,
+    "pub fn sql_timestamp_to_string(value: SqlTimestamp) -> String",
+  )
+  |> should.be_true()
+
+  // params.gleam must reference the wrappers (sanity check) so a
+  // regression that stops referring to them is caught here.
+  let params = read_generated("params.gleam")
+  string.contains(params, "models.sql_uuid_to_string(") |> should.be_true()
+
+  cleanup()
+}
+
+pub fn omit_unused_models_keeps_rich_aliases_for_exec_params_test() {
+  // Same shape as above but for `rich` mapping: params.gleam
+  // references the `SqlUuid` / `SqlTimestamp` aliases, and
+  // models.gleam must still emit them after pruning. Under rich
+  // mapping the aliases are `pub type SqlUuid = String` rather
+  // than a wrapper variant, so we assert on that shape.
+  cleanup()
+  let block =
+    model.SqlBlock(
+      name: option.None,
+      engine: model.PostgreSQL,
+      schema: ["test/fixtures/write_only_rich_schema.sql"],
+      queries: ["test/fixtures/write_only_rich_query.sql"],
+      gleam: model.GleamOutput(
+        out: test_out,
+        runtime: model.Raw,
+        type_mapping: model.RichMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: False,
+        omit_unused_models: True,
+        vendor_runtime: False,
+        strict_views: False,
+        query_parameter_limit: option.None,
+      ),
+      overrides: model.empty_overrides(),
+    )
+
+  run_generate(block)
+  let models = read_generated("models.gleam")
+
+  string.contains(models, "pub type SqlUuid =") |> should.be_true()
+  string.contains(models, "pub type SqlTimestamp =") |> should.be_true()
+
+  cleanup()
+}
+
 pub fn string_type_mapping_does_not_emit_aliases_test() {
   cleanup()
   let block = base_block(model.empty_overrides())
