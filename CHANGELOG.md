@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-04-23
+
+### Changed
+
+- **`verify` and `generate` share one post-parse validation path**
+  (#441, #443). The duplicate-name / unsupported-annotation /
+  array-engine / native-`:execresult` checks now live in a single
+  `sqlode/query_validation` module so `sqlode verify` rejects every
+  config `sqlode generate` would reject — the two commands can no
+  longer drift. `verify` also flags normalized query-name collisions
+  (e.g. `GetUser` and `get_user` both producing the same
+  `get_user` / `GetUserParams` / `GetUserRow` identifiers) before
+  codegen is allowed to emit duplicate Gleam declarations.
+- **`.sql` path expansion shared across commands** (#440). Directory
+  entries for `schema` / `queries` now expand through a shared
+  `sqlode/sql_paths` helper, so `sqlode verify` accepts the same
+  directory-based configs `sqlode generate` already supports and
+  produces the same empty-directory diagnostics.
+- **Release workflow runs glinter** (#442). The tag-driven
+  `release.yml` build job now runs `gleam run -m glinter` alongside
+  format / type-check / test / shellspec, matching `just all` and
+  the PR CI contract. Release artifacts are now validated against
+  the same quality bar contributors are asked to satisfy.
+
+### Fixed
+
+- **`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`** (#448). The
+  idempotency modifier is now stripped before the column definition
+  is parsed, so PostgreSQL migrations that use the common
+  `ADD COLUMN IF NOT EXISTS` (and `ADD IF NOT EXISTS`) forms apply
+  cleanly instead of failing with a misleading
+  `missing type for column if` error.
+- **`ALTER COLUMN ... TYPE ... USING ...` no longer silently drifts**
+  (#447). The new type extractor stops at the trailing `USING`
+  cast clause so `TEXT → UUID USING id::uuid` parses, and a
+  genuinely unrecognized type now surfaces a hard error instead of
+  leaving the old type in the catalog without any diagnostic.
+- **Raw-runtime decoders honor strong type mapping** (#445). Rich
+  scalar decoders (`UUID` / `TIMESTAMP` / `DATE` / ...) are now
+  wrapped as `decode.map(<primitive>, models.<Wrapper>)` so raw
+  `queries.gleam` produces values the strong-mapped row types can
+  consume. Previously the native adapter path wrapped correctly but
+  the raw path decoded bare primitives, producing type-incompatible
+  generated code.
+- **`omit_unused_models` keeps strong / rich helpers for write-only
+  queries** (#446). Param rich scalars are now collected separately
+  from the catalog, so the `SqlUuid` / `SqlTimestamp` wrappers that
+  an `:exec` query references still reach `models.gleam` even when
+  pruning drops the underlying table. `params.gleam` and
+  `queries.gleam` no longer reference types the generated project
+  does not declare.
+- **Non-local param types are always imported or qualified** (#444).
+  Module-qualified custom types (`myapp/types.UserId`) referenced
+  by `prepare_*` helpers now emit the matching selective import in
+  `queries.gleam`, and rich scalars under `rich` / `strong` mapping
+  are prefixed with `models.` everywhere outside `models.gleam`.
+  The generated project compiles as written without user-written
+  follow-up imports.
+
 ## [0.6.0] - 2026-04-21
 
 ### Added
