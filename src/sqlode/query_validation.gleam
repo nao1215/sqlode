@@ -20,31 +20,54 @@ import sqlode/runtime
 /// stays identical across commands.
 pub type ValidationError {
   DuplicateName(name: String, paths: List(String))
+  NormalizedNameCollision(
+    function_name: String,
+    names: List(String),
+    paths: List(String),
+  )
   UnsupportedAnnotation(query_name: String, command: String, detail: String)
   UnsupportedArrayForEngine(query_name: String, engine: String)
 }
 
 /// Reject two tokenized queries that declare the same annotation
-/// name. Left unchecked, the generator would emit colliding
-/// function, decoder, and row-type identifiers downstream.
+/// name, or whose names normalize to the same Gleam identifier
+/// (the snake_case `function_name` that queries/params/decoders
+/// are derived from). Either shape would leave the generator
+/// emitting duplicate declarations and fail the Gleam compile.
+/// Literal duplicates are reported first so operators see the
+/// simpler diagnostic when both cases hit at once.
 pub fn validate_no_duplicate_names(
   queries: List(query_ir.TokenizedQuery),
 ) -> Result(Nil, ValidationError) {
-  let grouped =
-    list.group(queries, fn(q) { q.base.name })
-    |> dict.to_list
-    |> list.filter(fn(entry) { list.length(entry.1) > 1 })
-
-  case grouped {
-    [] -> Ok(Nil)
-    [#(name, dupes), ..] -> {
+  case find_duplicate_group(queries, fn(q) { q.base.name }) {
+    Ok(#(name, dupes)) -> {
       let paths =
         dupes
         |> list.map(fn(q) { q.base.source_path })
         |> list.unique
       Error(DuplicateName(name:, paths:))
     }
+    Error(Nil) ->
+      case find_duplicate_group(queries, fn(q) { q.base.function_name }) {
+        Ok(#(function_name, colliding)) -> {
+          let names =
+            colliding |> list.map(fn(q) { q.base.name }) |> list.unique
+          let paths =
+            colliding |> list.map(fn(q) { q.base.source_path }) |> list.unique
+          Error(NormalizedNameCollision(function_name:, names:, paths:))
+        }
+        Error(Nil) -> Ok(Nil)
+      }
   }
+}
+
+fn find_duplicate_group(
+  queries: List(query_ir.TokenizedQuery),
+  key: fn(query_ir.TokenizedQuery) -> String,
+) -> Result(#(String, List(query_ir.TokenizedQuery)), Nil) {
+  list.group(queries, key)
+  |> dict.to_list
+  |> list.find(fn(entry) { list.length(entry.1) > 1 })
 }
 
 /// Reject annotations that are not yet supported by any codegen
@@ -140,6 +163,14 @@ pub fn error_to_string(error: ValidationError) -> String {
       <> name
       <> "\" found in: "
       <> string.join(paths, ", ")
+    NormalizedNameCollision(function_name:, names:, paths:) ->
+      "query names "
+      <> quote_join(names)
+      <> " all normalize to the generated identifier \""
+      <> function_name
+      <> "\" (found in: "
+      <> string.join(paths, ", ")
+      <> "). Rename one of them so the derived function, params, row, and decoder identifiers are unique."
     UnsupportedAnnotation(query_name:, command:, detail:) ->
       "Query " <> query_name <> " uses " <> command <> ": " <> detail
     UnsupportedArrayForEngine(query_name:, engine:) ->
@@ -149,4 +180,10 @@ pub fn error_to_string(error: ValidationError) -> String {
       <> engine
       <> "\". Arrays are only supported with PostgreSQL"
   }
+}
+
+fn quote_join(names: List(String)) -> String {
+  names
+  |> list.map(fn(n) { "\"" <> n <> "\"" })
+  |> string.join(", ")
 }

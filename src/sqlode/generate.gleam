@@ -39,6 +39,11 @@ pub type GenerateError {
     schema_paths: List(String),
   )
   DuplicateQueryName(name: String, paths: List(String))
+  NormalizedQueryNameCollision(
+    function_name: String,
+    names: List(String),
+    paths: List(String),
+  )
   UnsupportedAnnotation(query_name: String, command: String, detail: String)
   InvalidOutPath(path: String)
   WriteError(writer.WriteError)
@@ -487,6 +492,8 @@ fn wrap_validation_error(err: query_validation.ValidationError) -> GenerateError
   case err {
     query_validation.DuplicateName(name:, paths:) ->
       DuplicateQueryName(name:, paths:)
+    query_validation.NormalizedNameCollision(function_name:, names:, paths:) ->
+      NormalizedQueryNameCollision(function_name:, names:, paths:)
     query_validation.UnsupportedAnnotation(query_name:, command:, detail:) ->
       UnsupportedAnnotation(query_name:, command:, detail:)
     query_validation.UnsupportedArrayForEngine(query_name:, engine:) ->
@@ -862,6 +869,12 @@ pub fn error_to_string(error: GenerateError) -> String {
     DuplicateQueryName(name:, paths:) ->
       query_validation.error_to_string(query_validation.DuplicateName(
         name:,
+        paths:,
+      ))
+    NormalizedQueryNameCollision(function_name:, names:, paths:) ->
+      query_validation.error_to_string(query_validation.NormalizedNameCollision(
+        function_name:,
+        names:,
         paths:,
       ))
     UnsupportedAnnotation(query_name:, command:, detail:) ->
