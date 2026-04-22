@@ -388,6 +388,39 @@ ALTER TABLE users ADD CONSTRAINT unique_email UNIQUE (email);"
   list.length(table.columns) |> should.equal(2)
 }
 
+pub fn alter_table_add_column_if_not_exists_test() {
+  // Before Issue #448, sqlode treated `if` as the column name and
+  // rejected the common PostgreSQL migration idiom
+  // `ALTER TABLE ... ADD COLUMN IF NOT EXISTS ... ` with a
+  // "missing type for column if" error. The idempotency modifier
+  // is a no-op at parse time: the column should still be added
+  // to the catalog with its declared type and nullability.
+  let sql =
+    "CREATE TABLE users (id INTEGER PRIMARY KEY);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS age INT;"
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert [table] = catalog.tables
+  list.length(table.columns) |> should.equal(2)
+  let assert [_, age] = table.columns
+  age.name |> should.equal("age")
+  age.scalar_type |> should.equal(model.IntType)
+}
+
+pub fn alter_table_add_if_not_exists_without_column_keyword_test() {
+  // PostgreSQL accepts `ADD IF NOT EXISTS ...` without the
+  // explicit `COLUMN` keyword. Treat the modifier the same way
+  // in both spellings so migrations that use either form parse.
+  let sql =
+    "CREATE TABLE users (id INTEGER PRIMARY KEY);
+ALTER TABLE users ADD IF NOT EXISTS bio TEXT;"
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert [table] = catalog.tables
+  list.length(table.columns) |> should.equal(2)
+  let assert [_, bio] = table.columns
+  bio.name |> should.equal("bio")
+  bio.scalar_type |> should.equal(model.StringType)
+}
+
 pub fn view_with_count_expression_test() {
   let content =
     "CREATE TABLE authors (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);
