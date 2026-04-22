@@ -370,7 +370,23 @@ fn collect_rich_scalar_types(
       })
     })
 
-  list.flatten([table_types, query_types])
+  // Params bring their own rich scalars into scope. Without this,
+  // a write-only query (`:exec`) whose table is pruned away by
+  // `omit_unused_models` would reference `SqlUuid` / `SqlTimestamp`
+  // in `params.gleam` / `queries.gleam` without the wrapper types
+  // being emitted from `models.gleam` — the core of Issue #446.
+  let param_types =
+    queries
+    |> list.flat_map(fn(query) {
+      list.filter_map(query.params, fn(p) {
+        case type_mapping.is_rich_type(p.scalar_type) {
+          True -> Ok(p.scalar_type)
+          False -> Error(Nil)
+        }
+      })
+    })
+
+  list.flatten([table_types, query_types, param_types])
   |> list.unique
   |> list.sort(fn(a, b) {
     string.compare(
