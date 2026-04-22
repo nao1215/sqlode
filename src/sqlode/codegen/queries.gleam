@@ -72,6 +72,7 @@ pub fn render(
         module_path,
         table_matches,
         emit_exact_table_names,
+        gleam.type_mapping,
       ))
       |> string.join("\n\n")
   }
@@ -313,6 +314,7 @@ fn render_decoder_function(
   _module_path: String,
   table_matches: Dict(String, String),
   emit_exact_table_names: Bool,
+  type_mapping_mode: model.TypeMapping,
 ) -> String {
   let type_name = naming.to_pascal_case(naming_ctx, query.base.name) <> "Row"
   let constructor_name = case
@@ -334,10 +336,7 @@ fn render_decoder_function(
         )) -> {
           let field_name = naming.to_snake_case(naming_ctx, name)
           let base =
-            common.render_enum_or_set_decoder(
-              scalar_type,
-              type_mapping.scalar_type_to_decoder(engine, _),
-            )
+            render_raw_base_decoder(engine, scalar_type, type_mapping_mode)
           let decoder = case nullable {
             True -> "decode.optional(" <> base <> ")"
             False -> base
@@ -369,9 +368,10 @@ fn render_decoder_function(
               let #(i, ls) = inner_acc
               let field_name = naming.to_snake_case(naming_ctx, c.name)
               let base =
-                common.render_enum_or_set_decoder(
+                render_raw_base_decoder(
+                  engine,
                   c.scalar_type,
-                  type_mapping.scalar_type_to_decoder(engine, _),
+                  type_mapping_mode,
                 )
               let decoder = case c.nullable {
                 True -> "decode.optional(" <> base <> ")"
@@ -441,6 +441,46 @@ fn render_decoder_function(
     ]),
     "\n",
   )
+}
+
+/// Raw-runtime counterpart of `adapter.gleam`'s `render_base_decoder`.
+/// Under strong type mapping, rich scalar types (TIMESTAMP, DATE,
+/// UUID, etc.) need the decoded primitive wrapped by their generated
+/// `models.<Wrapper>` constructor so the resulting decoder produces
+/// a value the row type can consume. Without this, raw `queries.gleam`
+/// would decode a bare `String` / `Int` and call the row constructor
+/// with a type mismatch — a regression Issue #445 tracks.
+fn render_raw_base_decoder(
+  engine: model.Engine,
+  scalar_type: model.ScalarType,
+  type_mapping_mode: model.TypeMapping,
+) -> String {
+  case scalar_type {
+    model.EnumType(_) | model.SetType(_) ->
+      common.render_enum_or_set_decoder(
+        scalar_type,
+        type_mapping.scalar_type_to_decoder(engine, _),
+      )
+    _ ->
+      case
+        type_mapping_mode == model.StrongMapping
+        && type_mapping.is_rich_type(scalar_type)
+      {
+        True -> {
+          let constructor =
+            type_mapping.scalar_type_to_gleam_type(
+              scalar_type,
+              model.StrongMapping,
+            )
+          "decode.map("
+          <> type_mapping.scalar_type_to_decoder(engine, scalar_type)
+          <> ", models."
+          <> constructor
+          <> ")"
+        }
+        False -> type_mapping.scalar_type_to_decoder(engine, scalar_type)
+      }
+  }
 }
 
 fn render_query_info_literal(query: model.ParsedQuery) -> String {

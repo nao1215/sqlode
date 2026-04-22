@@ -446,6 +446,87 @@ pub fn strong_type_mapping_emits_wrapper_types_test() {
   cleanup()
 }
 
+pub fn strong_type_mapping_wraps_raw_decoder_fields_test() {
+  // Before Issue #445, raw `queries.gleam` decoders decoded the
+  // underlying primitive (decode.string for UUID/TIMESTAMP, etc.)
+  // and fed it straight into the row constructor. Under strong
+  // type mapping, the row type expects `models.SqlUuid(String)`
+  // wrapper values, so the generated source failed to type-check.
+  // Raw decoder generation must now mirror the native adapter
+  // path and wrap rich decoders with the strong-type constructor.
+  cleanup()
+  let block =
+    model.SqlBlock(
+      name: option.None,
+      engine: model.PostgreSQL,
+      schema: ["test/fixtures/all_types_schema.sql"],
+      queries: ["test/fixtures/all_types_query.sql"],
+      gleam: model.GleamOutput(
+        out: test_out,
+        runtime: model.Raw,
+        type_mapping: model.StrongMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: False,
+        omit_unused_models: False,
+        vendor_runtime: False,
+        strict_views: False,
+        query_parameter_limit: option.None,
+      ),
+      overrides: model.empty_overrides(),
+    )
+
+  run_generate(block)
+  let queries = read_generated("queries.gleam")
+
+  // Rich scalar decoders must be wrapped with decode.map(..., models.<Wrapper>).
+  string.contains(queries, "decode.map(decode.string, models.SqlUuid)")
+  |> should.be_true()
+  string.contains(queries, "decode.map(decode.string, models.SqlTimestamp)")
+  |> should.be_true()
+  string.contains(queries, "decode.map(decode.string, models.SqlDate)")
+  |> should.be_true()
+
+  cleanup()
+}
+
+pub fn strong_type_mapping_wraps_nullable_raw_decoder_fields_test() {
+  // Nullable rich scalars must stack decode.optional on top of the
+  // strong-type wrapping (matching adapter.gleam's behaviour), so
+  // the decoder yields `Option(SqlUuid)` for the row constructor.
+  cleanup()
+  let block =
+    model.SqlBlock(
+      name: option.None,
+      engine: model.PostgreSQL,
+      schema: ["test/fixtures/nullable_strong_schema.sql"],
+      queries: ["test/fixtures/nullable_strong_query.sql"],
+      gleam: model.GleamOutput(
+        out: test_out,
+        runtime: model.Raw,
+        type_mapping: model.StrongMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: False,
+        omit_unused_models: False,
+        vendor_runtime: False,
+        strict_views: False,
+        query_parameter_limit: option.None,
+      ),
+      overrides: model.empty_overrides(),
+    )
+
+  run_generate(block)
+  let queries = read_generated("queries.gleam")
+
+  // Nullable UUID: decode.optional(decode.map(decode.string, models.SqlUuid))
+  string.contains(
+    queries,
+    "decode.optional(decode.map(decode.string, models.SqlUuid))",
+  )
+  |> should.be_true()
+
+  cleanup()
+}
+
 pub fn string_type_mapping_does_not_emit_aliases_test() {
   cleanup()
   let block = base_block(model.empty_overrides())
