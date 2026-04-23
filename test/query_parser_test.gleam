@@ -1117,3 +1117,102 @@ SELECT id FROM authors WHERE name = :name;"
     "q.sql:3: query GetAuthor: placeholder `:name` is not valid for engine mysql; MySQL accepts positional `?` or sqlode macros (`sqlode.arg(name)`)",
   )
 }
+
+pub fn reject_on_duplicate_key_for_postgresql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: UpsertAuthor :exec
+INSERT INTO authors (id, name) VALUES ($1, $2)
+ON DUPLICATE KEY UPDATE name = $2;"
+
+  let assert Error(error) =
+    parse_file("q.sql", model.PostgreSQL, naming_ctx, content)
+
+  query_parser.error_to_string(error)
+  |> should.equal(
+    "q.sql:1: query UpsertAuthor: `ON DUPLICATE KEY UPDATE` is not valid for engine postgresql; use `ON CONFLICT ... DO UPDATE` or `ON CONFLICT ... DO NOTHING`",
+  )
+}
+
+pub fn reject_on_duplicate_key_for_sqlite_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: UpsertAuthor :exec
+INSERT INTO authors (id, name) VALUES (?1, ?2)
+ON DUPLICATE KEY UPDATE name = ?2;"
+
+  let assert Error(error) =
+    parse_file("q.sql", model.SQLite, naming_ctx, content)
+
+  query_parser.error_to_string(error)
+  |> should.equal(
+    "q.sql:1: query UpsertAuthor: `ON DUPLICATE KEY UPDATE` is not valid for engine sqlite; use `ON CONFLICT ... DO UPDATE` or `ON CONFLICT ... DO NOTHING`",
+  )
+}
+
+pub fn reject_on_conflict_for_mysql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: UpsertAuthor :exec
+INSERT INTO authors (id, name) VALUES (sqlode.arg(id), sqlode.arg(name))
+ON CONFLICT (id) DO UPDATE SET name = sqlode.arg(updated_name);"
+
+  let assert Error(error) =
+    parse_file("q.sql", model.MySQL, naming_ctx, content)
+
+  query_parser.error_to_string(error)
+  |> should.equal(
+    "q.sql:1: query UpsertAuthor: `ON CONFLICT` is not valid for engine mysql; use `ON DUPLICATE KEY UPDATE`",
+  )
+}
+
+pub fn accept_on_duplicate_key_for_mysql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: UpsertAuthor :exec
+INSERT INTO authors (id, name) VALUES (?, ?)
+ON DUPLICATE KEY UPDATE name = VALUES(name);"
+
+  let assert Ok(queries) = parse_file("q.sql", model.MySQL, naming_ctx, content)
+  let assert [query] = queries
+  query.name |> should.equal("UpsertAuthor")
+}
+
+pub fn accept_on_conflict_for_postgresql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: UpsertAuthor :exec
+INSERT INTO authors (id, name) VALUES ($1, $2)
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name;"
+
+  let assert Ok(queries) =
+    parse_file("q.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+  query.name |> should.equal("UpsertAuthor")
+}
+
+pub fn accept_on_conflict_for_sqlite_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: UpsertAuthor :exec
+INSERT INTO authors (id, name) VALUES (?1, ?2)
+ON CONFLICT(id) DO UPDATE SET name = excluded.name;"
+
+  let assert Ok(queries) =
+    parse_file("q.sql", model.SQLite, naming_ctx, content)
+  let assert [query] = queries
+  query.name |> should.equal("UpsertAuthor")
+}
+
+pub fn accept_on_conflict_do_nothing_for_postgresql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: InsertOrIgnore :exec
+INSERT INTO authors (id, name) VALUES ($1, $2)
+ON CONFLICT (id) DO NOTHING;"
+
+  let assert Ok(queries) =
+    parse_file("q.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+  query.name |> should.equal("InsertOrIgnore")
+}

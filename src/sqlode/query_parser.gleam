@@ -20,6 +20,13 @@ pub type ParseError {
     engine: model.Engine,
     token: String,
   )
+  WrongEngineUpsert(
+    path: String,
+    line: Int,
+    name: String,
+    engine: model.Engine,
+    tail: String,
+  )
 }
 
 type PendingQuery {
@@ -203,41 +210,66 @@ fn finalize_pending(
                 engine:,
                 token:,
               ))
-            Ok(Nil) -> {
-              // Phase 5: Render expanded token list back to SQL
-              let expanded_sql =
-                lexer.tokens_to_string(
-                  tokens,
-                  lexer.TokenRenderOptions(
-                    uppercase_keywords: False,
-                    preserve_quotes: True,
-                    engine: Some(engine),
-                  ),
-                )
-
-              // Phase 6: Count parameters from the already-expanded token list
-              let param_count = count_parameters_from_tokens(engine, tokens)
-
-              let parsed =
-                model.ParsedQuery(
-                  name:,
-                  function_name:,
-                  command:,
-                  sql: expanded_sql,
-                  source_path: path,
-                  param_count:,
-                  macros:,
-                )
-              Ok([
-                query_ir.TokenizedQuery(base: parsed, tokens: tokens),
-                ..parsed_rev
-              ])
-            }
+            Ok(Nil) ->
+              case validate_upsert_tails(engine, tokens) {
+                Error(tail) ->
+                  Error(WrongEngineUpsert(
+                    path:,
+                    line: start_line,
+                    name:,
+                    engine:,
+                    tail:,
+                  ))
+                Ok(Nil) ->
+                  Ok(finalize_ok(
+                    parsed_rev,
+                    name:,
+                    function_name:,
+                    command:,
+                    path:,
+                    tokens:,
+                    macros:,
+                    engine:,
+                  ))
+              }
           }
         }
       }
     }
   }
+}
+
+fn finalize_ok(
+  parsed_rev: List(query_ir.TokenizedQuery),
+  name name: String,
+  function_name function_name: String,
+  command command: runtime.QueryCommand,
+  path path: String,
+  tokens tokens: List(lexer.Token),
+  macros macros: List(model.Macro),
+  engine engine: model.Engine,
+) -> List(query_ir.TokenizedQuery) {
+  let expanded_sql =
+    lexer.tokens_to_string(
+      tokens,
+      lexer.TokenRenderOptions(
+        uppercase_keywords: False,
+        preserve_quotes: True,
+        engine: Some(engine),
+      ),
+    )
+  let param_count = count_parameters_from_tokens(engine, tokens)
+  let parsed =
+    model.ParsedQuery(
+      name:,
+      function_name:,
+      command:,
+      sql: expanded_sql,
+      source_path: path,
+      param_count:,
+      macros:,
+    )
+  [query_ir.TokenizedQuery(base: parsed, tokens: tokens), ..parsed_rev]
 }
 
 fn parse_annotation(
@@ -442,6 +474,28 @@ pub fn error_to_string(error: ParseError) -> String {
       <> model.engine_to_string(engine)
       <> "; "
       <> allowed_placeholders_hint(engine)
+    WrongEngineUpsert(path:, line:, name:, engine:, tail:) ->
+      path
+      <> ":"
+      <> int.to_string(line)
+      <> ": query "
+      <> name
+      <> ": `"
+      <> tail
+      <> "` is not valid for engine "
+      <> model.engine_to_string(engine)
+      <> "; "
+      <> upsert_hint(engine)
+  }
+}
+
+fn upsert_hint(engine: model.Engine) -> String {
+  case engine {
+    model.PostgreSQL ->
+      "use `ON CONFLICT ... DO UPDATE` or `ON CONFLICT ... DO NOTHING`"
+    model.SQLite ->
+      "use `ON CONFLICT ... DO UPDATE` or `ON CONFLICT ... DO NOTHING`"
+    model.MySQL -> "use `ON DUPLICATE KEY UPDATE`"
   }
 }
 
@@ -506,6 +560,32 @@ fn is_positive_int(s: String) -> Bool {
   case int.parse(s) {
     Ok(n) if n > 0 -> True
     _ -> False
+  }
+}
+
+/// Scan tokens for UPSERT tails that do not belong to the configured engine.
+/// MySQL uses `ON DUPLICATE KEY UPDATE`; PostgreSQL and SQLite use `ON
+/// CONFLICT ... DO UPDATE/NOTHING`. Accepting the wrong form silently leaks
+/// dialect-incompatible SQL into generated code, so reject it early with a
+/// diagnostic that names the offending tail.
+fn validate_upsert_tails(
+  engine: model.Engine,
+  tokens: List(lexer.Token),
+) -> Result(Nil, String) {
+  case tokens {
+    [] -> Ok(Nil)
+    [lexer.Keyword("on"), lexer.Ident(word), ..rest] ->
+      case string.lowercase(word), engine {
+        "duplicate", model.MySQL -> validate_upsert_tails(engine, rest)
+        "duplicate", _ -> Error("ON DUPLICATE KEY UPDATE")
+        _, _ -> validate_upsert_tails(engine, rest)
+      }
+    [lexer.Keyword("on"), lexer.Keyword("conflict"), ..rest] ->
+      case engine {
+        model.MySQL -> Error("ON CONFLICT")
+        _ -> validate_upsert_tails(engine, rest)
+      }
+    [_, ..rest] -> validate_upsert_tails(engine, rest)
   }
 }
 
