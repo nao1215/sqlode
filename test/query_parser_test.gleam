@@ -73,7 +73,7 @@ pub fn count_sqlite_named_placeholders_test() {
   let naming_ctx = naming.new()
   let content =
     "-- name: GetAuthor :one
-SELECT id FROM authors WHERE id = :id OR name = @name OR slug = $slug OR code = ?2;"
+SELECT id FROM authors WHERE id = :id OR name = @name OR slug = $slug OR code = ?1;"
 
   let assert Ok(queries) =
     parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
@@ -1215,4 +1215,58 @@ ON CONFLICT (id) DO NOTHING;"
     parse_file("q.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
   query.name |> should.equal("InsertOrIgnore")
+}
+
+pub fn reject_sparse_numbered_placeholder_for_sqlite_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthor :one
+SELECT id, name FROM authors WHERE id = ?2;"
+
+  let assert Error(error) =
+    parse_file("q.sql", model.SQLite, naming_ctx, content)
+
+  query_parser.error_to_string(error)
+  |> should.equal(
+    "q.sql:1: query GetAuthor: sparse SQLite numbered placeholders ?2; numbered placeholders must form a contiguous set starting from ?1 (e.g. ?1, ?2, ?3)",
+  )
+}
+
+pub fn reject_gap_in_numbered_placeholders_for_sqlite_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthor :one
+SELECT id FROM authors WHERE id = ?1 OR name = ?3;"
+
+  let assert Error(error) =
+    parse_file("q.sql", model.SQLite, naming_ctx, content)
+
+  query_parser.error_to_string(error)
+  |> should.equal(
+    "q.sql:1: query GetAuthor: sparse SQLite numbered placeholders ?1, ?3; numbered placeholders must form a contiguous set starting from ?1 (e.g. ?1, ?2, ?3)",
+  )
+}
+
+pub fn accept_contiguous_numbered_placeholders_for_sqlite_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthor :one
+SELECT id FROM authors WHERE id = ?1 AND name = ?2;"
+
+  let assert Ok(queries) =
+    parse_file("q.sql", model.SQLite, naming_ctx, content)
+  let assert [query] = queries
+  query.param_count |> should.equal(2)
+}
+
+pub fn accept_reused_numbered_placeholder_for_sqlite_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthor :one
+SELECT id FROM authors WHERE id = ?1 OR parent_id = ?1;"
+
+  let assert Ok(queries) =
+    parse_file("q.sql", model.SQLite, naming_ctx, content)
+  let assert [query] = queries
+  query.param_count |> should.equal(1)
 }

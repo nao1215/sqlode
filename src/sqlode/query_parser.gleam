@@ -27,6 +27,12 @@ pub type ParseError {
     engine: model.Engine,
     tail: String,
   )
+  SparseNumberedPlaceholders(
+    path: String,
+    line: Int,
+    name: String,
+    indices: List(Int),
+  )
 }
 
 type PendingQuery {
@@ -221,16 +227,26 @@ fn finalize_pending(
                     tail:,
                   ))
                 Ok(Nil) ->
-                  Ok(finalize_ok(
-                    parsed_rev,
-                    name:,
-                    function_name:,
-                    command:,
-                    path:,
-                    tokens:,
-                    macros:,
-                    engine:,
-                  ))
+                  case validate_sqlite_numbered_placeholders(engine, tokens) {
+                    Error(indices) ->
+                      Error(SparseNumberedPlaceholders(
+                        path:,
+                        line: start_line,
+                        name:,
+                        indices:,
+                      ))
+                    Ok(Nil) ->
+                      Ok(finalize_ok(
+                        parsed_rev,
+                        name:,
+                        function_name:,
+                        command:,
+                        path:,
+                        tokens:,
+                        macros:,
+                        engine:,
+                      ))
+                  }
               }
           }
         }
@@ -486,7 +502,23 @@ pub fn error_to_string(error: ParseError) -> String {
       <> model.engine_to_string(engine)
       <> "; "
       <> upsert_hint(engine)
+    SparseNumberedPlaceholders(path:, line:, name:, indices:) ->
+      path
+      <> ":"
+      <> int.to_string(line)
+      <> ": query "
+      <> name
+      <> ": sparse SQLite numbered placeholders "
+      <> format_indices(indices)
+      <> "; numbered placeholders must form a contiguous set starting from ?1 (e.g. ?1, ?2, ?3)"
   }
+}
+
+fn format_indices(indices: List(Int)) -> String {
+  indices
+  |> list.sort(int.compare)
+  |> list.map(fn(i) { "?" <> int.to_string(i) })
+  |> string.join(", ")
 }
 
 fn upsert_hint(engine: model.Engine) -> String {
@@ -560,6 +592,50 @@ fn is_positive_int(s: String) -> Bool {
   case int.parse(s) {
     Ok(n) if n > 0 -> True
     _ -> False
+  }
+}
+
+/// Reject sparse SQLite numbered placeholders.
+///
+/// SQLite accepts `?N` with explicit indices, but sqlode's parameter count
+/// and runtime expansion assume the declared indices form a contiguous set
+/// starting from 1. A query that uses `?2` alone, or `?1` and `?3` with no
+/// `?2`, passes lexing but yields generated metadata that does not match the
+/// SQL text. Flag the mismatch at parse time so users can either renumber
+/// their placeholders or switch to the bare `?` / `?1, ?2, ...` forms.
+fn validate_sqlite_numbered_placeholders(
+  engine: model.Engine,
+  tokens: List(lexer.Token),
+) -> Result(Nil, List(Int)) {
+  case engine {
+    model.SQLite -> {
+      let indices =
+        tokens
+        |> list.filter_map(extract_sqlite_numbered_index)
+        |> list.unique
+      case indices {
+        [] -> Ok(Nil)
+        _ -> {
+          let max_idx = list.fold(indices, 0, int.max)
+          case max_idx == list.length(indices) {
+            True -> Ok(Nil)
+            False -> Error(indices)
+          }
+        }
+      }
+    }
+    _ -> Ok(Nil)
+  }
+}
+
+fn extract_sqlite_numbered_index(token: lexer.Token) -> Result(Int, Nil) {
+  case token {
+    lexer.Placeholder(p) ->
+      case string.first(p), string.length(p) > 1 {
+        Ok("?"), True -> int.parse(string.drop_start(p, 1))
+        _, _ -> Error(Nil)
+      }
+    _ -> Error(Nil)
   }
 }
 
