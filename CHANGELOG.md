@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-04-23
+
+### Fixed
+
+- **Placeholder syntax is validated per engine before analysis**
+  (#459). `sqlode verify` / `generate` now reject placeholder styles
+  that do not belong to the configured engine — MySQL `@name` /
+  `:name` / `?N`, PostgreSQL `?` / `:name` / `$name`, etc. — with a
+  diagnostic that names the offending token and lists the accepted
+  forms. Previously the unsupported styles either survived into
+  generated SQL unchanged or surfaced as late, misleading type
+  inference errors.
+- **Wrong-engine UPSERT tails are rejected at parse time** (#460).
+  `ON DUPLICATE KEY UPDATE` under PostgreSQL / SQLite and
+  `ON CONFLICT ... DO UPDATE / NOTHING` under MySQL now fail fast
+  with a clear diagnostic, instead of being silently copied into
+  the generated query. The emitted SQL can no longer disagree with
+  the configured engine.
+- **Sparse SQLite numbered placeholders are rejected** (#461).
+  `?N` indices must now form a contiguous set starting at `?1`, so
+  queries that write `?2` without `?1`, or skip from `?1` to `?3`,
+  are caught before codegen. Previously the parser accepted them
+  while emitting metadata (`param_count`, param layout) that did
+  not honour the declared placeholder indices.
+
 ## [0.7.0] - 2026-04-23
 
 ### Changed
