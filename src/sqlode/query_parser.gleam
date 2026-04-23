@@ -13,6 +13,26 @@ import sqlode/runtime
 pub type ParseError {
   InvalidAnnotation(path: String, line: Int, detail: String)
   MissingSql(path: String, line: Int, name: String)
+  InvalidPlaceholder(
+    path: String,
+    line: Int,
+    name: String,
+    engine: model.Engine,
+    token: String,
+  )
+  WrongEngineUpsert(
+    path: String,
+    line: Int,
+    name: String,
+    engine: model.Engine,
+    tail: String,
+  )
+  SparseNumberedPlaceholders(
+    path: String,
+    line: Int,
+    name: String,
+    indices: List(Int),
+  )
 }
 
 type PendingQuery {
@@ -186,38 +206,86 @@ fn finalize_pending(
 
           let macros = list.append(at_macros, expanded_macros)
 
-          // Phase 4: Render expanded token list back to SQL
-          let expanded_sql =
-            lexer.tokens_to_string(
-              tokens,
-              lexer.TokenRenderOptions(
-                uppercase_keywords: False,
-                preserve_quotes: True,
-                engine: Some(engine),
-              ),
-            )
-
-          // Phase 5: Count parameters from the already-expanded token list
-          let param_count = count_parameters_from_tokens(engine, tokens)
-
-          let parsed =
-            model.ParsedQuery(
-              name:,
-              function_name:,
-              command:,
-              sql: expanded_sql,
-              source_path: path,
-              param_count:,
-              macros:,
-            )
-          Ok([
-            query_ir.TokenizedQuery(base: parsed, tokens: tokens),
-            ..parsed_rev
-          ])
+          // Phase 4: Validate remaining raw placeholders match the engine
+          case validate_placeholder_syntax(engine, tokens) {
+            Error(token) ->
+              Error(InvalidPlaceholder(
+                path:,
+                line: start_line,
+                name:,
+                engine:,
+                token:,
+              ))
+            Ok(Nil) ->
+              case validate_upsert_tails(engine, tokens) {
+                Error(tail) ->
+                  Error(WrongEngineUpsert(
+                    path:,
+                    line: start_line,
+                    name:,
+                    engine:,
+                    tail:,
+                  ))
+                Ok(Nil) ->
+                  case validate_sqlite_numbered_placeholders(engine, tokens) {
+                    Error(indices) ->
+                      Error(SparseNumberedPlaceholders(
+                        path:,
+                        line: start_line,
+                        name:,
+                        indices:,
+                      ))
+                    Ok(Nil) ->
+                      Ok(finalize_ok(
+                        parsed_rev,
+                        name:,
+                        function_name:,
+                        command:,
+                        path:,
+                        tokens:,
+                        macros:,
+                        engine:,
+                      ))
+                  }
+              }
+          }
         }
       }
     }
   }
+}
+
+fn finalize_ok(
+  parsed_rev: List(query_ir.TokenizedQuery),
+  name name: String,
+  function_name function_name: String,
+  command command: runtime.QueryCommand,
+  path path: String,
+  tokens tokens: List(lexer.Token),
+  macros macros: List(model.Macro),
+  engine engine: model.Engine,
+) -> List(query_ir.TokenizedQuery) {
+  let expanded_sql =
+    lexer.tokens_to_string(
+      tokens,
+      lexer.TokenRenderOptions(
+        uppercase_keywords: False,
+        preserve_quotes: True,
+        engine: Some(engine),
+      ),
+    )
+  let param_count = count_parameters_from_tokens(engine, tokens)
+  let parsed =
+    model.ParsedQuery(
+      name:,
+      function_name:,
+      command:,
+      sql: expanded_sql,
+      source_path: path,
+      param_count:,
+      macros:,
+    )
+  [query_ir.TokenizedQuery(base: parsed, tokens: tokens), ..parsed_rev]
 }
 
 fn parse_annotation(
@@ -410,6 +478,190 @@ pub fn error_to_string(error: ParseError) -> String {
       <> ": query "
       <> name
       <> " is missing SQL body"
+    InvalidPlaceholder(path:, line:, name:, engine:, token:) ->
+      path
+      <> ":"
+      <> int.to_string(line)
+      <> ": query "
+      <> name
+      <> ": placeholder `"
+      <> token
+      <> "` is not valid for engine "
+      <> model.engine_to_string(engine)
+      <> "; "
+      <> allowed_placeholders_hint(engine)
+    WrongEngineUpsert(path:, line:, name:, engine:, tail:) ->
+      path
+      <> ":"
+      <> int.to_string(line)
+      <> ": query "
+      <> name
+      <> ": `"
+      <> tail
+      <> "` is not valid for engine "
+      <> model.engine_to_string(engine)
+      <> "; "
+      <> upsert_hint(engine)
+    SparseNumberedPlaceholders(path:, line:, name:, indices:) ->
+      path
+      <> ":"
+      <> int.to_string(line)
+      <> ": query "
+      <> name
+      <> ": sparse SQLite numbered placeholders "
+      <> format_indices(indices)
+      <> "; numbered placeholders must form a contiguous set starting from ?1 (e.g. ?1, ?2, ?3)"
+  }
+}
+
+fn format_indices(indices: List(Int)) -> String {
+  indices
+  |> list.sort(int.compare)
+  |> list.map(fn(i) { "?" <> int.to_string(i) })
+  |> string.join(", ")
+}
+
+fn upsert_hint(engine: model.Engine) -> String {
+  case engine {
+    model.PostgreSQL ->
+      "use `ON CONFLICT ... DO UPDATE` or `ON CONFLICT ... DO NOTHING`"
+    model.SQLite ->
+      "use `ON CONFLICT ... DO UPDATE` or `ON CONFLICT ... DO NOTHING`"
+    model.MySQL -> "use `ON DUPLICATE KEY UPDATE`"
+  }
+}
+
+fn allowed_placeholders_hint(engine: model.Engine) -> String {
+  case engine {
+    model.PostgreSQL ->
+      "PostgreSQL accepts `$N` or sqlode macros (`@name`, `sqlode.arg(name)`)"
+    model.MySQL ->
+      "MySQL accepts positional `?` or sqlode macros (`sqlode.arg(name)`)"
+    model.SQLite ->
+      "SQLite accepts `?`, `?N`, `:name`, `@name`, `$name`, or sqlode macros (`sqlode.arg(name)`)"
+  }
+}
+
+/// Validate that every raw placeholder token matches the configured engine.
+/// Sqlode markers (`__sqlode_param_*` / `__sqlode_slice_*`) are always
+/// accepted because they are produced by macro expansion and are rewritten
+/// to engine-specific placeholders at prepare-time.
+fn validate_placeholder_syntax(
+  engine: model.Engine,
+  tokens: List(lexer.Token),
+) -> Result(Nil, String) {
+  case tokens {
+    [] -> Ok(Nil)
+    [lexer.Placeholder(p), ..rest] ->
+      case is_marker_placeholder(p) || is_valid_raw_placeholder(engine, p) {
+        True -> validate_placeholder_syntax(engine, rest)
+        False -> Error(p)
+      }
+    [_, ..rest] -> validate_placeholder_syntax(engine, rest)
+  }
+}
+
+fn is_valid_raw_placeholder(engine: model.Engine, p: String) -> Bool {
+  case engine {
+    model.PostgreSQL -> is_dollar_numbered(p)
+    model.MySQL -> p == "?"
+    model.SQLite -> is_sqlite_placeholder_syntax(p)
+  }
+}
+
+fn is_dollar_numbered(p: String) -> Bool {
+  case string.starts_with(p, "$") {
+    False -> False
+    True -> is_positive_int(string.drop_start(p, 1))
+  }
+}
+
+fn is_sqlite_placeholder_syntax(p: String) -> Bool {
+  case p {
+    "?" -> True
+    _ ->
+      case string.first(p) {
+        Ok("?") -> is_positive_int(string.drop_start(p, 1))
+        Ok(":") | Ok("@") | Ok("$") -> string.length(p) > 1
+        _ -> False
+      }
+  }
+}
+
+fn is_positive_int(s: String) -> Bool {
+  case int.parse(s) {
+    Ok(n) if n > 0 -> True
+    _ -> False
+  }
+}
+
+/// Reject sparse SQLite numbered placeholders.
+///
+/// SQLite accepts `?N` with explicit indices, but sqlode's parameter count
+/// and runtime expansion assume the declared indices form a contiguous set
+/// starting from 1. A query that uses `?2` alone, or `?1` and `?3` with no
+/// `?2`, passes lexing but yields generated metadata that does not match the
+/// SQL text. Flag the mismatch at parse time so users can either renumber
+/// their placeholders or switch to the bare `?` / `?1, ?2, ...` forms.
+fn validate_sqlite_numbered_placeholders(
+  engine: model.Engine,
+  tokens: List(lexer.Token),
+) -> Result(Nil, List(Int)) {
+  case engine {
+    model.SQLite -> {
+      let indices =
+        tokens
+        |> list.filter_map(extract_sqlite_numbered_index)
+        |> list.unique
+      case indices {
+        [] -> Ok(Nil)
+        _ -> {
+          let max_idx = list.fold(indices, 0, int.max)
+          case max_idx == list.length(indices) {
+            True -> Ok(Nil)
+            False -> Error(indices)
+          }
+        }
+      }
+    }
+    _ -> Ok(Nil)
+  }
+}
+
+fn extract_sqlite_numbered_index(token: lexer.Token) -> Result(Int, Nil) {
+  case token {
+    lexer.Placeholder(p) ->
+      case string.first(p), string.length(p) > 1 {
+        Ok("?"), True -> int.parse(string.drop_start(p, 1))
+        _, _ -> Error(Nil)
+      }
+    _ -> Error(Nil)
+  }
+}
+
+/// Scan tokens for UPSERT tails that do not belong to the configured engine.
+/// MySQL uses `ON DUPLICATE KEY UPDATE`; PostgreSQL and SQLite use `ON
+/// CONFLICT ... DO UPDATE/NOTHING`. Accepting the wrong form silently leaks
+/// dialect-incompatible SQL into generated code, so reject it early with a
+/// diagnostic that names the offending tail.
+fn validate_upsert_tails(
+  engine: model.Engine,
+  tokens: List(lexer.Token),
+) -> Result(Nil, String) {
+  case tokens {
+    [] -> Ok(Nil)
+    [lexer.Keyword("on"), lexer.Ident(word), ..rest] ->
+      case string.lowercase(word), engine {
+        "duplicate", model.MySQL -> validate_upsert_tails(engine, rest)
+        "duplicate", _ -> Error("ON DUPLICATE KEY UPDATE")
+        _, _ -> validate_upsert_tails(engine, rest)
+      }
+    [lexer.Keyword("on"), lexer.Keyword("conflict"), ..rest] ->
+      case engine {
+        model.MySQL -> Error("ON CONFLICT")
+        _ -> validate_upsert_tails(engine, rest)
+      }
+    [_, ..rest] -> validate_upsert_tails(engine, rest)
   }
 }
 

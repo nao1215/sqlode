@@ -73,7 +73,7 @@ pub fn count_sqlite_named_placeholders_test() {
   let naming_ctx = naming.new()
   let content =
     "-- name: GetAuthor :one
-SELECT id FROM authors WHERE id = :id OR name = @name OR slug = $slug OR code = ?2;"
+SELECT id FROM authors WHERE id = :id OR name = @name OR slug = $slug OR code = ?1;"
 
   let assert Ok(queries) =
     parse_file("sqlite.sql", model.SQLite, naming_ctx, content)
@@ -273,18 +273,17 @@ UPDATE authors SET bio = @new_bio WHERE id = sqlode.arg(author_id);"
   ])
 }
 
-pub fn at_name_not_expanded_on_mysql_test() {
+pub fn at_name_rejected_on_mysql_test() {
   let naming_ctx = naming.new()
   let content =
     "-- name: GetByName :one
 SELECT id FROM authors WHERE name = @author_name;"
 
-  let assert Ok(queries) =
+  let assert Error(error) =
     parse_file("at.sql", model.MySQL, naming_ctx, content)
-  let assert [query] = queries
-
-  query.macros |> should.equal([])
-  string.contains(query.sql, "@author_name") |> should.be_true()
+  let msg = query_parser.error_to_string(error)
+  string.contains(msg, "@author_name") |> should.be_true()
+  string.contains(msg, "not valid for engine mysql") |> should.be_true()
 }
 
 // Error and boundary tests
@@ -964,4 +963,310 @@ SELECT 2;
   let assert [query] = queries
   query.name |> should.equal("Kept")
   query.command |> should.equal(runtime.QueryMany)
+}
+
+pub fn reject_colon_named_placeholder_for_mysql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthor :one
+SELECT id FROM authors WHERE name = :name;"
+
+  let assert Error(error) =
+    parse_file("q.sql", model.MySQL, naming_ctx, content)
+
+  query_parser.error_to_string(error)
+  |> should.equal(
+    "q.sql:1: query GetAuthor: placeholder `:name` is not valid for engine mysql; MySQL accepts positional `?` or sqlode macros (`sqlode.arg(name)`)",
+  )
+}
+
+pub fn reject_at_named_placeholder_for_mysql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthor :one
+SELECT id FROM authors WHERE id = @id;"
+
+  let assert Error(error) =
+    parse_file("q.sql", model.MySQL, naming_ctx, content)
+
+  query_parser.error_to_string(error)
+  |> should.equal(
+    "q.sql:1: query GetAuthor: placeholder `@id` is not valid for engine mysql; MySQL accepts positional `?` or sqlode macros (`sqlode.arg(name)`)",
+  )
+}
+
+pub fn reject_numbered_question_placeholder_for_mysql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthor :one
+SELECT id FROM authors WHERE id = ?1;"
+
+  let assert Error(error) =
+    parse_file("q.sql", model.MySQL, naming_ctx, content)
+
+  query_parser.error_to_string(error)
+  |> should.equal(
+    "q.sql:1: query GetAuthor: placeholder `?1` is not valid for engine mysql; MySQL accepts positional `?` or sqlode macros (`sqlode.arg(name)`)",
+  )
+}
+
+pub fn reject_colon_named_placeholder_for_postgresql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthor :one
+SELECT id FROM authors WHERE name = :name;"
+
+  let assert Error(error) =
+    parse_file("q.sql", model.PostgreSQL, naming_ctx, content)
+
+  query_parser.error_to_string(error)
+  |> should.equal(
+    "q.sql:1: query GetAuthor: placeholder `:name` is not valid for engine postgresql; PostgreSQL accepts `$N` or sqlode macros (`@name`, `sqlode.arg(name)`)",
+  )
+}
+
+pub fn reject_question_placeholder_for_postgresql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthor :one
+SELECT id FROM authors WHERE id = ?;"
+
+  let assert Error(error) =
+    parse_file("q.sql", model.PostgreSQL, naming_ctx, content)
+
+  query_parser.error_to_string(error)
+  |> should.equal(
+    "q.sql:1: query GetAuthor: placeholder `?` is not valid for engine postgresql; PostgreSQL accepts `$N` or sqlode macros (`@name`, `sqlode.arg(name)`)",
+  )
+}
+
+pub fn reject_dollar_named_placeholder_for_postgresql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthor :one
+SELECT id FROM authors WHERE slug = $slug;"
+
+  let assert Error(error) =
+    parse_file("q.sql", model.PostgreSQL, naming_ctx, content)
+
+  query_parser.error_to_string(error)
+  |> should.equal(
+    "q.sql:1: query GetAuthor: placeholder `$slug` is not valid for engine postgresql; PostgreSQL accepts `$N` or sqlode macros (`@name`, `sqlode.arg(name)`)",
+  )
+}
+
+pub fn accept_dollar_numbered_placeholder_for_postgresql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthor :one
+SELECT id FROM authors WHERE id = $1 AND name = $2;"
+
+  let assert Ok(queries) =
+    parse_file("q.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+  query.param_count |> should.equal(2)
+}
+
+pub fn accept_bare_question_placeholder_for_mysql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: CreateAuthor :exec
+INSERT INTO authors (name, bio) VALUES (?, ?);"
+
+  let assert Ok(queries) = parse_file("q.sql", model.MySQL, naming_ctx, content)
+  let assert [query] = queries
+  query.param_count |> should.equal(2)
+}
+
+pub fn accept_all_sqlite_placeholder_styles_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthor :one
+SELECT id FROM authors WHERE id = ?1 OR name = :name OR slug = $slug OR code = ?;"
+
+  let assert Ok(queries) =
+    parse_file("q.sql", model.SQLite, naming_ctx, content)
+  let assert [query] = queries
+  query.param_count |> should.equal(4)
+}
+
+pub fn accept_sqlode_arg_macro_for_mysql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthor :one
+SELECT id FROM authors WHERE name = sqlode.arg(author_name);"
+
+  let assert Ok(queries) = parse_file("q.sql", model.MySQL, naming_ctx, content)
+  let assert [query] = queries
+  query.param_count |> should.equal(1)
+}
+
+pub fn reject_placeholder_uses_query_start_line_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "
+
+-- name: GetAuthor :one
+SELECT id FROM authors WHERE name = :name;"
+
+  let assert Error(error) =
+    parse_file("q.sql", model.MySQL, naming_ctx, content)
+
+  query_parser.error_to_string(error)
+  |> should.equal(
+    "q.sql:3: query GetAuthor: placeholder `:name` is not valid for engine mysql; MySQL accepts positional `?` or sqlode macros (`sqlode.arg(name)`)",
+  )
+}
+
+pub fn reject_on_duplicate_key_for_postgresql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: UpsertAuthor :exec
+INSERT INTO authors (id, name) VALUES ($1, $2)
+ON DUPLICATE KEY UPDATE name = $2;"
+
+  let assert Error(error) =
+    parse_file("q.sql", model.PostgreSQL, naming_ctx, content)
+
+  query_parser.error_to_string(error)
+  |> should.equal(
+    "q.sql:1: query UpsertAuthor: `ON DUPLICATE KEY UPDATE` is not valid for engine postgresql; use `ON CONFLICT ... DO UPDATE` or `ON CONFLICT ... DO NOTHING`",
+  )
+}
+
+pub fn reject_on_duplicate_key_for_sqlite_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: UpsertAuthor :exec
+INSERT INTO authors (id, name) VALUES (?1, ?2)
+ON DUPLICATE KEY UPDATE name = ?2;"
+
+  let assert Error(error) =
+    parse_file("q.sql", model.SQLite, naming_ctx, content)
+
+  query_parser.error_to_string(error)
+  |> should.equal(
+    "q.sql:1: query UpsertAuthor: `ON DUPLICATE KEY UPDATE` is not valid for engine sqlite; use `ON CONFLICT ... DO UPDATE` or `ON CONFLICT ... DO NOTHING`",
+  )
+}
+
+pub fn reject_on_conflict_for_mysql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: UpsertAuthor :exec
+INSERT INTO authors (id, name) VALUES (sqlode.arg(id), sqlode.arg(name))
+ON CONFLICT (id) DO UPDATE SET name = sqlode.arg(updated_name);"
+
+  let assert Error(error) =
+    parse_file("q.sql", model.MySQL, naming_ctx, content)
+
+  query_parser.error_to_string(error)
+  |> should.equal(
+    "q.sql:1: query UpsertAuthor: `ON CONFLICT` is not valid for engine mysql; use `ON DUPLICATE KEY UPDATE`",
+  )
+}
+
+pub fn accept_on_duplicate_key_for_mysql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: UpsertAuthor :exec
+INSERT INTO authors (id, name) VALUES (?, ?)
+ON DUPLICATE KEY UPDATE name = VALUES(name);"
+
+  let assert Ok(queries) = parse_file("q.sql", model.MySQL, naming_ctx, content)
+  let assert [query] = queries
+  query.name |> should.equal("UpsertAuthor")
+}
+
+pub fn accept_on_conflict_for_postgresql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: UpsertAuthor :exec
+INSERT INTO authors (id, name) VALUES ($1, $2)
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name;"
+
+  let assert Ok(queries) =
+    parse_file("q.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+  query.name |> should.equal("UpsertAuthor")
+}
+
+pub fn accept_on_conflict_for_sqlite_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: UpsertAuthor :exec
+INSERT INTO authors (id, name) VALUES (?1, ?2)
+ON CONFLICT(id) DO UPDATE SET name = excluded.name;"
+
+  let assert Ok(queries) =
+    parse_file("q.sql", model.SQLite, naming_ctx, content)
+  let assert [query] = queries
+  query.name |> should.equal("UpsertAuthor")
+}
+
+pub fn accept_on_conflict_do_nothing_for_postgresql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: InsertOrIgnore :exec
+INSERT INTO authors (id, name) VALUES ($1, $2)
+ON CONFLICT (id) DO NOTHING;"
+
+  let assert Ok(queries) =
+    parse_file("q.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+  query.name |> should.equal("InsertOrIgnore")
+}
+
+pub fn reject_sparse_numbered_placeholder_for_sqlite_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthor :one
+SELECT id, name FROM authors WHERE id = ?2;"
+
+  let assert Error(error) =
+    parse_file("q.sql", model.SQLite, naming_ctx, content)
+
+  query_parser.error_to_string(error)
+  |> should.equal(
+    "q.sql:1: query GetAuthor: sparse SQLite numbered placeholders ?2; numbered placeholders must form a contiguous set starting from ?1 (e.g. ?1, ?2, ?3)",
+  )
+}
+
+pub fn reject_gap_in_numbered_placeholders_for_sqlite_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthor :one
+SELECT id FROM authors WHERE id = ?1 OR name = ?3;"
+
+  let assert Error(error) =
+    parse_file("q.sql", model.SQLite, naming_ctx, content)
+
+  query_parser.error_to_string(error)
+  |> should.equal(
+    "q.sql:1: query GetAuthor: sparse SQLite numbered placeholders ?1, ?3; numbered placeholders must form a contiguous set starting from ?1 (e.g. ?1, ?2, ?3)",
+  )
+}
+
+pub fn accept_contiguous_numbered_placeholders_for_sqlite_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthor :one
+SELECT id FROM authors WHERE id = ?1 AND name = ?2;"
+
+  let assert Ok(queries) =
+    parse_file("q.sql", model.SQLite, naming_ctx, content)
+  let assert [query] = queries
+  query.param_count |> should.equal(2)
+}
+
+pub fn accept_reused_numbered_placeholder_for_sqlite_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthor :one
+SELECT id FROM authors WHERE id = ?1 OR parent_id = ?1;"
+
+  let assert Ok(queries) =
+    parse_file("q.sql", model.SQLite, naming_ctx, content)
+  let assert [query] = queries
+  query.param_count |> should.equal(1)
 }
