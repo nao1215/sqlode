@@ -273,18 +273,17 @@ UPDATE authors SET bio = @new_bio WHERE id = sqlode.arg(author_id);"
   ])
 }
 
-pub fn at_name_not_expanded_on_mysql_test() {
+pub fn at_name_rejected_on_mysql_test() {
   let naming_ctx = naming.new()
   let content =
     "-- name: GetByName :one
 SELECT id FROM authors WHERE name = @author_name;"
 
-  let assert Ok(queries) =
+  let assert Error(error) =
     parse_file("at.sql", model.MySQL, naming_ctx, content)
-  let assert [query] = queries
-
-  query.macros |> should.equal([])
-  string.contains(query.sql, "@author_name") |> should.be_true()
+  let msg = query_parser.error_to_string(error)
+  string.contains(msg, "@author_name") |> should.be_true()
+  string.contains(msg, "not valid for engine mysql") |> should.be_true()
 }
 
 // Error and boundary tests
@@ -964,4 +963,157 @@ SELECT 2;
   let assert [query] = queries
   query.name |> should.equal("Kept")
   query.command |> should.equal(runtime.QueryMany)
+}
+
+pub fn reject_colon_named_placeholder_for_mysql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthor :one
+SELECT id FROM authors WHERE name = :name;"
+
+  let assert Error(error) =
+    parse_file("q.sql", model.MySQL, naming_ctx, content)
+
+  query_parser.error_to_string(error)
+  |> should.equal(
+    "q.sql:1: query GetAuthor: placeholder `:name` is not valid for engine mysql; MySQL accepts positional `?` or sqlode macros (`sqlode.arg(name)`)",
+  )
+}
+
+pub fn reject_at_named_placeholder_for_mysql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthor :one
+SELECT id FROM authors WHERE id = @id;"
+
+  let assert Error(error) =
+    parse_file("q.sql", model.MySQL, naming_ctx, content)
+
+  query_parser.error_to_string(error)
+  |> should.equal(
+    "q.sql:1: query GetAuthor: placeholder `@id` is not valid for engine mysql; MySQL accepts positional `?` or sqlode macros (`sqlode.arg(name)`)",
+  )
+}
+
+pub fn reject_numbered_question_placeholder_for_mysql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthor :one
+SELECT id FROM authors WHERE id = ?1;"
+
+  let assert Error(error) =
+    parse_file("q.sql", model.MySQL, naming_ctx, content)
+
+  query_parser.error_to_string(error)
+  |> should.equal(
+    "q.sql:1: query GetAuthor: placeholder `?1` is not valid for engine mysql; MySQL accepts positional `?` or sqlode macros (`sqlode.arg(name)`)",
+  )
+}
+
+pub fn reject_colon_named_placeholder_for_postgresql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthor :one
+SELECT id FROM authors WHERE name = :name;"
+
+  let assert Error(error) =
+    parse_file("q.sql", model.PostgreSQL, naming_ctx, content)
+
+  query_parser.error_to_string(error)
+  |> should.equal(
+    "q.sql:1: query GetAuthor: placeholder `:name` is not valid for engine postgresql; PostgreSQL accepts `$N` or sqlode macros (`@name`, `sqlode.arg(name)`)",
+  )
+}
+
+pub fn reject_question_placeholder_for_postgresql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthor :one
+SELECT id FROM authors WHERE id = ?;"
+
+  let assert Error(error) =
+    parse_file("q.sql", model.PostgreSQL, naming_ctx, content)
+
+  query_parser.error_to_string(error)
+  |> should.equal(
+    "q.sql:1: query GetAuthor: placeholder `?` is not valid for engine postgresql; PostgreSQL accepts `$N` or sqlode macros (`@name`, `sqlode.arg(name)`)",
+  )
+}
+
+pub fn reject_dollar_named_placeholder_for_postgresql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthor :one
+SELECT id FROM authors WHERE slug = $slug;"
+
+  let assert Error(error) =
+    parse_file("q.sql", model.PostgreSQL, naming_ctx, content)
+
+  query_parser.error_to_string(error)
+  |> should.equal(
+    "q.sql:1: query GetAuthor: placeholder `$slug` is not valid for engine postgresql; PostgreSQL accepts `$N` or sqlode macros (`@name`, `sqlode.arg(name)`)",
+  )
+}
+
+pub fn accept_dollar_numbered_placeholder_for_postgresql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthor :one
+SELECT id FROM authors WHERE id = $1 AND name = $2;"
+
+  let assert Ok(queries) =
+    parse_file("q.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [query] = queries
+  query.param_count |> should.equal(2)
+}
+
+pub fn accept_bare_question_placeholder_for_mysql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: CreateAuthor :exec
+INSERT INTO authors (name, bio) VALUES (?, ?);"
+
+  let assert Ok(queries) = parse_file("q.sql", model.MySQL, naming_ctx, content)
+  let assert [query] = queries
+  query.param_count |> should.equal(2)
+}
+
+pub fn accept_all_sqlite_placeholder_styles_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthor :one
+SELECT id FROM authors WHERE id = ?1 OR name = :name OR slug = $slug OR code = ?;"
+
+  let assert Ok(queries) =
+    parse_file("q.sql", model.SQLite, naming_ctx, content)
+  let assert [query] = queries
+  query.param_count |> should.equal(4)
+}
+
+pub fn accept_sqlode_arg_macro_for_mysql_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetAuthor :one
+SELECT id FROM authors WHERE name = sqlode.arg(author_name);"
+
+  let assert Ok(queries) = parse_file("q.sql", model.MySQL, naming_ctx, content)
+  let assert [query] = queries
+  query.param_count |> should.equal(1)
+}
+
+pub fn reject_placeholder_uses_query_start_line_test() {
+  let naming_ctx = naming.new()
+  let content =
+    "
+
+-- name: GetAuthor :one
+SELECT id FROM authors WHERE name = :name;"
+
+  let assert Error(error) =
+    parse_file("q.sql", model.MySQL, naming_ctx, content)
+
+  query_parser.error_to_string(error)
+  |> should.equal(
+    "q.sql:3: query GetAuthor: placeholder `:name` is not valid for engine mysql; MySQL accepts positional `?` or sqlode macros (`sqlode.arg(name)`)",
+  )
 }

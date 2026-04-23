@@ -13,6 +13,13 @@ import sqlode/runtime
 pub type ParseError {
   InvalidAnnotation(path: String, line: Int, detail: String)
   MissingSql(path: String, line: Int, name: String)
+  InvalidPlaceholder(
+    path: String,
+    line: Int,
+    name: String,
+    engine: model.Engine,
+    token: String,
+  )
 }
 
 type PendingQuery {
@@ -186,34 +193,47 @@ fn finalize_pending(
 
           let macros = list.append(at_macros, expanded_macros)
 
-          // Phase 4: Render expanded token list back to SQL
-          let expanded_sql =
-            lexer.tokens_to_string(
-              tokens,
-              lexer.TokenRenderOptions(
-                uppercase_keywords: False,
-                preserve_quotes: True,
-                engine: Some(engine),
-              ),
-            )
+          // Phase 4: Validate remaining raw placeholders match the engine
+          case validate_placeholder_syntax(engine, tokens) {
+            Error(token) ->
+              Error(InvalidPlaceholder(
+                path:,
+                line: start_line,
+                name:,
+                engine:,
+                token:,
+              ))
+            Ok(Nil) -> {
+              // Phase 5: Render expanded token list back to SQL
+              let expanded_sql =
+                lexer.tokens_to_string(
+                  tokens,
+                  lexer.TokenRenderOptions(
+                    uppercase_keywords: False,
+                    preserve_quotes: True,
+                    engine: Some(engine),
+                  ),
+                )
 
-          // Phase 5: Count parameters from the already-expanded token list
-          let param_count = count_parameters_from_tokens(engine, tokens)
+              // Phase 6: Count parameters from the already-expanded token list
+              let param_count = count_parameters_from_tokens(engine, tokens)
 
-          let parsed =
-            model.ParsedQuery(
-              name:,
-              function_name:,
-              command:,
-              sql: expanded_sql,
-              source_path: path,
-              param_count:,
-              macros:,
-            )
-          Ok([
-            query_ir.TokenizedQuery(base: parsed, tokens: tokens),
-            ..parsed_rev
-          ])
+              let parsed =
+                model.ParsedQuery(
+                  name:,
+                  function_name:,
+                  command:,
+                  sql: expanded_sql,
+                  source_path: path,
+                  param_count:,
+                  macros:,
+                )
+              Ok([
+                query_ir.TokenizedQuery(base: parsed, tokens: tokens),
+                ..parsed_rev
+              ])
+            }
+          }
         }
       }
     }
@@ -410,6 +430,82 @@ pub fn error_to_string(error: ParseError) -> String {
       <> ": query "
       <> name
       <> " is missing SQL body"
+    InvalidPlaceholder(path:, line:, name:, engine:, token:) ->
+      path
+      <> ":"
+      <> int.to_string(line)
+      <> ": query "
+      <> name
+      <> ": placeholder `"
+      <> token
+      <> "` is not valid for engine "
+      <> model.engine_to_string(engine)
+      <> "; "
+      <> allowed_placeholders_hint(engine)
+  }
+}
+
+fn allowed_placeholders_hint(engine: model.Engine) -> String {
+  case engine {
+    model.PostgreSQL ->
+      "PostgreSQL accepts `$N` or sqlode macros (`@name`, `sqlode.arg(name)`)"
+    model.MySQL ->
+      "MySQL accepts positional `?` or sqlode macros (`sqlode.arg(name)`)"
+    model.SQLite ->
+      "SQLite accepts `?`, `?N`, `:name`, `@name`, `$name`, or sqlode macros (`sqlode.arg(name)`)"
+  }
+}
+
+/// Validate that every raw placeholder token matches the configured engine.
+/// Sqlode markers (`__sqlode_param_*` / `__sqlode_slice_*`) are always
+/// accepted because they are produced by macro expansion and are rewritten
+/// to engine-specific placeholders at prepare-time.
+fn validate_placeholder_syntax(
+  engine: model.Engine,
+  tokens: List(lexer.Token),
+) -> Result(Nil, String) {
+  case tokens {
+    [] -> Ok(Nil)
+    [lexer.Placeholder(p), ..rest] ->
+      case is_marker_placeholder(p) || is_valid_raw_placeholder(engine, p) {
+        True -> validate_placeholder_syntax(engine, rest)
+        False -> Error(p)
+      }
+    [_, ..rest] -> validate_placeholder_syntax(engine, rest)
+  }
+}
+
+fn is_valid_raw_placeholder(engine: model.Engine, p: String) -> Bool {
+  case engine {
+    model.PostgreSQL -> is_dollar_numbered(p)
+    model.MySQL -> p == "?"
+    model.SQLite -> is_sqlite_placeholder_syntax(p)
+  }
+}
+
+fn is_dollar_numbered(p: String) -> Bool {
+  case string.starts_with(p, "$") {
+    False -> False
+    True -> is_positive_int(string.drop_start(p, 1))
+  }
+}
+
+fn is_sqlite_placeholder_syntax(p: String) -> Bool {
+  case p {
+    "?" -> True
+    _ ->
+      case string.first(p) {
+        Ok("?") -> is_positive_int(string.drop_start(p, 1))
+        Ok(":") | Ok("@") | Ok("$") -> string.length(p) > 1
+        _ -> False
+      }
+  }
+}
+
+fn is_positive_int(s: String) -> Bool {
+  case int.parse(s) {
+    Ok(n) if n > 0 -> True
+    _ -> False
   }
 }
 
