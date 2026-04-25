@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- `sqlode --help` no longer renders the same usage information
+  twice. Previously a manually-authored `global_help` block printed
+  first, followed by glint's auto-generated `USAGE: / SUBCOMMANDS:`
+  layout — same content, two formats. The manual block is
+  removed; glint's auto-generated layout is now the single source
+  of truth, so the two views cannot drift. Per-subcommand help
+  (`sqlode generate --help`, `sqlode init --help`, etc.) continues
+  to use each command's `glint.command_help(...)` block, which
+  already carried the auto-discovery and example details that the
+  removed global block duplicated. (#467)
 - The CLI now rewrites the previous misleading
   `command not found` diagnostic into a class-specific message that
   names the actual failure mode:

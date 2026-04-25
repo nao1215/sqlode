@@ -11,10 +11,17 @@ import sqlode/verify
 import sqlode/version
 
 pub fn app() -> glint.Glint(Nil) {
+  // Help-text source: glint's auto-generated USAGE / SUBCOMMANDS /
+  // FLAGS layout for top-level `--help`, and each command's own
+  // `glint.command_help(...)` block for per-subcommand `--help`.
+  // Previously a manually-authored `global_help` block was layered
+  // on top of the auto-generated one, so `--help` printed the same
+  // information twice in two different layouts. Per #467 we keep the
+  // auto-generated path as the single source of truth so the two
+  // layouts cannot drift.
   let base =
     glint.new()
     |> glint.with_name("sqlode")
-    |> glint.global_help(global_help_text())
 
   let with_styling = case should_emit_color() {
     True -> base |> glint.pretty_help(glint.default_pretty_help())
@@ -59,22 +66,6 @@ fn is_stdout_terminal() -> Bool
 
 @external(erlang, "sqlode_ffi", "no_color_env")
 fn no_color_env() -> Result(String, Nil)
-
-fn global_help_text() -> String {
-  "Generate type-safe Gleam code from SQL files using sqlc-style config.
-
-Usage:
-  sqlode generate [--config=<path>]
-  sqlode verify [--config=<path>]
-  sqlode init [--output=./sqlode.yaml] [--engine=postgresql|sqlite|mysql] [--runtime=raw|native]
-  sqlode version
-
-Without --config, generate/verify auto-discovers sqlode.yaml,
-sqlode.yml, sqlc.yaml, sqlc.yml, or sqlc.json in the current
-directory.
-
-Run `sqlode <command> --help` for details on each command."
-}
 
 /// Candidate config filenames searched, in order, when --config is not
 /// given. The first match wins; if two or more files exist the command
