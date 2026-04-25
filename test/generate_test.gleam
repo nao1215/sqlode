@@ -6,6 +6,7 @@ import simplifile
 import sqlode/config
 import sqlode/generate
 import sqlode/model
+import sqlode/runtime
 
 const test_out = "test_output/generate_test"
 
@@ -2400,4 +2401,114 @@ pub fn sqlite_array_param_rejected_test() {
   let cfg = model.Config(version: 2, sql: [block])
   let _result = generate.generate_config(cfg)
   cleanup()
+}
+
+// --- Param-name disambiguation (#472) ---
+//
+// Pin the rule directly. Going through the full generate pipeline
+// for these would require a fixture schema/query pair per case;
+// disambiguate_param_names is the load-bearing logic and exposing
+// it as `@internal pub` lets every branch get a deterministic test.
+
+fn make_param(field_name: String, index: Int) -> model.QueryParam {
+  model.QueryParam(
+    index: index,
+    field_name: field_name,
+    scalar_type: model.StringType,
+    nullable: False,
+    is_list: False,
+  )
+}
+
+fn make_query(params: List(model.QueryParam)) -> model.AnalyzedQuery {
+  model.AnalyzedQuery(
+    base: model.ParsedQuery(
+      name: "Test",
+      function_name: "test",
+      command: runtime.QueryMany,
+      sql: "",
+      source_path: "fixture.sql",
+      param_count: list.length(params),
+      macros: [],
+    ),
+    params: params,
+    result_columns: [],
+  )
+}
+
+fn field_names(query: model.AnalyzedQuery) -> List(String) {
+  list.map(query.params, fn(p) { p.field_name })
+}
+
+pub fn disambiguate_param_names_keeps_unique_names_test() {
+  let q = make_query([make_param("started_at", 0), make_param("ended_at", 1)])
+  let assert [renamed] = generate.disambiguate_param_names([q])
+  field_names(renamed) |> should.equal(["started_at", "ended_at"])
+}
+
+pub fn disambiguate_param_names_suffixes_duplicate_pair_test() {
+  // The headline #472 case: WHERE x >= ? AND x < ? produces two
+  // params both named `started_at`; the second occurrence must pick
+  // up a `_2` suffix so the generated record / function head is
+  // valid Gleam.
+  let q = make_query([make_param("started_at", 0), make_param("started_at", 1)])
+  let assert [renamed] = generate.disambiguate_param_names([q])
+  field_names(renamed) |> should.equal(["started_at", "started_at_2"])
+}
+
+pub fn disambiguate_param_names_suffixes_three_way_collision_test() {
+  let q =
+    make_query([
+      make_param("x", 0),
+      make_param("x", 1),
+      make_param("x", 2),
+    ])
+  let assert [renamed] = generate.disambiguate_param_names([q])
+  field_names(renamed) |> should.equal(["x", "x_2", "x_3"])
+}
+
+pub fn disambiguate_param_names_only_renames_collisions_test() {
+  // `keep_me` appears once, `dup` appears twice — only the
+  // duplicates should change.
+  let q =
+    make_query([
+      make_param("keep_me", 0),
+      make_param("dup", 1),
+      make_param("dup", 2),
+    ])
+  let assert [renamed] = generate.disambiguate_param_names([q])
+  field_names(renamed) |> should.equal(["keep_me", "dup", "dup_2"])
+}
+
+pub fn disambiguate_param_names_handles_multiple_queries_test() {
+  // Each query is independent — a duplicate in query A must not
+  // change the names of query B's params even if the same
+  // field_name appears.
+  let q1 = make_query([make_param("x", 0), make_param("x", 1)])
+  let q2 = make_query([make_param("x", 0)])
+  let assert [r1, r2] = generate.disambiguate_param_names([q1, q2])
+  field_names(r1) |> should.equal(["x", "x_2"])
+  field_names(r2) |> should.equal(["x"])
+}
+
+pub fn disambiguate_param_names_handles_empty_param_list_test() {
+  let q = make_query([])
+  let assert [renamed] = generate.disambiguate_param_names([q])
+  field_names(renamed) |> should.equal([])
+}
+
+pub fn disambiguate_param_names_preserves_param_order_test() {
+  // The renamer must not reorder params — the indices in
+  // QueryParam.index map to placeholder positions in the SQL string
+  // and reordering would make the call site bind values to the
+  // wrong slots.
+  let q =
+    make_query([
+      make_param("a", 0),
+      make_param("b", 1),
+      make_param("a", 2),
+      make_param("b", 3),
+    ])
+  let assert [renamed] = generate.disambiguate_param_names([q])
+  field_names(renamed) |> should.equal(["a", "b", "a_2", "b_2"])
 }

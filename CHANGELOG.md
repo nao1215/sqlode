@@ -59,6 +59,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Generated `params.gleam` and `queries.gleam` no longer emit
+  duplicate record fields, labelled arguments, or labelled
+  constructor calls when one query references the same column
+  twice (e.g. `WHERE x >= ? AND x < ?` for range scans). The
+  second and later occurrences pick up a `_<n>` suffix
+  (`x`, `x_2`, `x_3`, …) so the generated Gleam compiles.
+  Single-occurrence params keep their original names; param order
+  is preserved so placeholder binding stays correct. (#472)
 - Generated `params.gleam` no longer imports the unused `None` /
   `Some` constructors from `gleam/option`; only `type Option` is
   pulled in (the rendered code only references the type itself).

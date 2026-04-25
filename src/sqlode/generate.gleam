@@ -143,6 +143,7 @@ fn load_and_analyze_queries(
   use Nil <- result.try(validate_unsupported_annotations(analyzed))
   use Nil <- result.try(validate_array_engine_support(block.engine, analyzed))
   let analyzed = apply_column_renames(analyzed, block.overrides.column_renames)
+  let analyzed = disambiguate_param_names(analyzed)
   Ok(#(queries, analyzed))
 }
 
@@ -634,6 +635,58 @@ fn parse_module_qualified_type(
     Ok(#(module_path, type_name)) -> #(option.Some(module_path), type_name)
     Error(_) -> #(option.None, gleam_type)
   }
+}
+
+/// Disambiguate `field_name` collisions inside each query's params.
+/// `WHERE x >= ? AND x < ?` produces two params both named `x`,
+/// which surfaces in codegen as duplicated record fields and labelled
+/// arguments — neither is valid Gleam. We give the second and later
+/// occurrences a `_<n>` suffix (`x`, `x_2`, `x_3`, …) so the
+/// generated record / function head compiles. Single occurrences are
+/// untouched, so existing queries that reference each column once
+/// keep their names. Public so the test suite can pin the rule
+/// without going through the full generate pipeline. (#472)
+@internal
+pub fn disambiguate_param_names(
+  queries: List(model.AnalyzedQuery),
+) -> List(model.AnalyzedQuery) {
+  list.map(queries, disambiguate_query_params)
+}
+
+fn disambiguate_query_params(query: model.AnalyzedQuery) -> model.AnalyzedQuery {
+  let counts =
+    list.fold(query.params, dict.new(), fn(acc, p) {
+      dict.upsert(acc, p.field_name, fn(prev) {
+        case prev {
+          option.Some(n) -> n + 1
+          option.None -> 1
+        }
+      })
+    })
+
+  let #(_, renamed_reversed) =
+    list.fold(query.params, #(dict.new(), []), fn(acc, p) {
+      let #(seen, out) = acc
+      case dict.get(counts, p.field_name) {
+        Ok(n) if n > 1 -> {
+          let occurrence = case dict.get(seen, p.field_name) {
+            Ok(prev) -> prev + 1
+            Error(_) -> 1
+          }
+          let new_seen = dict.insert(seen, p.field_name, occurrence)
+          let new_name = case occurrence {
+            // First occurrence keeps the original name; later
+            // occurrences pick up the `_<n>` suffix.
+            1 -> p.field_name
+            _ -> p.field_name <> "_" <> int.to_string(occurrence)
+          }
+          let renamed = model.QueryParam(..p, field_name: new_name)
+          #(new_seen, [renamed, ..out])
+        }
+        _ -> #(seen, [p, ..out])
+      }
+    })
+  model.AnalyzedQuery(..query, params: list.reverse(renamed_reversed))
 }
 
 fn apply_column_renames(
