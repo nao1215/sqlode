@@ -17,8 +17,11 @@ import sqlode/query_ir
 pub type AnalysisError =
   context.AnalysisError
 
-pub fn analysis_error_to_string(error: AnalysisError) -> String {
-  context.analysis_error_to_string(error)
+pub fn analysis_error_to_string(
+  error: AnalysisError,
+  engine: model.Engine,
+) -> String {
+  context.analysis_error_to_string(error, engine)
 }
 
 pub fn analyze_queries(
