@@ -889,3 +889,33 @@ pub fn rewrite_error_passes_through_unrelated_messages_test() {
 pub fn rewrite_error_no_args_does_not_call_unrecognized_option_test() {
   entry_test.rewrite_error_no_args_does_not_call_unrecognized_option_test()
 }
+
+// --- Param-name disambiguation (#472) ---
+
+pub fn disambiguate_param_names_keeps_unique_names_test() {
+  generate_test.disambiguate_param_names_keeps_unique_names_test()
+}
+
+pub fn disambiguate_param_names_suffixes_duplicate_pair_test() {
+  generate_test.disambiguate_param_names_suffixes_duplicate_pair_test()
+}
+
+pub fn disambiguate_param_names_suffixes_three_way_collision_test() {
+  generate_test.disambiguate_param_names_suffixes_three_way_collision_test()
+}
+
+pub fn disambiguate_param_names_only_renames_collisions_test() {
+  generate_test.disambiguate_param_names_only_renames_collisions_test()
+}
+
+pub fn disambiguate_param_names_handles_multiple_queries_test() {
+  generate_test.disambiguate_param_names_handles_multiple_queries_test()
+}
+
+pub fn disambiguate_param_names_handles_empty_param_list_test() {
+  generate_test.disambiguate_param_names_handles_empty_param_list_test()
+}
+
+pub fn disambiguate_param_names_preserves_param_order_test() {
+  generate_test.disambiguate_param_names_preserves_param_order_test()
+}
