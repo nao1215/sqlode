@@ -30,3 +30,9 @@ init_cmd() {
 version_cmd() {
   cd "$PROJECT_ROOT" && gleam run -- version "$@" 2>&1
 }
+
+# Run sqlode without merging stderr into stdout so spec assertions can
+# distinguish the two streams. Used by error-routing checks (#465).
+sqlode_raw() {
+  cd "$PROJECT_ROOT" && gleam run -- "$@"
+}

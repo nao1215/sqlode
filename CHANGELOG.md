@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The CLI now sends error diagnostics (unknown flag / no-args /
+  invalid subcommand) to **stderr** with exit code 1, matching the
+  POSIX/CLIG convention. Pipelines like
+  `sqlode | jq` no longer receive help-as-error noise on jq's
+  stdin, and `sqlode <bad> 1>out 2>err` cleanly separates
+  requested output from diagnostics. Explicit `--help`
+  invocations still print to stdout (the help text is the
+  requested output in that case). The dispatch is implemented in
+  `sqlode.main`, which now drives `glint.execute` itself instead
+  of going through `glint.run`. (#465)
 - The CLI now emits ANSI escape codes in `--help` output only when
   stdout is connected to an interactive terminal AND the
   `NO_COLOR` environment variable is unset (or set to the empty

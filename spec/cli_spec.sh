@@ -89,4 +89,33 @@ Describe 'sqlode CLI'
       The output should include 'Print the sqlode version'
     End
   End
+
+  Describe 'error diagnostics routing (#465)'
+    # Pin POSIX/CLIG behaviour: error messages from invalid invocations
+    # land on stderr (not stdout), so wrappers using `1>out 2>err`
+    # can distinguish requested output from diagnostics.
+
+    It 'sends unknown-flag errors to stderr, not stdout'
+      When run sqlode_raw --xyz
+      The status should be failure
+      # Error diagnostic must reach stderr.
+      The error should include 'error'
+      # And must NOT appear on stdout.
+      The output should not include 'error: failed to run command'
+    End
+
+    It 'sends no-args errors to stderr, not stdout'
+      When run sqlode_raw
+      The status should be failure
+      The error should include 'error'
+      The output should not include 'error: failed to run command'
+    End
+
+    It 'still prints --help text on stdout (requested output)'
+      When run sqlode_raw --help
+      The status should be success
+      # The help text is the requested output and stays on stdout.
+      The output should include 'sqlode'
+    End
+  End
 End
