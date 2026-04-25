@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Generated `params.gleam` no longer imports the unused `None` /
+  `Some` constructors from `gleam/option`; only `type Option` is
+  pulled in (the rendered code only references the type itself).
+  Generated `<engine>_adapter.gleam` now narrows its
+  `gleam/option` import to what the file actually references —
+  `{type Option}` when only nullable params/results force the
+  type, and the full `{type Option, None, Some}` only when at
+  least one query is `:one` / `:batchone` and the wrapper actually
+  emits `Some(row) / None`. Downstream callers running with strict
+  warnings (e.g. glinter `warnings_as_errors = true`, which sqlode
+  itself uses) no longer have to suppress unused-import warnings on
+  `// DO NOT EDIT` files. **Re-run `sqlode generate` to refresh
+  existing `params.gleam` / `<engine>_adapter.gleam` files —
+  previously generated copies still carry the broad import.**
+  (#463)
+
 ## [0.8.0] - 2026-04-23
 
 ### Fixed

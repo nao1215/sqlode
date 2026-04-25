@@ -111,6 +111,36 @@ pub fn render_params_module_test() {
   |> should.be_false()
 }
 
+pub fn render_params_module_imports_only_option_type_test() {
+  // params.gleam never uses None / Some in its rendered code, so the
+  // `gleam/option` import must be type-only. A wider import trips
+  // `gleam build`'s unused-import warnings under
+  // `warnings_as_errors`, which downstream users cannot fix because
+  // the file is `// DO NOT EDIT`. Regression test for #463.
+  let naming_ctx = naming.new()
+  let analyzed = analyzed_queries("test/fixtures/macro_edge_cases.sql")
+  let rendered =
+    params.render(
+      naming_ctx,
+      analyzed,
+      model.StringMapping,
+      "db",
+      "sqlode/runtime",
+    )
+
+  string.contains(rendered, "import gleam/option.{type Option}")
+  |> should.be_true()
+  // Negative form: must not pull in the constructors. Asserting
+  // against the import shapes directly (rather than the bare
+  // `None` / `Some` substrings) keeps this robust against future
+  // fixtures whose rendered output legitimately contains those
+  // names in unrelated contexts (column names, docstrings, etc.).
+  string.contains(rendered, "import gleam/option.{type Option, None, Some}")
+  |> should.be_false()
+  string.contains(rendered, "import gleam/option.{None, Some}")
+  |> should.be_false()
+}
+
 pub fn render_models_module_test() {
   let naming_ctx = naming.new()
   let catalog = test_catalog()
@@ -282,6 +312,56 @@ pub fn render_params_module_slice_test() {
   // Should import gleam/list
   string.contains(rendered, "import gleam/list")
   |> should.be_true()
+}
+
+pub fn render_pog_adapter_imports_option_constructors_with_query_one_test() {
+  // The fixture's GetAuthor query is `:one`, whose generated wrapper
+  // calls `Some(row)` / `None`. The adapter must therefore import
+  // both the type and the constructors. Regression test for #463.
+  let naming_ctx = naming.new()
+  let block = test_block_native()
+  let analyzed = analyzed_queries("test/fixtures/query.sql")
+  let rendered = adapter.render(naming_ctx, block, analyzed, dict.new())
+
+  string.contains(rendered, "import gleam/option.{type Option, None, Some}")
+  |> should.be_true()
+}
+
+pub fn render_pog_adapter_imports_only_option_type_without_query_one_test() {
+  // macro_edge_cases.sql has only `:many` and `:exec` queries (no
+  // `:one`), but its `narg(...)` params make the generated row /
+  // params types reference `Option(...)`. The adapter must import
+  // only the type — emitting `None, Some` would trip the
+  // `// DO NOT EDIT` file's unused-import warnings under
+  // `warnings_as_errors`. Regression test for #463.
+  let naming_ctx = naming.new()
+  let block =
+    model.SqlBlock(
+      name: None,
+      engine: model.PostgreSQL,
+      schema: ["test/fixtures/schema.sql"],
+      queries: ["test/fixtures/macro_edge_cases.sql"],
+      gleam: model.GleamOutput(
+        out: "test_output/db",
+        runtime: model.Native,
+        type_mapping: model.StringMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: False,
+        omit_unused_models: False,
+        vendor_runtime: False,
+        strict_views: False,
+        query_parameter_limit: option.None,
+      ),
+      overrides: model.empty_overrides(),
+    )
+  let analyzed = analyzed_queries("test/fixtures/macro_edge_cases.sql")
+  let rendered = adapter.render(naming_ctx, block, analyzed, dict.new())
+
+  string.contains(rendered, "import gleam/option.{type Option}")
+  |> should.be_true()
+  // Negative form: must not pull in the constructors.
+  string.contains(rendered, "import gleam/option.{type Option, None, Some}")
+  |> should.be_false()
 }
 
 pub fn render_pog_adapter_slice_test() {

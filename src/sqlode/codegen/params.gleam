@@ -38,34 +38,25 @@ pub fn render(
 
   let runtime_import_line = "import " <> runtime_import <> ".{type Value}"
 
-  let imports = case needs_option_import(queries) {
-    True ->
-      list.flatten([
-        case has_slices || has_arrays {
-          True -> ["import gleam/list"]
-          False -> []
-        },
-        ["import gleam/option.{type Option, None, Some}", runtime_import_line],
-        case has_enums || needs_models_for_rich {
-          True -> ["import " <> module_path <> "/models"]
-          False -> []
-        },
-        custom_imports,
-      ])
-    False ->
-      list.flatten([
-        case has_slices || has_arrays {
-          True -> ["import gleam/list"]
-          False -> []
-        },
-        [runtime_import_line],
-        case has_enums || needs_models_for_rich {
-          True -> ["import " <> module_path <> "/models"]
-          False -> []
-        },
-        custom_imports,
-      ])
+  let option_import = case needs_option_import(queries) {
+    True -> ["import gleam/option.{type Option}"]
+    False -> []
   }
+
+  let imports =
+    list.flatten([
+      case has_slices || has_arrays {
+        True -> ["import gleam/list"]
+        False -> []
+      },
+      option_import,
+      [runtime_import_line],
+      case has_enums || needs_models_for_rich {
+        True -> ["import " <> module_path <> "/models"]
+        False -> []
+      },
+      custom_imports,
+    ])
 
   let queries_with_params =
     list.filter(queries, fn(q) { !list.is_empty(q.params) })

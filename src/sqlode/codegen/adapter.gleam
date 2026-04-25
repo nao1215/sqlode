@@ -264,10 +264,7 @@ fn render_adapter(
         False -> []
       },
       ["import gleam/result"],
-      case needs_option_import_for_adapter(queries) {
-        True -> ["import gleam/option.{type Option, None, Some}"]
-        False -> []
-      },
+      adapter_option_import(queries),
       [config.library_import],
       // Every generated adapter now calls `runtime.expand_slice_placeholders`
       // to substitute the placeholder markers emitted by the query parser,
@@ -1036,7 +1033,32 @@ fn render_first_or_default(
   ]
 }
 
-fn needs_option_import_for_adapter(queries: List(model.AnalyzedQuery)) -> Bool {
+/// Emit a `gleam/option` import line tailored to what the generated
+/// adapter actually references. The `Option` type is needed
+/// whenever any param / result column is nullable or whenever any
+/// query is `QueryOne` / `QueryBatchOne` (the wrapper returns
+/// `Option(Row)`); the `None` / `Some` constructors are only
+/// referenced by the `QueryOne` / `QueryBatchOne` row-list match
+/// (`[row, ..] -> Some(row)` / `[] -> None`). Pulling unused
+/// constructors into the import trips `gleam build`'s unused-import
+/// warnings under `warnings_as_errors`, which downstream users
+/// cannot fix because the file is `// DO NOT EDIT`. (#463)
+fn adapter_option_import(queries: List(model.AnalyzedQuery)) -> List(String) {
+  let needs_type = adapter_needs_option_type(queries)
+  let needs_constructors = adapter_needs_option_constructors(queries)
+  case needs_type, needs_constructors {
+    False, False -> []
+    True, True -> ["import gleam/option.{type Option, None, Some}"]
+    True, False -> ["import gleam/option.{type Option}"]
+    // Unreachable today: `adapter_needs_option_type` short-circuits
+    // to True whenever `adapter_query_uses_option_constructors`
+    // does. Kept as a defensive guard so a future refactor that
+    // decouples the two predicates still emits a buildable import.
+    False, True -> ["import gleam/option.{None, Some}"]
+  }
+}
+
+fn adapter_needs_option_type(queries: List(model.AnalyzedQuery)) -> Bool {
   list.any(queries, fn(query) {
     let has_nullable_params =
       list.any(query.params, fn(param) { param.nullable })
@@ -1049,10 +1071,17 @@ fn needs_option_import_for_adapter(queries: List(model.AnalyzedQuery)) -> Bool {
             list.any(columns, fn(c) { c.nullable })
         }
       })
-    let has_one_command =
-      query.base.command == runtime.QueryOne
-      || query.base.command == runtime.QueryBatchOne
-
-    has_nullable_params || has_nullable_results || has_one_command
+    has_nullable_params
+    || has_nullable_results
+    || adapter_query_uses_option_constructors(query)
   })
+}
+
+fn adapter_needs_option_constructors(queries: List(model.AnalyzedQuery)) -> Bool {
+  list.any(queries, adapter_query_uses_option_constructors)
+}
+
+fn adapter_query_uses_option_constructors(query: model.AnalyzedQuery) -> Bool {
+  query.base.command == runtime.QueryOne
+  || query.base.command == runtime.QueryBatchOne
 }
