@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-04-26
+
 ### Changed
 
 - `sqlode --help` no longer renders the same usage information
@@ -56,9 +58,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `cli.decide_color_emission` and is pinned by tests; the BEAM
   primitives are wrapped in a small `sqlode_ffi.erl` module.
   (#464)
-
-### Changed
-
 - **BREAKING**: `query_analyzer.analysis_error_to_string` now
   takes a second `engine: model.Engine` argument so the rendered
   message is tailored to the configured engine. Placeholder
