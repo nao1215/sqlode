@@ -1050,6 +1050,10 @@ fn adapter_option_import(queries: List(model.AnalyzedQuery)) -> List(String) {
     False, False -> []
     True, True -> ["import gleam/option.{type Option, None, Some}"]
     True, False -> ["import gleam/option.{type Option}"]
+    // Unreachable today: `adapter_needs_option_type` short-circuits
+    // to True whenever `adapter_query_uses_option_constructors`
+    // does. Kept as a defensive guard so a future refactor that
+    // decouples the two predicates still emits a buildable import.
     False, True -> ["import gleam/option.{None, Some}"]
   }
 }

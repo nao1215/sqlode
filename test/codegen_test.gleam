@@ -130,9 +130,14 @@ pub fn render_params_module_imports_only_option_type_test() {
 
   string.contains(rendered, "import gleam/option.{type Option}")
   |> should.be_true()
-  string.contains(rendered, "None")
+  // Negative form: must not pull in the constructors. Asserting
+  // against the import shapes directly (rather than the bare
+  // `None` / `Some` substrings) keeps this robust against future
+  // fixtures whose rendered output legitimately contains those
+  // names in unrelated contexts (column names, docstrings, etc.).
+  string.contains(rendered, "import gleam/option.{type Option, None, Some}")
   |> should.be_false()
-  string.contains(rendered, "Some")
+  string.contains(rendered, "import gleam/option.{None, Some}")
   |> should.be_false()
 }
 
