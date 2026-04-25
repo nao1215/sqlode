@@ -45,7 +45,7 @@ pub fn render(
           True -> ["import gleam/list"]
           False -> []
         },
-        ["import gleam/option.{type Option, None, Some}", runtime_import_line],
+        ["import gleam/option.{type Option}", runtime_import_line],
         case has_enums || needs_models_for_rich {
           True -> ["import " <> module_path <> "/models"]
           False -> []
