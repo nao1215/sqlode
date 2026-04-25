@@ -137,7 +137,10 @@ fn load_and_analyze_queries(
   use analyzed <- result.try(
     query_analyzer.analyze_queries(block.engine, catalog, naming_ctx, queries)
     |> result.map_error(fn(error) {
-      QueryAnalysisError(detail: query_analyzer.analysis_error_to_string(error))
+      QueryAnalysisError(detail: query_analyzer.analysis_error_to_string(
+        error,
+        block.engine,
+      ))
     }),
   )
   use Nil <- result.try(validate_unsupported_annotations(analyzed))

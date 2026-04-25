@@ -580,6 +580,28 @@ pub fn analysis_error_to_string_unrecognized_cast_test() {
   query_analyzer_test.analysis_error_to_string_unrecognized_cast_test()
 }
 
+// --- Engine-aware cast hint (#473) ---
+
+pub fn parameter_not_inferred_postgres_uses_dollar_cast_hint_test() {
+  query_analyzer_test.parameter_not_inferred_postgres_uses_dollar_cast_hint_test()
+}
+
+pub fn parameter_not_inferred_sqlite_uses_cast_as_integer_hint_test() {
+  query_analyzer_test.parameter_not_inferred_sqlite_uses_cast_as_integer_hint_test()
+}
+
+pub fn parameter_not_inferred_mysql_uses_cast_as_signed_hint_test() {
+  query_analyzer_test.parameter_not_inferred_mysql_uses_cast_as_signed_hint_test()
+}
+
+pub fn unrecognized_cast_sqlite_uses_question_mark_label_test() {
+  query_analyzer_test.unrecognized_cast_sqlite_uses_question_mark_label_test()
+}
+
+pub fn parameter_type_conflict_mysql_uses_question_mark_label_test() {
+  query_analyzer_test.parameter_type_conflict_mysql_uses_question_mark_label_test()
+}
+
 pub fn unrecognized_sql_type_returns_error_test() {
   schema_parser_test.unrecognized_sql_type_returns_error_test()
 }

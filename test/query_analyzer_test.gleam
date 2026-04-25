@@ -582,7 +582,7 @@ SELECT id FROM authors;"
       naming_ctx,
       queries,
     )
-  let msg = query_analyzer.analysis_error_to_string(err)
+  let msg = query_analyzer.analysis_error_to_string(err, model.PostgreSQL)
   msg |> string.contains("2") |> should.be_true()
   msg |> string.contains("1") |> should.be_true()
   msg |> string.contains("BadUnion") |> should.be_true()
@@ -697,7 +697,7 @@ pub fn table_not_found_error_test() {
 
 pub fn analysis_error_to_string_table_not_found_test() {
   let error = context.TableNotFound(query_name: "GetUsers", table_name: "users")
-  let msg = query_analyzer.analysis_error_to_string(error)
+  let msg = query_analyzer.analysis_error_to_string(error, model.PostgreSQL)
   string.contains(msg, "GetUsers") |> should.be_true()
   string.contains(msg, "users") |> should.be_true()
   string.contains(msg, "not found") |> should.be_true()
@@ -710,7 +710,7 @@ pub fn analysis_error_to_string_column_not_found_test() {
       table_name: "users",
       column_name: "email",
     )
-  let msg = query_analyzer.analysis_error_to_string(error)
+  let msg = query_analyzer.analysis_error_to_string(error, model.PostgreSQL)
   string.contains(msg, "GetUser") |> should.be_true()
   string.contains(msg, "email") |> should.be_true()
   string.contains(msg, "users") |> should.be_true()
@@ -754,7 +754,7 @@ pub fn unrecognized_cast_type_error_test() {
 pub fn analysis_error_to_string_parameter_not_inferred_test() {
   let error =
     context.ParameterTypeNotInferred(query_name: "Bare", param_index: 1)
-  let msg = query_analyzer.analysis_error_to_string(error)
+  let msg = query_analyzer.analysis_error_to_string(error, model.PostgreSQL)
   string.contains(msg, "Bare") |> should.be_true()
   string.contains(msg, "$1") |> should.be_true()
 }
@@ -766,9 +766,75 @@ pub fn analysis_error_to_string_unrecognized_cast_test() {
       param_index: 1,
       cast_type: "geometry",
     )
-  let msg = query_analyzer.analysis_error_to_string(error)
+  let msg = query_analyzer.analysis_error_to_string(error, model.PostgreSQL)
   string.contains(msg, "BadCast") |> should.be_true()
   string.contains(msg, "geometry") |> should.be_true()
+}
+
+// --- Engine-aware cast hint (#473) ---
+//
+// Pin the per-engine wording so the suggested fix in the error
+// message matches the configured engine's dialect — `$N::int` for
+// PostgreSQL, `CAST(? AS INTEGER)` for SQLite, `CAST(? AS SIGNED)`
+// for MySQL — and the placeholder reference matches too. Following
+// the suggestion as-is must produce valid SQL for the engine.
+
+pub fn parameter_not_inferred_postgres_uses_dollar_cast_hint_test() {
+  let error =
+    context.ParameterTypeNotInferred(query_name: "Bare", param_index: 1)
+  let msg = query_analyzer.analysis_error_to_string(error, model.PostgreSQL)
+  string.contains(msg, "$1") |> should.be_true()
+  string.contains(msg, "$1::int") |> should.be_true()
+}
+
+pub fn parameter_not_inferred_sqlite_uses_cast_as_integer_hint_test() {
+  // Headline #473 case: SQLite must NOT see `$1::int` (Postgres
+  // syntax). The placeholder reference uses `?N` and the suggested
+  // cast uses ANSI-shaped `CAST(? AS INTEGER)`.
+  let error =
+    context.ParameterTypeNotInferred(query_name: "Bare", param_index: 1)
+  let msg = query_analyzer.analysis_error_to_string(error, model.SQLite)
+  string.contains(msg, "?1") |> should.be_true()
+  string.contains(msg, "CAST(? AS INTEGER)") |> should.be_true()
+  string.contains(msg, "$1") |> should.be_false()
+  string.contains(msg, "::int") |> should.be_false()
+}
+
+pub fn parameter_not_inferred_mysql_uses_cast_as_signed_hint_test() {
+  let error =
+    context.ParameterTypeNotInferred(query_name: "Bare", param_index: 2)
+  let msg = query_analyzer.analysis_error_to_string(error, model.MySQL)
+  string.contains(msg, "?2") |> should.be_true()
+  string.contains(msg, "CAST(? AS SIGNED)") |> should.be_true()
+  string.contains(msg, "$2") |> should.be_false()
+  string.contains(msg, "::int") |> should.be_false()
+}
+
+pub fn unrecognized_cast_sqlite_uses_question_mark_label_test() {
+  // Placeholder reference dialect must follow the engine for every
+  // error variant, not just ParameterTypeNotInferred.
+  let error =
+    context.UnrecognizedCastType(
+      query_name: "BadCast",
+      param_index: 3,
+      cast_type: "geometry",
+    )
+  let msg = query_analyzer.analysis_error_to_string(error, model.SQLite)
+  string.contains(msg, "?3") |> should.be_true()
+  string.contains(msg, "$3") |> should.be_false()
+}
+
+pub fn parameter_type_conflict_mysql_uses_question_mark_label_test() {
+  let error =
+    context.ParameterTypeConflict(
+      query_name: "Conflict",
+      param_index: 5,
+      type_a: model.IntType,
+      type_b: model.StringType,
+    )
+  let msg = query_analyzer.analysis_error_to_string(error, model.MySQL)
+  string.contains(msg, "?5") |> should.be_true()
+  string.contains(msg, "$5") |> should.be_false()
 }
 
 pub fn left_join_makes_right_table_nullable_test() {
@@ -1418,7 +1484,7 @@ pub fn unsupported_expression_error_message_test() {
       query_name: "BadQuery",
       expression: "my_custom_udf(id)",
     )
-  let msg = query_analyzer.analysis_error_to_string(error)
+  let msg = query_analyzer.analysis_error_to_string(error, model.PostgreSQL)
   string.contains(msg, "unsupported expression") |> should.be_true()
   string.contains(msg, "BadQuery") |> should.be_true()
 }

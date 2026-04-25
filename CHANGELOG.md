@@ -57,6 +57,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   primitives are wrapped in a small `sqlode_ffi.erl` module.
   (#464)
 
+### Changed
+
+- **BREAKING**: `query_analyzer.analysis_error_to_string` now
+  takes a second `engine: model.Engine` argument so the rendered
+  message is tailored to the configured engine. Placeholder
+  references and cast-syntax hints both follow the engine's
+  dialect:
+  - PostgreSQL — `$N` references, `$N::int` cast suggestion
+    (unchanged from before).
+  - SQLite — `?N` references, `CAST(? AS INTEGER)` cast suggestion.
+  - MySQL — `?N` references, `CAST(? AS SIGNED)` cast suggestion.
+
+  Prior to this change every error referenced `$N` and suggested
+  `$N::int` regardless of the engine, which produced parser errors
+  in SQLite / MySQL when the user followed the hint as-is. Internal
+  callers (`generate.gleam`, `verify.gleam`) are migrated; library
+  consumers calling `analysis_error_to_string` directly need to add
+  the engine argument. (#473)
+
 ### Fixed
 
 - Generated `params.gleam` and `queries.gleam` no longer emit

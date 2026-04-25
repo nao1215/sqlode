@@ -29,7 +29,17 @@ pub type AnalysisError {
   )
 }
 
-pub fn analysis_error_to_string(error: AnalysisError) -> String {
+/// Render an `AnalysisError` as a user-facing message tailored to
+/// `engine`. Placeholder references and cast-syntax hints both
+/// follow the configured engine's dialect — `$1` / `$1::int` for
+/// PostgreSQL, `?1` / `CAST(? AS INTEGER)` for SQLite, `?1` /
+/// `CAST(? AS SIGNED)` for MySQL — so the suggested fix in the
+/// error message is something the user can paste into their query
+/// without further translation. (#473)
+pub fn analysis_error_to_string(
+  error: AnalysisError,
+  engine: model.Engine,
+) -> String {
   case error {
     TableNotFound(query_name:, table_name:) ->
       "Query \""
@@ -48,18 +58,17 @@ pub fn analysis_error_to_string(error: AnalysisError) -> String {
     ParameterTypeNotInferred(query_name:, param_index:) ->
       "Query \""
       <> query_name
-      <> "\": could not infer type for parameter $"
-      <> int.to_string(param_index)
-      <> ". Use a type cast (e.g. $"
-      <> int.to_string(param_index)
-      <> "::int) to specify the type"
+      <> "\": could not infer type for parameter "
+      <> placeholder_label(engine, param_index)
+      <> ". "
+      <> cast_hint(engine, param_index)
     UnrecognizedCastType(query_name:, param_index:, cast_type:) ->
       "Query \""
       <> query_name
       <> "\": unrecognized cast type \""
       <> cast_type
-      <> "\" for parameter $"
-      <> int.to_string(param_index)
+      <> "\" for parameter "
+      <> placeholder_label(engine, param_index)
     CompoundColumnCountMismatch(query_name:, first_count:, branch_count:) ->
       "Query \""
       <> query_name
@@ -70,8 +79,8 @@ pub fn analysis_error_to_string(error: AnalysisError) -> String {
     ParameterTypeConflict(query_name:, param_index:, type_a:, type_b:) ->
       "Query \""
       <> query_name
-      <> "\": parameter $"
-      <> int.to_string(param_index)
+      <> "\": parameter "
+      <> placeholder_label(engine, param_index)
       <> " has conflicting inferred types \""
       <> scalar_type_label(type_a)
       <> "\" and \""
@@ -91,6 +100,33 @@ pub fn analysis_error_to_string(error: AnalysisError) -> String {
       <> "\" is ambiguous — found in tables: "
       <> string.join(matching_tables, ", ")
       <> ". Use a table qualifier (e.g. table.column) to resolve the ambiguity"
+  }
+}
+
+/// Engine-specific user-facing placeholder reference, e.g. `$1` for
+/// PostgreSQL, `?1` for SQLite / MySQL. The 1-based positional form
+/// `?N` is used for the latter two so the message points at a
+/// specific parameter even though MySQL's wire-level placeholder is
+/// the bare `?`. SQLite accepts `?N` natively.
+fn placeholder_label(engine: model.Engine, idx: Int) -> String {
+  case engine {
+    model.PostgreSQL -> "$" <> int.to_string(idx)
+    model.SQLite -> "?" <> int.to_string(idx)
+    model.MySQL -> "?" <> int.to_string(idx)
+  }
+}
+
+/// Engine-specific cast-syntax hint. The placeholder shown inside
+/// the hint matches the engine's dialect so the user can copy the
+/// suggestion verbatim into their query.
+fn cast_hint(engine: model.Engine, idx: Int) -> String {
+  case engine {
+    model.PostgreSQL ->
+      "Use a type cast (e.g. $"
+      <> int.to_string(idx)
+      <> "::int) to specify the type"
+    model.SQLite -> "Use CAST(? AS INTEGER) to specify the type"
+    model.MySQL -> "Use CAST(? AS SIGNED) to specify the type"
   }
 }
 
