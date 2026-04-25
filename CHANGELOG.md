@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The CLI now rewrites the previous misleading
+  `command not found` diagnostic into a class-specific message that
+  names the actual failure mode:
+  - no arguments →
+    `error: missing subcommand. Run 'sqlode --help' to see available
+    commands.`
+  - leading-dash argument (e.g. `--xyz`, `-h`, `--version`) →
+    `error: unrecognized option '<arg>'. Run 'sqlode --help' to see
+    available options.`
+  - non-flag, non-subcommand argument (e.g. `foo`) →
+    `error: unknown subcommand '<arg>'. Run 'sqlode --help' to see
+    available commands.`
+
+  The rewriting is in `sqlode.rewrite_error` and is pinned by tests;
+  errors that did NOT originate from glint's `command not found`
+  path (config-load failures, generate-time errors, etc.) reach the
+  user verbatim. (#466)
 - The CLI now sends error diagnostics (unknown flag / no-args /
   invalid subcommand) to **stderr** with exit code 1, matching the
   POSIX/CLIG convention. Pipelines like

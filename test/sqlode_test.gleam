@@ -1,6 +1,7 @@
 import cli_test
 import codegen_test
 import config_test
+import entry_test
 import generate_test
 import gleeunit
 import lexer_test
@@ -857,4 +858,34 @@ pub fn init_does_not_overwrite_existing_stubs_test() {
 
 pub fn version_command_succeeds_test() {
   cli_test.version_command_succeeds_test()
+}
+
+// --- Entry-point error rewriting (#466) ---
+
+pub fn rewrite_error_no_args_says_missing_subcommand_test() {
+  entry_test.rewrite_error_no_args_says_missing_subcommand_test()
+}
+
+pub fn rewrite_error_long_flag_says_unrecognized_option_test() {
+  entry_test.rewrite_error_long_flag_says_unrecognized_option_test()
+}
+
+pub fn rewrite_error_short_flag_says_unrecognized_option_test() {
+  entry_test.rewrite_error_short_flag_says_unrecognized_option_test()
+}
+
+pub fn rewrite_error_version_flag_says_unrecognized_option_test() {
+  entry_test.rewrite_error_version_flag_says_unrecognized_option_test()
+}
+
+pub fn rewrite_error_unknown_subcommand_says_unknown_subcommand_test() {
+  entry_test.rewrite_error_unknown_subcommand_says_unknown_subcommand_test()
+}
+
+pub fn rewrite_error_passes_through_unrelated_messages_test() {
+  entry_test.rewrite_error_passes_through_unrelated_messages_test()
+}
+
+pub fn rewrite_error_no_args_does_not_call_unrecognized_option_test() {
+  entry_test.rewrite_error_no_args_does_not_call_unrecognized_option_test()
 }
