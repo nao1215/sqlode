@@ -116,6 +116,11 @@ Describe 'sqlode CLI'
       The status should be success
       # The help text is the requested output and stays on stdout.
       The output should include 'sqlode'
+      # `gleam run` itself prints compile-status notes to stderr
+      # (e.g. `Compiled in ...`, `Running sqlode.main`); explicitly
+      # accept any stderr content here and only assert that no
+      # CLI-level error diagnostic appears.
+      The error should not include 'error: failed'
     End
   End
 End
