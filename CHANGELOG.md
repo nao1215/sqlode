@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The CLI now emits ANSI escape codes in `--help` output only when
+  stdout is connected to an interactive terminal AND the
+  `NO_COLOR` environment variable is unset (or set to the empty
+  string). `sqlode --help > file.txt`, `sqlode --help | less`, and
+  `NO_COLOR=1 sqlode --help` no longer leak colour control
+  sequences into non-ANSI consumers, matching the convention from
+  <https://no-color.org/> and CLIG. The decision logic is in
+  `cli.decide_color_emission` and is pinned by tests; the BEAM
+  primitives are wrapped in a small `sqlode_ffi.erl` module.
+  (#464)
+
 ### Fixed
 
 - Generated `params.gleam` no longer imports the unused `None` /

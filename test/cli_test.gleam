@@ -228,3 +228,44 @@ pub fn init_mysql_native_runtime_test() {
 
   cleanup("mysql_native")
 }
+
+// --- Color emission policy (#464) -----------------------------------
+//
+// Pin the pure decision rule. The actual TTY / NO_COLOR probes go
+// through Erlang FFI and are environment-dependent; the policy
+// itself must stay deterministic so a regression that flips the
+// boolean (or stops honouring NO_COLOR) fails loudly here.
+
+pub fn decide_color_emission_emits_when_tty_and_no_color_unset_test() {
+  cli.decide_color_emission(True, Error(Nil))
+  |> should.be_true
+}
+
+pub fn decide_color_emission_skips_when_stdout_not_tty_test() {
+  cli.decide_color_emission(False, Error(Nil))
+  |> should.be_false
+}
+
+pub fn decide_color_emission_skips_when_no_color_set_test() {
+  // Per https://no-color.org/, any non-empty NO_COLOR value
+  // suppresses colour, even on an interactive terminal.
+  cli.decide_color_emission(True, Ok("1"))
+  |> should.be_false
+}
+
+pub fn decide_color_emission_skips_when_no_color_set_to_anything_test() {
+  cli.decide_color_emission(True, Ok("yes please"))
+  |> should.be_false
+}
+
+pub fn decide_color_emission_treats_empty_no_color_as_unset_test() {
+  // The convention treats `NO_COLOR=` (empty value) as unset, so
+  // colour stays on if the terminal otherwise allows it.
+  cli.decide_color_emission(True, Ok(""))
+  |> should.be_true
+}
+
+pub fn decide_color_emission_skips_when_both_off_test() {
+  cli.decide_color_emission(False, Ok("1"))
+  |> should.be_false
+}

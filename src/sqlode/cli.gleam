@@ -11,15 +11,54 @@ import sqlode/verify
 import sqlode/version
 
 pub fn app() -> glint.Glint(Nil) {
-  glint.new()
-  |> glint.with_name("sqlode")
-  |> glint.global_help(global_help_text())
-  |> glint.pretty_help(glint.default_pretty_help())
+  let base =
+    glint.new()
+    |> glint.with_name("sqlode")
+    |> glint.global_help(global_help_text())
+
+  let with_styling = case should_emit_color() {
+    True -> base |> glint.pretty_help(glint.default_pretty_help())
+    False -> base
+  }
+
+  with_styling
   |> glint.add(at: ["generate"], do: generate_command())
   |> glint.add(at: ["init"], do: init_command())
   |> glint.add(at: ["verify"], do: verify_command())
   |> glint.add(at: ["version"], do: version_command())
 }
+
+/// Decide whether `--help` output should carry ANSI escape codes.
+/// Wraps the FFI probes for stdout's TTY status and the `NO_COLOR`
+/// environment variable so the policy itself is a small pure
+/// function that the test suite can pin without mocking the BEAM
+/// primitives. See `decide_color_emission` for the rule.
+fn should_emit_color() -> Bool {
+  decide_color_emission(is_stdout_terminal(), no_color_env())
+}
+
+/// Pure decision rule: emit colour iff stdout is connected to a
+/// terminal AND `NO_COLOR` is not set (or is set to the empty
+/// string). Public so the test suite can exercise the policy
+/// without touching the Erlang FFI. See <https://no-color.org/>
+/// and CLIG ("colorize when stdout is a TTY only"). (#464)
+@internal
+pub fn decide_color_emission(
+  is_terminal: Bool,
+  no_color_env: Result(String, Nil),
+) -> Bool {
+  let no_color_active = case no_color_env {
+    Ok(value) -> value != ""
+    Error(Nil) -> False
+  }
+  is_terminal && !no_color_active
+}
+
+@external(erlang, "sqlode_ffi", "is_stdout_terminal")
+fn is_stdout_terminal() -> Bool
+
+@external(erlang, "sqlode_ffi", "no_color_env")
+fn no_color_env() -> Result(String, Nil)
 
 fn global_help_text() -> String {
   "Generate type-safe Gleam code from SQL files using sqlc-style config.
