@@ -545,8 +545,15 @@ fn is_sql_keyword(word: String) -> Bool {
     | "create"
     | "table"
     | "view"
-    | "type"
-    | "index"
+    | // `type` is intentionally NOT a keyword. It is a common
+      // column name (`account_type`, `event_type`, BLOB-related
+      // `type` for content-type, etc.) and SQLite / MySQL /
+      // PostgreSQL all treat it as a non-reserved identifier in
+      // SELECT contexts. The DDL paths that legitimately need to
+      // recognise it (`CREATE TYPE`, `DROP TYPE`,
+      // `ALTER COLUMN ... TYPE`, `ALTER COLUMN ... SET DATA TYPE`)
+      // pattern-match on `Ident("type")` instead. (#479)
+      "index"
     | "alter"
     | "add"
     | "column"

@@ -525,13 +525,17 @@ pub fn create_temporary_table_test() {
 }
 
 pub fn enum_with_escaped_quotes_test() {
+  // `type` is no longer reserved as a keyword (#479) so it lexes as
+  // a case-preserving Ident — `CREATE TYPE` (uppercase) tokenises
+  // as `Keyword("create"), Ident("TYPE")`. Schema parsing handles
+  // the case insensitivity downstream.
   lexer.tokenize(
     "CREATE TYPE status AS ENUM ('it''s', 'ok');",
     model.PostgreSQL,
   )
   |> should.equal([
     Keyword("create"),
-    Keyword("type"),
+    Ident("TYPE"),
     Ident("status"),
     Keyword("as"),
     Keyword("enum"),

@@ -696,6 +696,20 @@ pub fn snake_case_keeps_pascal_case_with_digit_suffix_intact_test() {
   naming_test.snake_case_keeps_pascal_case_with_digit_suffix_intact_test()
 }
 
+// --- column named `type` (#479) ---
+
+pub fn column_named_type_resolves_in_select_test() {
+  query_analyzer_test.column_named_type_resolves_in_select_test()
+}
+
+pub fn column_named_type_in_create_table_parses_test() {
+  query_analyzer_test.column_named_type_in_create_table_parses_test()
+}
+
+pub fn create_type_enum_still_parses_test() {
+  query_analyzer_test.create_type_enum_still_parses_test()
+}
+
 pub fn normalize_identifier_empty_test() {
   naming_test.normalize_identifier_empty_test()
 }

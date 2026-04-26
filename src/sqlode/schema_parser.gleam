@@ -193,16 +193,24 @@ fn split_token_statements(
 }
 
 /// Check if a token list represents a CREATE TYPE ... AS ENUM statement.
+/// `type` arrives as `Ident(_)` (case-preserving) because the lexer no
+/// longer treats `type` as a keyword (#479) — `type` is a common
+/// column name and reserving it tripped legitimate SELECT queries.
+/// The case-insensitive guard is needed because `Ident` preserves the
+/// original spelling, unlike `Keyword` which the lexer normalises to
+/// lowercase.
 fn is_create_enum_tokens(tokens: List(lexer.Token)) -> Bool {
   case tokens {
     [
       lexer.Keyword("create"),
-      lexer.Keyword("type"),
+      lexer.Ident(t),
       _,
       lexer.Keyword("as"),
       lexer.Keyword("enum"),
       ..
-    ] -> True
+    ]
+      if t == "type" || t == "TYPE" || t == "Type"
+    -> True
     _ -> False
   }
 }
@@ -214,12 +222,14 @@ fn parse_create_enum_from_tokens(
   case tokens {
     [
       lexer.Keyword("create"),
-      lexer.Keyword("type"),
+      lexer.Ident(t),
       name_token,
       lexer.Keyword("as"),
       lexer.Keyword("enum"),
       ..rest
-    ] -> {
+    ]
+      if t == "type" || t == "TYPE" || t == "Type"
+    -> {
       let name = case name_token {
         lexer.Ident(n) -> string.lowercase(n)
         lexer.QuotedIdent(n) -> string.lowercase(n)
@@ -987,7 +997,10 @@ fn extract_alter_column_name(tokens: List(lexer.Token)) -> String {
 fn extract_alter_type_tokens(tokens: List(lexer.Token)) -> List(lexer.Token) {
   case tokens {
     [] -> []
-    [lexer.Keyword("type"), ..rest] -> take_until_using(rest, [])
+    // `type` arrives as `Ident(_)` (case-preserving) because the
+    // lexer no longer reserves it as a keyword (#479).
+    [lexer.Ident(t), ..rest] if t == "type" || t == "TYPE" || t == "Type" ->
+      take_until_using(rest, [])
     [_, ..rest] -> extract_alter_type_tokens(rest)
   }
 }
