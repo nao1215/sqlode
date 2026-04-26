@@ -76,9 +76,26 @@ fn map_insert_columns(
   case columns, values {
     [], _ | _, [] -> acc
     [column_name, ..rest_columns], [value_tokens, ..rest_values] -> {
-      // Check if value is a single placeholder token
+      // Check if the VALUES slot is a placeholder we can hand back
+      // to the column-type inferencer. We accept two shapes:
+      //
+      //   * a bare `?` / `:name` / `$1` token, and
+      //   * `CAST(? AS <type>)` — common explicit-cast escape hatch
+      //     for SQLite (`CAST(? AS BLOB)`, `CAST(? AS INTEGER)`).
+      //     The placeholder still consumes a position in the SQL
+      //     parameter list, so without this match the placeholder
+      //     index would silently drift for every parameter that
+      //     follows. (#477)
       let value_placeholder = case value_tokens {
         [lexer.Placeholder(p)] -> Some(p)
+        [
+          lexer.Keyword("cast"),
+          lexer.LParen,
+          lexer.Placeholder(p),
+          lexer.Keyword("as"),
+          _,
+          lexer.RParen,
+        ] -> Some(p)
         _ -> None
       }
 

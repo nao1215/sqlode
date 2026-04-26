@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `INSERT INTO ... VALUES (..., CAST(? AS BLOB), ...)` and
+  similar `CAST(? AS <type>)` slots now consume a parameter
+  position correctly. Previously `infer_insert_params` only
+  matched a bare `[Placeholder]` token and silently skipped
+  CAST-wrapped placeholders, which shifted every subsequent
+  column-to-parameter mapping by one and surfaced as
+  "could not infer type" on a column the user never touched.
+  As a side-effect the BLOB-column scenarios reported in the
+  Issue (writes into BLOB columns, `WHERE blob_col = ?`,
+  `CAST(? AS BLOB)` overrides) now generate cleanly with the
+  correct `BitArray` parameter type. (#477)
 - SQLite's `INSERT OR <conflict-action> INTO ...` syntax
   (`INSERT OR IGNORE`, `INSERT OR REPLACE`, `INSERT OR ABORT`,
   `INSERT OR FAIL`, `INSERT OR ROLLBACK`) now analyses identically

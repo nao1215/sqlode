@@ -2977,6 +2977,81 @@ SELECT t.id FROM (SELECT id FROM authors) AS t;"
   col.scalar_type |> should.equal(model.IntType)
 }
 
+// --- BLOB / CAST(? AS <type>) inference (#477) ---
+//
+// SQLite uses `BLOB` for byte columns and `CAST(? AS BLOB)` as the
+// dialect-native explicit-type override. The analyser must:
+//
+//   1. Infer parameter types from BLOB columns just like it does
+//      for INTEGER / TEXT — the storage class maps cleanly to
+//      sqlode's `BytesType` / runtime `SqlBytes`.
+//   2. Treat `CAST(? AS <type>)` in a VALUES slot as a placeholder
+//      that consumes a parameter position. Previously the
+//      `infer_insert_params` walker only matched a bare
+//      `[Placeholder]` token and silently dropped CAST-wrapped
+//      placeholders, which shifted every subsequent parameter's
+//      column-mapping by one and surfaced as "could not infer
+//      type" on a column the user never touched.
+
+fn blob_catalog() -> model.Catalog {
+  let schema =
+    "CREATE TABLE blobs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sha256 BLOB NOT NULL UNIQUE,
+      size INTEGER NOT NULL,
+      mime_type TEXT NOT NULL,
+      body BLOB NOT NULL
+    );"
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("inline_schema.sql", schema)])
+  catalog
+}
+
+fn analyze_blob_query(sql: String) -> model.AnalyzedQuery {
+  let naming_ctx = naming.new()
+  let catalog = blob_catalog()
+  let assert Ok(queries) =
+    query_parser.parse_file("inline.sql", model.SQLite, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, queries)
+  let assert [query] = analyzed
+  query
+}
+
+pub fn insert_into_blob_columns_infers_bytes_test() {
+  let sql =
+    "-- name: InsertBlob :exec\nINSERT INTO blobs (sha256, size, mime_type, body) VALUES (?, ?, ?, ?);"
+  let query = analyze_blob_query(sql)
+  let assert [sha256_param, size_param, mime_param, body_param] = query.params
+  sha256_param.scalar_type |> should.equal(model.BytesType)
+  size_param.scalar_type |> should.equal(model.IntType)
+  mime_param.scalar_type |> should.equal(model.StringType)
+  body_param.scalar_type |> should.equal(model.BytesType)
+}
+
+pub fn select_where_blob_column_infers_bytes_test() {
+  let sql =
+    "-- name: FindBlobBySha :one\nSELECT id, sha256, size FROM blobs WHERE sha256 = ?;"
+  let query = analyze_blob_query(sql)
+  let assert [sha_param] = query.params
+  sha_param.scalar_type |> should.equal(model.BytesType)
+}
+
+pub fn insert_with_cast_blob_placeholder_infers_bytes_test() {
+  // `CAST(? AS BLOB)` must be recognised as a placeholder slot so
+  // the column-to-parameter mapping stays aligned. Before the fix
+  // the CAST-wrapped slots were silently skipped, shifting every
+  // subsequent column by one.
+  let sql =
+    "-- name: InsertBlobCast :exec\nINSERT INTO blobs (sha256, size, mime_type, body) VALUES (CAST(? AS BLOB), ?, ?, CAST(? AS BLOB));"
+  let query = analyze_blob_query(sql)
+  let assert [sha_param, size_param, mime_param, body_param] = query.params
+  sha_param.scalar_type |> should.equal(model.BytesType)
+  size_param.scalar_type |> should.equal(model.IntType)
+  mime_param.scalar_type |> should.equal(model.StringType)
+  body_param.scalar_type |> should.equal(model.BytesType)
+}
+
 // --- INSERT OR <conflict-action> (#478) ---
 //
 // SQLite's `INSERT OR REPLACE / ROLLBACK / ABORT / FAIL / IGNORE
