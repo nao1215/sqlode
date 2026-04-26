@@ -53,7 +53,7 @@ jobs:
       # Build once into the local docker daemon so the smoke test can
       # run against the exact artefact we will publish.
       - name: Build image (load for smoke test)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
@@ -70,7 +70,7 @@ jobs:
       # requests from forks skip this step (login is also gated).
       - name: Push image
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'push' && github.ref == 'refs/heads/main')
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
