@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `LIMIT sqlode.arg(name)` and `OFFSET sqlode.arg(name)` now resolve
+  on every engine without requiring an explicit cast. Previously the
+  SQLite path failed type inference with
+  `could not infer type for parameter ?N. Use CAST(? AS INTEGER) to
+  specify the type`, and the suggested workaround
+  `CAST(sqlode.arg(name) AS INTEGER)` did not help because the macro
+  expanded to `?` before the surrounding cast was inspected. The
+  analyzer now derives `IntType` from the SQL-level integer context
+  (LIMIT/OFFSET expressions must evaluate to an integer), pinning
+  every placeholder reachable from those clauses regardless of
+  engine. Implemented in `param_inferencer.extract_int_context_params`
+  (token-level walk that tracks placeholder occurrence indices to
+  match `placeholder.build`'s assignment, since SQLite anonymous `?`
+  placeholders carry `Param.index = 0` in the IR by design). User-
+  written `CAST(? AS <type>)` still wins when present, since
+  `extract_type_casts` is layered on top. Pagination queries
+  (`SELECT … LIMIT ? OFFSET ?`) work as written. (#491)
 - `:one` queries that have no FROM clause and project a single scalar
   expression (e.g. `SELECT last_insert_rowid() AS id;`,
   `SELECT random() AS r;`) now produce a complete row type and a

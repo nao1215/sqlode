@@ -909,3 +909,87 @@ pub fn extract_type_casts(
 fn cast_type_to_scalar(type_name: String) -> Result(model.ScalarType, Nil) {
   model.parse_sql_type(string.trim(type_name))
 }
+
+// ============================================================
+// LIMIT / OFFSET integer context (Issue #491)
+// ============================================================
+
+/// Extract placeholder type hints from SQL contexts that the spec
+/// requires to be integer: the expressions following `LIMIT` and
+/// `OFFSET`. Each placeholder reachable from those keywords (until a
+/// terminating keyword or end of statement) is pinned to `IntType`.
+/// Used as a complement to `extract_type_casts` so callers can write
+/// `LIMIT sqlode.arg(lim)` / `OFFSET sqlode.arg(off)` without an
+/// explicit cast on engines like SQLite that cannot infer the type
+/// from a bare `?` (Issue #491).
+///
+/// Implementation note: this works at the token level rather than the
+/// IR, because the IR's `Param.index` is `0` for SQLite anonymous `?`
+/// placeholders (`expr_parser.decode_placeholder` deliberately
+/// returns `0` for them). The token walker assigns each placeholder
+/// an occurrence index that matches what `placeholder.build`
+/// computes, so the resulting dict keys line up with
+/// `PlaceholderOccurrence.index` consumed by `build_params`.
+pub fn extract_int_context_params(
+  tokens: List(lexer.Token),
+  engine: model.Engine,
+) -> dict.Dict(Int, model.ScalarType) {
+  let int_indices = scan_int_context_indices(tokens, engine, 1, False, [])
+  list.fold(int_indices, dict.new(), fn(d, idx) {
+    dict.insert(d, idx, model.IntType)
+  })
+}
+
+/// Walk the token stream once, counting placeholders to assign each a
+/// 1-based occurrence index, and collect those that fall inside a
+/// `LIMIT` / `OFFSET` clause. `in_int_context` flips on at `LIMIT` /
+/// `OFFSET` and flips off at any keyword that ends the integer
+/// expression (`union`, `except`, `intersect`, `returning`, `for`).
+fn scan_int_context_indices(
+  tokens: List(lexer.Token),
+  engine: model.Engine,
+  occurrence: Int,
+  in_int_context: Bool,
+  acc: List(Int),
+) -> List(Int) {
+  case tokens {
+    [] -> list.reverse(acc)
+    [lexer.Keyword(k), ..rest] -> {
+      let lower = string.lowercase(k)
+      let next_state = case lower {
+        "limit" | "offset" -> True
+        "union" | "except" | "intersect" | "returning" | "for" -> False
+        _ -> in_int_context
+      }
+      scan_int_context_indices(rest, engine, occurrence, next_state, acc)
+    }
+    [lexer.Placeholder(raw), ..rest] -> {
+      let assigned = case engine {
+        model.PostgreSQL ->
+          // `$N` carries an explicit index in its raw text.
+          case
+            raw
+            |> string.replace("$", "")
+            |> int.parse
+          {
+            Ok(n) -> n
+            Error(_) -> occurrence
+          }
+        _ -> occurrence
+      }
+      let acc = case in_int_context {
+        True -> [assigned, ..acc]
+        False -> acc
+      }
+      scan_int_context_indices(
+        rest,
+        engine,
+        occurrence + 1,
+        in_int_context,
+        acc,
+      )
+    }
+    [_, ..rest] ->
+      scan_int_context_indices(rest, engine, occurrence, in_int_context, acc)
+  }
+}
