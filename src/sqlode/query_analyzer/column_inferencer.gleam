@@ -384,10 +384,14 @@ pub fn infer_columns_from_tokens_scoped(
 fn detect_dml_target(tokens: List(lexer.Token)) -> Option(String) {
   let stripped = tok_strip_cte(tokens)
   case stripped {
-    [lexer.Keyword("insert"), lexer.Keyword("into"), ..rest] -> {
-      let #(name, _) = token_utils.read_table_name(rest)
-      name
-    }
+    [lexer.Keyword("insert"), ..rest] ->
+      case token_utils.strip_insert_or_action(rest) {
+        [lexer.Keyword("into"), ..after_into] -> {
+          let #(name, _) = token_utils.read_table_name(after_into)
+          name
+        }
+        _ -> None
+      }
     [lexer.Keyword("update"), ..rest] -> {
       let #(name, _) = token_utils.read_table_name(rest)
       name

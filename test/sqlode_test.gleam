@@ -696,6 +696,28 @@ pub fn snake_case_keeps_pascal_case_with_digit_suffix_intact_test() {
   naming_test.snake_case_keeps_pascal_case_with_digit_suffix_intact_test()
 }
 
+// --- INSERT OR <conflict-action> (#478) ---
+
+pub fn insert_or_ignore_infers_params_test() {
+  query_analyzer_test.insert_or_ignore_infers_params_test()
+}
+
+pub fn insert_or_replace_infers_params_test() {
+  query_analyzer_test.insert_or_replace_infers_params_test()
+}
+
+pub fn insert_or_abort_infers_params_test() {
+  query_analyzer_test.insert_or_abort_infers_params_test()
+}
+
+pub fn insert_or_fail_infers_params_test() {
+  query_analyzer_test.insert_or_fail_infers_params_test()
+}
+
+pub fn insert_or_rollback_infers_params_test() {
+  query_analyzer_test.insert_or_rollback_infers_params_test()
+}
+
 // --- column named `type` (#479) ---
 
 pub fn column_named_type_resolves_in_select_test() {

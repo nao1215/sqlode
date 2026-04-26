@@ -2977,6 +2977,83 @@ SELECT t.id FROM (SELECT id FROM authors) AS t;"
   col.scalar_type |> should.equal(model.IntType)
 }
 
+// --- INSERT OR <conflict-action> (#478) ---
+//
+// SQLite's `INSERT OR REPLACE / ROLLBACK / ABORT / FAIL / IGNORE
+// INTO ...` syntax must analyse identically to a plain INSERT —
+// the conflict-action qualifier doesn't change column / parameter
+// positions. Previously the analyser only matched the bare
+// `INSERT INTO` shape and surfaced "could not infer type" for
+// every parameter when the qualifier was present.
+
+fn insert_or_action_catalog() -> model.Catalog {
+  let schema =
+    "CREATE TABLE tags (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      blob_id INTEGER NOT NULL,
+      tag TEXT NOT NULL
+    );"
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("inline_schema.sql", schema)])
+  catalog
+}
+
+fn analyze_insert_or_query(sql: String) -> model.AnalyzedQuery {
+  let naming_ctx = naming.new()
+  let catalog = insert_or_action_catalog()
+  let assert Ok(queries) =
+    query_parser.parse_file("inline.sql", model.SQLite, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, queries)
+  let assert [query] = analyzed
+  query
+}
+
+pub fn insert_or_ignore_infers_params_test() {
+  let sql =
+    "-- name: InsertTag :exec\nINSERT OR IGNORE INTO tags (blob_id, tag) VALUES (?, ?);"
+  let query = analyze_insert_or_query(sql)
+  let assert [blob_id_param, tag_param] = query.params
+  blob_id_param.scalar_type |> should.equal(model.IntType)
+  tag_param.scalar_type |> should.equal(model.StringType)
+}
+
+pub fn insert_or_replace_infers_params_test() {
+  let sql =
+    "-- name: ReplaceTag :exec\nINSERT OR REPLACE INTO tags (blob_id, tag) VALUES (?, ?);"
+  let query = analyze_insert_or_query(sql)
+  let assert [blob_id_param, tag_param] = query.params
+  blob_id_param.scalar_type |> should.equal(model.IntType)
+  tag_param.scalar_type |> should.equal(model.StringType)
+}
+
+pub fn insert_or_abort_infers_params_test() {
+  let sql =
+    "-- name: AbortTag :exec\nINSERT OR ABORT INTO tags (blob_id, tag) VALUES (?, ?);"
+  let query = analyze_insert_or_query(sql)
+  let assert [blob_id_param, tag_param] = query.params
+  blob_id_param.scalar_type |> should.equal(model.IntType)
+  tag_param.scalar_type |> should.equal(model.StringType)
+}
+
+pub fn insert_or_fail_infers_params_test() {
+  let sql =
+    "-- name: FailTag :exec\nINSERT OR FAIL INTO tags (blob_id, tag) VALUES (?, ?);"
+  let query = analyze_insert_or_query(sql)
+  let assert [blob_id_param, tag_param] = query.params
+  blob_id_param.scalar_type |> should.equal(model.IntType)
+  tag_param.scalar_type |> should.equal(model.StringType)
+}
+
+pub fn insert_or_rollback_infers_params_test() {
+  let sql =
+    "-- name: RollbackTag :exec\nINSERT OR ROLLBACK INTO tags (blob_id, tag) VALUES (?, ?);"
+  let query = analyze_insert_or_query(sql)
+  let assert [blob_id_param, tag_param] = query.params
+  blob_id_param.scalar_type |> should.equal(model.IntType)
+  tag_param.scalar_type |> should.equal(model.StringType)
+}
+
 // --- Column named `type` (#479) ---
 //
 // `type` is not a SQL reserved keyword in any of the three engines

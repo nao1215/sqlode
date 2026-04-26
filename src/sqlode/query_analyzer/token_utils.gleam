@@ -260,9 +260,49 @@ pub fn find_insert_parts(tokens: List(lexer.Token)) -> Option(InsertParts) {
 fn find_insert_loop(tokens: List(lexer.Token)) -> Option(InsertParts) {
   case tokens {
     [] -> None
-    [lexer.Keyword("insert"), lexer.Keyword("into"), ..rest] ->
-      parse_insert_after_into(rest)
+    [lexer.Keyword("insert"), ..rest] ->
+      case strip_insert_or_action(rest) {
+        [lexer.Keyword("into"), ..after_into] ->
+          parse_insert_after_into(after_into)
+        _ -> find_insert_loop(rest)
+      }
     [_, ..rest] -> find_insert_loop(rest)
+  }
+}
+
+/// Strip a leading SQLite-specific `OR <conflict-action>` qualifier
+/// from the token stream that follows `INSERT`. Returns the input
+/// unchanged when the next token is not `OR`. The five conflict
+/// actions per <https://www.sqlite.org/lang_insert.html> are
+/// REPLACE, ROLLBACK, ABORT, FAIL, IGNORE — REPLACE and ROLLBACK
+/// are reserved keywords, the other three lex as `Ident` tokens
+/// (case-preserving). (#478)
+pub fn strip_insert_or_action(tokens: List(lexer.Token)) -> List(lexer.Token) {
+  case tokens {
+    [lexer.Keyword("or"), action, ..rest] ->
+      case is_insert_or_action_token(action) {
+        True -> rest
+        False -> tokens
+      }
+    _ -> tokens
+  }
+}
+
+fn is_insert_or_action_token(token: lexer.Token) -> Bool {
+  case token {
+    lexer.Keyword("replace") -> True
+    lexer.Keyword("rollback") -> True
+    lexer.Ident(t) ->
+      t == "ignore"
+      || t == "IGNORE"
+      || t == "Ignore"
+      || t == "abort"
+      || t == "ABORT"
+      || t == "Abort"
+      || t == "fail"
+      || t == "FAIL"
+      || t == "Fail"
+    _ -> False
   }
 }
 
