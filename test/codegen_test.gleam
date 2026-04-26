@@ -289,6 +289,70 @@ pub fn render_sqlight_adapter_test() {
   |> should.be_true()
 }
 
+/// Issue #492: a `:one` query whose only column comes from a SQLite
+/// scalar function (`last_insert_rowid()`) used to leave the type
+/// inference unable to resolve the column, so `models.gleam` did not
+/// gain a row type and the sqlight adapter referenced a non-existent
+/// type while collapsing the decoder to `decode.success(Nil)`.
+pub fn render_sqlight_adapter_one_function_column_test() {
+  let naming_ctx = naming.new()
+  let block =
+    model.SqlBlock(
+      name: None,
+      engine: model.SQLite,
+      schema: ["schema.sql"],
+      queries: ["query.sql"],
+      gleam: model.GleamOutput(
+        out: "test_output/db",
+        runtime: model.Native,
+        type_mapping: model.StringMapping,
+        emit_sql_as_comment: False,
+        emit_exact_table_names: False,
+        omit_unused_models: False,
+        vendor_runtime: False,
+        strict_views: False,
+        query_parameter_limit: option.None,
+      ),
+      overrides: model.empty_overrides(),
+    )
+
+  // No tables are needed; the column source is a scalar function.
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("schema.sql", "")])
+
+  let query_sql =
+    "-- name: GetLastInsertId :one\nSELECT last_insert_rowid() AS id;\n"
+  let assert Ok(queries) =
+    query_parser.parse_file("query.sql", model.SQLite, naming_ctx, query_sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, queries)
+
+  let rendered = adapter.render(naming_ctx, block, analyzed, dict.new())
+
+  // The adapter must reference the row type ...
+  string.contains(rendered, "models.GetLastInsertIdRow") |> should.be_true()
+  // ... read the column with a real int decoder ...
+  string.contains(rendered, "decode.int") |> should.be_true()
+  // ... and not silently collapse to a Nil-shaped decoder.
+  string.contains(rendered, "decode.success(Nil)") |> should.be_false()
+
+  // The matching row type must also be emitted in `models.gleam` so the
+  // adapter's reference resolves at compile time.
+  let models_rendered =
+    models.render(
+      naming_ctx,
+      catalog,
+      analyzed,
+      dict.new(),
+      model.StringMapping,
+      False,
+    )
+  string.contains(models_rendered, "pub type GetLastInsertIdRow")
+  |> should.be_true()
+  string.contains(models_rendered, "id: Int")
+  |> should.be_true()
+}
+
 pub fn render_params_module_slice_test() {
   let naming_ctx = naming.new()
   let analyzed = analyzed_slice_queries(model.PostgreSQL)
