@@ -2977,6 +2977,77 @@ SELECT t.id FROM (SELECT id FROM authors) AS t;"
   col.scalar_type |> should.equal(model.IntType)
 }
 
+// --- Column named `type` (#479) ---
+//
+// `type` is not a SQL reserved keyword in any of the three engines
+// sqlode supports, so a SELECT that returns a column literally
+// named `type` must analyse cleanly. Previously the lexer reserved
+// `type` as a Keyword token, which the column inferencer could not
+// recognise as a column reference and surfaced as
+// `unsupported expression "type"`.
+
+pub fn column_named_type_resolves_in_select_test() {
+  let naming_ctx = naming.new()
+  let schema =
+    "CREATE TABLE blobs (
+      id INTEGER PRIMARY KEY,
+      size INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );"
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("inline_schema.sql", schema)])
+
+  let sql =
+    "-- name: GetBlobById :one\nSELECT id, size, type, created_at FROM blobs WHERE id = ?;"
+  let assert Ok(queries) =
+    query_parser.parse_file("inline_query.sql", model.SQLite, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, queries)
+
+  let assert [query] = analyzed
+  // The column literally named `type` must surface as a result
+  // column with scalar type String (TEXT NOT NULL).
+  let type_col_present =
+    list.any(query.result_columns, fn(item) {
+      case item {
+        model.ScalarResult(col) ->
+          col.name == "type" && col.scalar_type == model.StringType
+        model.EmbeddedResult(_) -> False
+      }
+    })
+  type_col_present |> should.be_true()
+}
+
+pub fn column_named_type_in_create_table_parses_test() {
+  // Schema parser must accept `type` as a column name in
+  // CREATE TABLE — the type-name slot is populated by `TEXT`,
+  // `type` is just the identifier in column position.
+  let schema =
+    "CREATE TABLE blobs (id INTEGER PRIMARY KEY, type TEXT NOT NULL);"
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("inline_schema.sql", schema)])
+
+  let assert [table] = catalog.tables
+  table.name |> should.equal("blobs")
+  let assert [_id, type_col] = table.columns
+  type_col.name |> should.equal("type")
+}
+
+pub fn create_type_enum_still_parses_test() {
+  // Regression guard: removing `type` from the keyword list must
+  // NOT break PostgreSQL's `CREATE TYPE name AS ENUM (...)`. The
+  // schema parser uses a case-insensitive Ident match for the
+  // `TYPE` slot.
+  let schema = "CREATE TYPE status AS ENUM ('active', 'inactive');"
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("inline_schema.sql", schema)])
+
+  let assert [enum_def] = catalog.enums
+  enum_def.name |> should.equal("status")
+  enum_def.values |> should.equal(["active", "inactive"])
+}
+
 pub fn ir_table_alias_resolves_qualified_column_test() {
   let naming_ctx = naming.new()
   let catalog = test_catalog()

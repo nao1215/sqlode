@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A column literally named `type` no longer trips the analyser
+  with `unsupported expression "type"`. `type` is not a reserved
+  keyword in any of the three engines sqlode supports (SQLite /
+  PostgreSQL / MySQL all accept it as a non-reserved identifier),
+  so a query like `SELECT id, type FROM blobs` now analyses and
+  generates cleanly. The lexer no longer reserves `type` as a
+  Keyword token; the schema-parser paths that legitimately need
+  to recognise it (`CREATE TYPE`, `DROP TYPE`,
+  `ALTER COLUMN ... TYPE`, `ALTER COLUMN ... SET DATA TYPE`) now
+  do a case-insensitive `Ident` match instead. Existing
+  `CREATE TYPE name AS ENUM (...)` schemas keep working
+  unchanged. (#479)
 - `naming.to_snake_case` now preserves trailing digit suffixes
   attached to the preceding letter run, so column names like
   `sha256` / `utf8` / `base64` / `oauth2` / `ipv4` / `md5` / `s3` /
