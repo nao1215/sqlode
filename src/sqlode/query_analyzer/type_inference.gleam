@@ -422,7 +422,7 @@ fn infer_function_body(
   window: Bool,
 ) -> Result(InferredType, AnalysisError) {
   case name {
-    "count" -> ok(model.IntType, False)
+    "count" | "last_insert_rowid" -> ok(model.IntType, False)
     "sum" | "min" | "max" -> infer_aggregate_from_first(scope, args, True)
     "avg" -> ok(model.FloatType, True)
     "row_number" | "rank" | "dense_rank" | "ntile" -> ok(model.IntType, False)

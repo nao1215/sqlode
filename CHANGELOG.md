@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `:one` queries that have no FROM clause and project a single scalar
+  expression (e.g. `SELECT last_insert_rowid() AS id;`,
+  `SELECT random() AS r;`) now produce a complete row type and a
+  matching decoder. Previously the column inferencer treated the
+  table-less SELECT as having no columns and returned `Ok([])`, so
+  `models.gleam` lacked the row type while the generated adapter
+  still referenced it — the consuming project failed to compile.
+  Two new pieces wire this up: (1) `infer_columns_from_tokens_scoped`
+  now calls a new `infer_table_less_columns` helper when no FROM
+  table is in scope, which uses the existing
+  `infer_expression_type_from_tokens` path to recover the column
+  type/nullability; (2) the SQLite-side function dictionary
+  (`type_inference.infer_function_body` and
+  `column_inferencer.classify_function`) gains
+  `last_insert_rowid` so the int return type and non-null property
+  are recognised. Bare column references without a FROM clause are
+  still rejected with `UnsupportedExpression`. (#492)
+
 ## [0.10.0] - 2026-04-26
 
 ### Fixed

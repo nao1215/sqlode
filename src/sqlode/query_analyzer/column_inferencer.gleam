@@ -360,7 +360,13 @@ pub fn infer_columns_from_tokens_scoped(
         tok_extract_nullable_tables(main_tokens2, table_names)
 
       case effective_tables(table_names, outer_tables) {
-        [] -> Ok([])
+        // No FROM clause — try to infer columns directly from the
+        // SELECT-list expressions (scalar function calls, literals,
+        // etc.). This covers `SELECT last_insert_rowid() AS id;`-style
+        // queries (Issue #492) that were previously dropped to an
+        // empty `Ok([])` and produced a broken adapter / missing row
+        // type pair downstream.
+        [] -> infer_table_less_columns(query_name, main_tokens2, augmented)
         [primary, ..] as tables -> {
           let select_columns = tok_extract_select_columns(main_tokens2)
           resolve_select_columns(
@@ -374,6 +380,51 @@ pub fn infer_columns_from_tokens_scoped(
         }
       }
     }
+  }
+}
+
+/// Infer result columns for a SELECT statement that has no FROM clause
+/// (no real or virtual tables to resolve against). Each select-list
+/// item must be a self-contained expression — a scalar function call
+/// (`last_insert_rowid()`, `random()`, ...), a literal, or a CAST. A
+/// bare `*` or an unqualified column reference cannot be resolved and
+/// surfaces as `UnsupportedExpression`.
+fn infer_table_less_columns(
+  query_name: String,
+  tokens: List(lexer.Token),
+  catalog: model.Catalog,
+) -> Result(List(model.ResultItem), AnalysisError) {
+  let select_columns = tok_extract_select_columns(tokens)
+  case select_columns {
+    [] -> Ok([])
+    _ ->
+      list.try_map(select_columns, fn(col) {
+        case col.expression_tokens {
+          Some(expr_tokens) -> {
+            use #(scalar, nullable) <- result.try(
+              infer_expression_type_from_tokens(
+                expr_tokens,
+                catalog,
+                [],
+                query_name,
+              ),
+            )
+            Ok(
+              model.ScalarResult(model.ResultColumn(
+                name: col.name,
+                scalar_type: scalar,
+                nullable: nullable,
+                source_table: None,
+              )),
+            )
+          }
+          None ->
+            Error(UnsupportedExpression(
+              query_name: query_name,
+              expression: "unresolved column without FROM clause: " <> col.name,
+            ))
+        }
+      })
   }
 }
 
@@ -1627,7 +1678,7 @@ type FunctionClass {
 
 fn classify_function(lowered_name: String) -> FunctionClass {
   case lowered_name {
-    "count" -> FnCount
+    "count" | "last_insert_rowid" -> FnCount
     "sum" | "min" | "max" -> FnAggregateInner
     "avg" -> FnAvg
     "row_number" | "rank" | "dense_rank" | "ntile" -> FnWindowInt
