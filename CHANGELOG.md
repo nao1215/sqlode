@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-04-27
+
 ### Fixed
 
 - `LIMIT sqlode.arg(name)` and `OFFSET sqlode.arg(name)` now resolve
