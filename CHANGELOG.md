@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- SQLite's `INSERT OR <conflict-action> INTO ...` syntax
+  (`INSERT OR IGNORE`, `INSERT OR REPLACE`, `INSERT OR ABORT`,
+  `INSERT OR FAIL`, `INSERT OR ROLLBACK`) now analyses identically
+  to a plain `INSERT`. Previously the analyser only matched the
+  bare `INSERT INTO` shape and surfaced "could not infer type for
+  parameter" for every parameter when the conflict-action
+  qualifier was present, forcing callers to drop to raw sqlight
+  for upsert / idempotent-insert queries. Three call sites
+  (`token_utils.find_insert_loop`,
+  `column_inferencer.detect_dml_target`,
+  `expr_parser.parse_insert_body`) now route through a shared
+  `token_utils.strip_insert_or_action` helper. (#478)
 - A column literally named `type` no longer trips the analyser
   with `unsupported expression "type"`. `type` is not a reserved
   keyword in any of the three engines sqlode supports (SQLite /

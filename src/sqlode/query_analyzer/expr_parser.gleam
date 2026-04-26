@@ -42,6 +42,7 @@ import gleam/string
 import sqlode/lexer
 import sqlode/model
 import sqlode/naming
+import sqlode/query_analyzer/token_utils
 import sqlode/query_ir
 
 /// Parse a full statement from its token list. Never fails; unknown
@@ -758,7 +759,7 @@ fn parse_insert_body(
   tokens: List(lexer.Token),
   engine: model.Engine,
 ) -> query_ir.Stmt {
-  case tokens {
+  case token_utils.strip_insert_or_action(tokens) {
     [lexer.Keyword("into"), ..after_into] ->
       parse_insert_target(ctes, after_into, engine)
     _ ->
