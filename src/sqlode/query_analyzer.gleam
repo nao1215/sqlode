@@ -201,6 +201,14 @@ fn build_params(
       )
     }),
   )
+  // Issue #491: LIMIT/OFFSET placeholders are integer by SQL spec, even
+  // without an explicit cast. Merge their inferred types into the cast
+  // dict so a `?` in `LIMIT ?` / `OFFSET ?` resolves to `IntType`. Any
+  // user-written `CAST(? AS <type>)` still wins because `extract_type_casts`
+  // is layered on top.
+  let int_context_dict =
+    param_inferencer.extract_int_context_params(tokens, engine)
+  let cast_dict = dict.merge(int_context_dict, cast_dict)
   let macro_dict = build_macro_dict(query.macros)
   use inference_dict <- result.try(build_inference_dict(query.name, inferences))
 

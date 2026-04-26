@@ -353,6 +353,60 @@ pub fn render_sqlight_adapter_one_function_column_test() {
   |> should.be_true()
 }
 
+/// Issue #491: SQLite engine should accept `LIMIT sqlode.arg(lim)` and
+/// `OFFSET sqlode.arg(off)` without an explicit cast. Both placeholders
+/// are bound to `IntType` by the LIMIT/OFFSET integer-context rule.
+pub fn analyze_sqlite_limit_offset_params_pin_int_type_test() {
+  let naming_ctx = naming.new()
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([
+      #("schema.sql", "CREATE TABLE pages (id INTEGER, slug TEXT);"),
+    ])
+  let query_sql =
+    "-- name: ListPages :many\nSELECT slug FROM pages ORDER BY id DESC LIMIT sqlode.arg(lim) OFFSET sqlode.arg(off);\n"
+  let assert Ok(queries) =
+    query_parser.parse_file("query.sql", model.SQLite, naming_ctx, query_sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, queries)
+
+  let assert [analyzed_query] = analyzed
+  // Both placeholders surface as QueryParam entries with IntType.
+  list.length(analyzed_query.params) |> should.equal(2)
+  list.all(analyzed_query.params, fn(p) { p.scalar_type == model.IntType })
+  |> should.be_true()
+  // Param names come from the macro labels, not from the column they
+  // bind against (there is no column to bind to in LIMIT/OFFSET).
+  list.map(analyzed_query.params, fn(p) { p.field_name })
+  |> list.contains("lim")
+  |> should.be_true()
+  list.map(analyzed_query.params, fn(p) { p.field_name })
+  |> list.contains("off")
+  |> should.be_true()
+}
+
+/// Issue #491: an explicit CAST is still honoured. `LIMIT
+/// CAST(sqlode.arg(lim) AS INTEGER)` resolves to `IntType` through the
+/// LIMIT-context rule (and would also resolve through the
+/// `extract_type_casts` path for engines that support cast suffix).
+pub fn analyze_sqlite_limit_offset_with_cast_still_works_test() {
+  let naming_ctx = naming.new()
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([
+      #("schema.sql", "CREATE TABLE pages (id INTEGER, slug TEXT);"),
+    ])
+  let query_sql =
+    "-- name: ListPages :many\nSELECT slug FROM pages LIMIT CAST(sqlode.arg(lim) AS INTEGER) OFFSET CAST(sqlode.arg(off) AS INTEGER);\n"
+  let assert Ok(queries) =
+    query_parser.parse_file("query.sql", model.SQLite, naming_ctx, query_sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, queries)
+
+  let assert [analyzed_query] = analyzed
+  list.length(analyzed_query.params) |> should.equal(2)
+  list.all(analyzed_query.params, fn(p) { p.scalar_type == model.IntType })
+  |> should.be_true()
+}
+
 pub fn render_params_module_slice_test() {
   let naming_ctx = naming.new()
   let analyzed = analyzed_slice_queries(model.PostgreSQL)
