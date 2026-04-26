@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `naming.to_snake_case` now preserves trailing digit suffixes
+  attached to the preceding letter run, so column names like
+  `sha256` / `utf8` / `base64` / `oauth2` / `ipv4` / `md5` / `s3` /
+  `http2` are emitted as `sha256` etc. in generated Gleam,
+  rather than the previous `sha_256` / `utf_8` / `base_64` …
+  shapes that read like a division. The digit→letter direction
+  stays a split point (e.g. `256sha` → `256_sha`) — the
+  convention is asymmetric. PascalCase / camelCase inputs follow
+  the same rule (`Sha256Hash` → `sha256_hash`, `GetV2Author` →
+  `get_v2_author`). (#480)
+
 ## [0.9.0] - 2026-04-26
 
 ### Changed

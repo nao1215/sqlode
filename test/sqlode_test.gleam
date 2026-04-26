@@ -650,6 +650,52 @@ pub fn snake_case_single_upper_char_test() {
   naming_test.snake_case_single_upper_char_test()
 }
 
+// --- snake_case letter+digit suffix preservation (#480) ---
+
+pub fn snake_case_keeps_sha256_intact_test() {
+  naming_test.snake_case_keeps_sha256_intact_test()
+}
+
+pub fn snake_case_keeps_utf8_intact_test() {
+  naming_test.snake_case_keeps_utf8_intact_test()
+}
+
+pub fn snake_case_keeps_base64_intact_test() {
+  naming_test.snake_case_keeps_base64_intact_test()
+}
+
+pub fn snake_case_keeps_oauth2_intact_test() {
+  naming_test.snake_case_keeps_oauth2_intact_test()
+}
+
+pub fn snake_case_keeps_ipv4_intact_test() {
+  naming_test.snake_case_keeps_ipv4_intact_test()
+}
+
+pub fn snake_case_keeps_md5_intact_test() {
+  naming_test.snake_case_keeps_md5_intact_test()
+}
+
+pub fn snake_case_keeps_s3_intact_test() {
+  naming_test.snake_case_keeps_s3_intact_test()
+}
+
+pub fn snake_case_keeps_http2_intact_test() {
+  naming_test.snake_case_keeps_http2_intact_test()
+}
+
+pub fn snake_case_keeps_allcaps_with_digit_suffix_intact_test() {
+  naming_test.snake_case_keeps_allcaps_with_digit_suffix_intact_test()
+}
+
+pub fn snake_case_splits_digit_then_letter_boundary_test() {
+  naming_test.snake_case_splits_digit_then_letter_boundary_test()
+}
+
+pub fn snake_case_keeps_pascal_case_with_digit_suffix_intact_test() {
+  naming_test.snake_case_keeps_pascal_case_with_digit_suffix_intact_test()
+}
+
 pub fn normalize_identifier_empty_test() {
   naming_test.normalize_identifier_empty_test()
 }
