@@ -696,6 +696,20 @@ pub fn snake_case_keeps_pascal_case_with_digit_suffix_intact_test() {
   naming_test.snake_case_keeps_pascal_case_with_digit_suffix_intact_test()
 }
 
+// --- BLOB / CAST(? AS <type>) inference (#477) ---
+
+pub fn insert_into_blob_columns_infers_bytes_test() {
+  query_analyzer_test.insert_into_blob_columns_infers_bytes_test()
+}
+
+pub fn select_where_blob_column_infers_bytes_test() {
+  query_analyzer_test.select_where_blob_column_infers_bytes_test()
+}
+
+pub fn insert_with_cast_blob_placeholder_infers_bytes_test() {
+  query_analyzer_test.insert_with_cast_blob_placeholder_infers_bytes_test()
+}
+
 // --- INSERT OR <conflict-action> (#478) ---
 
 pub fn insert_or_ignore_infers_params_test() {
