@@ -66,8 +66,79 @@ pub fn snake_case_from_all_caps_test() {
 }
 
 pub fn snake_case_with_numbers_test() {
+  // Trailing-digit suffixes are now glued to the preceding letter
+  // run (#480): "V2" stays as one word, so "GetV2Author" splits as
+  // ["Get", "V2", "Author"] → "get_v2_author". Previously the
+  // letter→digit boundary was a split point, producing the
+  // misleading "get_v_2_author".
   let ctx = naming.new()
-  naming.to_snake_case(ctx, "GetV2Author") |> should.equal("get_v_2_author")
+  naming.to_snake_case(ctx, "GetV2Author") |> should.equal("get_v2_author")
+}
+
+// --- Letter+digit suffix preservation (#480) ---
+//
+// Hash / encoding / version suffixes like sha256, utf8, base64,
+// oauth2, ipv4, s3, md5, http2 are conventionally one word. The
+// snake_case conversion must NOT insert an underscore between the
+// letter run and the trailing digit run.
+
+pub fn snake_case_keeps_sha256_intact_test() {
+  let ctx = naming.new()
+  naming.to_snake_case(ctx, "sha256") |> should.equal("sha256")
+}
+
+pub fn snake_case_keeps_utf8_intact_test() {
+  let ctx = naming.new()
+  naming.to_snake_case(ctx, "utf8") |> should.equal("utf8")
+}
+
+pub fn snake_case_keeps_base64_intact_test() {
+  let ctx = naming.new()
+  naming.to_snake_case(ctx, "base64") |> should.equal("base64")
+}
+
+pub fn snake_case_keeps_oauth2_intact_test() {
+  let ctx = naming.new()
+  naming.to_snake_case(ctx, "oauth2") |> should.equal("oauth2")
+}
+
+pub fn snake_case_keeps_ipv4_intact_test() {
+  let ctx = naming.new()
+  naming.to_snake_case(ctx, "ipv4") |> should.equal("ipv4")
+}
+
+pub fn snake_case_keeps_md5_intact_test() {
+  let ctx = naming.new()
+  naming.to_snake_case(ctx, "md5") |> should.equal("md5")
+}
+
+pub fn snake_case_keeps_s3_intact_test() {
+  let ctx = naming.new()
+  naming.to_snake_case(ctx, "s3") |> should.equal("s3")
+}
+
+pub fn snake_case_keeps_http2_intact_test() {
+  let ctx = naming.new()
+  naming.to_snake_case(ctx, "http2") |> should.equal("http2")
+}
+
+pub fn snake_case_keeps_allcaps_with_digit_suffix_intact_test() {
+  // ALLCAPS-with-digit-suffix follows the same rule: "ID2" is one
+  // word, not "ID" + "2".
+  let ctx = naming.new()
+  naming.to_snake_case(ctx, "USER_ID2") |> should.equal("user_id2")
+}
+
+pub fn snake_case_splits_digit_then_letter_boundary_test() {
+  // Digit→letter direction stays a split point — the convention
+  // is asymmetric. "256sha" reads as ["256", "sha"], not "256sha".
+  let ctx = naming.new()
+  naming.to_snake_case(ctx, "256sha") |> should.equal("256_sha")
+}
+
+pub fn snake_case_keeps_pascal_case_with_digit_suffix_intact_test() {
+  let ctx = naming.new()
+  naming.to_snake_case(ctx, "Sha256Hash") |> should.equal("sha256_hash")
 }
 
 pub fn snake_case_reserved_word_escaped_test() {

@@ -14,9 +14,33 @@ pub type NamingContext {
 pub fn new() -> NamingContext {
   // nolint: assert_ok_pattern -- the regex literal is a compile-time constant
   let assert Ok(word_separator) = regexp.from_string("[_\\-\\s./]+")
+  // Word-split rule for camelCase / PascalCase / mixed input. The
+  // four alternatives, in priority order:
+  //
+  //   1. `[A-Z]+(?=[A-Z][a-z])` — split before the trailing capital
+  //      of an ALLCAPS run that's followed by a lower run
+  //      (XMLParser → XML, Parser).
+  //   2. `[A-Z]?[a-z]+[0-9]*` — a lower-cased word with an
+  //      optional leading capital and an OPTIONAL trailing digit
+  //      run (sha256 → sha256, getV2 → getV2's "v2" piece). The
+  //      trailing-digit attachment is the #480 fix: previously
+  //      "sha256" split into ["sha", "256"] and surfaced as
+  //      `sha_256` in generated identifiers, which read like a
+  //      division. The standard convention treats `sha256` /
+  //      `utf8` / `base64` / `md5` etc. as a single word, which
+  //      is what users almost always want.
+  //   3. `[A-Z]+[0-9]*` — an ALLCAPS word with the same optional
+  //      trailing digit run (USER, ID2, UUID).
+  //   4. `[0-9]+` — a leading or otherwise-unattached digit run
+  //      (256sha → "256", "sha"). Only digits not absorbed by the
+  //      preceding letter run land here; this preserves the
+  //      digit→letter split (the standard convention is the
+  //      opposite of letter→digit).
   // nolint: assert_ok_pattern -- the regex literal is a compile-time constant
   let assert Ok(camel_case) =
-    regexp.from_string("([A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|[0-9]+)")
+    regexp.from_string(
+      "([A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+[0-9]*|[A-Z]+[0-9]*|[0-9]+)",
+    )
   // nolint: assert_ok_pattern -- the regex literal is a compile-time constant
   let assert Ok(underscore_before_caps) =
     regexp.from_string("([a-z0-9])([A-Z])")
