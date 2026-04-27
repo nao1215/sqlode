@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-04-27
+
+### Added
+
+- mise/asdf-compatible plugin for version-managed installs. Users can now
+  run `mise plugin add sqlode` and `mise install sqlode@latest` to manage
+  sqlode alongside their Gleam/Erlang toolchain. (#433)
+
 ## [0.12.0] - 2026-04-27
 
 ### Fixed
