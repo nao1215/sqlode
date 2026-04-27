@@ -23,6 +23,7 @@ import gleam/result
 import gleam/string
 import simplifile
 import sqlode/config
+import sqlode/generate
 import sqlode/model
 import sqlode/naming
 import sqlode/query_analyzer
@@ -87,11 +88,20 @@ fn verify_block(
       case load_and_analyze(naming_ctx, block, catalog) {
         Error(detail) -> [Finding(block_out: out, detail: detail)]
         Ok(analyzed) ->
-          enforce_query_parameter_limit(
-            out,
-            analyzed,
-            block.gleam.query_parameter_limit,
-          )
+          case analyzed {
+            [] -> [
+              Finding(
+                block_out: out,
+                detail: "no queries were generated — query files are empty or contain no valid annotations",
+              ),
+            ]
+            _ ->
+              enforce_query_parameter_limit(
+                out,
+                analyzed,
+                block.gleam.query_parameter_limit,
+              )
+          }
       }
   }
 }
@@ -147,6 +157,9 @@ fn load_and_analyze(
       |> result.map_error(query_validation.error_to_string)
     model.Raw -> Ok(Nil)
   })
+  let analyzed =
+    generate.apply_column_renames(analyzed, block.overrides.column_renames)
+  let analyzed = generate.disambiguate_param_names(analyzed)
   Ok(analyzed)
 }
 

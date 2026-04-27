@@ -335,6 +335,7 @@ pub fn verify_execresult_under_raw_runtime_is_allowed_test() {
   let report = verify.verify_config(cfg)
   report.findings |> should.equal([])
 }
+
 // Note: the non-PostgreSQL array-parameter check
 // (`validate_array_engine_support`) is also shared with `generate`
 // via `sqlode/query_validation`. We do not add a fixture-based
@@ -345,3 +346,24 @@ pub fn verify_execresult_under_raw_runtime_is_allowed_test() {
 // array-typed params on a non-PostgreSQL engine, both `generate`
 // and `verify` will reject it with an identical message through
 // the shared validator.
+
+// ============================================================
+// Issue #504: verify must detect empty query lists
+// ============================================================
+
+pub fn verify_rejects_empty_query_file_test() {
+  // A query file with no valid annotations should produce a finding,
+  // matching what `generate` would report as NoQueriesGenerated.
+  let cfg =
+    model.Config(version: 2, sql: [
+      make_block(
+        "test/fixtures/verify_ok_schema.sql",
+        "test/fixtures/verify_empty_query.sql",
+        "src/verify_empty_query_out",
+        option.None,
+      ),
+    ])
+  let report = verify.verify_config(cfg)
+  let assert [finding] = report.findings
+  string.contains(finding.detail, "no queries") |> should.be_true()
+}
