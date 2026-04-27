@@ -236,14 +236,14 @@ fn find_equality_matches_in_stmt(
 fn assignment_match(
   assignment: query_ir.Assignment,
 ) -> Result(token_utils.EqualityMatch, Nil) {
-  case assignment.value {
-    query_ir.Param(raw:, ..) ->
+  case param_of(assignment.value) {
+    Some(raw) ->
       Ok(token_utils.EqualityMatch(
         column_name: naming.normalize_identifier(assignment.column),
         table_qualifier: None,
         placeholder: raw,
       ))
-    _ -> Error(Nil)
+    None -> Error(Nil)
   }
 }
 
@@ -884,25 +884,104 @@ pub fn extract_type_casts(
   engine: model.Engine,
   tokens: List(lexer.Token),
 ) -> Result(dict.Dict(Int, model.ScalarType), #(Int, String)) {
-  case engine {
-    model.PostgreSQL -> {
-      let casts = token_utils.find_type_casts(tokens)
-      list.try_fold(casts, dict.new(), fn(d, cast) {
-        case
-          cast.placeholder
-          |> string.replace("$", "")
-          |> int.parse
-        {
-          Ok(index) ->
-            case cast_type_to_scalar(cast.cast_type) {
-              Ok(scalar_type) -> Ok(dict.insert(d, index, scalar_type))
-              Error(Nil) -> Error(#(index, string.trim(cast.cast_type)))
-            }
-          Error(_) -> Ok(d)
-        }
-      })
+  // PostgreSQL `$N::type` casts (token_utils finds these).
+  let pg_casts = token_utils.find_type_casts(tokens)
+  use pg_dict <- result.try(
+    list.try_fold(pg_casts, dict.new(), fn(d, cast) {
+      case
+        cast.placeholder
+        |> string.replace("$", "")
+        |> int.parse
+      {
+        Ok(index) ->
+          case cast_type_to_scalar(cast.cast_type) {
+            Ok(scalar_type) -> Ok(dict.insert(d, index, scalar_type))
+            Error(Nil) -> Error(#(index, string.trim(cast.cast_type)))
+          }
+        Error(_) -> Ok(d)
+      }
+    }),
+  )
+  // SQL-standard `CAST(placeholder AS type)` — walk the token stream
+  // with an occurrence counter so SQLite anonymous `?` placeholders
+  // get the correct 1-based index (same logic as
+  // `scan_int_context_indices`).
+  let cast_hints = scan_cast_hints(tokens, engine, 1, [])
+  use cast_dict <- result.try(
+    list.try_fold(cast_hints, pg_dict, fn(d, pair) {
+      let #(index, type_name) = pair
+      case cast_type_to_scalar(type_name) {
+        Ok(scalar_type) -> Ok(dict.insert(d, index, scalar_type))
+        Error(Nil) -> Error(#(index, string.trim(type_name)))
+      }
+    }),
+  )
+  Ok(cast_dict)
+}
+
+/// Walk the token stream counting placeholder occurrences (1-based)
+/// and collect `CAST(placeholder AS type)` patterns with the
+/// resolved occurrence index.
+fn scan_cast_hints(
+  tokens: List(lexer.Token),
+  engine: model.Engine,
+  occurrence: Int,
+  acc: List(#(Int, String)),
+) -> List(#(Int, String)) {
+  case tokens {
+    [] -> list.reverse(acc)
+    // CAST(placeholder AS ident)
+    [
+      lexer.Keyword("cast"),
+      lexer.LParen,
+      lexer.Placeholder(raw),
+      lexer.Keyword("as"),
+      lexer.Ident(t),
+      lexer.RParen,
+      ..rest
+    ] -> {
+      let index = resolve_placeholder_index(engine, raw, occurrence)
+      scan_cast_hints(rest, engine, occurrence + 1, [
+        #(index, string.lowercase(t)),
+        ..acc
+      ])
     }
-    _ -> Ok(dict.new())
+    // CAST(placeholder AS keyword)
+    [
+      lexer.Keyword("cast"),
+      lexer.LParen,
+      lexer.Placeholder(raw),
+      lexer.Keyword("as"),
+      lexer.Keyword(t),
+      lexer.RParen,
+      ..rest
+    ] -> {
+      let index = resolve_placeholder_index(engine, raw, occurrence)
+      scan_cast_hints(rest, engine, occurrence + 1, [#(index, t), ..acc])
+    }
+    // Any other placeholder — count the occurrence but don't record a hint.
+    [lexer.Placeholder(_), ..rest] ->
+      scan_cast_hints(rest, engine, occurrence + 1, acc)
+    [_, ..rest] -> scan_cast_hints(rest, engine, occurrence, acc)
+  }
+}
+
+fn resolve_placeholder_index(
+  engine: model.Engine,
+  raw: String,
+  occurrence: Int,
+) -> Int {
+  case engine {
+    model.PostgreSQL ->
+      case
+        raw
+        |> string.replace("$", "")
+        |> int.parse
+      {
+        Ok(n) -> n
+        Error(_) -> occurrence
+      }
+    _ -> occurrence
   }
 }
 
