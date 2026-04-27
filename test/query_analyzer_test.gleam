@@ -3220,3 +3220,68 @@ pub fn ir_table_alias_resolves_qualified_column_test() {
   col.name |> should.equal("id")
   col.scalar_type |> should.equal(model.IntType)
 }
+
+// ============================================================
+// Issue #501: CAST in UPDATE SET clause type inference
+// ============================================================
+
+pub fn update_set_cast_param_infers_type_from_column_pg_test() {
+  // Form 3: SET col = CAST(param AS TYPE) — column-based inference
+  // should work through CAST wrapper (PostgreSQL).
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: SetName :exec\nUPDATE authors SET name = CAST($1 AS TEXT) WHERE id = $2;"
+  let assert Ok(queries) =
+    query_parser.parse_file("cast_set.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  let assert [name_param, id_param] = query.params
+  name_param.scalar_type |> should.equal(model.StringType)
+  id_param.scalar_type |> should.equal(model.IntType)
+}
+
+pub fn update_set_cast_param_infers_type_from_column_sqlite_test() {
+  // Form 3: SET col = CAST(param AS TYPE) — column-based inference
+  // should work through CAST wrapper (SQLite).
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: SetName :exec\nUPDATE authors SET name = CAST(sqlode.arg(new_name) AS TEXT) WHERE id = sqlode.arg(author_id);"
+  let assert Ok(queries) =
+    query_parser.parse_file("cast_set.sql", model.SQLite, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, queries)
+  let assert [query] = analyzed
+  let assert [name_param, id_param] = query.params
+  name_param.scalar_type |> should.equal(model.StringType)
+  id_param.scalar_type |> should.equal(model.IntType)
+}
+
+pub fn update_set_arithmetic_cast_infers_type_pg_test() {
+  // Form 2: SET col = col + CAST(param AS TYPE) — the CAST provides
+  // the type when column-based inference cannot (PostgreSQL).
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: IncrementId :exec\nUPDATE authors SET id = id + CAST($1 AS INTEGER) WHERE id = $2;"
+  let assert Ok(queries) =
+    query_parser.parse_file("arith_cast.sql", model.PostgreSQL, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  let assert [query] = analyzed
+  let assert [delta_param, id_param] = query.params
+  delta_param.scalar_type |> should.equal(model.IntType)
+  id_param.scalar_type |> should.equal(model.IntType)
+}
