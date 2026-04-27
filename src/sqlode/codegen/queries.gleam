@@ -50,7 +50,7 @@ pub fn render(
     [] -> "[]"
     _ ->
       queries
-      |> list.map(fn(query) { render_query_info_literal(query.base) })
+      |> list.map(fn(query) { render_query_info_literal(query.base, engine) })
       |> string.join(", ")
       |> fn(items) { "[" <> items <> "]" }
   }
@@ -505,14 +505,41 @@ fn render_raw_base_decoder(
   }
 }
 
-fn render_query_info_literal(query: model.ParsedQuery) -> String {
+fn render_query_info_literal(
+  query: model.ParsedQuery,
+  engine: model.Engine,
+) -> String {
+  let sql = resolve_static_placeholders(query.sql, query.param_count, engine)
   "runtime.QueryInfo(name: \""
   <> common.escape_string(query.name)
   <> "\", sql: \""
-  <> common.escape_string(query.sql)
+  <> common.escape_string(sql)
   <> "\", command: runtime."
   <> model.query_command_to_string(query.command)
   <> ", param_count: "
   <> int.to_string(query.param_count)
   <> ")"
+}
+
+/// Replace internal `__sqlode_param_N__` and `__sqlode_slice_N__` markers with
+/// engine-native placeholders for static display in QueryInfo.sql.
+/// Slice markers are treated as a single placeholder since their runtime
+/// expansion size is unknown at generation time.
+fn resolve_static_placeholders(
+  sql: String,
+  param_count: Int,
+  engine: model.Engine,
+) -> String {
+  int.range(from: 1, to: param_count + 1, with: sql, run: fn(current_sql, idx) {
+    let param = runtime.param_marker(idx)
+    let slice = runtime.slice_marker(idx)
+    let placeholder = case engine {
+      model.PostgreSQL -> "$" <> int.to_string(idx)
+      model.SQLite -> "?" <> int.to_string(idx)
+      model.MySQL -> "?"
+    }
+    current_sql
+    |> string.replace(param, placeholder)
+    |> string.replace(slice, placeholder)
+  })
 }
