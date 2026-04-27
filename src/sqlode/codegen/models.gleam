@@ -182,10 +182,10 @@ fn render_enum_type(enum_def: model.EnumDef) -> String {
     builder.line("}"),
     builder.blank(),
     // `<name>_default()` is the first variant in declaration order.
-    // Used as the `decode.failure` fallback for generated decoders —
-    // `decode.failure` requires a zero of the target type, and hard-
-    // coding the first variant keeps the generated code
-    // type-checked without the caller needing to pick one at runtime.
+    // Used solely as the type-inference placeholder for
+    // `decode.failure` — this value is NEVER returned to callers.
+    // When `decode.failure` fires, the decoder produces a decode
+    // error and the placeholder is discarded by `decode.run`.
     builder.line("pub fn " <> default_fn <> "() -> " <> type_name <> " {"),
     builder.line("  " <> first_variant),
     builder.line("}"),
