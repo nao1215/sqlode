@@ -557,6 +557,9 @@ pub fn render_sqlight_adapter_slice_test() {
     "fn value_to_sqlight(value: runtime.Value) -> sqlight.Value",
   )
   |> should.be_true()
+  // SqlArray should panic instead of silently converting to null (#502)
+  string.contains(rendered, "SqlArray is not supported in the SQLite native")
+  |> should.be_true()
 }
 
 pub fn expand_slice_placeholders_single_test() {
@@ -1497,6 +1500,9 @@ pub fn render_mysql_native_adapter_uses_shork_test() {
   // The stub message must not be present anywhere.
   string.contains(rendered, "MySQL adapter generation is not yet available")
   |> should.be_false()
+  // SqlArray should panic instead of silently converting to null (#502)
+  string.contains(rendered, "SqlArray is not supported in the MySQL native")
+  |> should.be_true()
 }
 
 pub fn render_mysql_native_adapter_decodes_last_insert_id_test() {

@@ -159,7 +159,7 @@ fn sqlight_value_to_driver_helper() -> String {
     runtime.SqlFloat(v) -> sqlight.float(v)
     runtime.SqlBool(v) -> sqlight.bool(v)
     runtime.SqlBytes(v) -> sqlight.blob(v)
-    runtime.SqlArray(_) -> sqlight.null()
+    runtime.SqlArray(_) -> panic as \"SqlArray is not supported in the SQLite native adapter. Use raw runtime for array parameters, or ensure sqlode.slice() values are expanded before reaching value_to_sqlight.\"
   }
 }"
 }
@@ -218,7 +218,7 @@ fn value_to_shork(value: runtime.Value) -> shork.Value {
     runtime.SqlBool(True) -> shork.int(1)
     runtime.SqlBool(False) -> shork.int(0)
     runtime.SqlBytes(v) -> bit_array_to_shork(v)
-    runtime.SqlArray(_) -> shork.null()
+    runtime.SqlArray(_) -> panic as \"SqlArray is not supported in the MySQL native adapter. Use raw runtime for array parameters, or ensure sqlode.slice() values are expanded before reaching value_to_shork.\"
   }
 }"
 }
