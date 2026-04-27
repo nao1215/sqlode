@@ -1,5 +1,5 @@
 name = "sqlode"
-version = "0.13.0"
+version = "0.14.0"
 target = "erlang"
 description = "Generate type-safe Gleam code from SQL schemas and queries"
 licences = ["MIT"]
