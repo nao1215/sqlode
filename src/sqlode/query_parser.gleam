@@ -303,32 +303,39 @@ fn parse_annotation(
         |> list.filter(fn(part) { part != "" })
 
       case parts {
-        [name, command_text] -> {
-          use command <- result.try(
-            model.parse_query_command(command_text)
-            |> result.map_error(fn(detail) {
-              InvalidAnnotation(path:, line: line_number, detail:)
-            }),
-          )
+        [name, command_text] ->
+          case string.starts_with(command_text, ":") {
+            // Two parts where the second starts with ':' — this looks
+            // like an intentional annotation (`-- name: GetUsers :many`).
+            // Validate the command; an unrecognized command is still an error.
+            True -> {
+              use command <- result.try(
+                model.parse_query_command(command_text)
+                |> result.map_error(fn(detail) {
+                  InvalidAnnotation(path:, line: line_number, detail:)
+                }),
+              )
 
-          Ok(
-            Some(
-              PendingQuery(
-                name:,
-                function_name: naming.to_snake_case(naming_ctx, name),
-                command:,
-                start_line: line_number,
-                body_rev: [],
-              ),
-            ),
-          )
-        }
-        _ ->
-          Error(InvalidAnnotation(
-            path:,
-            line: line_number,
-            detail: "expected '-- name: <Name> <command>' or '/* name: <Name> <command> */' where command is one of: :one, :many, :exec, :execresult, :execrows, :execlastid, :batchone, :batchmany, :batchexec, :copyfrom",
-          ))
+              Ok(
+                Some(
+                  PendingQuery(
+                    name:,
+                    function_name: naming.to_snake_case(naming_ctx, name),
+                    command:,
+                    start_line: line_number,
+                    body_rev: [],
+                  ),
+                ),
+              )
+            }
+            // Second part doesn't start with ':' — not an annotation.
+            False -> Ok(None)
+          }
+        // Anything else: `-- name:` followed by text that doesn't look
+        // like an annotation (no colon-prefixed command).  Treat it as
+        // an ordinary SQL comment so it doesn't split the current query.
+        // Example: `-- name: this column stores the display name`
+        _ -> Ok(None)
       }
     }
   }
