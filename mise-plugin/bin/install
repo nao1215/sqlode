@@ -1,0 +1,14 @@
+#!/bin/sh
+# Install sqlode into the mise-managed path.
+# mise sets ASDF_INSTALL_PATH and ASDF_DOWNLOAD_PATH.
+
+set -eu
+
+DOWNLOAD_PATH="${ASDF_DOWNLOAD_PATH}"
+INSTALL_PATH="${ASDF_INSTALL_PATH}"
+
+mkdir -p "${INSTALL_PATH}/bin"
+cp "${DOWNLOAD_PATH}/sqlode" "${INSTALL_PATH}/bin/sqlode"
+chmod +x "${INSTALL_PATH}/bin/sqlode"
+
+echo "sqlode v${ASDF_INSTALL_VERSION} installed to ${INSTALL_PATH}/bin/sqlode"

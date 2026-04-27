@@ -1,0 +1,8 @@
+[plugin]
+name = "sqlode"
+description = "Generate type-safe Gleam code from SQL schemas and queries"
+repository = "https://github.com/nao1215/sqlode"
+
+[plugin.env]
+# sqlode requires escript (Erlang/OTP) at runtime
+MISE_SQLODE_REQUIRES = "erlang"

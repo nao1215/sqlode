@@ -17,7 +17,7 @@ First time here? [`doc/tutorials/getting-started-sqlite.md`](doc/tutorials/getti
 
 ### Install
 
-sqlode ships as an Erlang escript, so most paths need Erlang/OTP on the host. Option D (Docker) bundles Erlang and is the one exception.
+sqlode ships as an Erlang escript, so most paths need Erlang/OTP on the host. Option D (Docker) bundles Erlang, and option E (mise) manages both the escript and Erlang together.
 
 Whichever install path you pick, your Gleam project still needs `gleam add sqlode` because generated code imports `sqlode/runtime`.
 
@@ -64,6 +64,24 @@ docker run --rm -v "$PWD:/work" ghcr.io/nao1215/sqlode:latest generate
 ```
 
 The container's working directory is `/work`, so mounting your project there lets `init` / `generate` / `verify` write into the host. Swap `:latest` for a version tag (`:0.10.0`) to pin a release. The `:latest` tag appears once the docker workflow has run on `main`; before that, `docker build -t sqlode .` at the repo root produces the same image.
+
+#### E. mise (recommended for Gleam projects)
+
+If you already use [mise](https://mise.jdx.dev/) for managing Gleam and Erlang:
+
+```console
+mise plugin add sqlode https://github.com/nao1215/sqlode.git#mise-plugin
+mise install sqlode@latest
+```
+
+This installs the escript and manages versions alongside your Gleam/Erlang toolchain. Pin a version in `.mise.toml`:
+
+```toml
+[tools]
+sqlode = "0.12.0"
+```
+
+mise handles `PATH` automatically — no manual exports needed.
 
 ### Initialize config
 

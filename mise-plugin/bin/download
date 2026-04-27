@@ -1,0 +1,17 @@
+#!/bin/sh
+# Download a specific sqlode version.
+# mise sets ASDF_INSTALL_VERSION and ASDF_DOWNLOAD_PATH.
+
+set -eu
+
+REPO="nao1215/sqlode"
+VERSION="${ASDF_INSTALL_VERSION}"
+DOWNLOAD_PATH="${ASDF_DOWNLOAD_PATH}"
+
+mkdir -p "${DOWNLOAD_PATH}"
+
+URL="https://github.com/${REPO}/releases/download/v${VERSION}/sqlode"
+
+echo "Downloading sqlode v${VERSION}..."
+curl -fsSL -o "${DOWNLOAD_PATH}/sqlode" "${URL}"
+chmod +x "${DOWNLOAD_PATH}/sqlode"
