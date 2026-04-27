@@ -288,16 +288,17 @@ SELECT id FROM authors WHERE name = @author_name;"
 
 // Error and boundary tests
 
-pub fn invalid_annotation_format_test() {
+pub fn annotation_without_command_is_treated_as_comment_test() {
+  // `-- name: OnlyName` (no colon-prefixed command) is treated as a
+  // regular SQL comment, not as an annotation.  This prevents false
+  // positives like `-- name: this column stores the display name`.
   let naming_ctx = naming.new()
   let content = "-- name: OnlyName\nSELECT 1;"
 
-  let assert Error(error) =
+  let assert Ok(queries) =
     parse_file("bad.sql", model.PostgreSQL, naming_ctx, content)
-  let msg = query_parser.error_to_string(error)
-  string.contains(msg, "expected") |> should.be_true()
-  string.contains(msg, ":one") |> should.be_true()
-  string.contains(msg, ":exec") |> should.be_true()
+  // No valid annotation → no queries parsed.
+  list.length(queries) |> should.equal(0)
 }
 
 pub fn invalid_command_test() {
@@ -926,14 +927,15 @@ pub fn parse_block_annotation_invalid_command_test() {
   string.contains(msg, "must be one of") |> should.be_true()
 }
 
-pub fn parse_block_annotation_missing_command_test() {
+pub fn parse_block_annotation_missing_command_is_comment_test() {
+  // `/* name: OnlyName */` (no colon-prefixed command) is treated as a
+  // regular SQL comment, not as an annotation.
   let naming_ctx = naming.new()
   let content = "/* name: OnlyName */\nSELECT 1;"
 
-  let assert Error(error) =
+  let assert Ok(queries) =
     parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
-  let msg = query_parser.error_to_string(error)
-  string.contains(msg, "/* name:") |> should.be_true()
+  list.length(queries) |> should.equal(0)
 }
 
 pub fn parse_block_annotation_missing_sql_body_test() {
@@ -1269,4 +1271,64 @@ SELECT id FROM authors WHERE id = ?1 OR parent_id = ?1;"
     parse_file("q.sql", model.SQLite, naming_ctx, content)
   let assert [query] = queries
   query.param_count |> should.equal(1)
+}
+
+// ============================================================
+// Issue #503: '-- name:' inside query body treated as comment
+// ============================================================
+
+pub fn name_comment_in_query_body_is_ignored_test() {
+  // A SQL comment containing '-- name:' without a valid command
+  // should be treated as a regular comment, not a new annotation.
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetUserNotes :many
+SELECT id, content
+FROM notes
+WHERE user_id = $1
+-- name: This is just a comment explaining the column name
+ORDER BY created_at DESC;"
+
+  let assert Ok(queries) =
+    parse_file("q.sql", model.PostgreSQL, naming_ctx, content)
+  // Should produce exactly one query, not two
+  let assert [query] = queries
+  query.name |> should.equal("GetUserNotes")
+  query.command |> should.equal(runtime.QueryMany)
+  // The ORDER BY should be part of the query body (lowercased by lexer)
+  string.contains(query.sql, "order by") |> should.be_true()
+}
+
+pub fn name_comment_with_colon_but_invalid_command_is_error_test() {
+  // `-- name: Foo :invalid` has a colon-prefixed command that doesn't
+  // match any valid command — this should still be an error because the
+  // user clearly intended an annotation.
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: Foo :invalid
+SELECT 1;"
+
+  let result = parse_file("q.sql", model.PostgreSQL, naming_ctx, content)
+  result |> should.be_error()
+}
+
+pub fn multiple_queries_with_name_comment_between_test() {
+  // Two valid queries separated by a non-annotation `-- name:` comment
+  // inside the first query body.
+  let naming_ctx = naming.new()
+  let content =
+    "-- name: GetNotes :many
+SELECT id
+-- name: this explains the column
+FROM notes;
+
+-- name: GetUsers :many
+SELECT id FROM users;"
+
+  let assert Ok(queries) =
+    parse_file("q.sql", model.PostgreSQL, naming_ctx, content)
+  let assert [q1, q2] = queries
+  q1.name |> should.equal("GetNotes")
+  string.contains(q1.sql, "from notes") |> should.be_true()
+  q2.name |> should.equal("GetUsers")
 }
