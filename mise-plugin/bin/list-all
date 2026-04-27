@@ -1,0 +1,12 @@
+#!/bin/sh
+# List all available sqlode versions (tags from GitHub).
+# mise calls this to populate the version list.
+
+set -eu
+
+REPO="nao1215/sqlode"
+
+curl -fsSL "https://api.github.com/repos/${REPO}/tags" \
+  | grep '"name"' \
+  | sed 's/.*"v\([^"]*\)".*/\1/' \
+  | tr '\n' ' '
