@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-04-27
+
+### Fixed
+
+- `CAST(sqlode.arg(name) AS TYPE)` now resolves type inference in
+  `UPDATE ... SET` clauses. Previously, both column-based inference and
+  SQL-standard `CAST()` extraction failed for parameters wrapped in CAST
+  inside SET assignments. The IR-level `assignment_match` now unwraps
+  `Cast(Param)` via `param_of`, and a new `scan_cast_hints` token walker
+  extracts `CAST(? AS type)` patterns with proper occurrence-based
+  indexing for all engines. (#501)
+- The SQLite native adapter no longer silently converts `SqlArray`
+  values to `NULL`. The generated `value_to_sqlight` function now panics
+  with a descriptive message when it encounters `SqlArray`, which should
+  never reach the native adapter in correct usage. The MySQL adapter
+  receives the same treatment. (#502)
+- SQL comments containing `-- name:` without a valid colon-prefixed
+  command (e.g. `-- name: this explains the column`) are now treated as
+  regular comments instead of being misinterpreted as query annotations.
+  Intentional annotations with invalid commands (e.g. `-- name: Foo
+  :invalid`) still produce errors. (#503)
+- `sqlode verify` now replicates all validation steps from `sqlode
+  generate`: empty query list detection, `apply_column_renames`, and
+  `disambiguate_param_names`. Previously a config could pass `verify`
+  but fail `generate`. (#504)
+- Generated enum and set decoders now include the actual received value
+  in the `decode.failure` error message (e.g. `"known status variant,
+  got 'suspended'"`), making schema-drift mismatches diagnosable.
+  Previously the error said only `"valid status value"` with no
+  indication of what was received. (#505)
+
 ## [0.13.0] - 2026-04-27
 
 ### Added
