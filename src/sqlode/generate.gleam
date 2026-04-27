@@ -692,7 +692,7 @@ fn disambiguate_query_params(query: model.AnalyzedQuery) -> model.AnalyzedQuery 
   model.AnalyzedQuery(..query, params: list.reverse(renamed_reversed))
 }
 
-fn apply_column_renames(
+pub fn apply_column_renames(
   queries: List(model.AnalyzedQuery),
   renames: List(model.ColumnRename),
 ) -> List(model.AnalyzedQuery) {
