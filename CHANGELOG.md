@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-04-27
+
+### Fixed
+
+- `QueryInfo.sql` now shows engine-native placeholders (`$1` for PostgreSQL,
+  `?1` for SQLite, `?` for MySQL) instead of internal `__sqlode_param_N__`
+  markers. This makes the metadata suitable for logging, debugging, and
+  query cache keys without additional processing. (#496)
+
 ## [0.11.0] - 2026-04-27
 
 ### Fixed
