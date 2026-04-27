@@ -25,25 +25,25 @@ pub fn render_enum_or_set_decoder(
   fallback: fn(model.ScalarType) -> String,
 ) -> String {
   case scalar_type {
-    // `decode.failure` requires a zero value of the target decoder's
-    // output type, not `String`. For ENUMs we call the generated
-    // `<name>_default()` helper (the first declared variant); for SETs
-    // `[]` is a natural empty fallback and Gleam infers the element
-    // type from the Ok branch.
+    // `decode.failure` requires a placeholder of the target type for
+    // type inference — it is never returned to callers. For ENUMs we
+    // call the generated `<name>_default()` helper; for SETs `[]` is
+    // a natural empty fallback. The error message includes the
+    // actual received value so schema-drift mismatches are diagnosable.
     model.EnumType(enum_name) ->
       "decode.then(decode.string, fn(s) { case models."
       <> type_mapping.enum_from_string_fn(enum_name)
       <> "(s) { Ok(v) -> decode.success(v) Error(_) -> decode.failure(models."
       <> type_mapping.enum_default_fn(enum_name)
-      <> "(), \"valid "
+      <> "(), \"known "
       <> enum_name
-      <> " value\") } })"
+      <> " variant, got '\" <> s <> \"'\") } })"
     model.SetType(set_name) ->
       "decode.then(decode.string, fn(s) { case models."
       <> type_mapping.set_from_string_fn(set_name)
-      <> "(s) { Ok(v) -> decode.success(v) Error(_) -> decode.failure([], \"valid "
+      <> "(s) { Ok(v) -> decode.success(v) Error(_) -> decode.failure([], \"known "
       <> set_name
-      <> " set\") } })"
+      <> " set value, got '\" <> s <> \"'\") } })"
     _ -> fallback(scalar_type)
   }
 }
