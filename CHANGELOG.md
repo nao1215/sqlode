@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **naming**: `singularize` (and therefore `table_type_name`) now
+  treats `media`, `data`, `criteria`, `agenda`, `schemata`, `bacteria`,
+  and `phenomena` as already-singular mass nouns rather than rewriting
+  them to their formal Latin singular (`Medium`, `Datum`, `Criterion`,
+  `Agendum`, `Schema`, `Bacterium`, `Phenomenon`). A `media` table
+  generates a Gleam type called `Media`, not `Medium` — matching what
+  most modern English speakers expect. Projects that genuinely want the
+  Latin form can still keep the source name singular (e.g. `medium`)
+  in the schema. (#514)
+
 ## [0.14.0] - 2026-04-27
 
 ### Fixed

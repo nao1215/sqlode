@@ -228,6 +228,30 @@ pub fn singularize_irregular_test() {
   naming.singularize("children") |> should.equal("child")
 }
 
+/// Issue #514: Latin-style plurals (`media`, `data`, `criteria`, …)
+/// are mass nouns or already-singular in modern English usage. The
+/// formally correct singulars (`Medium`, `Datum`, `Criterion`)
+/// surprise every Gleam user picking these as table names. They are
+/// now treated as already-singular so a `media` table generates a
+/// `Media` type rather than `Medium`.
+pub fn singularize_latin_mass_nouns_treated_as_singular_test() {
+  naming.singularize("media") |> should.equal("media")
+  naming.singularize("data") |> should.equal("data")
+  naming.singularize("criteria") |> should.equal("criteria")
+  naming.singularize("agenda") |> should.equal("agenda")
+  naming.singularize("schemata") |> should.equal("schemata")
+  naming.singularize("bacteria") |> should.equal("bacteria")
+  naming.singularize("phenomena") |> should.equal("phenomena")
+}
+
+/// And the resulting type name when fed through the table-name
+/// pipeline is the modern-English-friendly form (no surprise `Medium`).
+pub fn table_type_name_for_media_table_is_media_test() {
+  let ctx = naming.new()
+  naming.table_type_name(ctx, "media", False) |> should.equal("Media")
+  naming.table_type_name(ctx, "data", False) |> should.equal("Data")
+}
+
 // Edge case tests — empty strings, single chars, unicode, numbers only
 
 pub fn pascal_case_empty_string_test() {
