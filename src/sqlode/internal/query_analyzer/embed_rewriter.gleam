@@ -6,8 +6,8 @@
 
 import gleam/list
 import gleam/string
-import sqlode/lexer
-import sqlode/model
+import sqlode/internal/lexer
+import sqlode/internal/model
 
 /// Rewrite token list, replacing every `sqlode.embed(TABLE)` occurrence with
 /// a comma-separated list of qualified columns derived from the matching

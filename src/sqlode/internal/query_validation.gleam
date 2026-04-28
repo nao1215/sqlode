@@ -10,8 +10,8 @@
 import gleam/dict
 import gleam/list
 import gleam/string
-import sqlode/model
-import sqlode/query_ir
+import sqlode/internal/model
+import sqlode/internal/query_ir
 import sqlode/runtime
 
 /// A problem a post-parse check surfaced. Callers wrap the variant

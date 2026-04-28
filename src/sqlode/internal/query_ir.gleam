@@ -19,8 +19,8 @@
 //// as explicit diagnostic hooks for concrete IR gaps.
 
 import gleam/option.{type Option}
-import sqlode/lexer
-import sqlode/model
+import sqlode/internal/lexer
+import sqlode/internal/model
 
 pub type TokenizedQuery {
   TokenizedQuery(base: model.ParsedQuery, tokens: List(lexer.Token))

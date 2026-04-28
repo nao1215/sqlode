@@ -15,10 +15,10 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
-import sqlode/lexer
-import sqlode/model
-import sqlode/query_analyzer/context.{type AnalysisError, UnsupportedExpression}
-import sqlode/query_ir
+import sqlode/internal/lexer
+import sqlode/internal/model
+import sqlode/internal/query_analyzer/context.{type AnalysisError, UnsupportedExpression}
+import sqlode/internal/query_ir
 
 /// Inferred type and nullability for an expression.
 pub type InferredType {

@@ -2,9 +2,9 @@ import gleam/list
 import gleam/option
 import gleam/result
 import gleam/string
-import sqlode/codegen/builder
-import sqlode/model
-import sqlode/type_mapping
+import sqlode/internal/codegen/builder
+import sqlode/internal/model
+import sqlode/internal/type_mapping
 
 pub fn has_slices(params: List(model.QueryParam)) -> Bool {
   list.any(params, fn(p) { p.is_list })

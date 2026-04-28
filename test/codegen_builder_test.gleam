@@ -1,6 +1,6 @@
 import gleeunit
 import gleeunit/should
-import sqlode/codegen/builder
+import sqlode/internal/codegen/builder
 
 pub fn main() {
   gleeunit.main()

@@ -4,16 +4,16 @@ import gleam/string
 import gleeunit
 import gleeunit/should
 import simplifile
-import sqlode/lexer
-import sqlode/model
-import sqlode/naming
-import sqlode/query_analyzer
-import sqlode/query_analyzer/context
-import sqlode/query_analyzer/expr_parser
-import sqlode/query_analyzer/token_utils
-import sqlode/query_ir
-import sqlode/query_parser
-import sqlode/schema_parser
+import sqlode/internal/lexer
+import sqlode/internal/model
+import sqlode/internal/naming
+import sqlode/internal/query_analyzer
+import sqlode/internal/query_analyzer/context
+import sqlode/internal/query_analyzer/expr_parser
+import sqlode/internal/query_analyzer/token_utils
+import sqlode/internal/query_ir
+import sqlode/internal/query_parser
+import sqlode/internal/schema_parser
 
 pub fn main() {
   gleeunit.main()

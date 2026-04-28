@@ -3,9 +3,9 @@ import gleam/option
 import gleam/string
 import gleeunit/should
 import simplifile
-import sqlode/config
-import sqlode/generate
-import sqlode/model
+import sqlode/internal/config
+import sqlode/internal/generate
+import sqlode/internal/model
 import sqlode/runtime
 
 const test_out = "test_output/generate_test"

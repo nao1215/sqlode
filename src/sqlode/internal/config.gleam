@@ -4,8 +4,8 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import simplifile
-import sqlode/char_utils
-import sqlode/model
+import sqlode/internal/char_utils
+import sqlode/internal/model
 import yay
 
 pub type ConfigError {

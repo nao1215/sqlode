@@ -2,9 +2,9 @@ import gleam/option
 import gleam/string
 import gleeunit
 import gleeunit/should
-import sqlode/model
+import sqlode/internal/model
 import sqlode/runtime
-import sqlode/type_mapping
+import sqlode/internal/type_mapping
 
 pub fn main() {
   gleeunit.main()

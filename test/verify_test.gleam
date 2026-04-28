@@ -15,8 +15,8 @@ import gleam/option
 import gleam/string
 import gleeunit
 import gleeunit/should
-import sqlode/model
-import sqlode/verify
+import sqlode/internal/model
+import sqlode/internal/verify
 
 pub fn main() {
   gleeunit.main()
@@ -338,7 +338,7 @@ pub fn verify_execresult_under_raw_runtime_is_allowed_test() {
 
 // Note: the non-PostgreSQL array-parameter check
 // (`validate_array_engine_support`) is also shared with `generate`
-// via `sqlode/query_validation`. We do not add a fixture-based
+// via `sqlode/internal/query_validation`. We do not add a fixture-based
 // regression test here because the current SQLite schema pipeline
 // does not surface `ArrayType` on inferred params for
 // `TEXT[]` / `INTEGER[]` columns, so neither command actually

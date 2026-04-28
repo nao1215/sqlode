@@ -2,17 +2,17 @@ import gleam/dict
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/result
-import sqlode/lexer
-import sqlode/model
-import sqlode/naming
-import sqlode/query_analyzer/column_inferencer
-import sqlode/query_analyzer/context
-import sqlode/query_analyzer/embed_rewriter
-import sqlode/query_analyzer/expr_parser
-import sqlode/query_analyzer/param_inferencer
-import sqlode/query_analyzer/placeholder
-import sqlode/query_analyzer/token_utils
-import sqlode/query_ir
+import sqlode/internal/lexer
+import sqlode/internal/model
+import sqlode/internal/naming
+import sqlode/internal/query_analyzer/column_inferencer
+import sqlode/internal/query_analyzer/context
+import sqlode/internal/query_analyzer/embed_rewriter
+import sqlode/internal/query_analyzer/expr_parser
+import sqlode/internal/query_analyzer/param_inferencer
+import sqlode/internal/query_analyzer/placeholder
+import sqlode/internal/query_analyzer/token_utils
+import sqlode/internal/query_ir
 
 pub type AnalysisError =
   context.AnalysisError

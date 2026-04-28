@@ -2,16 +2,16 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
-import sqlode/lexer
-import sqlode/model
-import sqlode/query_analyzer/context.{
+import sqlode/internal/lexer
+import sqlode/internal/model
+import sqlode/internal/query_analyzer/context.{
   type AnalysisError, type AnalyzerContext, AmbiguousColumnName, ColumnNotFound,
   CompoundColumnCountMismatch, TableNotFound, UnsupportedExpression,
 }
-import sqlode/query_analyzer/expr_parser
-import sqlode/query_analyzer/token_utils
-import sqlode/query_analyzer/type_inference
-import sqlode/query_ir
+import sqlode/internal/query_analyzer/expr_parser
+import sqlode/internal/query_analyzer/token_utils
+import sqlode/internal/query_analyzer/type_inference
+import sqlode/internal/query_ir
 import sqlode/runtime
 
 type ExtractedColumn {

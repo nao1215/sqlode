@@ -3,8 +3,8 @@ import gleam/string
 import gleeunit
 import gleeunit/should
 import simplifile
-import sqlode/model
-import sqlode/schema_parser
+import sqlode/internal/model
+import sqlode/internal/schema_parser
 
 pub fn main() {
   gleeunit.main()

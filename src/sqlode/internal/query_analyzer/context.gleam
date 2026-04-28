@@ -2,8 +2,8 @@ import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
-import sqlode/model
-import sqlode/naming
+import sqlode/internal/model
+import sqlode/internal/naming
 
 pub type AnalysisError {
   TableNotFound(query_name: String, table_name: String)
