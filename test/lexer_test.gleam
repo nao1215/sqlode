@@ -1,4 +1,5 @@
 import gleam/list
+import gleam/option
 import gleeunit
 import gleeunit/should
 import sqlode/lexer.{
@@ -597,4 +598,55 @@ pub fn unterminated_dollar_quoted_string_does_not_panic_test() {
 pub fn only_operators_input_does_not_panic_test() {
   let tokens = lexer.tokenize("= > < <= >= <>", model.PostgreSQL)
   tokens |> list.is_empty |> should.be_false
+}
+
+// --- Issue #513: keyword case consistency ---
+
+/// `INSERT OR IGNORE / ABORT / FAIL` previously rendered as `insert
+/// or IGNORE / ABORT / FAIL` because `IGNORE` / `ABORT` / `FAIL`
+/// were not in the keyword list and survived as preserved-case
+/// `Ident`s while their `INSERT` / `OR` / `INTO` siblings lowercased
+/// via the `Keyword` token path. They are now keywords and lowercase
+/// uniformly with the rest of the rendered SQL.
+pub fn insert_or_ignore_renders_consistently_lowercased_test() {
+  let opts =
+    lexer.TokenRenderOptions(
+      uppercase_keywords: False,
+      preserve_quotes: True,
+      engine: option.None,
+    )
+  let rendered =
+    "INSERT OR IGNORE INTO post_tags (post_id, tag) VALUES (?, ?)"
+    |> lexer.tokenize(model.SQLite)
+    |> lexer.tokens_to_string(opts)
+  rendered
+  |> should.equal("insert or ignore into post_tags(post_id, tag) values(?, ?)")
+}
+
+pub fn insert_or_abort_renders_consistently_lowercased_test() {
+  let opts =
+    lexer.TokenRenderOptions(
+      uppercase_keywords: False,
+      preserve_quotes: True,
+      engine: option.None,
+    )
+  let rendered =
+    "INSERT OR ABORT INTO t VALUES (1)"
+    |> lexer.tokenize(model.SQLite)
+    |> lexer.tokens_to_string(opts)
+  rendered |> should.equal("insert or abort into t values(1)")
+}
+
+pub fn insert_or_fail_renders_consistently_lowercased_test() {
+  let opts =
+    lexer.TokenRenderOptions(
+      uppercase_keywords: False,
+      preserve_quotes: True,
+      engine: option.None,
+    )
+  let rendered =
+    "INSERT OR FAIL INTO t VALUES (1)"
+    |> lexer.tokenize(model.SQLite)
+    |> lexer.tokens_to_string(opts)
+  rendered |> should.equal("insert or fail into t values(1)")
 }
