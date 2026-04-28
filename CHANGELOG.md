@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-04-28
+
 ### Added
 
 - JavaScript target compilation for `sqlode/runtime` and generated
