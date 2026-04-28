@@ -162,10 +162,15 @@ pub fn singularize(word: String) -> String {
     "geese" -> apply_case(word, "goose")
     "teeth" -> apply_case(word, "tooth")
     "feet" -> apply_case(word, "foot")
-    "data" -> apply_case(word, "datum")
-    "media" -> apply_case(word, "medium")
-    "criteria" -> apply_case(word, "criterion")
     // Uncountable / already singular
+    //
+    // Issue #514: Latin-style plurals (`media`, `data`, `criteria`, …)
+    // are mass nouns or already-singular in modern English usage. The
+    // formally correct singulars (`Medium`, `Datum`, `Criterion`)
+    // surprise every Gleam user picking these as table names. Treat
+    // them as already singular so a `media` table generates `Media`,
+    // not `Medium`. Per-table type-name overrides remain a follow-up
+    // for projects that genuinely want the Latin form.
     "news"
     | "series"
     | "species"
@@ -184,7 +189,14 @@ pub fn singularize(word: String) -> String {
     | "virus"
     | "focus"
     | "consensus"
-    | "corpus" -> word
+    | "corpus"
+    | "data"
+    | "media"
+    | "criteria"
+    | "agenda"
+    | "schemata"
+    | "bacteria"
+    | "phenomena" -> word
     _ -> singularize_regular(word, lower)
   }
 }
