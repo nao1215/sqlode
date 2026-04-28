@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-04-28
+
 ### Changed
 
 - **Internal modules moved under `sqlode/internal/*` (BREAKING for any
