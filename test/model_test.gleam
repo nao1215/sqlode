@@ -3,8 +3,8 @@ import gleam/string
 import gleeunit
 import gleeunit/should
 import sqlode/internal/model
-import sqlode/runtime
 import sqlode/internal/type_mapping
+import sqlode/runtime
 
 pub fn main() {
   gleeunit.main()

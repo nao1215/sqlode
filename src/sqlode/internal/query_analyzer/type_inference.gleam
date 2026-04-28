@@ -17,7 +17,9 @@ import gleam/result
 import gleam/string
 import sqlode/internal/lexer
 import sqlode/internal/model
-import sqlode/internal/query_analyzer/context.{type AnalysisError, UnsupportedExpression}
+import sqlode/internal/query_analyzer/context.{
+  type AnalysisError, UnsupportedExpression,
+}
 import sqlode/internal/query_ir
 
 /// Inferred type and nullability for an expression.

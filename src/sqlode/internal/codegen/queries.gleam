@@ -5,8 +5,8 @@ import gleam/string
 import sqlode/internal/codegen/common
 import sqlode/internal/model
 import sqlode/internal/naming
-import sqlode/runtime
 import sqlode/internal/type_mapping
+import sqlode/runtime
 
 pub fn render(
   naming_ctx: naming.NamingContext,

@@ -8,8 +8,8 @@ import sqlode/internal/naming
 import sqlode/internal/query_analyzer
 import sqlode/internal/query_ir
 import sqlode/internal/query_parser
-import sqlode/runtime
 import sqlode/internal/schema_parser
+import sqlode/runtime
 
 pub fn main() {
   gleeunit.main()

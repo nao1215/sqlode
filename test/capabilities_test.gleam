@@ -25,7 +25,9 @@ Regenerate the file with:
   just regen-capabilities
 or copy the expected output below verbatim:
 --- expected ---
-" <> rendered <> "--- end expected ---"
+"
+        <> rendered
+        <> "--- end expected ---"
       should.equal(message, "")
     }
   }

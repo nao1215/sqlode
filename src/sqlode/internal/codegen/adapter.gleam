@@ -6,8 +6,8 @@ import sqlode/internal/codegen/builder
 import sqlode/internal/codegen/common
 import sqlode/internal/model
 import sqlode/internal/naming
-import sqlode/runtime
 import sqlode/internal/type_mapping
+import sqlode/runtime
 
 type AdapterConfig {
   AdapterConfig(
