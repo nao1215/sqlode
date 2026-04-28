@@ -63,5 +63,11 @@ fn classify_invocation(args: List(String)) -> String {
   }
 }
 
+@target(erlang)
 @external(erlang, "init", "stop")
 fn exit(status: Int) -> Nil
+
+@target(javascript)
+fn exit(_status: Int) -> Nil {
+  Nil
+}

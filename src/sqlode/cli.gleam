@@ -61,11 +61,23 @@ pub fn decide_color_emission(
   is_terminal && !no_color_active
 }
 
+@target(erlang)
 @external(erlang, "sqlode_ffi", "is_stdout_terminal")
 fn is_stdout_terminal() -> Bool
 
+@target(javascript)
+fn is_stdout_terminal() -> Bool {
+  False
+}
+
+@target(erlang)
 @external(erlang, "sqlode_ffi", "no_color_env")
 fn no_color_env() -> Result(String, Nil)
+
+@target(javascript)
+fn no_color_env() -> Result(String, Nil) {
+  Error(Nil)
+}
 
 /// Candidate config filenames searched, in order, when --config is not
 /// given. The first match wins; if two or more files exist the command
@@ -433,8 +445,14 @@ FROM authors
 WHERE id = " <> get_placeholder <> ";\n" <> "\n" <> "-- name: ListAuthors :many\n" <> "SELECT id, name\n" <> "FROM authors\n" <> "ORDER BY name;\n" <> "\n" <> "-- name: CreateAuthor :exec\n" <> "INSERT INTO authors (name, bio)\n" <> "VALUES (sqlode.arg(author_name), sqlode.narg(bio));\n"
 }
 
+@target(erlang)
 /// Exit the process with the given status code, flushing I/O before shutdown.
 /// Uses init:stop/1 which triggers a graceful OTP shutdown instead of the
 /// abrupt erlang:halt/1.
 @external(erlang, "init", "stop")
 fn halt(code: Int) -> Nil
+
+@target(javascript)
+fn halt(_code: Int) -> Nil {
+  Nil
+}
