@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **param inference (BREAKING)**: A placeholder bound by an equality
+  / comparison / `LIKE` predicate (`WHERE col <op> ?`,
+  `UPDATE … SET col = ?`, `WHERE col [I]LIKE ?`) or an `IN` predicate
+  (`WHERE col IN (?)`) on a nullable schema column no longer inherits
+  the column's `nullable: True` flag. The generated parameter type
+  drops the `Option(_)` wrapper because:
+  - `WHERE col = ?` against `None` would emit `WHERE col = NULL`,
+    which never matches by SQL `=` semantics — surfacing `Some(_)` /
+    `None` choice at the call site invites bugs that always return
+    an empty result set.
+  - `UPDATE … SET col = ?` is the user supplying the new value;
+    clearing to NULL is expressed in SQL as a literal
+    `SET col = NULL`, not as a parameter. There is no callable
+    `None` case here.
+
+  INSERT VALUES sites (where `None` legitimately writes NULL on the
+  wire) keep the column's nullability — they go through a different
+  inference pass and are unaffected. Callers that previously wrote
+  `Some(value)` at every comparison-style call site now drop the
+  wrapper and pass the bare value; callers that passed `None` (an
+  unreachable code path under the old contract too) need to rewrite
+  to a separate `IS NULL` query, mirroring how SQL itself expresses
+  the same condition. (#512)
+
 ### Fixed
 
 - **lexer / generated SQL**: `INSERT OR IGNORE` / `INSERT OR ABORT`

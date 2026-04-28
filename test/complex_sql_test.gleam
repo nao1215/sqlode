@@ -112,14 +112,15 @@ pub fn cte_window_case_analyzer_test() {
 
   // $1 is a cast timestamp (used in `p.created_at >= $1::timestamp`).
   // $2 is the cast int inside the scored_users arithmetic.
-  // $3 is the outer WHERE filter against the CTE-derived `score`,
-  // which is itself nullable (arithmetic with a casted parameter),
-  // so the inferred parameter type inherits the column's nullability.
+  // $3 is the outer WHERE filter against the CTE-derived `score`.
+  // Even though the CTE column is nullable, the parameter site is a
+  // `WHERE … = ?` comparison and `=` against `NULL` never matches by
+  // SQL semantics, so the parameter is non-nullable per issue #512.
   param_types(query.params)
   |> should.equal([
     #(1, model.DateTimeType, False, False),
     #(2, model.IntType, False, False),
-    #(3, model.IntType, True, False),
+    #(3, model.IntType, False, False),
   ])
 
   // Result columns come from the outer SELECT over `scored_users`.

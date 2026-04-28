@@ -802,6 +802,26 @@ fn scan_token_matches(
                 matching_tables: matching_tables,
               ))
             Ok(Some(#(_table, column))) ->
+              // Issue #512: a placeholder bound by `col <op> ?`
+              // (equality, comparison, LIKE/ILIKE) or by `col IN (?)`
+              // can never meaningfully be `NULL` on the wire.
+              //
+              //   * `WHERE col = ?` against `None` would emit
+              //     `WHERE col = NULL`, which never matches by SQL
+              //     `=` semantics — wrapping the parameter in
+              //     `Option(_)` invites callers to pass `None` and
+              //     silently get an always-empty result set.
+              //   * `UPDATE … SET col = ?` is the user supplying the
+              //     new value; clearing to NULL is expressed in SQL
+              //     as a literal `SET col = NULL`, not as a parameter.
+              //
+              // Force `nullable: False` regardless of the column's
+              // schema-level nullability so the generated parameter
+              // record drops the noisy `Some(...)` wrappers at every
+              // call site for these positions. INSERT VALUES sites
+              // (where `None` legitimately writes NULL) keep the
+              // column's nullability because they go through
+              // `infer_insert_params_from_ir`, not this scanner.
               scan_token_matches(
                 engine,
                 catalog,
@@ -810,7 +830,7 @@ fn scan_token_matches(
                 rest,
                 next_occurrence,
                 updated_seen,
-                [#(index, column), ..acc],
+                [#(index, model.Column(..column, nullable: False)), ..acc],
               )
             Ok(None) ->
               scan_token_matches(
