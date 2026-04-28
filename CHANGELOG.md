@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-04-28
+
 ### Changed
 
 - **param inference (BREAKING)**: A placeholder bound by an equality
