@@ -643,7 +643,20 @@ fn is_sql_keyword(word: String) -> Bool {
     | "some"
     | "array"
     | "of"
-    | "collate" -> True
+    | "collate"
+    | // Issue #513: SQLite / MySQL conflict-resolution keywords
+      // (`INSERT OR IGNORE`, `INSERT OR ABORT`, `INSERT OR FAIL`,
+      // MySQL's bare `INSERT IGNORE`). Without these the surrounding
+      // `INSERT` / `OR` / `INTO` lowercase via the `Keyword` token
+      // path while `IGNORE` / `ABORT` / `FAIL` survive as `Ident`
+      // (preserved-case), producing the `insert or IGNORE into ...`
+      // mixed casing the issue reports. None of these is a
+      // realistic identifier name, so promoting them to keywords is
+      // safe and restores consistent lowercasing across the
+      // generated SQL string.
+      "ignore"
+    | "abort"
+    | "fail" -> True
     _ -> False
   }
 }

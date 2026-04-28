@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **lexer / generated SQL**: `INSERT OR IGNORE` / `INSERT OR ABORT`
+  / `INSERT OR FAIL` no longer render as the mixed-case
+  `insert or IGNORE / ABORT / FAIL ...` string. The conflict-resolution
+  keywords `IGNORE`, `ABORT`, and `FAIL` were not in the recognized SQL
+  keyword list, so they survived as preserved-case `Ident` tokens
+  while their `INSERT` / `OR` / `INTO` siblings normalised to
+  lowercase via the `Keyword` token path. Promoting the three to
+  keywords restores consistent lowercasing across the rendered SQL
+  string in `RawQuery.sql` / `runtime.QueryInfo.sql` and matches the
+  treatment already given to `replace` / `rollback`. Pattern matchers
+  in `query_analyzer/token_utils.is_insert_or_action_token` now
+  accept both the new `Keyword` form and the legacy `Ident` form so
+  callers that hand-build token streams continue to work. Note: this
+  fix normalises the three specific words the issue identified;
+  full source-case preservation across all keywords would require an
+  architectural change to how the lexer stores `Keyword` tokens
+  (currently the lowercased canonical form) and is left as a
+  follow-up. (#513)
+
 ### Changed
 
 - **naming**: `singularize` (and therefore `table_type_name`) now

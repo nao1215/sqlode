@@ -289,9 +289,17 @@ pub fn strip_insert_or_action(tokens: List(lexer.Token)) -> List(lexer.Token) {
 }
 
 fn is_insert_or_action_token(token: lexer.Token) -> Bool {
+  // Issue #513: `ignore`, `abort`, and `fail` are now recognised SQL
+  // keywords (so they normalise to lowercase in rendered SQL like
+  // their `replace` / `rollback` siblings) and arrive here as
+  // `Keyword(...)` rather than `Ident(...)`. The `Ident` arm below
+  // is kept for legacy callers that build the token stream by hand.
   case token {
     lexer.Keyword("replace") -> True
     lexer.Keyword("rollback") -> True
+    lexer.Keyword("ignore") -> True
+    lexer.Keyword("abort") -> True
+    lexer.Keyword("fail") -> True
     lexer.Ident(t) ->
       t == "ignore"
       || t == "IGNORE"
