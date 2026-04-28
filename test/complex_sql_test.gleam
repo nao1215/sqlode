@@ -28,14 +28,14 @@ import gleam/string
 import gleeunit
 import gleeunit/should
 import simplifile
-import sqlode/codegen/params
-import sqlode/codegen/queries
-import sqlode/model
-import sqlode/naming
-import sqlode/query_analyzer
-import sqlode/query_parser
+import sqlode/internal/codegen/params
+import sqlode/internal/codegen/queries
+import sqlode/internal/model
+import sqlode/internal/naming
+import sqlode/internal/query_analyzer
+import sqlode/internal/query_parser
+import sqlode/internal/schema_parser
 import sqlode/runtime
-import sqlode/schema_parser
 
 pub fn main() {
   gleeunit.main()

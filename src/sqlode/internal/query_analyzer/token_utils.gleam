@@ -2,9 +2,9 @@ import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
-import sqlode/lexer
-import sqlode/naming
-import sqlode/query_ir
+import sqlode/internal/lexer
+import sqlode/internal/naming
+import sqlode/internal/query_ir
 
 /// Extract all table names referenced in a token list (FROM, INTO, UPDATE, JOIN).
 pub fn extract_table_names(tokens: List(lexer.Token)) -> List(String) {

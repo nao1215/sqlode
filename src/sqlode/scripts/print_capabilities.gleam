@@ -12,7 +12,7 @@
 //// the tracked file.
 
 import gleam/io
-import sqlode/capabilities
+import sqlode/internal/capabilities
 
 pub fn main() -> Nil {
   io.print(capabilities.manifest_markdown())

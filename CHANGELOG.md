@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Internal modules moved under `sqlode/internal/*` (BREAKING for any
+  caller importing internal modules)**. The lexer, query parser,
+  query IR, schema parser, codegen pipeline, query analyzer, model,
+  naming, capabilities, config, generate, verify, validate, writer,
+  type_mapping, sql_paths, char_utils, version, and the
+  `query_analyzer/*` and `codegen/*` subtrees all moved from
+  `src/sqlode/<X>` to `src/sqlode/internal/<X>`. `gleam.toml` adds
+  `internal_modules = ["sqlode/internal/**", "sqlode/scripts/**"]`
+  so those modules are excluded from `gleam docs` output and from
+  the documented hex API surface. `sqlode` (CLI entry),
+  `sqlode/cli`, and `sqlode/runtime` stay at the top of the tree
+  and are the only modules SemVer-tracked going forward. No
+  consumer that uses only the CLI or `import sqlode/runtime` from
+  generated code is affected — the move only changes the import
+  path for in-tree tests and any external caller that was reaching
+  into internal IR. (#520)
+
+### Notes
+
+- `unused_exports` stayed `"off"` for this PR. Flipping it to
+  `"error"` after the move surfaced ~15 internal `pub` items that
+  have no in-tree caller; demoting them cascades into a chain of
+  newly-unused private callees that needs its own pruning pass.
+  Tracked as a follow-up to #520. The `internal_modules` entry
+  already removes those items from the documented hex API contract,
+  which is the headline win the issue asked for.
+
 ## [0.16.0] - 2026-04-28
 
 ### Added

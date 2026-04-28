@@ -2,7 +2,7 @@ import gleam/list
 import gleam/string
 import gleeunit/should
 import simplifile
-import sqlode/writer
+import sqlode/internal/writer
 
 const test_dir = "test_output/writer_test"
 

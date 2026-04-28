@@ -22,16 +22,16 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import simplifile
-import sqlode/config
-import sqlode/generate
-import sqlode/model
-import sqlode/naming
-import sqlode/query_analyzer
-import sqlode/query_ir
-import sqlode/query_parser
-import sqlode/query_validation
-import sqlode/schema_parser
-import sqlode/sql_paths
+import sqlode/internal/config
+import sqlode/internal/generate
+import sqlode/internal/model
+import sqlode/internal/naming
+import sqlode/internal/query_analyzer
+import sqlode/internal/query_ir
+import sqlode/internal/query_parser
+import sqlode/internal/query_validation
+import sqlode/internal/schema_parser
+import sqlode/internal/sql_paths
 
 /// Outcome of a single verification pass. A report with an empty
 /// `findings` list means every block in the config parsed, analysed

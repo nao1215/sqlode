@@ -1,7 +1,7 @@
 import gleam/list
 import gleam/option
 import gleam/string
-import sqlode/model.{
+import sqlode/internal/model.{
   type Engine, type ScalarType, type TypeMapping, ArrayType, BoolType, BytesType,
   CustomType, DateTimeType, DateType, DecimalType, EnumType, FloatType, IntType,
   JsonType, MySQL, PostgreSQL, RichMapping, SQLite, SetType, StringType,

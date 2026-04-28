@@ -17,7 +17,7 @@
 
 import gleam/list
 import gleam/string
-import sqlode/model
+import sqlode/internal/model
 import sqlode/runtime
 
 pub fn supported_engines() -> List(model.Engine) {
@@ -124,7 +124,7 @@ pub fn manifest_markdown() -> String {
     [
       "# sqlode capability manifest",
       "",
-      "This file is generated from `src/sqlode/capabilities.gleam` and",
+      "This file is generated from `src/sqlode/internal/capabilities.gleam` and",
       "verified by `test/capabilities_test.gleam`. Do not edit by hand;",
       "update the capabilities module and run `just regen-capabilities`.",
       "",

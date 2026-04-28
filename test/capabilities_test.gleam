@@ -1,7 +1,7 @@
 import gleam/string
 import gleeunit/should
 import simplifile
-import sqlode/capabilities
+import sqlode/internal/capabilities
 
 /// The tracked capability manifest must equal what the module renders
 /// right now. Any drift means either the code's supported set changed
@@ -20,12 +20,14 @@ pub fn manifest_matches_tracked_file_test() {
     True -> Nil
     False -> {
       let message =
-        "doc/capabilities.md is out of sync with src/sqlode/capabilities.gleam.
+        "doc/capabilities.md is out of sync with src/sqlode/internal/capabilities.gleam.
 Regenerate the file with:
   just regen-capabilities
 or copy the expected output below verbatim:
 --- expected ---
-" <> rendered <> "--- end expected ---"
+"
+        <> rendered
+        <> "--- end expected ---"
       should.equal(message, "")
     }
   }

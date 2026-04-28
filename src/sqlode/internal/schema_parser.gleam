@@ -2,10 +2,10 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
-import sqlode/lexer
-import sqlode/model
-import sqlode/naming
-import sqlode/query_analyzer/token_utils
+import sqlode/internal/lexer
+import sqlode/internal/model
+import sqlode/internal/naming
+import sqlode/internal/query_analyzer/token_utils
 
 pub type ParseError {
   InvalidCreateTable(path: String, detail: String)

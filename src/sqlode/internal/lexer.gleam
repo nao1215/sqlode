@@ -1,8 +1,8 @@
 import gleam/list
 import gleam/option
 import gleam/string
-import sqlode/char_utils
-import sqlode/model
+import sqlode/internal/char_utils
+import sqlode/internal/model
 
 /// Options for controlling how tokens are rendered back to text.
 pub type TokenRenderOptions {

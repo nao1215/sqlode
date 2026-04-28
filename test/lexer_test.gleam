@@ -2,11 +2,11 @@ import gleam/list
 import gleam/option
 import gleeunit
 import gleeunit/should
-import sqlode/lexer.{
+import sqlode/internal/lexer.{
   Comma, Dot, Ident, Keyword, LParen, NumberLit, Operator, Placeholder,
   QuotedIdent, RParen, Semicolon, Star, StringLit,
 }
-import sqlode/model
+import sqlode/internal/model
 
 pub fn main() {
   gleeunit.main()

@@ -2,12 +2,12 @@ import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
 import gleam/string
-import sqlode/codegen/builder
-import sqlode/codegen/common
-import sqlode/model
-import sqlode/naming
+import sqlode/internal/codegen/builder
+import sqlode/internal/codegen/common
+import sqlode/internal/model
+import sqlode/internal/naming
+import sqlode/internal/type_mapping
 import sqlode/runtime
-import sqlode/type_mapping
 
 type AdapterConfig {
   AdapterConfig(

@@ -7,22 +7,22 @@ import gleam/option
 import gleam/result
 import gleam/string
 import simplifile
-import sqlode/codegen/adapter
-import sqlode/codegen/common
-import sqlode/codegen/models
-import sqlode/codegen/params
-import sqlode/codegen/queries
-import sqlode/config
-import sqlode/model
-import sqlode/naming
-import sqlode/query_analyzer
-import sqlode/query_ir
-import sqlode/query_parser
-import sqlode/query_validation
-import sqlode/schema_parser
-import sqlode/sql_paths
-import sqlode/type_mapping
-import sqlode/writer
+import sqlode/internal/codegen/adapter
+import sqlode/internal/codegen/common
+import sqlode/internal/codegen/models
+import sqlode/internal/codegen/params
+import sqlode/internal/codegen/queries
+import sqlode/internal/config
+import sqlode/internal/model
+import sqlode/internal/naming
+import sqlode/internal/query_analyzer
+import sqlode/internal/query_ir
+import sqlode/internal/query_parser
+import sqlode/internal/query_validation
+import sqlode/internal/schema_parser
+import sqlode/internal/sql_paths
+import sqlode/internal/type_mapping
+import sqlode/internal/writer
 
 pub type GenerateError {
   ConfigError(config.ConfigError)

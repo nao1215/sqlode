@@ -4,9 +4,9 @@ import gleam/string
 import gleeunit
 import gleeunit/should
 import simplifile
-import sqlode/model
-import sqlode/naming
-import sqlode/query_parser
+import sqlode/internal/model
+import sqlode/internal/naming
+import sqlode/internal/query_parser
 import sqlode/runtime
 
 pub fn main() {

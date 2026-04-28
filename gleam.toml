@@ -3,6 +3,7 @@ version = "0.16.0"
 description = "Generate type-safe Gleam code from SQL schemas and queries"
 licences = ["MIT"]
 repository = { type = "github", user = "nao1215", repo = "sqlode" }
+internal_modules = ["sqlode/internal/**", "sqlode/scripts/**"]
 links = [
   { title = "Homepage", href = "https://github.com/nao1215/sqlode" },
   { title = "Documentation", href = "https://hexdocs.pm/sqlode" },
@@ -45,10 +46,14 @@ label_possible = "off"
 deep_nesting = "off"
 function_complexity = "off"
 module_complexity = "off"
-# This is a published Hex package: many `pub fn` and `pub type`
-# definitions are intentional API surface even when no in-tree caller
-# uses them yet. Flagging them as unused inverts the semantics of
-# `pub`.
+# Kept off for #520 phase 1 (the file move). Flipping this to "error"
+# surfaces ~15 `pub fn` / `pub type` items in `sqlode/internal/*` that
+# have no in-tree caller and expand into a chain of dead-code
+# warnings once they go private (their callees become unused too).
+# Demoting + pruning that chain is its own piece of work and is
+# tracked as a follow-up to #520. The `internal_modules` entry above
+# already removes those items from the public hex API contract,
+# which is the headline win the issue asked for.
 unused_exports = "off"
 # `case True/False` is equivalent to `bool.guard` for control flow;
 # both forms read fine in their respective contexts and the rule is a

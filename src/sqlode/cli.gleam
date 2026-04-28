@@ -6,9 +6,9 @@ import gleam/result
 import gleam/string
 import glint
 import simplifile
-import sqlode/generate
-import sqlode/verify
-import sqlode/version
+import sqlode/internal/generate
+import sqlode/internal/verify
+import sqlode/internal/version
 
 pub fn app() -> glint.Glint(Nil) {
   // Help-text source: glint's auto-generated USAGE / SUBCOMMANDS /

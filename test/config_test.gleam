@@ -3,8 +3,8 @@ import gleam/option
 import gleam/string
 import gleeunit
 import gleeunit/should
-import sqlode/config
-import sqlode/model
+import sqlode/internal/config
+import sqlode/internal/model
 
 pub fn main() {
   gleeunit.main()

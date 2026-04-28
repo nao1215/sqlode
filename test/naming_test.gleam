@@ -1,6 +1,6 @@
 import gleeunit
 import gleeunit/should
-import sqlode/naming
+import sqlode/internal/naming
 
 pub fn main() {
   gleeunit.main()

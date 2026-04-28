@@ -1,10 +1,10 @@
 import gleam/list
 import gleam/option
 import gleam/string
-import sqlode/codegen/common
-import sqlode/model
-import sqlode/naming
-import sqlode/type_mapping
+import sqlode/internal/codegen/common
+import sqlode/internal/model
+import sqlode/internal/naming
+import sqlode/internal/type_mapping
 
 pub fn render(
   naming_ctx: naming.NamingContext,
