@@ -13,6 +13,12 @@ Supported engines (raw and native): PostgreSQL (`pog`), MySQL 8.0 (`shork`), SQL
 
 First time here? [`doc/tutorials/getting-started-sqlite.md`](doc/tutorials/getting-started-sqlite.md) walks through a SQLite project end to end, and [`examples/sqlite-basic/`](examples/sqlite-basic/) is the runnable version of the same tutorial. The rest of this README is reference material.
 
+## Targets
+
+- **CLI** (`sqlode generate` etc.): BEAM only (escript). The supported drivers — `pog`, `shork`, `sqlight` — are BEAM-native, so this is intentional.
+- **`sqlode/runtime`**: cross-target. Pure value transformation (`prepare(query, params)` → `#(String, List(Value))`) with no FFI. Importable from a JavaScript-target Gleam app.
+- **Generated modules**: cross-target. They depend only on `sqlode/runtime` and the driver chosen by the consumer; the JS-target story is gated by whether a JavaScript-callable driver is available downstream.
+
 ## Getting started
 
 ### Install

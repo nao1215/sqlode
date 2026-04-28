@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- JavaScript target compilation for `sqlode/runtime` and generated
+  modules. `gleam.toml` no longer pins `target = "erlang"`; the four
+  Erlang FFI declarations in `sqlode.gleam` and `sqlode/cli.gleam`
+  (`init:stop/1`, `sqlode_ffi:is_stdout_terminal/0`,
+  `sqlode_ffi:no_color_env/0`) are gated with `@target(erlang)` and
+  paired with no-op JavaScript bodies, so the CLI surface still
+  compiles on JavaScript without referencing absent BEAM primitives.
+  The CLI itself is intentionally BEAM-only at runtime — `escript`
+  is BEAM territory and the supported drivers (`pog`, `shork`,
+  `sqlight`) all run on the BEAM. Generated modules and
+  `sqlode/runtime` are now importable from a JavaScript-target Gleam
+  app, which lets a consumer pair the same compile-time-safe SQL →
+  row decoder shape with a fetch-based driver (Cloudflare D1,
+  serverless Postgres, etc.). CI now runs a `Build (JavaScript)`
+  job that verifies the package compiles cleanly under
+  `gleam build --target javascript`. (#519)
+
 ## [0.15.0] - 2026-04-28
 
 ### Changed
