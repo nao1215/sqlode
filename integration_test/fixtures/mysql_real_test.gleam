@@ -167,7 +167,8 @@ pub fn update_bio_reports_one_changed_row_test() {
   let assert Ok(rows) =
     mysql_adapter.update_author_bio(
       db,
-      params.UpdateAuthorBioParams(id:, bio: option.Some("new bio")),
+      // Issue #512: SET col = ? on a nullable column drops Option(_).
+      params.UpdateAuthorBioParams(id:, bio: "new bio"),
     )
   rows |> should.equal(1)
 

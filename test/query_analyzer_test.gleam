@@ -3285,3 +3285,100 @@ pub fn update_set_arithmetic_cast_infers_type_pg_test() {
   delta_param.scalar_type |> should.equal(model.IntType)
   id_param.scalar_type |> should.equal(model.IntType)
 }
+
+// ============================================================
+// Issue #512: nullable column in `WHERE col = ?` / `UPDATE SET col = ?`
+// emits a non-nullable parameter.
+// ============================================================
+
+fn nullable_post_catalog() -> model.Catalog {
+  model.Catalog(enums: [], tables: [
+    model.Table(name: "posts", columns: [
+      model.Column(name: "id", scalar_type: model.StringType, nullable: False),
+      model.Column(
+        name: "parent_id",
+        scalar_type: model.StringType,
+        nullable: True,
+      ),
+      model.Column(
+        name: "tombstone_reason",
+        scalar_type: model.StringType,
+        nullable: True,
+      ),
+      model.Column(
+        name: "created_at",
+        scalar_type: model.IntType,
+        nullable: False,
+      ),
+    ]),
+  ])
+}
+
+/// `WHERE parent_id = ?` against a nullable column is documented in
+/// the issue: `=` against `NULL` never matches by SQL semantics, so a
+/// `None` argument is unreachable. The generated parameter must drop
+/// the `Option` wrapper.
+pub fn where_eq_against_nullable_column_emits_non_null_param_test() {
+  let naming_ctx = naming.new()
+  let catalog = nullable_post_catalog()
+  let sql =
+    "-- name: ListReplies :many\nSELECT id FROM posts WHERE parent_id = ? AND tombstone_reason IS NULL ORDER BY created_at ASC;"
+  let assert Ok(queries) =
+    query_parser.parse_file("repro.sql", model.SQLite, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, queries)
+  let assert [query] = analyzed
+  let assert [parent_id_param] = query.params
+
+  parent_id_param.scalar_type |> should.equal(model.StringType)
+  // Issue #512: WHERE col = ? cannot meaningfully take None.
+  parent_id_param.nullable |> should.equal(False)
+}
+
+/// `UPDATE … SET col = ?` against a nullable column is the second
+/// reproduction in the issue. The caller is supplying the new value;
+/// clearing to NULL is expressed as a literal `SET col = NULL`, not
+/// as a parameter.
+pub fn update_set_against_nullable_column_emits_non_null_param_test() {
+  let naming_ctx = naming.new()
+  let catalog = nullable_post_catalog()
+  let sql =
+    "-- name: TombstonePost :exec\nUPDATE posts SET tombstone_reason = ? WHERE id = ? AND tombstone_reason IS NULL;"
+  let assert Ok(queries) =
+    query_parser.parse_file("tombstone.sql", model.SQLite, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, queries)
+  let assert [query] = analyzed
+  let assert [reason_param, id_param] = query.params
+
+  reason_param.scalar_type |> should.equal(model.StringType)
+  // Issue #512: SET col = ? on a nullable column drops Option.
+  reason_param.nullable |> should.equal(False)
+
+  // The id param targets a non-nullable column already; behaviour
+  // unchanged.
+  id_param.scalar_type |> should.equal(model.StringType)
+  id_param.nullable |> should.equal(False)
+}
+
+/// INSERT VALUES (?, ?) sites still respect column nullability — a
+/// caller supplying values to a nullable column may legitimately want
+/// `None` to write NULL on the wire. The fix is targeted at
+/// comparison-style sites only.
+pub fn insert_values_into_nullable_column_keeps_option_wrapper_test() {
+  let naming_ctx = naming.new()
+  let catalog = nullable_post_catalog()
+  let sql =
+    "-- name: CreateReply :exec\nINSERT INTO posts (id, parent_id, created_at) VALUES (?, ?, ?);"
+  let assert Ok(queries) =
+    query_parser.parse_file("create.sql", model.SQLite, naming_ctx, sql)
+  let assert Ok(analyzed) =
+    query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, queries)
+  let assert [query] = analyzed
+  let assert [id_param, parent_id_param, created_at_param] = query.params
+
+  id_param.nullable |> should.equal(False)
+  // INSERT VALUES into a nullable column still surfaces Option(_).
+  parent_id_param.nullable |> should.equal(True)
+  created_at_param.nullable |> should.equal(False)
+}
