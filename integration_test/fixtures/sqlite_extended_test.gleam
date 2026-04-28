@@ -72,7 +72,8 @@ pub fn update_author_bio_execrows_test() {
   let assert Ok(rows_affected) =
     sqlight_adapter.update_author_bio(
       db,
-      params.UpdateAuthorBioParams(bio: Some("New bio"), id: 1),
+      // Issue #512: SET col = ? on a nullable column drops Option(_).
+      params.UpdateAuthorBioParams(bio: "New bio", id: 1),
     )
   let assert True = rows_affected == 1
 
@@ -80,7 +81,7 @@ pub fn update_author_bio_execrows_test() {
   let assert Ok(zero_rows) =
     sqlight_adapter.update_author_bio(
       db,
-      params.UpdateAuthorBioParams(bio: Some("Nope"), id: 999),
+      params.UpdateAuthorBioParams(bio: "Nope", id: 999),
     )
   let assert True = zero_rows == 0
 
