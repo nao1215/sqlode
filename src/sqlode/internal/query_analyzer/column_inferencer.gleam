@@ -290,10 +290,10 @@ fn derive_source_table_from_tokens(tokens: List(lexer.Token)) -> Option(String) 
   }
 }
 
-/// Token-based column inference, exposed so callers (notably the CTE
-/// virtual-table builder in `query_analyzer`) can reuse the SELECT
-/// resolver without re-lexing or constructing a synthetic ParsedQuery.
-pub fn infer_columns_from_tokens(
+/// Token-based column inference. Used internally by the CTE
+/// virtual-table builder and by `infer_columns_from_tokens_scoped`
+/// itself; both stay inside this module so it is not exported.
+fn infer_columns_from_tokens(
   query_name: String,
   tokens: List(lexer.Token),
   catalog: model.Catalog,
@@ -310,7 +310,7 @@ pub fn infer_columns_from_tokens(
 /// its own token scope and augments the catalog before resolution, so
 /// nested subqueries pick up sibling virtual tables without extra work
 /// from the caller.
-pub fn infer_columns_from_tokens_scoped(
+fn infer_columns_from_tokens_scoped(
   query_name: String,
   tokens: List(lexer.Token),
   catalog: model.Catalog,

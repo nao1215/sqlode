@@ -40,7 +40,7 @@ pub fn unique(
   list.reverse(result)
 }
 
-pub fn placeholder_index_for_token(
+fn placeholder_index_for_token(
   engine: model.Engine,
   token: String,
   occurrence: Int,
@@ -123,18 +123,11 @@ pub fn resolve_index(
   }
 }
 
-pub fn sequential_placeholder(engine: model.Engine) -> Bool {
+fn sequential_placeholder(engine: model.Engine) -> Bool {
   case engine {
     model.PostgreSQL -> False
     model.MySQL | model.SQLite -> True
   }
-}
-
-pub fn is_placeholder_token(value: String) -> Bool {
-  string.starts_with(value, "$")
-  || string.starts_with(value, ":")
-  || string.starts_with(value, "@")
-  || string.starts_with(value, "?")
 }
 
 fn build_occurrences(

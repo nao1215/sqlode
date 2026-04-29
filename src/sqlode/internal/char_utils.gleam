@@ -7,7 +7,7 @@ pub fn is_digit(g: String) -> Bool {
   }
 }
 
-pub fn is_alpha(g: String) -> Bool {
+fn is_alpha(g: String) -> Bool {
   let cp = case string.to_utf_codepoints(g) {
     [cp] -> string.utf_codepoint_to_int(cp)
     _ -> 0

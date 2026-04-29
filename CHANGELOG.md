@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **glinter `unused_exports` flipped from `"off"` back to `"error"`**,
+  closing the follow-up tracked in v0.17.0's release notes for #520.
+  After the `internal/*` move, 15 `pub` items in internal modules
+  had no in-tree caller. Most were demoted to module-private (`fn` /
+  `type`); a few were dead code from earlier IR shapes
+  (`StructuredQuery` / `RichQuery` types in `query_ir`,
+  `infer_insert_params` and its helpers in `query_analyzer`,
+  `parse_placeholder_index` and `find_set_patterns` in
+  `token_utils`) and were deleted outright. `sqlode/runtime` keeps
+  its `pub` items intentional — they are consumed by
+  sqlode-generated code in downstream packages, which `glinter`
+  cannot see, so the file is added to `[tools.glinter.ignore]` for
+  this rule. The `internal_modules` boundary already protected the
+  hex API surface; this PR makes the in-tree contract match. (#520)
+
 ## [0.17.0] - 2026-04-28
 
 ### Changed

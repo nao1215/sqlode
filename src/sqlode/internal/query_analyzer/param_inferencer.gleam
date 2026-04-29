@@ -15,32 +15,8 @@ import sqlode/internal/query_analyzer/placeholder
 import sqlode/internal/query_analyzer/token_utils
 import sqlode/internal/query_ir
 
-pub fn infer_insert_params(
-  _ctx: AnalyzerContext,
-  engine: model.Engine,
-  tokens: List(lexer.Token),
-  catalog: model.Catalog,
-) -> List(#(Int, model.Column)) {
-  case token_utils.find_insert_parts(tokens) {
-    Some(parts) ->
-      map_insert_columns(
-        engine,
-        catalog,
-        parts.table_name,
-        parts.columns,
-        parts.values,
-        1,
-        dict.new(),
-        [],
-      )
-      |> list.reverse
-    None -> []
-  }
-}
-
-/// Structured IR variant of `infer_insert_params`. Consumes the
-/// pre-parsed `InsertStatement` directly instead of re-scanning
-/// the token list.
+/// Structured IR variant. Consumes the pre-parsed `InsertStatement`
+/// directly instead of re-scanning the token list.
 pub fn infer_insert_params_from_ir(
   engine: model.Engine,
   statement: query_ir.SqlStatement,
