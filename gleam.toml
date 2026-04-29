@@ -1,5 +1,5 @@
 name = "sqlode"
-version = "0.17.0"
+version = "0.18.0"
 description = "Generate type-safe Gleam code from SQL schemas and queries"
 licences = ["MIT"]
 repository = { type = "github", user = "nao1215", repo = "sqlode" }

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-04-29
+
 ### Changed
 
 - **glinter `unused_exports` flipped from `"off"` back to `"error"`**,
