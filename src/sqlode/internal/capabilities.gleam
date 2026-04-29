@@ -49,7 +49,7 @@ pub fn fully_supported_query_commands() -> List(runtime.QueryCommand) {
 /// Query annotations that the parser accepts for sqlc source
 /// compatibility but that generation currently refuses with an
 /// `UnsupportedAnnotation` error.
-pub fn planned_query_commands() -> List(runtime.QueryCommand) {
+fn planned_query_commands() -> List(runtime.QueryCommand) {
   [
     runtime.QueryBatchOne,
     runtime.QueryBatchMany,
@@ -80,7 +80,7 @@ pub fn supported_placeholder_styles() -> List(#(model.Engine, String)) {
 /// because the generated code never needs a driver; `native` mode
 /// requires a driver and is enumerated here so docs and the manifest
 /// stop relying on the flat "supported engines" list to imply parity.
-pub type EngineSupport {
+type EngineSupport {
   EngineSupport(
     engine: model.Engine,
     raw: Bool,
@@ -92,7 +92,7 @@ pub type EngineSupport {
   )
 }
 
-pub fn engine_runtime_support() -> List(EngineSupport) {
+fn engine_runtime_support() -> List(EngineSupport) {
   [
     EngineSupport(
       engine: model.PostgreSQL,

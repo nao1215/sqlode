@@ -86,17 +86,6 @@ pub type JoinClause {
   )
 }
 
-/// `StructuredQuery` wraps `TokenizedQuery` with the structured IR.
-/// The raw token list is preserved for backward compatibility with
-/// code that hasn't migrated to the structured representation yet.
-pub type StructuredQuery {
-  StructuredQuery(
-    base: model.ParsedQuery,
-    tokens: List(lexer.Token),
-    statement: SqlStatement,
-  )
-}
-
 // ============================================================
 // Expression-aware IR — the rich semantic representation
 // ============================================================
@@ -353,13 +342,4 @@ pub type WindowSpec {
     order_by: List(OrderKey),
     frame: Option(List(lexer.Token)),
   )
-}
-
-// ------------------------------------------------------------
-// Rich-IR wrapper mirroring `StructuredQuery` for callers that
-// want the rich representation alongside the tokens.
-// ------------------------------------------------------------
-
-pub type RichQuery {
-  RichQuery(base: model.ParsedQuery, tokens: List(lexer.Token), stmt: Stmt)
 }

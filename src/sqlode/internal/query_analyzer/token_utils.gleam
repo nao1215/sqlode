@@ -1,4 +1,3 @@
-import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
@@ -244,7 +243,7 @@ fn split_commas_loop(
 // INSERT parsing helpers
 // ============================================================
 
-pub type InsertParts {
+type InsertParts {
   InsertParts(
     table_name: String,
     columns: List(String),
@@ -253,7 +252,7 @@ pub type InsertParts {
 }
 
 /// Find INSERT INTO table (columns) VALUES (values) structure in tokens.
-pub fn find_insert_parts(tokens: List(lexer.Token)) -> Option(InsertParts) {
+fn find_insert_parts(tokens: List(lexer.Token)) -> Option(InsertParts) {
   find_insert_loop(tokens)
 }
 
@@ -684,69 +683,6 @@ fn find_type_cast_loop(
       find_type_cast_loop(rest, [TypeCast(placeholder: p, cast_type: t), ..acc])
 
     [_, ..rest] -> find_type_cast_loop(rest, acc)
-  }
-}
-
-/// Parse a placeholder string like "$3" into its integer index.
-pub fn parse_placeholder_index(placeholder: String) -> Result(Int, Nil) {
-  placeholder
-  |> string.replace("$", "")
-  |> int.parse
-  |> option.from_result
-  |> option.to_result(Nil)
-}
-
-// ============================================================
-// SET clause pattern helpers (UPDATE ... SET col = placeholder)
-// ============================================================
-
-/// Find all column = placeholder patterns in SET clauses.
-pub fn find_set_patterns(tokens: List(lexer.Token)) -> List(EqualityMatch) {
-  find_set_clause(tokens, [])
-  |> list.reverse
-}
-
-fn find_set_clause(
-  tokens: List(lexer.Token),
-  acc: List(EqualityMatch),
-) -> List(EqualityMatch) {
-  case tokens {
-    [] -> acc
-    [lexer.Keyword("set"), ..rest] -> scan_set_assignments(rest, acc)
-    [_, ..rest] -> find_set_clause(rest, acc)
-  }
-}
-
-fn scan_set_assignments(
-  tokens: List(lexer.Token),
-  acc: List(EqualityMatch),
-) -> List(EqualityMatch) {
-  case tokens {
-    [] -> acc
-    // Stop at WHERE or other clauses
-    [lexer.Keyword(kw), ..]
-      if kw == "where" || kw == "returning" || kw == "from"
-    -> acc
-    // column = placeholder
-    [lexer.Ident(c), lexer.Operator("="), lexer.Placeholder(p), ..rest] ->
-      scan_set_assignments(rest, [
-        EqualityMatch(
-          column_name: naming.normalize_identifier(c),
-          table_qualifier: None,
-          placeholder: p,
-        ),
-        ..acc
-      ])
-    [lexer.QuotedIdent(c), lexer.Operator("="), lexer.Placeholder(p), ..rest] ->
-      scan_set_assignments(rest, [
-        EqualityMatch(
-          column_name: naming.normalize_identifier(c),
-          table_qualifier: None,
-          placeholder: p,
-        ),
-        ..acc
-      ])
-    [_, ..rest] -> scan_set_assignments(rest, acc)
   }
 }
 

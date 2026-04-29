@@ -54,7 +54,7 @@ module_complexity = "off"
 # tracked as a follow-up to #520. The `internal_modules` entry above
 # already removes those items from the public hex API contract,
 # which is the headline win the issue asked for.
-unused_exports = "off"
+unused_exports = "error"
 # `case True/False` is equivalent to `bool.guard` for control flow;
 # both forms read fine in their respective contexts and the rule is a
 # pure stylistic preference. Keeping it on would force a single shape
@@ -97,5 +97,14 @@ error_context_lost = "off"
   "avoid_panic",
   "missing_type_annotation",
   "short_variable_name",
+  "unused_exports",
+]
+# `sqlode/runtime` is consumed by sqlode-generated code in downstream
+# user packages — every public type and function in this module is
+# intentional API surface for those external callers. glinter cannot
+# see the generated callers, so `unused_exports` would mis-flag them
+# as dead. The module is one of the three SemVer-tracked top-level
+# entry points listed in #520.
+"src/sqlode/runtime.gleam" = [
   "unused_exports",
 ]
