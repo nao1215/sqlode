@@ -23,6 +23,14 @@ pub fn is_uppercase_letter(g: String) -> Bool {
   cp >= 65 && cp <= 90
 }
 
+pub fn is_lowercase_letter(g: String) -> Bool {
+  let cp = case string.to_utf_codepoints(g) {
+    [cp] -> string.utf_codepoint_to_int(cp)
+    _ -> 0
+  }
+  cp >= 97 && cp <= 122
+}
+
 pub fn is_alpha_or_underscore(g: String) -> Bool {
   is_alpha(g) || g == "_"
 }

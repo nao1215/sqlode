@@ -150,7 +150,7 @@ fn resolve_type(scalar_type: ScalarType) -> TypeResolution {
       ))
     EnumType(name) -> EnumResolution(name)
     SetType(name) -> SetResolution(name)
-    CustomType(name, module, underlying) ->
+    CustomType(name, module, underlying, _codec) ->
       CustomResolution(name, module, underlying)
     ArrayType(element) -> ArrayResolution(element)
   }

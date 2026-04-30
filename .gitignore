@@ -8,3 +8,7 @@ erl_crash.dump
 test_output/
 test_integration_sqlite_tmp/
 doc/reference
+# escript binary produced by `scripts/smoke_escript.sh` and similar
+# build helpers. Always rooted so a future module/test named `sqlode`
+# is not matched.
+/sqlode

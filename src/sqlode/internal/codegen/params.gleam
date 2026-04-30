@@ -187,6 +187,13 @@ type ValueEncoder {
   UnwrapEncode(runtime_fn: String, unwrap_fn: String)
   /// Encode an enum: `runtime.string(models.status_to_string(value))`
   EnumEncode(runtime_fn: String, to_string_fn: String)
+  /// Pipe the value through a user-provided codec hook before the
+  /// runtime encoder: `runtime.int(types.user_id_to_int(value))`. Used
+  /// for `CustomType` overrides that opted into explicit codec hooks
+  /// (issue #529 — opaque domain types). The hook is rendered
+  /// module-qualified when the type's `gleam_type` carried a module
+  /// prefix, matching the import shape of `custom_type_imports`.
+  HookEncode(runtime_fn: String, hook_call: String)
   /// Encode an array: `runtime.array(list.map(value, element_encoder))`
   ArrayEncode(element_encoder: ValueEncoder)
 }
@@ -215,6 +222,15 @@ fn plan_encoding(
       let inner = plan_encoding(element, type_mapping_mode)
       ArrayEncode(element_encoder: inner)
     }
+    // Custom override with explicit codec hooks (issue #529): pipe
+    // the user value through the encode hook before the underlying
+    // runtime encoder. Branches above ArrayType / EnumType fall
+    // through to the legacy paths so wrapped collections still work.
+    model.CustomType(module:, codec: option.Some(hooks), ..) -> {
+      let runtime_fn = type_mapping.scalar_type_to_runtime_function(scalar_type)
+      let hook_call = qualified_hook_call(module, hooks.encode)
+      HookEncode(runtime_fn:, hook_call:)
+    }
     _ -> {
       let runtime_fn = type_mapping.scalar_type_to_runtime_function(scalar_type)
       case type_mapping_mode {
@@ -230,6 +246,32 @@ fn plan_encoding(
   }
 }
 
+/// Build a callable expression for a codec hook function.
+///
+/// When the type carried a module prefix (e.g. `myapp/types.UserId`),
+/// the existing `import myapp/types.{type UserId}` line in the
+/// generated file binds `types` as a module alias, so we produce
+/// `types.<fn_name>`. When the type has no module prefix the user is
+/// expected to ensure the function is reachable in the generated
+/// file's scope; we emit the bare name so any import strategy works.
+fn qualified_hook_call(module: option.Option(String), fn_name: String) -> String {
+  case module {
+    option.Some(module_path) -> module_alias_for(module_path) <> "." <> fn_name
+    option.None -> fn_name
+  }
+}
+
+fn module_alias_for(module_path: String) -> String {
+  case string.split(module_path, "/") {
+    [] -> module_path
+    segments ->
+      case list.last(segments) {
+        Ok(last) -> last
+        Error(_) -> module_path
+      }
+  }
+}
+
 /// Render the encoder as a function expression (for use in callbacks).
 fn render_encoder_fn(encoder: ValueEncoder) -> String {
   case encoder {
@@ -238,6 +280,8 @@ fn render_encoder_fn(encoder: ValueEncoder) -> String {
       "fn(v) { " <> runtime_fn <> "(" <> unwrap_fn <> "(v)) }"
     EnumEncode(runtime_fn:, to_string_fn:) ->
       "fn(v) { " <> runtime_fn <> "(" <> to_string_fn <> "(v)) }"
+    HookEncode(runtime_fn:, hook_call:) ->
+      "fn(v) { " <> runtime_fn <> "(" <> hook_call <> "(v)) }"
     ArrayEncode(element_encoder:) -> {
       let mapper = render_encoder_fn(element_encoder)
       "fn(v) { runtime.array(list.map(v, " <> mapper <> ")) }"
@@ -253,6 +297,8 @@ fn render_encoder_apply(encoder: ValueEncoder, value_expr: String) -> String {
       runtime_fn <> "(" <> unwrap_fn <> "(" <> value_expr <> "))"
     EnumEncode(runtime_fn:, to_string_fn:) ->
       runtime_fn <> "(" <> to_string_fn <> "(" <> value_expr <> "))"
+    HookEncode(runtime_fn:, hook_call:) ->
+      runtime_fn <> "(" <> hook_call <> "(" <> value_expr <> "))"
     ArrayEncode(element_encoder:) -> {
       let mapper = render_encoder_fn(element_encoder)
       "runtime.array(list.map(" <> value_expr <> ", " <> mapper <> "))"

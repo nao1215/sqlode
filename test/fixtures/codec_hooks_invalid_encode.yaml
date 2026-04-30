@@ -1,0 +1,14 @@
+version: "2"
+sql:
+  - schema: "test/fixtures/schema.sql"
+    queries: "test/fixtures/query.sql"
+    engine: "postgresql"
+    gen:
+      gleam:
+        out: "test_output/db"
+    overrides:
+      types:
+        - db_type: "int"
+          gleam_type: "myapp/types.UserId"
+          encode: "UserIdToInt"
+          decode: "int_to_user_id"

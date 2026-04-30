@@ -139,7 +139,7 @@ pub fn custom_type_imports(scalar_types: List(model.ScalarType)) -> List(String)
   scalar_types
   |> list.filter_map(fn(st) {
     case st {
-      model.CustomType(name, option.Some(module), _) ->
+      model.CustomType(name, option.Some(module), _, _) ->
         Ok("import " <> module <> ".{type " <> name <> "}")
       _ -> Error(Nil)
     }

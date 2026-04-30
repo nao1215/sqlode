@@ -207,6 +207,9 @@ fn parse_overrides(node: yay.Node) -> Result(model.Overrides, ConfigError) {
               let db_type = optional_string(item, "db_type")
               let column = optional_string(item, "column")
               let nullable = optional_bool(item, "nullable")
+              let encode = optional_string(item, "encode")
+              let decode = optional_string(item, "decode")
+              use codec <- result.try(parse_codec_hooks(encode, decode))
               case column, db_type, gleam_type {
                 Some(col), _, Some(gt) -> {
                   use _ <- result.try(validate_gleam_type(gt))
@@ -216,6 +219,7 @@ fn parse_overrides(node: yay.Node) -> Result(model.Overrides, ConfigError) {
                         table:,
                         column: col_name,
                         gleam_type: gt,
+                        codec:,
                       ))
                     _ ->
                       Error(InvalidValue(
@@ -232,6 +236,7 @@ fn parse_overrides(node: yay.Node) -> Result(model.Overrides, ConfigError) {
                     db_type: dt,
                     gleam_type: gt,
                     nullable:,
+                    codec:,
                   ))
                 }
                 _, _, _ ->
@@ -268,6 +273,66 @@ fn parse_overrides(node: yay.Node) -> Result(model.Overrides, ConfigError) {
       )
 
       Ok(model.Overrides(type_overrides:, column_renames:))
+    }
+  }
+}
+
+fn parse_codec_hooks(
+  encode: Option(String),
+  decode: Option(String),
+) -> Result(Option(model.CodecHooks), ConfigError) {
+  case encode, decode {
+    None, None -> Ok(None)
+    Some(e), Some(d) -> {
+      use _ <- result.try(validate_codec_hook("encode", e))
+      use _ <- result.try(validate_codec_hook("decode", d))
+      Ok(Some(model.CodecHooks(encode: e, decode: d)))
+    }
+    Some(_), None ->
+      Error(InvalidValue(
+        field: "overrides.types.decode",
+        detail: "must be specified together with \"encode\"; provide both codec hooks or neither",
+      ))
+    None, Some(_) ->
+      Error(InvalidValue(
+        field: "overrides.types.encode",
+        detail: "must be specified together with \"decode\"; provide both codec hooks or neither",
+      ))
+  }
+}
+
+fn validate_codec_hook(side: String, value: String) -> Result(Nil, ConfigError) {
+  case string.is_empty(value) {
+    True ->
+      Error(InvalidValue(
+        field: "overrides.types." <> side,
+        detail: "must not be empty",
+      ))
+    False -> {
+      // Function names in Gleam start with a lowercase letter (or
+      // underscore, which is uncommon for public functions). Reject
+      // type-shaped names early so a misplaced field surfaces here
+      // rather than as an opaque codegen failure.
+      let name_segment = case string.split_once(value, ".") {
+        Ok(#(_, name)) -> name
+        Error(_) -> value
+      }
+      let first = string.first(name_segment) |> result.unwrap("")
+      case char_utils.is_lowercase_letter(first) || first == "_", first == "" {
+        True, _ -> Ok(Nil)
+        _, True ->
+          Error(InvalidValue(
+            field: "overrides.types." <> side,
+            detail: "function name must not be empty",
+          ))
+        _, _ ->
+          Error(InvalidValue(
+            field: "overrides.types." <> side,
+            detail: "function name must start with a lowercase letter or underscore, got \""
+              <> value
+              <> "\"",
+          ))
+      }
     }
   }
 }

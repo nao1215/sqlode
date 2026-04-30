@@ -1,6 +1,7 @@
 import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
+import gleam/option
 import gleam/string
 import sqlode/internal/codegen/common
 import sqlode/internal/model
@@ -483,6 +484,17 @@ fn render_raw_base_decoder(
         scalar_type,
         type_mapping.scalar_type_to_decoder(engine, _),
       )
+    // Custom override with explicit codec hooks (issue #529): compose
+    // the user-supplied `decode` function on top of the underlying
+    // primitive decoder so the row value is wrapped back into the
+    // opaque domain type. Mirrors the corresponding branch in
+    // `adapter.gleam`'s `render_base_decoder`.
+    model.CustomType(module:, codec: option.Some(hooks), ..) ->
+      "decode.map("
+      <> type_mapping.scalar_type_to_decoder(engine, scalar_type)
+      <> ", "
+      <> qualified_decoder_hook_call(module, hooks.decode)
+      <> ")"
     _ ->
       case
         type_mapping_mode == model.StrongMapping
@@ -501,6 +513,30 @@ fn render_raw_base_decoder(
           <> ")"
         }
         False -> type_mapping.scalar_type_to_decoder(engine, scalar_type)
+      }
+  }
+}
+
+/// Build the module-qualified call site for a decode hook so it
+/// matches the `import myapp/types.{type UserId}` shape (the
+/// trailing-segment module alias is what's reachable in scope).
+fn qualified_decoder_hook_call(
+  module: option.Option(String),
+  fn_name: String,
+) -> String {
+  case module {
+    option.Some(module_path) -> module_alias_for(module_path) <> "." <> fn_name
+    option.None -> fn_name
+  }
+}
+
+fn module_alias_for(module_path: String) -> String {
+  case string.split(module_path, "/") {
+    [] -> module_path
+    segments ->
+      case list.last(segments) {
+        Ok(last) -> last
+        Error(_) -> module_path
       }
   }
 }

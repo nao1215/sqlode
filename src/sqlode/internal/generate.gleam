@@ -520,11 +520,12 @@ fn apply_type_overrides(
           let columns =
             list.map(table.columns, fn(col) {
               case find_column_override(table.name, col.name, overrides) {
-                Ok(gleam_type) ->
+                Ok(#(gleam_type, codec)) ->
                   model.Column(
                     ..col,
                     scalar_type: gleam_type_to_scalar(
                       gleam_type,
+                      codec,
                       col.scalar_type,
                     ),
                   )
@@ -536,11 +537,12 @@ fn apply_type_overrides(
                       overrides,
                     )
                   {
-                    Ok(gleam_type) ->
+                    Ok(#(gleam_type, codec)) ->
                       model.Column(
                         ..col,
                         scalar_type: gleam_type_to_scalar(
                           gleam_type,
+                          codec,
                           col.scalar_type,
                         ),
                       )
@@ -559,15 +561,15 @@ fn find_column_override(
   table_name: String,
   column_name: String,
   overrides: List(model.TypeOverride),
-) -> Result(String, Nil) {
+) -> Result(#(String, option.Option(model.CodecHooks)), Nil) {
   list.find_map(overrides, fn(ovr) {
     case ovr {
-      model.ColumnOverride(table:, column:, gleam_type:) ->
+      model.ColumnOverride(table:, column:, gleam_type:, codec:) ->
         case
           string.lowercase(table) == string.lowercase(table_name)
           && string.lowercase(column) == string.lowercase(column_name)
         {
-          True -> Ok(gleam_type)
+          True -> Ok(#(gleam_type, codec))
           False -> Error(Nil)
         }
       model.DbTypeOverride(..) -> Error(Nil)
@@ -579,19 +581,19 @@ fn find_db_type_override(
   scalar_type: model.ScalarType,
   is_nullable: Bool,
   overrides: List(model.TypeOverride),
-) -> Result(String, Nil) {
+) -> Result(#(String, option.Option(model.CodecHooks)), Nil) {
   let type_name = type_mapping.scalar_type_to_db_name(scalar_type)
 
   list.find_map(overrides, fn(ovr) {
     case ovr {
-      model.DbTypeOverride(db_type:, gleam_type:, nullable:) ->
+      model.DbTypeOverride(db_type:, gleam_type:, nullable:, codec:) ->
         case string.lowercase(db_type) == type_name {
           True ->
             case nullable {
-              option.None -> Ok(gleam_type)
+              option.None -> Ok(#(gleam_type, codec))
               option.Some(n) ->
                 case n == is_nullable {
-                  True -> Ok(gleam_type)
+                  True -> Ok(#(gleam_type, codec))
                   False -> Error(Nil)
                 }
             }
@@ -604,6 +606,7 @@ fn find_db_type_override(
 
 fn gleam_type_to_scalar(
   gleam_type: String,
+  codec: option.Option(model.CodecHooks),
   underlying: model.ScalarType,
 ) -> model.ScalarType {
   case string.lowercase(gleam_type) {
@@ -614,22 +617,37 @@ fn gleam_type_to_scalar(
     "bitarray" -> model.BytesType
     _ -> {
       let #(module, type_name) = parse_module_qualified_type(gleam_type)
-      let underlying_name =
-        type_mapping.scalar_type_to_gleam_type(underlying, model.StringMapping)
-      io.println_error(
-        "Warning: custom gleam_type \""
-        <> gleam_type
-        <> "\" will use the encoder/decoder for the underlying \""
-        <> underlying_name
-        <> "\" type. Ensure \""
-        <> type_name
-        <> "\" is defined as a transparent type alias (e.g., pub type "
-        <> type_name
-        <> " = "
-        <> underlying_name
-        <> "). Opaque types are not supported.",
-      )
-      model.CustomType(name: type_name, module:, underlying:)
+      // Suppress the transparent-alias warning when the user supplied
+      // explicit codec hooks — that's the documented escape hatch for
+      // opaque domain types (issue #529). Without hooks, keep the
+      // existing warning so users aren't surprised when the generated
+      // code calls primitive encoders directly on a wrapped value.
+      case codec {
+        option.Some(_) -> Nil
+        option.None -> {
+          let underlying_name =
+            type_mapping.scalar_type_to_gleam_type(
+              underlying,
+              model.StringMapping,
+            )
+          io.println_error(
+            "Warning: custom gleam_type \""
+            <> gleam_type
+            <> "\" will use the encoder/decoder for the underlying \""
+            <> underlying_name
+            <> "\" type. Ensure \""
+            <> type_name
+            <> "\" is defined as a transparent type alias (e.g., pub type "
+            <> type_name
+            <> " = "
+            <> underlying_name
+            <> "), or provide explicit `encode` / `decode` codec hooks "
+            <> "in `overrides.types` to support opaque types.",
+          )
+          Nil
+        }
+      }
+      model.CustomType(name: type_name, module:, underlying:, codec:)
     }
   }
 }
