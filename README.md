@@ -770,9 +770,9 @@ sql:
 
 Unresolvable columns are then printed to stderr and dropped (or the whole view is dropped if nothing resolves).
 
-### Custom types must be transparent aliases
+### Custom types: transparent aliases by default, opaque via codec hooks
 
-See [Custom type aliases](#custom-type-aliases). Opaque types (`pub opaque type Foo { ... }`) are not supported.
+See [Custom type aliases](#custom-type-aliases). Without codec hooks, the mapped `gleam_type` MUST be a transparent alias (`pub type UserId = Int`) — the generated code calls primitive encoders directly on the value. Opaque single-constructor types (`pub opaque type UserId { UserId(Int) }`) are supported via the explicit `encode` / `decode` hooks documented there.
 
 ## Config options
 
