@@ -7,13 +7,6 @@
 //// uses, collects every failure it can see, and layers additional
 //// static checks on top (today: `query_parameter_limit`
 //// enforcement). It never writes files.
-////
-//// The command is intended as the first phase of the Issue #395
-//// verification roadmap — later phases will add DB-backed analysis
-//// (`database` / `analyzer` config concepts) and execution-lane
-//// validation. Keeping the static surface here means those later
-//// phases can grow `Finding` with new variants without reshaping
-//// the command wiring.
 
 import filepath
 import gleam/int
