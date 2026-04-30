@@ -102,3 +102,12 @@ jobs:
           node-version: "22"
       - run: gleam deps download
       - run: gleam build --target javascript
+      # Run the cross-target runtime laws on Node so JavaScript-target
+      # regressions in placeholder / slice expansion or Value encoding
+      # are caught here (#527). The dedicated entry point exists
+      # because gleeunit's JavaScript auto-discovery would otherwise
+      # transitively load `glint`, whose generated JavaScript fails to
+      # parse on Node — see test/sqlode_js_test.gleam for the full
+      # rationale.
+      - name: Runtime tests (JavaScript)
+        run: gleam run -m sqlode_js_test --target javascript
