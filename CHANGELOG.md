@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-04-30
+
 ### Changed
 
 - **verify / generate**: `sqlode.slice(...)` is now rejected at
