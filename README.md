@@ -513,6 +513,22 @@ pub type GetAuthorsByIdsParams {
 }
 ```
 
+> [!IMPORTANT]
+> `sqlode.slice(...)` is only supported on PostgreSQL because the
+> generated native SQLite (`sqlight`) and MySQL (`shork`) adapters
+> cannot bind array parameters at runtime. `sqlode generate` /
+> `sqlode verify` reject any block that targets `sqlite` or `mysql`
+> with a slice macro present.
+>
+> If you need IN-clause expansion against SQLite/MySQL, drop the
+> macro and either:
+>
+> - inline the placeholders yourself in the SQL and bind one
+>   parameter per element from your application code, or
+> - move the query to `runtime: raw` and call `runtime.prepare`
+>   followed by your driver's parameter-list call directly, where
+>   you control how the list flattens to scalar bindings.
+
 ### sqlode.embed example
 
 ```sql

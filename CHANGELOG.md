@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **verify / generate**: `sqlode.slice(...)` is now rejected at
+  static-analysis time when the block targets `sqlite` or `mysql`,
+  with a structured `UnsupportedSliceForEngine(query_name, engine)`
+  diagnostic. Previously the same configuration shipped runtime code
+  that panicked the moment a `runtime.SqlArray` reached
+  `value_to_sqlight` / `value_to_shork`. Closing the loop on the
+  static side means unsupported array/native-adapter combinations
+  fail at `sqlode generate` / `sqlode verify` instead of at request
+  time. PostgreSQL behaviour is unchanged. README documents the
+  raw-runtime / inline-placeholder fallbacks for queries that
+  genuinely need IN-clause expansion against SQLite / MySQL. (#531)
+
 ## [0.18.0] - 2026-04-29
 
 ### Changed

@@ -28,9 +28,25 @@ fn make_block(
   out: String,
   query_parameter_limit: option.Option(Int),
 ) -> model.SqlBlock {
+  make_block_for_engine(
+    model.PostgreSQL,
+    schema_path,
+    query_path,
+    out,
+    query_parameter_limit,
+  )
+}
+
+fn make_block_for_engine(
+  engine: model.Engine,
+  schema_path: String,
+  query_path: String,
+  out: String,
+  query_parameter_limit: option.Option(Int),
+) -> model.SqlBlock {
   model.SqlBlock(
     name: option.None,
-    engine: model.PostgreSQL,
+    engine: engine,
     schema: [schema_path],
     queries: [query_path],
     gleam: model.GleamOutput(
@@ -346,6 +362,66 @@ pub fn verify_execresult_under_raw_runtime_is_allowed_test() {
 // array-typed params on a non-PostgreSQL engine, both `generate`
 // and `verify` will reject it with an identical message through
 // the shared validator.
+
+// ============================================================
+// Issue #531: reject sqlode.slice() on non-PostgreSQL engines
+// ============================================================
+
+pub fn verify_rejects_slice_macro_on_sqlite_test() {
+  // sqlode.slice() lowers to a runtime SqlArray; the native SQLite
+  // adapter (`sqlight`) panics on that, so verify must catch the
+  // mismatch before the user reaches runtime.
+  let cfg =
+    model.Config(version: 2, sql: [
+      make_block_for_engine(
+        model.SQLite,
+        "test/fixtures/verify_ok_schema.sql",
+        "test/fixtures/verify_slice_query.sql",
+        "src/verify_slice_sqlite_out",
+        option.None,
+      ),
+    ])
+  let report = verify.verify_config(cfg)
+  let assert [finding] = report.findings
+  string.contains(finding.detail, "GetAuthorsByIds") |> should.be_true()
+  string.contains(finding.detail, "sqlode.slice()") |> should.be_true()
+  string.contains(finding.detail, "sqlite") |> should.be_true()
+}
+
+pub fn verify_rejects_slice_macro_on_mysql_test() {
+  let cfg =
+    model.Config(version: 2, sql: [
+      make_block_for_engine(
+        model.MySQL,
+        "test/fixtures/verify_ok_schema.sql",
+        "test/fixtures/verify_slice_query.sql",
+        "src/verify_slice_mysql_out",
+        option.None,
+      ),
+    ])
+  let report = verify.verify_config(cfg)
+  let assert [finding] = report.findings
+  string.contains(finding.detail, "GetAuthorsByIds") |> should.be_true()
+  string.contains(finding.detail, "sqlode.slice()") |> should.be_true()
+  string.contains(finding.detail, "mysql") |> should.be_true()
+}
+
+pub fn verify_allows_slice_macro_on_postgresql_test() {
+  // PostgreSQL is the supported engine for slice / array binding;
+  // verify must NOT flag the same query when the block targets it.
+  let cfg =
+    model.Config(version: 2, sql: [
+      make_block_for_engine(
+        model.PostgreSQL,
+        "test/fixtures/verify_ok_schema.sql",
+        "test/fixtures/verify_slice_query.sql",
+        "src/verify_slice_postgres_out",
+        option.None,
+      ),
+    ])
+  let report = verify.verify_config(cfg)
+  report.findings |> should.equal([])
+}
 
 // ============================================================
 // Issue #504: verify must detect empty query lists
