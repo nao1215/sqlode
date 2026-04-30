@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **integration tests**: drop the `GetAuthorsByIds` and
+  `GetAuthorsByIdsAndNames` queries from the SQLite extended fixture
+  (`test/fixtures/sqlite_extended_query.sql`) and the matching tests
+  from `integration_test/fixtures/sqlite_extended_test.gleam`. Both
+  queries used `sqlode.slice()` against the SQLite engine, which v0.19.0
+  (#531 / #533) made an explicit `UnsupportedSliceForEngine` validation
+  error. The integration lane was the last consumer of that
+  combination, so the v0.19.0 release CI failed at
+  `bash integration_test/run.sh` and never reached `gleam publish` or
+  the GitHub release step. PostgreSQL slice coverage is unchanged and
+  is regression-tested by `verify_test.gleam`.
+
 ## [0.19.0] - 2026-04-30
 
 ### Changed
