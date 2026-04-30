@@ -71,9 +71,44 @@ pub fn runtime_to_string(runtime: Runtime) -> String {
   }
 }
 
+/// Pair of user-provided codec function names that bridge the
+/// underlying primitive value and the user's `gleam_type`. Unqualified
+/// names are resolved relative to the module of the declared
+/// `gleam_type` — e.g. for `gleam_type: "myapp/types.UserId"` and
+/// `encode: "user_id_to_int"`, the generated code calls
+/// `types.user_id_to_int(value)` (the trailing-segment module alias
+/// produced by the existing `import myapp/types.{type UserId}`).
+///
+/// `encode` is called on the user's value before handing it to the
+/// runtime parameter encoder. `decode` is composed under
+/// `decode.map(...)` after the underlying primitive decoder.
+///
+/// Both fields are required; `parse_overrides` rejects entries that
+/// specify only one half. The pair makes opaque domain types
+/// (`pub opaque type UserId { UserId(Int) }`) usable from generated
+/// code without relaxing their wrapper invariant.
+pub type CodecHooks {
+  CodecHooks(encode: String, decode: String)
+}
+
 pub type TypeOverride {
-  DbTypeOverride(db_type: String, gleam_type: String, nullable: Option(Bool))
-  ColumnOverride(table: String, column: String, gleam_type: String)
+  DbTypeOverride(
+    db_type: String,
+    gleam_type: String,
+    nullable: Option(Bool),
+    /// `Some` when the user opted into the encode/decode hook path
+    /// (i.e. the gleam_type is opaque or otherwise needs explicit
+    /// codec functions). `None` keeps the existing transparent-alias
+    /// behaviour.
+    codec: Option(CodecHooks),
+  )
+  ColumnOverride(
+    table: String,
+    column: String,
+    gleam_type: String,
+    /// See `DbTypeOverride.codec`.
+    codec: Option(CodecHooks),
+  )
 }
 
 pub type ColumnRename {
@@ -232,6 +267,17 @@ pub type ScalarType {
     name: String,
     module: option.Option(String),
     underlying: ScalarType,
+    /// `Some` when the override that produced this `CustomType`
+    /// declared explicit `encode` / `decode` codec hooks (issue #529
+    /// — opaque domain types). When `Some`, `codegen/params.gleam`
+    /// pipes the user value through `encode` before the underlying
+    /// runtime encoder, and `codegen/adapter.gleam` composes the
+    /// decoder under `decode.map(_, decode)`. When `None`, codegen
+    /// keeps the legacy transparent-alias path: the underlying
+    /// primitive's encoder/decoder is called directly on the value,
+    /// which only compiles when the user defined the type as a
+    /// `pub type Name = Underlying` alias.
+    codec: option.Option(CodecHooks),
   )
   ArrayType(element: ScalarType)
 }

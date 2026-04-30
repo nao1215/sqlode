@@ -158,7 +158,7 @@ pub fn scalar_type_to_gleam_type_string_mapping_test() {
   type_mapping.scalar_type_to_gleam_type(model.EnumType("status"), m)
   |> should.equal("Status")
   type_mapping.scalar_type_to_gleam_type(
-    model.CustomType("UserId", option.None, model.IntType),
+    model.CustomType("UserId", option.None, model.IntType, option.None),
     m,
   )
   |> should.equal("UserId")
@@ -187,7 +187,8 @@ pub fn scalar_type_to_gleam_type_rich_mapping_test() {
 }
 
 pub fn custom_type_delegates_to_underlying_test() {
-  let custom = model.CustomType("UserId", option.None, model.IntType)
+  let custom =
+    model.CustomType("UserId", option.None, model.IntType, option.None)
   type_mapping.scalar_type_to_runtime_function(custom)
   |> should.equal("runtime.int")
   type_mapping.scalar_type_to_db_name(custom) |> should.equal("int")

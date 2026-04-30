@@ -644,21 +644,46 @@ Column-level overrides win over `db_type` overrides.
 
 ### Custom type aliases
 
-A non-primitive `gleam_type` (e.g. `UserId` instead of `Int`) keeps the name in generated record fields but encodes and decodes through the underlying primitive.
-
-Opaque types are not supported — the mapped type must be a transparent alias. Opaque single-constructor types fail to compile because the generated code calls primitive encoders (like `runtime.int(params.id)`) directly on the value. A codec hook for opaque types is tracked for a future release.
+A non-primitive `gleam_type` (e.g. `UserId` instead of `Int`) keeps the name in generated record fields but, by default, encodes and decodes through the underlying primitive. That works when the mapped type is a transparent alias:
 
 ```gleam
-// OK: transparent alias
+// OK: transparent alias — the underlying primitive encoders apply
+// directly because `UserId` is just `Int` at runtime.
 pub type UserId = Int
+```
 
-// Error: opaque
+For opaque domain types (single-constructor wrappers around the underlying value), declare explicit `encode` / `decode` codec hooks alongside the override. The generated code then routes the value through the user-supplied pair instead of calling the primitive encoder on the wrapped form:
+
+```yaml
+overrides:
+  types:
+    - db_type: "int"
+      gleam_type: "myapp/types.UserId"
+      encode: "user_id_to_int"
+      decode: "int_to_user_id"
+```
+
+```gleam
+// myapp/types.gleam
 pub opaque type UserId {
   UserId(Int)
 }
+
+pub fn user_id_to_int(id: UserId) -> Int {
+  let UserId(inner) = id
+  inner
+}
+
+pub fn int_to_user_id(value: Int) -> UserId {
+  UserId(value)
+}
 ```
 
-sqlode checks that `gleam_type` starts with an uppercase letter and warns when custom types are in play.
+`encode` and `decode` MUST be specified together — providing only one half is rejected at config-load time. Hook function names are resolved relative to the module of `gleam_type`: with `gleam_type: "myapp/types.UserId"` the generated code calls `types.user_id_to_int(value)` (the trailing-segment alias of the existing type import), so the user only needs the type itself in scope.
+
+Without codec hooks, sqlode emits a warning at generation time pointing at the transparent-alias requirement; the warning is suppressed when codec hooks are provided.
+
+sqlode checks that `gleam_type` starts with an uppercase letter and `encode` / `decode` start with a lowercase letter (or underscore).
 
 ### Semantic type mappings
 

@@ -137,6 +137,40 @@ pub fn reject_empty_gleam_type_test() {
   string.contains(msg, "empty") |> should.be_true()
 }
 
+// codec hooks (issue #529 — opaque custom types)
+
+pub fn accept_codec_hooks_full_test() {
+  let assert Ok(cfg) = config.load("test/fixtures/codec_hooks_full.yaml")
+  let assert [block] = cfg.sql
+  let assert [override] = block.overrides.type_overrides
+  let assert model.DbTypeOverride(
+    db_type: _,
+    gleam_type: gt,
+    nullable: _,
+    codec: option.Some(model.CodecHooks(encode: enc, decode: dec)),
+  ) = override
+  gt |> should.equal("myapp/types.UserId")
+  enc |> should.equal("user_id_to_int")
+  dec |> should.equal("int_to_user_id")
+}
+
+pub fn reject_codec_hooks_encode_without_decode_test() {
+  let assert Error(error) =
+    config.load("test/fixtures/codec_hooks_encode_only.yaml")
+  let msg = config.error_to_string(error)
+  string.contains(msg, "decode") |> should.be_true()
+  string.contains(msg, "together") |> should.be_true()
+}
+
+pub fn reject_codec_hooks_uppercase_function_name_test() {
+  let assert Error(error) =
+    config.load("test/fixtures/codec_hooks_invalid_encode.yaml")
+  let msg = config.error_to_string(error)
+  string.contains(msg, "encode") |> should.be_true()
+  string.contains(msg, "lowercase") |> should.be_true()
+  string.contains(msg, "UserIdToInt") |> should.be_true()
+}
+
 // malformed rename entries
 
 pub fn reject_malformed_rename_entry_test() {

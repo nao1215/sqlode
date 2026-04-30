@@ -420,20 +420,25 @@ fn needs_option_import_for_tables(catalog: model.Catalog) -> Bool {
 }
 
 fn has_custom_types_in_results(queries: List(model.AnalyzedQuery)) -> Bool {
+  // The transparent-alias warning only fires for custom types WITHOUT
+  // codec hooks. A `CustomType(..., codec: Some(_))` is the documented
+  // opt-in escape hatch for opaque domain types (issue #529); it does
+  // not need the alias warning because the generated code routes the
+  // value through the user's encode/decode pair.
   list.any(queries, fn(query) {
     case model.is_result_command(query.base.command) {
       True ->
         list.any(query.result_columns, fn(item) {
           case item {
             model.ScalarResult(model.ResultColumn(
-              scalar_type: model.CustomType(..),
+              scalar_type: model.CustomType(codec: option.None, ..),
               ..,
             )) -> True
             model.ScalarResult(..) -> False
             model.EmbeddedResult(model.EmbeddedColumn(columns:, ..)) ->
               list.any(columns, fn(c) {
                 case c.scalar_type {
-                  model.CustomType(..) -> True
+                  model.CustomType(codec: option.None, ..) -> True
                   _ -> False
                 }
               })

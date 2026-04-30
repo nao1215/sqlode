@@ -59,6 +59,7 @@ pub fn type_override_changes_scalar_type_test() {
             db_type: "string",
             gleam_type: "Int",
             nullable: option.None,
+            codec: option.None,
           ),
         ],
         column_renames: [],
@@ -84,6 +85,7 @@ pub fn type_override_case_insensitive_db_type_test() {
             db_type: "STRING",
             gleam_type: "Float",
             nullable: option.None,
+            codec: option.None,
           ),
         ],
         column_renames: [],
@@ -108,6 +110,7 @@ pub fn type_override_preserves_unmatched_columns_test() {
             db_type: "bool",
             gleam_type: "String",
             nullable: option.None,
+            codec: option.None,
           ),
         ],
         column_renames: [],
@@ -134,11 +137,13 @@ pub fn type_override_multiple_overrides_test() {
             db_type: "int",
             gleam_type: "String",
             nullable: option.None,
+            codec: option.None,
           ),
           model.DbTypeOverride(
             db_type: "string",
             gleam_type: "BitArray",
             nullable: option.None,
+            codec: option.None,
           ),
         ],
         column_renames: [],
@@ -165,6 +170,7 @@ pub fn custom_type_override_preserves_type_name_test() {
             db_type: "int",
             gleam_type: "UserId",
             nullable: option.None,
+            codec: option.None,
           ),
         ],
         column_renames: [],
@@ -190,6 +196,7 @@ pub fn custom_column_override_preserves_type_name_test() {
             table: "authors",
             column: "name",
             gleam_type: "AuthorName",
+            codec: option.None,
           ),
         ],
         column_renames: [],
@@ -215,6 +222,7 @@ pub fn custom_type_override_adds_alias_warning_comment_test() {
             db_type: "int",
             gleam_type: "UserId",
             nullable: option.None,
+            codec: option.None,
           ),
         ],
         column_renames: [],
@@ -254,6 +262,7 @@ pub fn module_qualified_custom_type_generates_import_test() {
             db_type: "int",
             gleam_type: "myapp/types.UserId",
             nullable: option.None,
+            codec: option.None,
           ),
         ],
         column_renames: [],
@@ -297,6 +306,7 @@ pub fn module_qualified_custom_type_in_params_generates_import_test() {
             db_type: "int",
             gleam_type: "myapp/types.UserId",
             nullable: option.None,
+            codec: option.None,
           ),
         ],
         column_renames: [],
@@ -309,6 +319,103 @@ pub fn module_qualified_custom_type_in_params_generates_import_test() {
   // Params module should also import the module-qualified type
   string.contains(params, "import myapp/types.{type UserId}")
   |> should.be_true()
+
+  cleanup()
+}
+
+// --- codec hooks (issue #529) ---
+
+pub fn codec_hooks_emit_encode_call_in_params_test() {
+  cleanup()
+  let block =
+    base_block(
+      model.Overrides(
+        type_overrides: [
+          model.DbTypeOverride(
+            db_type: "int",
+            gleam_type: "myapp/types.UserId",
+            nullable: option.None,
+            codec: option.Some(model.CodecHooks(
+              encode: "user_id_to_int",
+              decode: "int_to_user_id",
+            )),
+          ),
+        ],
+        column_renames: [],
+      ),
+    )
+
+  run_generate(block)
+  let params = read_generated("params.gleam")
+
+  // The encoder must thread the value through the user's encode hook
+  // before handing it to the runtime primitive encoder. The hook is
+  // module-qualified via the trailing-segment alias of the imported
+  // module (`import myapp/types.{type UserId}` → `types`).
+  string.contains(params, "types.user_id_to_int") |> should.be_true()
+
+  cleanup()
+}
+
+pub fn codec_hooks_emit_decode_map_in_adapter_test() {
+  cleanup()
+  let block =
+    base_block(
+      model.Overrides(
+        type_overrides: [
+          model.DbTypeOverride(
+            db_type: "int",
+            gleam_type: "myapp/types.UserId",
+            nullable: option.None,
+            codec: option.Some(model.CodecHooks(
+              encode: "user_id_to_int",
+              decode: "int_to_user_id",
+            )),
+          ),
+        ],
+        column_renames: [],
+      ),
+    )
+
+  run_generate(block)
+  let queries = read_generated("queries.gleam")
+
+  // Result decoding must compose the user's decode hook on top of
+  // the underlying primitive decoder so the row value is wrapped
+  // back into the opaque domain type.
+  string.contains(queries, "decode.map(") |> should.be_true()
+  string.contains(queries, "types.int_to_user_id") |> should.be_true()
+
+  cleanup()
+}
+
+pub fn codec_hooks_suppress_alias_warning_test() {
+  cleanup()
+  let block =
+    base_block(
+      model.Overrides(
+        type_overrides: [
+          model.DbTypeOverride(
+            db_type: "int",
+            gleam_type: "myapp/types.UserId",
+            nullable: option.None,
+            codec: option.Some(model.CodecHooks(
+              encode: "user_id_to_int",
+              decode: "int_to_user_id",
+            )),
+          ),
+        ],
+        column_renames: [],
+      ),
+    )
+
+  run_generate(block)
+  let models = read_generated("models.gleam")
+
+  // The "transparent type alias" warning is the wrong message when
+  // the user opted into codec hooks for an opaque domain type. It
+  // must be omitted in that case.
+  string.contains(models, "transparent type alias") |> should.be_false()
 
   cleanup()
 }
@@ -345,6 +452,7 @@ pub fn module_qualified_custom_type_in_queries_generates_import_test() {
             db_type: "int",
             gleam_type: "myapp/types.UserId",
             nullable: option.None,
+            codec: option.None,
           ),
         ],
         column_renames: [],
@@ -460,6 +568,7 @@ pub fn bare_custom_type_omits_module_import_test() {
             db_type: "int",
             gleam_type: "UserId",
             nullable: option.None,
+            codec: option.None,
           ),
         ],
         column_renames: [],
@@ -922,6 +1031,7 @@ pub fn combined_type_override_and_column_rename_test() {
             db_type: "string",
             gleam_type: "BitArray",
             nullable: option.None,
+            codec: option.None,
           ),
         ],
         column_renames: [
@@ -1027,6 +1137,7 @@ pub fn column_override_changes_specific_column_test() {
             table: "authors",
             column: "id",
             gleam_type: "String",
+            codec: option.None,
           ),
         ],
         column_renames: [],
@@ -1052,11 +1163,13 @@ pub fn column_override_takes_precedence_over_db_type_test() {
             db_type: "int",
             gleam_type: "Float",
             nullable: option.None,
+            codec: option.None,
           ),
           model.ColumnOverride(
             table: "authors",
             column: "id",
             gleam_type: "String",
+            codec: option.None,
           ),
         ],
         column_renames: [],
@@ -1082,6 +1195,7 @@ pub fn column_override_does_not_affect_other_tables_test() {
             table: "posts",
             column: "id",
             gleam_type: "String",
+            codec: option.None,
           ),
         ],
         column_renames: [],
@@ -1131,6 +1245,7 @@ pub fn nullable_override_applies_only_to_nullable_columns_test() {
             db_type: "string",
             gleam_type: "BitArray",
             nullable: option.Some(True),
+            codec: option.None,
           ),
         ],
         column_renames: [],
@@ -1158,6 +1273,7 @@ pub fn non_nullable_override_applies_only_to_non_nullable_columns_test() {
             db_type: "string",
             gleam_type: "BitArray",
             nullable: option.Some(False),
+            codec: option.None,
           ),
         ],
         column_renames: [],
@@ -1185,6 +1301,7 @@ pub fn nullable_none_override_applies_to_all_test() {
             db_type: "string",
             gleam_type: "BitArray",
             nullable: option.None,
+            codec: option.None,
           ),
         ],
         column_renames: [],

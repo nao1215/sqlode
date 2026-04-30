@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **overrides**: explicit `encode` / `decode` codec hooks for custom
+  type overrides (issue #529). Opaque domain types
+  (`pub opaque type UserId { UserId(Int) }`) are now usable from
+  generated code without relaxing their wrapper invariant — declaring
+  `encode: user_id_to_int` and `decode: int_to_user_id` on the
+  override pipes parameter values through the user's encode function
+  before the runtime primitive encoder, and composes the user's
+  decode function on top of the underlying primitive decoder via
+  `decode.map(...)`. Hooks are resolved relative to the module of
+  `gleam_type` (so `gleam_type: "myapp/types.UserId"` plus
+  `encode: "user_id_to_int"` emits `types.user_id_to_int(value)` at
+  the call site), and the pair is required as a unit — providing
+  only one half is rejected at config-load time. The transparent-
+  alias warning is suppressed when codec hooks are supplied; the
+  README's "Custom type aliases" subsection now documents both
+  paths. The new `model.CodecHooks` type and the `codec` field on
+  `TypeOverride` and `ScalarType.CustomType` are internal-only
+  (`internal_modules`); `*.gleam` consumers see no API change. (#529)
 - **ci/runtime**: JavaScript-target test lane. The cross-target laws
   in `sqlode/runtime` (Value encoders, `prepare`, marker-based
   placeholder / slice expansion across PostgreSQL `$N`, SQLite `?N`,
