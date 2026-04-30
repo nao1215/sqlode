@@ -27,6 +27,7 @@ pub type ValidationError {
   )
   UnsupportedAnnotation(query_name: String, command: String, detail: String)
   UnsupportedArrayForEngine(query_name: String, engine: String)
+  UnsupportedSliceForEngine(query_name: String, engine: String)
 }
 
 /// Reject two tokenized queries that declare the same annotation
@@ -108,9 +109,25 @@ pub fn validate_unsupported_annotations(
   }
 }
 
+fn is_slice_macro(item: model.Macro) -> Bool {
+  case item {
+    model.MacroSlice(..) -> True
+    _ -> False
+  }
+}
+
 /// Reject array parameters for engines that cannot carry them.
 /// Only PostgreSQL supports native array binding at the adapter
-/// layer today.
+/// layer today. Two shapes are rejected:
+///
+/// - inferred `ArrayType` parameters (e.g. a query reading a
+///   PostgreSQL `TEXT[]` column where the inferred parameter
+///   carries the array element type)
+/// - `sqlode.slice(...)` macro usage, which lowers to an
+///   `SqlArray` runtime value at execution time. The native
+///   SQLite (`sqlight`) and MySQL (`shork`) adapters panic on
+///   `SqlArray`, so the only safe path for those engines is the
+///   raw runtime, which the user must opt into explicitly.
 pub fn validate_array_engine_support(
   engine: model.Engine,
   queries: List(model.AnalyzedQuery),
@@ -118,7 +135,8 @@ pub fn validate_array_engine_support(
   case engine {
     model.PostgreSQL -> Ok(Nil)
     _ -> {
-      let has_array = fn(q: model.AnalyzedQuery) {
+      let engine_name = model.engine_to_string(engine)
+      let has_array_param = fn(q: model.AnalyzedQuery) {
         list.any(q.params, fn(p) {
           case p.scalar_type {
             model.ArrayType(_) -> True
@@ -126,13 +144,24 @@ pub fn validate_array_engine_support(
           }
         })
       }
-      case list.find(queries, has_array) {
+      let has_slice_macro = fn(q: model.AnalyzedQuery) {
+        list.any(q.base.macros, is_slice_macro)
+      }
+      case list.find(queries, has_array_param) {
         Ok(q) ->
           Error(UnsupportedArrayForEngine(
             query_name: q.base.name,
-            engine: model.engine_to_string(engine),
+            engine: engine_name,
           ))
-        Error(_) -> Ok(Nil)
+        Error(_) ->
+          case list.find(queries, has_slice_macro) {
+            Ok(q) ->
+              Error(UnsupportedSliceForEngine(
+                query_name: q.base.name,
+                engine: engine_name,
+              ))
+            Error(_) -> Ok(Nil)
+          }
       }
     }
   }
@@ -179,6 +208,14 @@ pub fn error_to_string(error: ValidationError) -> String {
       <> "\": array parameters are not supported for engine \""
       <> engine
       <> "\". Arrays are only supported with PostgreSQL"
+    UnsupportedSliceForEngine(query_name:, engine:) ->
+      "Query \""
+      <> query_name
+      <> "\": sqlode.slice() is not supported for engine \""
+      <> engine
+      <> "\". The native "
+      <> engine
+      <> " adapter cannot bind array values at runtime; either switch the block to PostgreSQL, drop the slice macro and inline the IN-clause placeholders, or move the query to runtime: raw and bind the expanded list yourself"
   }
 }
 
