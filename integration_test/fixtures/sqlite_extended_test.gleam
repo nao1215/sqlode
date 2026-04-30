@@ -137,42 +137,11 @@ pub fn update_bio_nullable_to_null_test() {
   Nil
 }
 
-// ---- Test sqlode.slice (WHERE IN with list param) ----
-pub fn get_authors_by_ids_slice_test() {
-  let db = setup_db()
-
-  // Insert 3 authors
-  let assert Ok(_) =
-    sqlight_adapter.create_author(
-      db,
-      params.CreateAuthorParams(name: "Alice", bio: Some("A")),
-    )
-  let assert Ok(_) =
-    sqlight_adapter.create_author(
-      db,
-      params.CreateAuthorParams(name: "Bob", bio: Some("B")),
-    )
-  let assert Ok(_) =
-    sqlight_adapter.create_author(
-      db,
-      params.CreateAuthorParams(name: "Charlie", bio: Some("C")),
-    )
-
-  // Fetch authors with IDs 1 and 3
-  let assert Ok(authors) =
-    sqlight_adapter.get_authors_by_ids(
-      db,
-      params.GetAuthorsByIdsParams(ids: [1, 3]),
-    )
-  let assert True = {
-    case authors {
-      [a1, a2] -> a1.name == "Alice" && a2.name == "Charlie"
-      _ -> False
-    }
-  }
-
-  Nil
-}
+// sqlode.slice() WHERE IN coverage was removed from this SQLite-engine
+// fixture in v0.20.0: PR #533 (v0.19.0) made sqlode.slice() a
+// validation error on SQLite because the sqlight adapter cannot bind
+// array values at runtime. PostgreSQL slice support is regression-
+// tested by test/verify_test.gleam.
 
 // ---- Test JOIN (multi-table query) ----
 pub fn get_post_with_author_join_test() {
@@ -219,52 +188,6 @@ pub fn get_post_with_author_not_found_test() {
       db,
       params.GetPostWithAuthorParams(id: 999),
     )
-
-  Nil
-}
-
-// ---- Test multiple slices in one query ----
-pub fn get_authors_by_ids_and_names_test() {
-  let db = setup_db()
-
-  // Insert 4 authors
-  let assert Ok(_) =
-    sqlight_adapter.create_author(
-      db,
-      params.CreateAuthorParams(name: "Alice", bio: Some("A")),
-    )
-  let assert Ok(_) =
-    sqlight_adapter.create_author(
-      db,
-      params.CreateAuthorParams(name: "Bob", bio: Some("B")),
-    )
-  let assert Ok(_) =
-    sqlight_adapter.create_author(
-      db,
-      params.CreateAuthorParams(name: "Charlie", bio: Some("C")),
-    )
-  let assert Ok(_) =
-    sqlight_adapter.create_author(
-      db,
-      params.CreateAuthorParams(name: "Diana", bio: Some("D")),
-    )
-
-  // Fetch authors where id IN [1,2,3] AND name IN ["Alice", "Charlie"]
-  // Should only match Alice (id=1) and Charlie (id=3)
-  let assert Ok(authors) =
-    sqlight_adapter.get_authors_by_ids_and_names(
-      db,
-      params.GetAuthorsByIdsAndNamesParams(ids: [1, 2, 3], names: [
-        "Alice",
-        "Charlie",
-      ]),
-    )
-  let assert True = {
-    case authors {
-      [a1, a2] -> a1.name == "Alice" && a2.name == "Charlie"
-      _ -> False
-    }
-  }
 
   Nil
 }
