@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **ci/runtime**: JavaScript-target test lane. The cross-target laws
+  in `sqlode/runtime` (Value encoders, `prepare`, marker-based
+  placeholder / slice expansion across PostgreSQL `$N`, SQLite `?N`,
+  and MySQL `?` styles, plus the literal/comment-preservation edge
+  cases) are now exercised on Node by a dedicated entry point
+  (`test/sqlode_js_test.gleam`). Both `ci.yml` (the `Build
+  (JavaScript)` job) and `release.yml` (the `Build and verify` job)
+  invoke `gleam run -m sqlode_js_test --target javascript`, and
+  `just all` does the same locally via the new `just test-javascript`
+  recipe. The dedicated entry exists because gleeunit's JavaScript
+  auto-discovery would otherwise transitively load `glint`, whose
+  current generated JavaScript fails to parse on Node — the file
+  documents the rationale and the call list mirrors every
+  `runtime_test` function so the JavaScript lane stays in parity
+  with the Erlang lane for the runtime surface generated code calls
+  into. (#527)
+
 ### Fixed
 
 - **integration tests**: drop the `GetAuthorsByIds` and

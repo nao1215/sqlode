@@ -24,6 +24,10 @@ jobs:
           otp-version: "27"
           gleam-version: "1.15"
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       - name: Install rebar3
         run: |
           wget -q https://s3.amazonaws.com/rebar3/rebar3 -O /usr/local/bin/rebar3
@@ -51,6 +55,17 @@ jobs:
 
       - name: Unit tests
         run: gleam test
+
+      # Mirror the JavaScript-target gate on `ci.yml`'s `build-javascript`
+      # job (#527) so a tag-driven release cannot ship a commit that
+      # would have failed the JavaScript runtime laws on PR. See
+      # test/sqlode_js_test.gleam for the rationale behind the
+      # dedicated entry point.
+      - name: Build (JavaScript)
+        run: gleam build --target javascript
+
+      - name: Runtime tests (JavaScript)
+        run: gleam run -m sqlode_js_test --target javascript
 
       - name: ShellSpec tests
         run: shellspec

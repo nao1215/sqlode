@@ -21,6 +21,15 @@ build:
 test:
   gleam test
 
+# JavaScript-target runtime tests. Mirrors the `Build (JavaScript)`
+# job in CI / release.yml. Uses a hand-rolled entry point because
+# gleeunit's JavaScript auto-discovery transitively pulls in `glint`,
+# whose generated JavaScript fails to parse on Node — see
+# `test/sqlode_js_test.gleam`.
+test-javascript:
+  gleam build --target javascript
+  gleam run -m sqlode_js_test --target javascript
+
 # Run the glinter (https://github.com/pairshaped/glinter) static
 # analysis. Configuration lives under `[tools.glinter]` in
 # `gleam.toml`; with `warnings_as_errors = true` set there, this task
@@ -56,5 +65,6 @@ all:
   gleam build --warnings-as-errors
   gleam run -m glinter
   gleam test
+  just test-javascript
   just integration-prepare
   shellspec
