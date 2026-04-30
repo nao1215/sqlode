@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-04-30
+
+### Removed
+
+- **docs/verify**: drop the "verification roadmap" promise of a
+  future DB-backed analysis phase. The static `sqlode verify` (schema
+  parsing + query analysis + `query_parameter_limit`) covers what
+  users actually need; running `EXPLAIN` / prepared-query validation
+  against a real database adds operational complexity (driver
+  dependency, container management, multi-engine support) without a
+  concrete pain point driving it. The README's "Verification
+  roadmap" subsection and the "DB-backed analyser is on the roadmap"
+  cell in the sqlc comparison table are removed; the doc-comment in
+  `src/sqlode/internal/verify.gleam` no longer references the
+  abandoned multi-phase plan. (#528)
+
 ### Added
 
 - **overrides**: explicit `encode` / `decode` codec hooks for custom

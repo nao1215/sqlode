@@ -834,14 +834,6 @@ Per-block policies `verify` honours:
 - `strict_views` — promote view-resolution warnings to findings (same as `generate`).
 - `query_parameter_limit` — per-query cap on inferred parameters, mirroring sqlc's option. Unset means no limit.
 
-### Verification roadmap
-
-Today's command covers the static phase of Issue #395. Future phases are additive — new findings show up in the existing `Report` without breaking the CLI contract:
-
-1. Static analysis (shipped) — schema + query parsing, analyser pass, `query_parameter_limit`.
-2. DB-backed analysis — a `database` / `analyzer` config that runs queries through `EXPLAIN` against a real database to catch view drift and engine-specific typing the local analyser misses.
-3. Execution-lane validation — running generated code against an ephemeral test DB as part of `verify`.
-
 ## Migrating from sqlc
 
 sqlode follows sqlc conventions, so most SQL files move over untouched. The differences:
@@ -852,7 +844,7 @@ sqlode follows sqlc conventions, so most SQL files move over untouched. The diff
 | Config | `sqlc.yaml` / `sqlc.json` | `sqlode.yaml` (v2 format only), also accepts `sqlc.yaml` / `sqlc.yml` / `sqlc.json` on autodiscovery |
 | Generate | `sqlc generate` | `sqlode generate` |
 | Init | `sqlc init` | `sqlode init` |
-| Vet/Verify | `sqlc vet`, `sqlc verify` | `sqlode verify` (static analysis + `query_parameter_limit`); DB-backed analyser is on the [verification roadmap](#verification-roadmap) |
+| Vet/Verify | `sqlc vet`, `sqlc verify` | `sqlode verify` (static analysis + `query_parameter_limit`) |
 | Target language | Go, Python, Kotlin, etc. | Gleam |
 | Runtime | Generated code is self-contained | Generated code imports `sqlode/runtime` by default; set `vendor_runtime: true` to vendor a copy and drop the runtime dependency (see [Self-contained generation](#self-contained-generation-vendor_runtime)) |
 
