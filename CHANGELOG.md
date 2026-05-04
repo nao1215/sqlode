@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-05-04
+
+### Documentation
+
+- **readme**: Lead with a SQLite quickstart that walks an empty project
+  to a typed adapter using only `gleam add sqlode sqlight` and the
+  `init` / `generate` commands. The existing tutorial under
+  `doc/tutorials/getting-started-sqlite.md` and the
+  `examples/sqlite-basic/` runnable project are linked as the default
+  onboarding route. The full install matrix (one-line installer,
+  manual escript, Docker, mise) and feature reference stay in place
+  but no longer dominate the first screen. (#539)
+
+### Internal
+
+- **integration**: Refresh `integration_test/warmup/manifest.toml` so
+  its sqlode pin matches the published version. The lockfile had
+  drifted to v0.19.0 and was breaking `just integration-prepare` (and
+  therefore `just all`) on a clean checkout.
+
 ## [0.20.0] - 2026-04-30
 
 ### Removed
