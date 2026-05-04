@@ -13,6 +13,60 @@ Supported engines (raw and native): PostgreSQL (`pog`), MySQL 8.0 (`shork`), SQL
 
 First time here? [`doc/tutorials/getting-started-sqlite.md`](doc/tutorials/getting-started-sqlite.md) walks through a SQLite project end to end, and [`examples/sqlite-basic/`](examples/sqlite-basic/) is the runnable version of the same tutorial. The rest of this README is reference material.
 
+## Quickstart (SQLite)
+
+The shortest empty-project to typed Gleam path. No daemon, no Docker, no
+escript install — just `gleam` and `sqlode` as a dependency.
+
+```console
+gleam new myapp
+cd myapp
+gleam add sqlode sqlight
+gleam run -m sqlode -- init --engine=sqlite
+```
+
+Edit the generated `db/schema.sql` and `db/query.sql` (the `init` stubs
+already compile, so it is fine to leave them as-is for the first run):
+
+```sql
+-- db/schema.sql
+CREATE TABLE authors (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  bio TEXT
+);
+
+-- db/query.sql
+-- name: GetAuthor :one
+SELECT id, name, bio FROM authors WHERE id = ?;
+
+-- name: CreateAuthor :exec
+INSERT INTO authors (name, bio)
+VALUES (sqlode.arg(author_name), sqlode.narg(bio));
+```
+
+Switch to native mode (so `sqlode` emits a ready-to-call `sqlight`
+adapter) and generate:
+
+```console
+sed -i 's/runtime: "raw"/runtime: "native"/' sqlode.yaml
+gleam run -m sqlode -- generate
+gleam run
+```
+
+The generated `src/db/sqlight_adapter.gleam` then exposes
+`get_author(db, params)` / `create_author(db, params)` returning typed
+`Result`s — see the SQLite section under
+[Using the generated adapter](#using-the-generated-adapter) for a full
+`main.gleam` and the
+[`examples/sqlite-basic/`](examples/sqlite-basic/) project for the
+ready-to-clone version. The
+[getting-started tutorial](doc/tutorials/getting-started-sqlite.md)
+walks through every line.
+
+The rest of this README is the install matrix and the per-feature
+reference. Skip ahead to whichever section you need.
+
 ## Targets
 
 - **CLI** (`sqlode generate` etc.): BEAM only (escript). The supported drivers — `pog`, `shork`, `sqlight` — are BEAM-native, so this is intentional.
