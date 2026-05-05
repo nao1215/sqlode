@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **codegen**: `sqlode generate` now runs `gleam format` on the
+  generated files as the last step of the pipeline. Previously every
+  record constructor and `decode.field(...)` chain landed on a single
+  line that could exceed 200 characters, masking diffs and pointing
+  `git blame` at one line per record. The CLI prints
+  `Formatted generated code` on success and a non-fatal warning to
+  stderr if `gleam` is missing or the formatter exits non-zero — the
+  written files remain valid either way. (#543)
+
 ## [0.21.0] - 2026-05-04
 
 ### Documentation
