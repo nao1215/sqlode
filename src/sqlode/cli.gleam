@@ -6,6 +6,7 @@ import gleam/result
 import gleam/string
 import glint
 import simplifile
+import sqlode/internal/formatter
 import sqlode/internal/generate
 import sqlode/internal/verify
 import sqlode/internal/version
@@ -243,6 +244,7 @@ fn run_generate(flag_value: String) -> Nil {
             <> " files",
           )
           list.each(written, fn(path) { io.println("  Generated: " <> path) })
+          format_generated_files(written)
         }
         Error(error) -> {
           io.println_error("Error: " <> generate.error_to_string(error))
@@ -250,6 +252,20 @@ fn run_generate(flag_value: String) -> Nil {
         }
       }
     }
+  }
+}
+
+/// Run `gleam format` on the just-written files so the generated
+/// records and decoder chains break across lines instead of running
+/// past the project's line-width ruler. Treated as best-effort: the
+/// files have already been written and are syntactically correct, so
+/// a missing `gleam` binary or a non-zero formatter exit is reported
+/// as a warning and the command still exits 0. (#543)
+fn format_generated_files(written: List(String)) -> Nil {
+  case formatter.format_files(written) {
+    Ok(Nil) -> io.println("  Formatted generated code")
+    Error(error) ->
+      io.println_error("  Warning: " <> formatter.error_to_string(error))
   }
 }
 
