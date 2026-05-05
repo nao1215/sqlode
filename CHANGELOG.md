@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-05-05
+
 ### Added
 
 - **codegen**: `sqlode generate` now runs `gleam format` on the
