@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-05-08
+
 ### Fixed
 - **runtime**: `runtime.param_marker/1` and `runtime.slice_marker/1`
   now panic when `index < 1` with
