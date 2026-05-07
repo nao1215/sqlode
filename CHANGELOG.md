@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-05-07
+
 ### Added
 
 - **runtime**: `runtime.raw_query_for_test/7` — labelled-argument
