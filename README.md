@@ -923,6 +923,55 @@ sqlode follows sqlc conventions, so most SQL files move over untouched. The diff
 - `vet` and `verify` commands
 - `emit_json_tags` and other sqlc-specific emit options not listed above
 
+## Writing custom adapters
+
+`sqlode generate` produces adapters for the engines we ship native code
+for (PostgreSQL via `pog`, SQLite via `sqlight`, MySQL via raw / shork).
+For other backends — an in-memory test database, a SQLite-WASM build, a
+query-log middleware, etc. — wire the runtime against your own driver.
+
+The contract is small:
+
+1. Build a `runtime.RawQuery(p)` with the SQL string the engine expects,
+   the parameter encoder, and the slice metadata function.
+2. Call `runtime.prepare(query, params)` to get back the final SQL and
+   the flattened `List(Value)`.
+3. Hand `(sql, values)` to your driver.
+
+For tests and adapter wiring, use `runtime.raw_query_for_test/7` instead
+of poking the `RawQuery(...)` constructor directly. The named helper
+makes the intent obvious and is documented as test-only:
+
+```gleam
+import sqlode/runtime
+
+let query =
+  runtime.raw_query_for_test(
+    name: "GetUser",
+    sql: "SELECT * FROM users WHERE id = " <> runtime.param_marker(1),
+    command: runtime.QueryOne,
+    param_count: 1,
+    placeholder_style: runtime.DollarNumbered,
+    encode: fn(id) { [runtime.int(id)] },
+    slice_info: fn(_) { [] },
+  )
+let #(sql, values) = runtime.prepare(query, 42)
+// sql    == "SELECT * FROM users WHERE id = $1"
+// values == [SqlInt(42)]
+```
+
+`test/runtime_property_test.gleam` carries longer worked examples
+(slice expansion across all three placeholder styles, the `IN (NULL)`
+rewrite for empty slices). Each example is a self-contained
+`raw_query_for_test` invocation that exercises a real `prepare` codepath
+without touching the codegen pipeline.
+
+If your `slices` metadata might be malformed (negative length,
+out-of-range index), use `runtime.expand_slice_placeholders_checked`
+instead of `expand_slice_placeholders` — the panicking variant is
+correct for codegen-driven flows but the `_checked` variant is the
+right tool when the input comes from runtime sources.
+
 ## License
 
 [MIT](./LICENSE)
