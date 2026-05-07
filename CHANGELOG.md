@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **runtime**: `runtime.param_marker/1` and `runtime.slice_marker/1`
+  now panic when `index < 1` with
+  `"sqlode.runtime.<param_marker|slice_marker>: index must be >= 1
+  (1-based) (got <n>)"`. The runtime expand step is keyed by 1-based
+  positions; previously a `0` or negative index would either fail to
+  round-trip through `expand_slice_placeholders` (leaving the literal
+  marker in the SQL → runtime SQL syntax error) or silently match an
+  unrelated marker (silent SQL-shape bug). The codegen path always
+  emits 1-based indices so production users are unaffected; the new
+  guard catches buggy hand-rolled `RawQuery` values and custom adapter
+  authors. Symmetric front-end concern to #546
+  (`expand_slice_placeholders` validation). (#551)
+
+### Added
+- **runtime**: `runtime.param_marker_checked/1` and
+  `runtime.slice_marker_checked/1` return
+  `Result(String, MarkerError)` instead of panicking. Use the checked
+  variants when `index` comes from a custom adapter or hand-rolled
+  `RawQuery` and the caller wants to surface bookkeeping mistakes
+  without crashing the process. Same shape as the existing
+  `expand_slice_placeholders_checked/4`. The new
+  `runtime.MarkerError` type carries the offending index in its
+  `MarkerIndexNonPositive(index)` variant. (#551)
+
 ## [0.23.0] - 2026-05-07
 
 ### Added
