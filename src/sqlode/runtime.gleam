@@ -151,6 +151,27 @@ pub fn expand_slice_placeholders(
   total_params: Int,
   style: PlaceholderStyle,
 ) -> String {
+  case validate_slices(slices, total_params) {
+    Ok(_) -> Nil
+    Error(SliceLengthNegative(index, length)) ->
+      panic as {
+        "sqlode.expand_slice_placeholders: slice length must be >= 0 (got index="
+        <> int.to_string(index)
+        <> ", length="
+        <> int.to_string(length)
+        <> ")"
+      }
+    Error(SliceIndexOutOfRange(index, total)) ->
+      panic as {
+        "sqlode.expand_slice_placeholders: slice index must be in 1.."
+        <> int.to_string(total)
+        <> " (got index="
+        <> int.to_string(index)
+        <> ", total_params="
+        <> int.to_string(total)
+        <> ")"
+      }
+  }
   let #(_, mapping) =
     int.range(
       from: 1,
@@ -203,5 +224,59 @@ fn render_placeholder(style: PlaceholderStyle, index: Int) -> String {
     DollarNumbered -> "$" <> int.to_string(index)
     QuestionNumbered -> "?" <> int.to_string(index)
     QuestionPositional -> "?"
+  }
+}
+
+/// Why `expand_slice_placeholders_checked` rejected its input.
+///
+/// - `SliceLengthNegative` covers a `slices` entry whose length is
+///   negative. Lengths must be `>= 0` (zero is permitted; the
+///   placeholder list collapses to `NULL` per the SQL `IN ()` rewrite
+///   convention).
+/// - `SliceIndexOutOfRange` covers a `slices` entry whose 1-based
+///   index falls outside `[1, total_params]`. Indices outside that
+///   window can never match the loop's `orig_idx` and are silently
+///   ignored otherwise.
+pub type ExpandError {
+  SliceLengthNegative(index: Int, length: Int)
+  SliceIndexOutOfRange(index: Int, total_params: Int)
+}
+
+/// Like `expand_slice_placeholders`, but returns the validation
+/// failure as a `Result` instead of panicking. Use this when `slices`
+/// or `total_params` come from a custom adapter / hand-rolled
+/// `RawQuery` and the caller wants to surface bookkeeping mistakes
+/// without crashing the process.
+///
+/// On success the returned string is identical to
+/// `expand_slice_placeholders(sql, slices, total_params, style)`.
+pub fn expand_slice_placeholders_checked(
+  sql: String,
+  slices: List(#(Int, Int)),
+  total_params: Int,
+  style: PlaceholderStyle,
+) -> Result(String, ExpandError) {
+  case validate_slices(slices, total_params) {
+    Error(e) -> Error(e)
+    Ok(_) -> Ok(expand_slice_placeholders(sql, slices, total_params, style))
+  }
+}
+
+fn validate_slices(
+  slices: List(#(Int, Int)),
+  total_params: Int,
+) -> Result(Nil, ExpandError) {
+  case slices {
+    [] -> Ok(Nil)
+    [#(idx, len), ..rest] ->
+      case len < 0 {
+        True -> Error(SliceLengthNegative(index: idx, length: len))
+        False ->
+          case idx < 1 || idx > total_params {
+            True ->
+              Error(SliceIndexOutOfRange(index: idx, total_params: total_params))
+            False -> validate_slices(rest, total_params)
+          }
+      }
   }
 }

@@ -105,6 +105,14 @@ error_context_lost = "off"
 # see the generated callers, so `unused_exports` would mis-flag them
 # as dead. The module is one of the three SemVer-tracked top-level
 # entry points listed in #520.
+#
+# `expand_slice_placeholders` also rejects malformed `slices` input
+# (negative length, index outside `[1, total_params]`) with a
+# structured panic. The silently-accepted invalid input would emit
+# broken SQL the engine can't parse, which is harder to diagnose than
+# a panic. Callers who need the non-panicking variant use
+# `expand_slice_placeholders_checked`.
 "src/sqlode/runtime.gleam" = [
   "unused_exports",
+  "avoid_panic",
 ]
