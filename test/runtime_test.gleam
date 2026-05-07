@@ -241,8 +241,12 @@ pub fn expand_slice_placeholders_checked_index_out_of_range_returns_error_test()
 }
 
 pub fn expand_slice_placeholders_checked_index_zero_returns_error_test() {
-  // 1-based indices: zero is out of range too.
-  let sql = "SELECT * FROM t WHERE id IN (" <> runtime.slice_marker(0) <> ")"
+  // 1-based indices: zero is out of range too. The marker constructor
+  // now panics on index < 1 (#551), so we hand-roll the marker literal
+  // here to exercise the validator surface — that is what would happen
+  // if a buggy adapter put `0` in the slices list while still emitting
+  // a valid 1-based marker in the SQL.
+  let sql = "SELECT * FROM t WHERE id IN (__sqlode_slice_0__)"
   let result =
     runtime.expand_slice_placeholders_checked(
       sql,
@@ -291,4 +295,88 @@ pub fn expand_slice_placeholders_checked_valid_slices_match_panicking_variant_te
       runtime.QuestionPositional,
     )
   checked |> should.equal(Ok(panicking))
+}
+
+// ---------------------------------------------------------------------------
+// param_marker / slice_marker reject non-1-based indices (#551).
+// The runtime expand step is keyed by 1-based positions; a `0` or
+// negative index would either round-trip to a syntactically broken SQL
+// string (the literal marker stays in place) or silently match an
+// unrelated marker (silent SQL-shape bug). The checked variants surface
+// the precondition as a `Result`; the panicking variants are exercised
+// indirectly through the codegen path which always emits 1-based
+// indices.
+// ---------------------------------------------------------------------------
+
+pub fn param_marker_accepts_one_test() {
+  // Boundary: index 1 is the smallest valid value.
+  runtime.param_marker(1) |> should.equal("__sqlode_param_1__")
+}
+
+pub fn slice_marker_accepts_one_test() {
+  runtime.slice_marker(1) |> should.equal("__sqlode_slice_1__")
+}
+
+pub fn param_marker_accepts_large_index_test() {
+  runtime.param_marker(99_999) |> should.equal("__sqlode_param_99999__")
+}
+
+pub fn slice_marker_accepts_large_index_test() {
+  runtime.slice_marker(99_999) |> should.equal("__sqlode_slice_99999__")
+}
+
+// --- _checked variants ---
+
+pub fn param_marker_checked_returns_error_for_zero_test() {
+  runtime.param_marker_checked(0)
+  |> should.equal(Error(runtime.MarkerIndexNonPositive(index: 0)))
+}
+
+pub fn param_marker_checked_returns_error_for_negative_test() {
+  runtime.param_marker_checked(-7)
+  |> should.equal(Error(runtime.MarkerIndexNonPositive(index: -7)))
+}
+
+pub fn slice_marker_checked_returns_error_for_zero_test() {
+  runtime.slice_marker_checked(0)
+  |> should.equal(Error(runtime.MarkerIndexNonPositive(index: 0)))
+}
+
+pub fn slice_marker_checked_returns_error_for_negative_test() {
+  runtime.slice_marker_checked(-42)
+  |> should.equal(Error(runtime.MarkerIndexNonPositive(index: -42)))
+}
+
+pub fn param_marker_checked_matches_panicking_variant_for_valid_indices_test() {
+  // For valid input the checked variant must produce byte-identical
+  // output to the panicking variant. Same invariant the equivalent
+  // expand_slice_placeholders_checked test pins.
+  runtime.param_marker_checked(1) |> should.equal(Ok(runtime.param_marker(1)))
+  runtime.param_marker_checked(5) |> should.equal(Ok(runtime.param_marker(5)))
+}
+
+pub fn slice_marker_checked_matches_panicking_variant_for_valid_indices_test() {
+  runtime.slice_marker_checked(1) |> should.equal(Ok(runtime.slice_marker(1)))
+  runtime.slice_marker_checked(9) |> should.equal(Ok(runtime.slice_marker(9)))
+}
+
+// --- Marker round-trips through expand_slice_placeholders for valid indices ---
+
+pub fn param_marker_round_trips_for_index_one_test() {
+  let sql = "SELECT * FROM t WHERE id = " <> runtime.param_marker(1)
+  let expanded =
+    runtime.expand_slice_placeholders(sql, [], 1, runtime.QuestionNumbered)
+  expanded |> should.equal("SELECT * FROM t WHERE id = ?1")
+}
+
+pub fn slice_marker_round_trips_for_index_one_test() {
+  let sql = "SELECT * FROM t WHERE id IN (" <> runtime.slice_marker(1) <> ")"
+  let expanded =
+    runtime.expand_slice_placeholders(
+      sql,
+      [#(1, 3)],
+      1,
+      runtime.QuestionNumbered,
+    )
+  expanded |> should.equal("SELECT * FROM t WHERE id IN (?1, ?2, ?3)")
 }

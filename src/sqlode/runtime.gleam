@@ -156,17 +156,85 @@ pub fn nullable(value: option.Option(a), encode: fn(a) -> Value) -> Value {
 }
 
 /// Marker prefix emitted by the generator for a regular `sqlode.arg` /
-/// `sqlode.narg` / `@name` parameter at the given 1-based index.
-/// Rendered into the final placeholder at runtime by `expand_slice_placeholders`.
+/// `sqlode.narg` / `@name` parameter at the given **1-based** index.
+/// Rendered into the final placeholder at runtime by
+/// `expand_slice_placeholders`.
+///
+/// Panics with
+/// `"sqlode.runtime.param_marker: index must be >= 1 (1-based) (got <n>)"`
+/// when `index < 1`. The runtime expand step is keyed by 1-based positions,
+/// so a `0` or negative index would either round-trip to a syntactically
+/// broken SQL string or silently match an unrelated marker — both
+/// constitute SQL-shape bugs. Use `param_marker_checked/1` instead when
+/// the caller wants to surface the precondition as a `Result` (for
+/// example, in a custom adapter that accepts user-supplied indices).
 pub fn param_marker(index: Int) -> String {
-  "__sqlode_param_" <> int.to_string(index) <> "__"
+  case index < 1 {
+    True ->
+      panic as {
+        "sqlode.runtime.param_marker: index must be >= 1 (1-based) (got "
+        <> int.to_string(index)
+        <> ")"
+      }
+    False -> "__sqlode_param_" <> int.to_string(index) <> "__"
+  }
 }
 
 /// Marker prefix emitted by the generator for a `sqlode.slice` parameter at
-/// the given 1-based index. Rendered into the expanded placeholder list at
-/// runtime by `expand_slice_placeholders`.
+/// the given **1-based** index. Rendered into the expanded placeholder list
+/// at runtime by `expand_slice_placeholders`.
+///
+/// Panics with
+/// `"sqlode.runtime.slice_marker: index must be >= 1 (1-based) (got <n>)"`
+/// when `index < 1`. Same reasoning as `param_marker/1`. Use
+/// `slice_marker_checked/1` instead when the caller wants to surface the
+/// precondition as a `Result`.
 pub fn slice_marker(index: Int) -> String {
-  "__sqlode_slice_" <> int.to_string(index) <> "__"
+  case index < 1 {
+    True ->
+      panic as {
+        "sqlode.runtime.slice_marker: index must be >= 1 (1-based) (got "
+        <> int.to_string(index)
+        <> ")"
+      }
+    False -> "__sqlode_slice_" <> int.to_string(index) <> "__"
+  }
+}
+
+/// Why `param_marker_checked` / `slice_marker_checked` rejected its input.
+///
+/// - `MarkerIndexNonPositive` — the supplied `index` is `<= 0`. Marker
+///   indices are 1-based; values below `1` would either fail to round-trip
+///   through `expand_slice_placeholders` (leaving the literal marker in
+///   the SQL → runtime SQL syntax error) or silently match an unrelated
+///   marker (silent SQL-shape bug). Same precondition as the panicking
+///   `param_marker/1` / `slice_marker/1` constructors.
+pub type MarkerError {
+  MarkerIndexNonPositive(index: Int)
+}
+
+/// Like `param_marker/1`, but returns the precondition failure as a
+/// `Result` instead of panicking. Use this when `index` comes from a
+/// custom adapter or hand-rolled `RawQuery` and the caller wants to
+/// surface bookkeeping mistakes without crashing the process. Same
+/// reasoning as `expand_slice_placeholders_checked` (#546).
+///
+/// On success the returned string is identical to `param_marker(index)`.
+pub fn param_marker_checked(index: Int) -> Result(String, MarkerError) {
+  case index < 1 {
+    True -> Error(MarkerIndexNonPositive(index: index))
+    False -> Ok("__sqlode_param_" <> int.to_string(index) <> "__")
+  }
+}
+
+/// Like `slice_marker/1`, but returns the precondition failure as a
+/// `Result` instead of panicking. Same shape and reasoning as
+/// `param_marker_checked/1`.
+pub fn slice_marker_checked(index: Int) -> Result(String, MarkerError) {
+  case index < 1 {
+    True -> Error(MarkerIndexNonPositive(index: index))
+    False -> Ok("__sqlode_slice_" <> int.to_string(index) <> "__")
+  }
 }
 
 /// Render a parameter marker into the final engine-specific placeholder.
