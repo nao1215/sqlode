@@ -205,3 +205,90 @@ pub fn expand_slice_placeholders_mysql_with_placeholder_literal_test() {
     "SELECT '? is a placeholder' AS note, id FROM t WHERE id IN (?, ?, ?)",
   )
 }
+
+// ---------------------------------------------------------------------------
+// Validation: malformed slices input must not silently produce broken
+// SQL. The panicking variant fails loudly; the `_checked` variant
+// surfaces the same condition as a typed error.
+// ---------------------------------------------------------------------------
+
+pub fn expand_slice_placeholders_checked_negative_length_returns_error_test() {
+  let sql = "SELECT * FROM t WHERE id IN (" <> runtime.slice_marker(1) <> ")"
+  let result =
+    runtime.expand_slice_placeholders_checked(
+      sql,
+      [#(1, -3)],
+      1,
+      runtime.QuestionPositional,
+    )
+  result
+  |> should.equal(Error(runtime.SliceLengthNegative(index: 1, length: -3)))
+}
+
+pub fn expand_slice_placeholders_checked_index_out_of_range_returns_error_test() {
+  let sql = "SELECT * FROM t WHERE id = " <> runtime.param_marker(1)
+  let result =
+    runtime.expand_slice_placeholders_checked(
+      sql,
+      [#(99, 2)],
+      1,
+      runtime.QuestionPositional,
+    )
+  result
+  |> should.equal(
+    Error(runtime.SliceIndexOutOfRange(index: 99, total_params: 1)),
+  )
+}
+
+pub fn expand_slice_placeholders_checked_index_zero_returns_error_test() {
+  // 1-based indices: zero is out of range too.
+  let sql = "SELECT * FROM t WHERE id IN (" <> runtime.slice_marker(0) <> ")"
+  let result =
+    runtime.expand_slice_placeholders_checked(
+      sql,
+      [#(0, 1)],
+      1,
+      runtime.QuestionPositional,
+    )
+  result
+  |> should.equal(
+    Error(runtime.SliceIndexOutOfRange(index: 0, total_params: 1)),
+  )
+}
+
+pub fn expand_slice_placeholders_checked_zero_length_collapses_to_null_test() {
+  // Length 0 is a legitimate degenerate case: expands to NULL so that
+  // `WHERE x IN (NULL)` evaluates to NULL (always-false). Validate this
+  // continues to work via the checked path.
+  let sql = "SELECT * FROM t WHERE id IN (" <> runtime.slice_marker(1) <> ")"
+  let result =
+    runtime.expand_slice_placeholders_checked(
+      sql,
+      [#(1, 0)],
+      1,
+      runtime.QuestionPositional,
+    )
+  result
+  |> should.equal(Ok("SELECT * FROM t WHERE id IN (NULL)"))
+}
+
+pub fn expand_slice_placeholders_checked_valid_slices_match_panicking_variant_test() {
+  // For valid input the checked variant must produce byte-identical
+  // output to the panicking variant.
+  let sql = "SELECT * FROM t WHERE id IN (" <> runtime.slice_marker(1) <> ")"
+  let panicking =
+    runtime.expand_slice_placeholders(
+      sql,
+      [#(1, 3)],
+      1,
+      runtime.QuestionPositional,
+    )
+  let checked =
+    runtime.expand_slice_placeholders_checked(
+      sql,
+      [#(1, 3)],
+      1,
+      runtime.QuestionPositional,
+    )
+  checked |> should.equal(Ok(panicking))
+}

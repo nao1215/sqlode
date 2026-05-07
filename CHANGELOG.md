@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **runtime**: `expand_slice_placeholders_checked` and the
+  `ExpandError` type (`SliceLengthNegative` / `SliceIndexOutOfRange`)
+  expose validation failures as a `Result` instead of panicking. Use
+  this from custom adapters or hand-rolled `RawQuery` consumers that
+  want to surface bookkeeping mistakes without crashing the process;
+  the codegen-driven path keeps using the panicking
+  `expand_slice_placeholders`. (#546)
+
+### Changed
+
+- **Breaking (runtime)**: `expand_slice_placeholders` now panics at
+  the start of the call when `slices` is malformed: a negative slice
+  length, or a slice index outside `[1, total_params]`. The previous
+  behaviour silently produced broken output — a negative length was
+  rounded to its absolute value and emitted that many placeholders,
+  while an out-of-range index left the corresponding
+  `__sqlode_slice_<idx>__` marker in the SQL for the engine to
+  reject. Failing visibly catches codegen / adapter bookkeeping
+  mistakes near their cause. The panic message names the offending
+  index and the bound that was violated. (#546)
+
 ## [0.22.0] - 2026-05-05
 
 ### Added
