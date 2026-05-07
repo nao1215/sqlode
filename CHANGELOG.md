@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **runtime**: `runtime.raw_query_for_test/7` — labelled-argument
+  helper for constructing a `RawQuery(p)` directly without going
+  through the codegen pipeline. Intended for custom-adapter authors
+  (in-memory test database, SQLite WASM, query-log middleware, ...)
+  and for property / regression tests against `prepare` /
+  `expand_slice_placeholders`. The README's new "Writing custom
+  adapters" section walks through the full pattern, and
+  `test/runtime_property_test.gleam` carries three worked examples
+  (single-param `SELECT`, three-style slice expansion, and the empty-
+  slice `IN (NULL)` rewrite). (#547)
 - **runtime**: `expand_slice_placeholders_checked` and the
   `ExpandError` type (`SliceLengthNegative` / `SliceIndexOutOfRange`)
   expose validation failures as a `Result` instead of panicking. Use

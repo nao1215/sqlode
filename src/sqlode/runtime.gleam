@@ -63,6 +63,44 @@ pub type RawQuery(p) {
   )
 }
 
+/// Construct a `RawQuery` directly. **Test-only**: production callers
+/// should always go through codegen-emitted `RawQuery` values, which
+/// `sqlode generate` produces from declarative SQL fixtures.
+///
+/// Use this helper when:
+///
+/// - writing a custom adapter (in-memory test database, SQLite WASM
+///   shim, query-log middleware, ...) that needs to exercise
+///   `prepare(query, params)` against a hand-rolled `RawQuery`
+///   without running the codegen pipeline; or
+/// - writing property / regression tests for the runtime surface
+///   (`prepare`, `expand_slice_placeholders`) without regenerating
+///   fixtures every time.
+///
+/// Behaviour is identical to invoking the `RawQuery(...)` constructor
+/// directly; the named helper exists so the intent (\"this is a
+/// hand-rolled RawQuery, not codegen output\") is obvious at the call
+/// site and discoverable via the docs.
+pub fn raw_query_for_test(
+  name name: String,
+  sql sql: String,
+  command command: QueryCommand,
+  param_count param_count: Int,
+  placeholder_style placeholder_style: PlaceholderStyle,
+  encode encode: fn(p) -> List(Value),
+  slice_info slice_info: fn(p) -> List(#(Int, Int)),
+) -> RawQuery(p) {
+  RawQuery(
+    name: name,
+    sql: sql,
+    command: command,
+    param_count: param_count,
+    placeholder_style: placeholder_style,
+    encode: encode,
+    slice_info: slice_info,
+  )
+}
+
 /// Prepare a raw query for execution by encoding parameters and expanding
 /// the engine-agnostic placeholder markers that the generator emits. The
 /// target placeholder dialect is read from `query.placeholder_style`, so
