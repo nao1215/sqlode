@@ -65,10 +65,12 @@ pub fn render_prepare_helpers_test() {
   let analyzed = analyzed_queries("test/fixtures/query.sql")
   let rendered = queries.render(naming_ctx, block, analyzed, dict.new(), False)
 
-  // Parameterised query — arg list mirrors the params record fields.
+  // Parameterised query — arg list uses same-name labels (#554) so
+  // callers can write `prepare_get_author(id: 5)` and still call
+  // positionally. Output must contain the labelled signature.
   string.contains(
     rendered,
-    "pub fn prepare_get_author(id: Int) -> #(String, List(runtime.Value)) {",
+    "pub fn prepare_get_author(id id: Int) -> #(String, List(runtime.Value)) {",
   )
   |> should.be_true()
   string.contains(rendered, "runtime.prepare(")

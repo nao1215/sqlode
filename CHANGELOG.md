@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **codegen**: generated `prepare_*` helpers now emit same-name
+  labelled arguments (`prepare_create_session(project project: String,
+  note note: String, ...)` etc.) so call sites can use the labelled
+  form (`prepare_create_session(project: "p", note: "n", ...)`) and
+  catch swapped multi-`String` arguments at compile time. Existing
+  positional callers continue to compile unchanged because Gleam
+  accepts both forms when every parameter has a label. The label name
+  is the column name from the source `.sql`. (#554)
+
 ## [0.24.0] - 2026-05-08
 
 ### Fixed
