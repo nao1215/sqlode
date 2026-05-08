@@ -275,10 +275,17 @@ fn render_prepare_function(
         "\n",
       )
     params -> {
+      // Emit same-name labels (`id id: Int`) so the call site can use
+      // `prepare_create_session(project: "p", note: "n", ...)` while
+      // remaining callable positionally for legacy callers (#554).
       let arg_list =
         params
         |> list.map(fn(p) {
-          p.field_name <> ": " <> param_arg_type(p, type_mapping)
+          p.field_name
+          <> " "
+          <> p.field_name
+          <> ": "
+          <> param_arg_type(p, type_mapping)
         })
         |> string.join(", ")
       let constructor_args =
