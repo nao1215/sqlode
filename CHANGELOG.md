@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-05-08
+
 ### Changed
 - **codegen**: generated `prepare_*` helpers now emit same-name
   labelled arguments (`prepare_create_session(project project: String,
