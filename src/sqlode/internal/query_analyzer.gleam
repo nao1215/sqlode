@@ -171,6 +171,20 @@ fn build_params(
   catalog: model.Catalog,
   occurrences: List(placeholder.PlaceholderOccurrence),
 ) -> Result(List(model.QueryParam), context.AnalysisError) {
+  // Issue #557: pre-flight check — every table the query references
+  // must exist in the schema catalog. Without this, a query that
+  // names a table not in `schema.sql` falls through every inferencer
+  // (column lookup returns `None`, the param is silently skipped) and
+  // surfaces only at the final pass as `ParameterTypeNotInferred` with
+  // an unhelpful CAST hint. Catching the missing table up front lets
+  // us point the user at the real cause: the table is not in the
+  // schema.
+  use _ <- result.try(check_referenced_tables_exist(
+    catalog,
+    query.name,
+    tokens,
+    statement,
+  ))
   use equality <- result.try(param_inferencer.infer_equality_params(
     ctx,
     engine,
@@ -278,6 +292,60 @@ fn build_params(
       is_list:,
     ))
   })
+}
+
+/// Issue #557: pre-flight check that every table the query references
+/// is in the schema catalog. Run before parameter inference so the
+/// user sees a `TableNotFound` diagnostic naming the missing table,
+/// not a downstream `ParameterTypeNotInferred` that points at a CAST
+/// fix that can't actually fix the underlying problem.
+///
+/// The check uses the structural IR (`SqlStatement`):
+///
+/// - `SelectStatement` walks the FROM/JOIN tokens via
+///   `extract_table_names` (the same shape `infer_equality_params`
+///   uses to set up the column-lookup scope).
+/// - `InsertStatement` / `UpdateStatement` / `DeleteStatement` use
+///   the IR-provided `table_name` only; the token extractor would
+///   pick up `display_name` from a MySQL `ON DUPLICATE KEY UPDATE
+///   display_name = …` clause as if `UPDATE` had introduced a table,
+///   surfacing as a false `TableNotFound` against perfectly
+///   well-formed upserts.
+/// - `UnstructuredStatement` skips the check entirely. The structurer
+///   gave up on this token stream, so any table-name extraction
+///   would be best-effort and risk false positives. The downstream
+///   `ParameterTypeNotInferred` path still applies for those cases;
+///   covering them too is a follow-up that needs a richer IR.
+///
+/// CTE-defined virtual tables are already merged into the catalog by
+/// `merge_virtual_tables` before `build_params` runs, so they are
+/// part of `catalog.tables` and pass this check.
+fn check_referenced_tables_exist(
+  catalog: model.Catalog,
+  query_name: String,
+  tokens: List(lexer.Token),
+  statement: query_ir.SqlStatement,
+) -> Result(Nil, context.AnalysisError) {
+  let referenced = case statement {
+    query_ir.InsertStatement(table_name:, ..) -> [table_name]
+    query_ir.UpdateStatement(table_name:, ..) -> [table_name]
+    query_ir.DeleteStatement(table_name:, ..) -> [table_name]
+    query_ir.SelectStatement(..) -> {
+      let main_tokens = token_utils.strip_leading_with(tokens)
+      token_utils.extract_table_names(main_tokens)
+    }
+    query_ir.UnstructuredStatement(..) -> []
+  }
+  case list.find(referenced, fn(name) { !table_in_catalog(catalog, name) }) {
+    Ok(missing) ->
+      Error(context.TableNotFound(query_name: query_name, table_name: missing))
+    Error(_) -> Ok(Nil)
+  }
+}
+
+fn table_in_catalog(catalog: model.Catalog, name: String) -> Bool {
+  let normalized = naming.normalize_identifier(name)
+  list.any(catalog.tables, fn(t) { t.name == normalized })
 }
 
 fn macro_index(m: model.Macro) -> Int {
