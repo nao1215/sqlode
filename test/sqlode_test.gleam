@@ -556,6 +556,14 @@ pub fn table_not_found_error_test() {
   query_analyzer_test.table_not_found_error_test()
 }
 
+pub fn table_not_found_takes_priority_over_parameter_type_test() {
+  query_analyzer_test.table_not_found_takes_priority_over_parameter_type_test()
+}
+
+pub fn table_not_found_insert_test() {
+  query_analyzer_test.table_not_found_insert_test()
+}
+
 pub fn analysis_error_to_string_table_not_found_test() {
   query_analyzer_test.analysis_error_to_string_table_not_found_test()
 }

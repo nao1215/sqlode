@@ -695,6 +695,69 @@ pub fn table_not_found_error_test() {
   result |> should.be_error()
 }
 
+// Issue #557: a query that references a missing table while binding a
+// placeholder against one of its columns must surface as `TableNotFound`,
+// not as the downstream `ParameterTypeNotInferred` (whose CAST hint
+// cannot fix the underlying problem).
+pub fn table_not_found_takes_priority_over_parameter_type_test() {
+  // The fixture catalog declares only `authors`; `bookmarks` is
+  // intentionally absent so the analyzer must reach the new
+  // pre-flight check rather than column-inference.
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: GetMissing :one\nSELECT id, name FROM bookmarks WHERE id = $1;"
+  let assert Ok(queries) =
+    query_parser.parse_file("missing.sql", model.PostgreSQL, naming_ctx, sql)
+  let result =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  case result {
+    Error(context.TableNotFound(
+      query_name: "GetMissing",
+      table_name: "bookmarks",
+    )) -> Nil
+    Error(other) -> {
+      let msg = query_analyzer.analysis_error_to_string(other, model.PostgreSQL)
+      panic as { "expected TableNotFound, got: " <> msg }
+    }
+    Ok(_) ->
+      panic as "expected TableNotFound, query analyzed cleanly against missing table"
+  }
+}
+
+// Issue #557: same priority for INSERT.
+pub fn table_not_found_insert_test() {
+  let naming_ctx = naming.new()
+  let catalog = test_catalog()
+  let sql =
+    "-- name: CreateMissing :exec\nINSERT INTO bookmarks (name) VALUES ($1);"
+  let assert Ok(queries) =
+    query_parser.parse_file("missing.sql", model.PostgreSQL, naming_ctx, sql)
+  let result =
+    query_analyzer.analyze_queries(
+      model.PostgreSQL,
+      catalog,
+      naming_ctx,
+      queries,
+    )
+  case result {
+    Error(context.TableNotFound(
+      query_name: "CreateMissing",
+      table_name: "bookmarks",
+    )) -> Nil
+    Error(other) -> {
+      let msg = query_analyzer.analysis_error_to_string(other, model.PostgreSQL)
+      panic as { "expected TableNotFound, got: " <> msg }
+    }
+    Ok(_) -> panic as "expected TableNotFound on INSERT INTO unknown table"
+  }
+}
+
 pub fn analysis_error_to_string_table_not_found_test() {
   let error = context.TableNotFound(query_name: "GetUsers", table_name: "users")
   let msg = query_analyzer.analysis_error_to_string(error, model.PostgreSQL)

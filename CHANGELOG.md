@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- **Schema/query mismatch now surfaces as `TableNotFound` instead of
+  the misleading `ParameterTypeNotInferred` "use CAST(?) AS INTEGER"
+  hint.** When a query references a table not in `schema.sql`,
+  `oaspec generate` previously failed type inference for the
+  WHERE-clause placeholder ("could not infer type for parameter ?N")
+  with a CAST suggestion that does not actually fix the underlying
+  problem. The analyzer now checks every table the query references
+  against the catalog before parameter inference runs and reports the
+  first missing table name. Covers SELECT (FROM/JOIN), INSERT INTO,
+  UPDATE, and DELETE; UnstructuredStatement (parser-internal fallback
+  for shapes the IR does not yet model) keeps the original behavior
+  to avoid false positives. (#557)
 - **`sqlode init` stub schema now adds `DEFAULT CURRENT_TIMESTAMP` to
   `created_at`** (across SQLite / MySQL / PostgreSQL templates) so the
   documented `init → generate → gleam run` happy path actually inserts
