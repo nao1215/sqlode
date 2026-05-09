@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Property-based tests using
+  [metamon](https://github.com/nao1215/metamon) covering the
+  `sqlode/runtime` value encoders / marker helpers and the
+  `sqlode/internal/naming` case converters. Lives in
+  `test/sqlode_metamon_test.gleam`. Highlights: `runtime.null` /
+  `string` / `int` / `bool` / `bytes` / `array` round-trip
+  through their `Sql*` constructors and preserve length;
+  `runtime.param_marker_checked` / `slice_marker_checked` accept
+  positive 1-based indices and surface
+  `MarkerIndexNonPositive(index:)` for zero / negative inputs;
+  the two markers have distinct prefixes so a swap at the call
+  site cannot produce a colliding identifier.
+  `naming.to_pascal_case` / `to_snake_case` are idempotent and
+  drop `_` / `-` / `.` separators; `to_snake_case` produces
+  lowercase output for alpha input;
+  `naming.normalize_identifier` is idempotent and lowercases
+  alpha input; `naming.singularize` is idempotent.
+
 ## [0.26.0] - 2026-05-09
 
 ### Fixed
