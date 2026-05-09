@@ -325,7 +325,10 @@ fn run_init(path: String, engine: String, runtime: String) -> Nil {
             Ok(Nil) ->
               case simplifile.write(path, template) {
                 Ok(_) -> {
-                  io.println("Created " <> path)
+                  // Issue #558: indent matches `create_stub_files`'s
+                  // "  Created ..." lines so the three creation lines
+                  // align in the user's terminal.
+                  io.println("  Created " <> path)
                   create_stub_files(parent_dir, engine)
                 }
                 Error(err) -> {
@@ -421,13 +424,20 @@ fn create_stub_files(base_dir: String, engine: String) -> Nil {
 }
 
 fn starter_schema(engine: String) -> String {
+  // Issue #558: every column NOT NULL in the schema must either accept
+  // a value from the stub query (`name`, `bio`) or supply a DEFAULT —
+  // otherwise `sqlode init` produces stubs whose first `gleam run`
+  // hits a NOT NULL constraint violation. `created_at` is filled in by
+  // the database, not by the application, so a `DEFAULT
+  // CURRENT_TIMESTAMP` makes the happy path work without forcing
+  // every caller of `CreateAuthor` to compute a timestamp.
   case engine {
     "sqlite" ->
       "CREATE TABLE authors (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
   bio TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 "
     "mysql" ->
@@ -435,7 +445,7 @@ fn starter_schema(engine: String) -> String {
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
   name TEXT NOT NULL,
   bio TEXT,
-  created_at DATETIME NOT NULL
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 "
     _ ->
@@ -443,7 +453,7 @@ fn starter_schema(engine: String) -> String {
   id BIGSERIAL PRIMARY KEY,
   name TEXT NOT NULL,
   bio TEXT,
-  created_at TIMESTAMP NOT NULL
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 "
   }

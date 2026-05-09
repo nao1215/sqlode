@@ -38,6 +38,30 @@ Describe 'sqlode CLI'
       The contents of file "$TEST_OUTPUT_DIR/sqlode.yaml" should include 'runtime: "native"'
       The contents of file "$TEST_OUTPUT_DIR/db/schema.sql" should include 'BIGINT AUTO_INCREMENT PRIMARY KEY'
     End
+
+    It 'sqlite stub schema gives created_at a DEFAULT CURRENT_TIMESTAMP (issue #558)'
+      # The stub CreateAuthor query only inserts name + bio; the created_at
+      # column must therefore have a DEFAULT so the generated insert does not
+      # hit a NOT NULL constraint violation on the first run.
+      When run init_cmd --output="$TEST_OUTPUT_DIR/sqlode.yaml" --engine=sqlite
+      The status should be success
+      The output should include 'Created'
+      The contents of file "$TEST_OUTPUT_DIR/db/schema.sql" should include 'created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP'
+    End
+
+    It 'mysql stub schema gives created_at a DEFAULT CURRENT_TIMESTAMP (issue #558)'
+      When run init_cmd --output="$TEST_OUTPUT_DIR/sqlode.yaml" --engine=mysql
+      The status should be success
+      The output should include 'Created'
+      The contents of file "$TEST_OUTPUT_DIR/db/schema.sql" should include 'created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP'
+    End
+
+    It 'postgresql stub schema gives created_at a DEFAULT CURRENT_TIMESTAMP (issue #558)'
+      When run init_cmd --output="$TEST_OUTPUT_DIR/sqlode.yaml" --engine=postgresql
+      The status should be success
+      The output should include 'Created'
+      The contents of file "$TEST_OUTPUT_DIR/db/schema.sql" should include 'created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP'
+    End
   End
 
   Describe 'generate command'

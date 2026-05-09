@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- **`sqlode init` stub schema now adds `DEFAULT CURRENT_TIMESTAMP` to
+  `created_at`** (across SQLite / MySQL / PostgreSQL templates) so the
+  documented `init → generate → gleam run` happy path actually inserts
+  one row. Previously the stub schema declared
+  `created_at TEXT NOT NULL` (or DATETIME / TIMESTAMP) without a default
+  while the stub `CreateAuthor` query only set `name` and `bio` — the
+  first call to the generated `create_author` failed with a
+  `ConstraintNotnull` violation. Adding `DEFAULT CURRENT_TIMESTAMP`
+  matches the column's intent (filled by the database, not the
+  application) and is uniform across the three engines. (#558)
+- **`sqlode init` log indent**: the first "Created …" line now uses the
+  same two-space indent as the schema/query lines below it, so the three
+  paths align in the user's terminal. (#558)
+
 ## [0.25.0] - 2026-05-08
 
 ### Changed
