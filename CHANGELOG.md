@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-05-11
+
 ### Fixed
 
 - `runtime.expand_slice_placeholders_checked` no longer panics for
