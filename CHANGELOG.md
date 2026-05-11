@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `runtime.expand_slice_placeholders_checked` no longer panics for
+  `total_params < 0`. Pre-fix the `_checked` variant validated `slices`
+  but forwarded a negative `total_params` to
+  `expand_slice_placeholders`, where the `int.range` loop reached
+  `param_marker(0)` and crashed the process (the post-#551 hardening
+  rejects index 0 on the marker constructor). The validator now
+  rejects negative `total_params` upstream with a new
+  `TotalParamsNegative` variant on `ExpandError`, restoring the
+  `_checked` naming contract that no user input ever panics. The
+  non-checked `expand_slice_placeholders` still panics on the same
+  input but with a clearer message that names the offending value
+  and points callers at the `_checked` variant. (#565)
+
 ## [0.27.0] - 2026-05-10
 
 ### Added
