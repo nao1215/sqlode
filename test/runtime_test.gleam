@@ -260,6 +260,24 @@ pub fn expand_slice_placeholders_checked_index_zero_returns_error_test() {
   )
 }
 
+pub fn expand_slice_placeholders_checked_negative_total_params_returns_error_test() {
+  // Issue #565: total_params < 0 must surface as Error rather than
+  // panicking through the int.range loop inside
+  // expand_slice_placeholders (which calls param_marker(0), banned
+  // post-#551). The `_checked` variant's promise is "no panic on
+  // user input"; this pins the boundary at total_params = -2 from
+  // the reproduction.
+  let result =
+    runtime.expand_slice_placeholders_checked(
+      "",
+      [],
+      -2,
+      runtime.QuestionNumbered,
+    )
+  result
+  |> should.equal(Error(runtime.TotalParamsNegative(total_params: -2)))
+}
+
 pub fn expand_slice_placeholders_checked_zero_length_collapses_to_null_test() {
   // Length 0 is a legitimate degenerate case: expands to NULL so that
   // `WHERE x IN (NULL)` evaluates to NULL (always-false). Validate this

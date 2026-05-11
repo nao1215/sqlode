@@ -277,6 +277,12 @@ pub fn expand_slice_placeholders(
         <> int.to_string(total)
         <> ")"
       }
+    Error(TotalParamsNegative(total)) ->
+      panic as {
+        "sqlode.expand_slice_placeholders: total_params must be >= 0 (got "
+        <> int.to_string(total)
+        <> "). Use expand_slice_placeholders_checked for a Result-returning variant. (#565)"
+      }
   }
   let #(_, mapping) =
     int.range(
@@ -343,9 +349,14 @@ fn render_placeholder(style: PlaceholderStyle, index: Int) -> String {
 ///   index falls outside `[1, total_params]`. Indices outside that
 ///   window can never match the loop's `orig_idx` and are silently
 ///   ignored otherwise.
+/// - `TotalParamsNegative` covers a `total_params` that is below 0.
+///   Parameter counts cannot be negative; without this check the
+///   `int.range` loop in `expand_slice_placeholders` would call
+///   `param_marker(0)`, which panics post-#551. (#565)
 pub type ExpandError {
   SliceLengthNegative(index: Int, length: Int)
   SliceIndexOutOfRange(index: Int, total_params: Int)
+  TotalParamsNegative(total_params: Int)
 }
 
 /// Like `expand_slice_placeholders`, but returns the validation
@@ -362,13 +373,27 @@ pub fn expand_slice_placeholders_checked(
   total_params: Int,
   style: PlaceholderStyle,
 ) -> Result(String, ExpandError) {
-  case validate_slices(slices, total_params) {
-    Error(e) -> Error(e)
-    Ok(_) -> Ok(expand_slice_placeholders(sql, slices, total_params, style))
+  case total_params < 0 {
+    True -> Error(TotalParamsNegative(total_params: total_params))
+    False ->
+      case validate_slices(slices, total_params) {
+        Error(e) -> Error(e)
+        Ok(_) -> Ok(expand_slice_placeholders(sql, slices, total_params, style))
+      }
   }
 }
 
 fn validate_slices(
+  slices: List(#(Int, Int)),
+  total_params: Int,
+) -> Result(Nil, ExpandError) {
+  case total_params < 0 {
+    True -> Error(TotalParamsNegative(total_params: total_params))
+    False -> validate_slice_entries(slices, total_params)
+  }
+}
+
+fn validate_slice_entries(
   slices: List(#(Int, Int)),
   total_params: Int,
 ) -> Result(Nil, ExpandError) {
@@ -381,7 +406,7 @@ fn validate_slices(
           case idx < 1 || idx > total_params {
             True ->
               Error(SliceIndexOutOfRange(index: idx, total_params: total_params))
-            False -> validate_slices(rest, total_params)
+            False -> validate_slice_entries(rest, total_params)
           }
       }
   }
