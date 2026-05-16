@@ -28,7 +28,7 @@ pub fn raw_query_minimal_prepare_test() {
     )
   let #(sql, values) = runtime.prepare(query, 42)
   sql |> should.equal("SELECT * FROM users WHERE id = $1")
-  values |> should.equal([runtime.SqlInt(42)])
+  values |> should.equal([runtime.Int(42)])
 }
 
 // ---------------------------------------------------------------------------

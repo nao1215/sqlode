@@ -140,13 +140,13 @@ fn sqlight_adapter_config() -> AdapterConfig {
 fn pog_value_to_driver_helper() -> String {
   "fn value_to_pog(value: runtime.Value) -> pog.Value {
   case value {
-    runtime.SqlNull -> pog.null()
-    runtime.SqlString(v) -> pog.text(v)
-    runtime.SqlInt(v) -> pog.int(v)
-    runtime.SqlFloat(v) -> pog.float(v)
-    runtime.SqlBool(v) -> pog.bool(v)
-    runtime.SqlBytes(v) -> pog.bytea(v)
-    runtime.SqlArray(vs) -> pog.array(value_to_pog, vs)
+    runtime.Null -> pog.null()
+    runtime.String(v) -> pog.text(v)
+    runtime.Int(v) -> pog.int(v)
+    runtime.Float(v) -> pog.float(v)
+    runtime.Bool(v) -> pog.bool(v)
+    runtime.Bytes(v) -> pog.bytea(v)
+    runtime.Array(vs) -> pog.array(value_to_pog, vs)
   }
 }"
 }
@@ -154,13 +154,13 @@ fn pog_value_to_driver_helper() -> String {
 fn sqlight_value_to_driver_helper() -> String {
   "fn value_to_sqlight(value: runtime.Value) -> sqlight.Value {
   case value {
-    runtime.SqlNull -> sqlight.null()
-    runtime.SqlString(v) -> sqlight.text(v)
-    runtime.SqlInt(v) -> sqlight.int(v)
-    runtime.SqlFloat(v) -> sqlight.float(v)
-    runtime.SqlBool(v) -> sqlight.bool(v)
-    runtime.SqlBytes(v) -> sqlight.blob(v)
-    runtime.SqlArray(_) -> panic as \"SqlArray is not supported in the SQLite native adapter. Use raw runtime for array parameters, or ensure sqlode.slice() values are expanded before reaching value_to_sqlight.\"
+    runtime.Null -> sqlight.null()
+    runtime.String(v) -> sqlight.text(v)
+    runtime.Int(v) -> sqlight.int(v)
+    runtime.Float(v) -> sqlight.float(v)
+    runtime.Bool(v) -> sqlight.bool(v)
+    runtime.Bytes(v) -> sqlight.blob(v)
+    runtime.Array(_) -> panic as \"Array is not supported in the SQLite native adapter. Use raw runtime for array parameters, or ensure sqlode.slice() values are expanded before reaching value_to_sqlight.\"
   }
 }"
 }
@@ -197,10 +197,10 @@ fn shork_adapter_config() -> AdapterConfig {
 /// (the same underlying identity FFI that `shork.text` and friends
 /// dispatch through) and pass `BitArray` parameters through unchanged.
 /// The Erlang `mysql` library underneath stores them as `BLOB` /
-/// `BINARY` byte-for-byte. `SqlArray` still resolves to NULL because
+/// `BINARY` byte-for-byte. `Array` still resolves to NULL because
 /// MySQL has no first-class array type.
 ///
-/// `SqlBool` is encoded as `shork.int(1 | 0)` rather than
+/// `Bool` is encoded as `shork.int(1 | 0)` rather than
 /// `shork.bool(...)`. The Erlang `mysql` library expects integers 1/0
 /// on the wire for `TINYINT(1)` / `BOOLEAN` columns; passing the
 /// Gleam `True` / `False` atoms verbatim (which is what `shork.bool`
@@ -212,14 +212,14 @@ fn bit_array_to_shork(value: BitArray) -> shork.Value
 
 fn value_to_shork(value: runtime.Value) -> shork.Value {
   case value {
-    runtime.SqlNull -> shork.null()
-    runtime.SqlString(v) -> shork.text(v)
-    runtime.SqlInt(v) -> shork.int(v)
-    runtime.SqlFloat(v) -> shork.float(v)
-    runtime.SqlBool(True) -> shork.int(1)
-    runtime.SqlBool(False) -> shork.int(0)
-    runtime.SqlBytes(v) -> bit_array_to_shork(v)
-    runtime.SqlArray(_) -> panic as \"SqlArray is not supported in the MySQL native adapter. Use raw runtime for array parameters, or ensure sqlode.slice() values are expanded before reaching value_to_shork.\"
+    runtime.Null -> shork.null()
+    runtime.String(v) -> shork.text(v)
+    runtime.Int(v) -> shork.int(v)
+    runtime.Float(v) -> shork.float(v)
+    runtime.Bool(True) -> shork.int(1)
+    runtime.Bool(False) -> shork.int(0)
+    runtime.Bytes(v) -> bit_array_to_shork(v)
+    runtime.Array(_) -> panic as \"Array is not supported in the MySQL native adapter. Use raw runtime for array parameters, or ensure sqlode.slice() values are expanded before reaching value_to_shork.\"
   }
 }"
 }

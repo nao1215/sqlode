@@ -8,49 +8,47 @@ pub fn main() {
 }
 
 pub fn null_value_test() {
-  runtime.null() |> should.equal(runtime.SqlNull)
+  runtime.null() |> should.equal(runtime.Null)
 }
 
 pub fn string_value_test() {
-  runtime.string("hello") |> should.equal(runtime.SqlString("hello"))
+  runtime.string("hello") |> should.equal(runtime.String("hello"))
 }
 
 pub fn int_value_test() {
-  runtime.int(42) |> should.equal(runtime.SqlInt(42))
+  runtime.int(42) |> should.equal(runtime.Int(42))
 }
 
 pub fn float_value_test() {
-  runtime.float(3.14) |> should.equal(runtime.SqlFloat(3.14))
+  runtime.float(3.14) |> should.equal(runtime.Float(3.14))
 }
 
 pub fn bool_value_test() {
-  runtime.bool(True) |> should.equal(runtime.SqlBool(True))
-  runtime.bool(False) |> should.equal(runtime.SqlBool(False))
+  runtime.bool(True) |> should.equal(runtime.Bool(True))
+  runtime.bool(False) |> should.equal(runtime.Bool(False))
 }
 
 pub fn bytes_value_test() {
-  runtime.bytes(<<1, 2, 3>>) |> should.equal(runtime.SqlBytes(<<1, 2, 3>>))
+  runtime.bytes(<<1, 2, 3>>) |> should.equal(runtime.Bytes(<<1, 2, 3>>))
 }
 
 pub fn array_value_test() {
   runtime.array([runtime.string("a"), runtime.string("b")])
-  |> should.equal(
-    runtime.SqlArray([runtime.SqlString("a"), runtime.SqlString("b")]),
-  )
+  |> should.equal(runtime.Array([runtime.String("a"), runtime.String("b")]))
 }
 
 pub fn array_empty_test() {
   runtime.array([])
-  |> should.equal(runtime.SqlArray([]))
+  |> should.equal(runtime.Array([]))
 }
 
 pub fn array_nested_types_test() {
   runtime.array([runtime.int(1), runtime.int(2), runtime.int(3)])
   |> should.equal(
-    runtime.SqlArray([
-      runtime.SqlInt(1),
-      runtime.SqlInt(2),
-      runtime.SqlInt(3),
+    runtime.Array([
+      runtime.Int(1),
+      runtime.Int(2),
+      runtime.Int(3),
     ]),
   )
 }
@@ -68,7 +66,7 @@ pub fn prepare_no_slices_test() {
     )
   let #(sql, values) = runtime.prepare(query, Nil)
   sql |> should.equal("SELECT * FROM users WHERE id = $1")
-  values |> should.equal([runtime.SqlInt(42)])
+  values |> should.equal([runtime.Int(42)])
 }
 
 pub fn prepare_with_slices_test() {
@@ -85,7 +83,7 @@ pub fn prepare_with_slices_test() {
   let #(sql, values) = runtime.prepare(query, [10, 20, 30])
   sql |> should.equal("SELECT * FROM users WHERE id IN ($1, $2, $3)")
   values
-  |> should.equal([runtime.SqlInt(10), runtime.SqlInt(20), runtime.SqlInt(30)])
+  |> should.equal([runtime.Int(10), runtime.Int(20), runtime.Int(30)])
 }
 
 pub fn prepare_mixed_params_test() {
@@ -106,9 +104,9 @@ pub fn prepare_mixed_params_test() {
   |> should.equal("SELECT * FROM users WHERE name = $1 AND id IN ($2, $3)")
   values
   |> should.equal([
-    runtime.SqlString("Alice"),
-    runtime.SqlInt(1),
-    runtime.SqlInt(2),
+    runtime.String("Alice"),
+    runtime.Int(1),
+    runtime.Int(2),
   ])
 }
 

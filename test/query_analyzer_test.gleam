@@ -3047,7 +3047,7 @@ SELECT t.id FROM (SELECT id FROM authors) AS t;"
 //
 //   1. Infer parameter types from BLOB columns just like it does
 //      for INTEGER / TEXT — the storage class maps cleanly to
-//      sqlode's `BytesType` / runtime `SqlBytes`.
+//      sqlode's `BytesType` / runtime `Bytes`.
 //   2. Treat `CAST(? AS <type>)` in a VALUES slot as a placeholder
 //      that consumes a parameter position. Previously the
 //      `infer_insert_params` walker only matched a bare

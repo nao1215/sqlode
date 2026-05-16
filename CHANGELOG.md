@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING**: `sqlode/runtime.Value` variants drop the `Sql` prefix: `SqlNull` → `Null`, `SqlString` → `String`, `SqlInt` → `Int`, `SqlFloat` → `Float`, `SqlBool` → `Bool`, `SqlBytes` → `Bytes`, `SqlArray` → `Array`. The prefix repeated information already encoded in the package and module name (`sqlode/runtime`); every pattern match against the type carried it on every arm. Fully-qualified call sites read `runtime.Int` / `runtime.String` now, which lines up with the wording of the underlying driver primitives (`sqlight.text`, `sqlight.int`, ...). Callers who hold codegen-emitted adapter code that pattern-matches `runtime.Sql*` will need to regenerate it after upgrading — the bundled `pog` / `sqlight` / `shork` value adapter templates have already been migrated to the new names so the next `sqlode generate` produces matching output. (#570)
+
 ### Added
 
 - `sqlode/runtime.raw_query/7`: the same hand-rolled `RawQuery` constructor previously named `raw_query_for_test/7`, without the suffix that made library-mode callers think the helper was test-only. Behaviour is identical; the rename is purely a discoverability fix for callers using `sqlode/runtime` as a library (no escript, no `sqlode generate` codegen). Production callers who run codegen continue to use the `RawQuery` values `sqlode generate` produces from declarative SQL fixtures. (#569)
