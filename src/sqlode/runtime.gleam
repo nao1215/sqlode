@@ -34,12 +34,24 @@ pub type QueryInfo {
 
 /// Placeholder style used by the target database driver.
 ///
-/// - `DollarNumbered` — PostgreSQL style: `$1`, `$2`, ...
-/// - `QuestionNumbered` — SQLite style: `?1`, `?2`, ...
-/// - `QuestionPositional` — MySQL style: bare `?` (matched by position)
+/// SQLite accepts both `?1`-style and bare-`?`-style placeholders, so
+/// the engine column below marks both rows ✓ for sqlite. Pick the
+/// variant whose syntax matches the query strings your codegen — or
+/// hand-rolled SQL — actually emits.
+///
+/// | Variant              | Syntax        | PostgreSQL | MySQL | SQLite |
+/// | -------------------- | ------------- | ---------- | ----- | ------ |
+/// | `DollarNumbered`     | `$1`, `$2`, … | ✓          | —     | —      |
+/// | `QuestionNumbered`   | `?1`, `?2`, … | —          | —     | ✓      |
+/// | `QuestionPositional` | bare `?`      | —          | ✓     | ✓      |
 pub type PlaceholderStyle {
+  /// PostgreSQL: `$1`, `$2`, … Indices are 1-based and explicit.
   DollarNumbered
+  /// SQLite numbered form: `?1`, `?2`, … Indices are 1-based and
+  /// explicit. PostgreSQL and MySQL do not accept this syntax.
   QuestionNumbered
+  /// Bare `?` matched by position. Used by both MySQL and SQLite.
+  /// PostgreSQL does not accept this syntax.
   QuestionPositional
 }
 

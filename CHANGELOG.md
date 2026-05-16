@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Documentation
+
+- `sqlode/runtime.PlaceholderStyle`: docstring expanded with an engine-mapping table that pairs each variant with the databases that accept its syntax (PostgreSQL / MySQL / SQLite). The previous docstring framed `QuestionPositional` as MySQL-only, so SQLite users landing on the variant list saw no clearly-labelled sqlite option even though bare `?` is the canonical SQLite placeholder. Per-variant doc-comments also call out which engines accept (or reject) each syntax. (#572)
+
 ## [0.28.0] - 2026-05-11
 
 ### Fixed
