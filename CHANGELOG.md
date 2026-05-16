@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-05-16
+
 ### Documentation
 
 - README quick-start now passes `--runtime=native` to `sqlode init` and explains the choice next to the `--engine` flag. The flag was already wired in the CLI but the README still showed the bare `--engine=sqlite` form, so first-time users had to either accept the default `runtime: "raw"` or edit `sqlode.yaml` post-init to opt into the typed adapter output. Surfacing the flag at the moment of engine selection removes the post-edit step. The CLI usage block further down also lists `[--engine=...] [--runtime=...]` so the discoverability story is consistent. (#568)
