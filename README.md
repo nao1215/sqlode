@@ -22,8 +22,16 @@ escript install — just `gleam` and `sqlode` as a dependency.
 gleam new myapp
 cd myapp
 gleam add sqlode sqlight
-gleam run -m sqlode -- init --engine=sqlite
+gleam run -m sqlode -- init --engine=sqlite --runtime=native
 ```
+
+`--runtime=native` (default: `raw`) opts into the strongly-typed adapter
+output — the recommended choice for new projects on any engine. Drop
+the flag, or pass `--runtime=raw`, to keep the runtime-tagged
+`runtime.Value` shape (useful when you want to hand-roll your adapter
+or interleave queries from multiple drivers). Either way, the choice
+is baked into the `sqlode.yaml` that `init` writes; you no longer have
+to edit the file before the first `generate`.
 
 Edit the generated `db/schema.sql` and `db/query.sql` (the `init` stubs
 already compile, so it is fine to leave them as-is for the first run):
@@ -858,12 +866,12 @@ gen:
 # Standalone escript
 sqlode generate [--config=./sqlode.yaml]
 sqlode verify   [--config=./sqlode.yaml]
-sqlode init     [--output=./sqlode.yaml]
+sqlode init     [--output=./sqlode.yaml] [--engine=postgresql|sqlite|mysql] [--runtime=raw|native]
 
 # Via Gleam
 gleam run -m sqlode -- generate [--config=./sqlode.yaml]
 gleam run -m sqlode -- verify   [--config=./sqlode.yaml]
-gleam run -m sqlode -- init     [--output=./sqlode.yaml]
+gleam run -m sqlode -- init     [--output=./sqlode.yaml] [--engine=postgresql|sqlite|mysql] [--runtime=raw|native]
 ```
 
 ### `sqlode verify`
