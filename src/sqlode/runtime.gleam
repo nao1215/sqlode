@@ -75,12 +75,17 @@ pub type RawQuery(p) {
   )
 }
 
-/// Construct a `RawQuery` directly. **Test-only**: production callers
-/// should always go through codegen-emitted `RawQuery` values, which
-/// `sqlode generate` produces from declarative SQL fixtures.
+/// Construct a `RawQuery` directly. Behaviour is identical to
+/// invoking the `RawQuery(...)` constructor; the named helper exists
+/// so the intent ("this is a hand-rolled `RawQuery`, not codegen
+/// output") is obvious at the call site and discoverable via the
+/// docs.
 ///
 /// Use this helper when:
 ///
+/// - using `sqlode/runtime` as a library, bypassing `sqlode generate`
+///   codegen for hand-rolled queries that live next to your handler
+///   code;
 /// - writing a custom adapter (in-memory test database, SQLite WASM
 ///   shim, query-log middleware, ...) that needs to exercise
 ///   `prepare(query, params)` against a hand-rolled `RawQuery`
@@ -89,11 +94,11 @@ pub type RawQuery(p) {
 ///   (`prepare`, `expand_slice_placeholders`) without regenerating
 ///   fixtures every time.
 ///
-/// Behaviour is identical to invoking the `RawQuery(...)` constructor
-/// directly; the named helper exists so the intent (\"this is a
-/// hand-rolled RawQuery, not codegen output\") is obvious at the call
-/// site and discoverable via the docs.
-pub fn raw_query_for_test(
+/// Production callers who run codegen should keep using the
+/// `RawQuery` values `sqlode generate` produces from declarative SQL
+/// fixtures — they pin the SQL string and parameter shape next to the
+/// schema, which this helper does not.
+pub fn raw_query(
   name name: String,
   sql sql: String,
   command command: QueryCommand,
@@ -103,6 +108,32 @@ pub fn raw_query_for_test(
   slice_info slice_info: fn(p) -> List(#(Int, Int)),
 ) -> RawQuery(p) {
   RawQuery(
+    name: name,
+    sql: sql,
+    command: command,
+    param_count: param_count,
+    placeholder_style: placeholder_style,
+    encode: encode,
+    slice_info: slice_info,
+  )
+}
+
+/// Deprecated alias for `raw_query/7`. The `_for_test` suffix
+/// discouraged library-mode callers from using the only sanctioned
+/// non-constructor path even though library use is exactly what the
+/// helper was built for. `raw_query/7` carries the same behaviour
+/// without the suffix.
+@deprecated("Use `runtime.raw_query` instead. The `_for_test` suffix discouraged library-mode callers even though library use is exactly what the helper was built for.")
+pub fn raw_query_for_test(
+  name name: String,
+  sql sql: String,
+  command command: QueryCommand,
+  param_count param_count: Int,
+  placeholder_style placeholder_style: PlaceholderStyle,
+  encode encode: fn(p) -> List(Value),
+  slice_info slice_info: fn(p) -> List(#(Int, Int)),
+) -> RawQuery(p) {
+  raw_query(
     name: name,
     sql: sql,
     command: command,
