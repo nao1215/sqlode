@@ -1,4 +1,4 @@
-//// Worked examples of `runtime.raw_query_for_test` in use. Custom-adapter
+//// Worked examples of `runtime.raw_query` in use. Custom-adapter
 //// authors and property-test authors can lift the patterns here directly.
 ////
 //// The helper is identical to invoking the `RawQuery(...)` constructor;
@@ -15,9 +15,9 @@ import sqlode/runtime
 // `prepare` to obtain the final SQL and value list.
 // ---------------------------------------------------------------------------
 
-pub fn raw_query_for_test_minimal_prepare_test() {
+pub fn raw_query_minimal_prepare_test() {
   let query =
-    runtime.raw_query_for_test(
+    runtime.raw_query(
       name: "GetUser",
       sql: "SELECT * FROM users WHERE id = " <> runtime.param_marker(1),
       command: runtime.QueryOne,
@@ -37,9 +37,9 @@ pub fn raw_query_for_test_minimal_prepare_test() {
 // guarantees: same slice metadata, three different on-the-wire shapes.
 // ---------------------------------------------------------------------------
 
-pub fn raw_query_for_test_across_placeholder_styles_test() {
+pub fn raw_query_across_placeholder_styles_test() {
   let make_query = fn(style) {
-    runtime.raw_query_for_test(
+    runtime.raw_query(
       name: "GetByIds",
       sql: "SELECT * FROM users WHERE id IN (" <> runtime.slice_marker(1) <> ")",
       command: runtime.QueryMany,
@@ -68,9 +68,9 @@ pub fn raw_query_for_test_across_placeholder_styles_test() {
 // `IN (NULL)` rewrite without going through the codegen pipeline.
 // ---------------------------------------------------------------------------
 
-pub fn raw_query_for_test_zero_length_slice_collapses_to_null_test() {
+pub fn raw_query_zero_length_slice_collapses_to_null_test() {
   let query =
-    runtime.raw_query_for_test(
+    runtime.raw_query(
       name: "GetByIds",
       sql: "SELECT * FROM users WHERE id IN (" <> runtime.slice_marker(1) <> ")",
       command: runtime.QueryMany,

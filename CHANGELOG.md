@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `sqlode/runtime.raw_query/7`: the same hand-rolled `RawQuery` constructor previously named `raw_query_for_test/7`, without the suffix that made library-mode callers think the helper was test-only. Behaviour is identical; the rename is purely a discoverability fix for callers using `sqlode/runtime` as a library (no escript, no `sqlode generate` codegen). Production callers who run codegen continue to use the `RawQuery` values `sqlode generate` produces from declarative SQL fixtures. (#569)
+
+### Deprecated
+
+- `sqlode/runtime.raw_query_for_test/7`: now a `@deprecated` thin alias of `raw_query/7`. The `_for_test` suffix discouraged the only sanctioned non-constructor path from library-mode use, which was the friction reported in the issue. Callers see the deprecation warning at their own call site and migrate at their own pace. (#569)
+
 ### Documentation
 
 - `sqlode/runtime.PlaceholderStyle`: docstring expanded with an engine-mapping table that pairs each variant with the databases that accept its syntax (PostgreSQL / MySQL / SQLite). The previous docstring framed `QuestionPositional` as MySQL-only, so SQLite users landing on the variant list saw no clearly-labelled sqlite option even though bare `?` is the canonical SQLite placeholder. Per-variant doc-comments also call out which engines accept (or reject) each syntax. (#572)
