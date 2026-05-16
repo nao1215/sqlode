@@ -332,7 +332,7 @@ fn param_arg_type(
 
 fn has_result_columns(query: model.AnalyzedQuery) -> Bool {
   case query.base.command {
-    runtime.QueryOne | runtime.QueryMany -> !list.is_empty(query.result_columns)
+    runtime.One | runtime.Many -> !list.is_empty(query.result_columns)
     _ -> False
   }
 }

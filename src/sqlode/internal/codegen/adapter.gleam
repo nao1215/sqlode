@@ -324,11 +324,11 @@ fn render_adapter_function(
 
   comment
   <> case query.base.command {
-    runtime.QueryOne | runtime.QueryBatchOne ->
+    runtime.One | runtime.BatchOne ->
       render_adapter_one(ctx, query, fn_name, has_params)
-    runtime.QueryMany | runtime.QueryBatchMany ->
+    runtime.Many | runtime.BatchMany ->
       render_adapter_many(ctx, query, fn_name, has_params)
-    runtime.QueryExec | runtime.QueryBatchExec | runtime.QueryCopyFrom ->
+    runtime.Exec | runtime.BatchExec | runtime.CopyFrom ->
       render_adapter_exec(
         ctx.naming_ctx,
         query,
@@ -336,7 +336,7 @@ fn render_adapter_function(
         has_params,
         ctx.config,
       )
-    runtime.QueryExecResult ->
+    runtime.ExecResult ->
       render_adapter_exec(
         ctx.naming_ctx,
         query,
@@ -344,7 +344,7 @@ fn render_adapter_function(
         has_params,
         ctx.config,
       )
-    runtime.QueryExecRows ->
+    runtime.ExecRows ->
       render_adapter_exec_rows(
         ctx.naming_ctx,
         query,
@@ -352,7 +352,7 @@ fn render_adapter_function(
         has_params,
         ctx.config,
       )
-    runtime.QueryExecLastId ->
+    runtime.ExecLastId ->
       render_adapter_exec_last_id(
         ctx.naming_ctx,
         query,
@@ -1073,9 +1073,9 @@ fn render_first_or_default(
 /// Emit a `gleam/option` import line tailored to what the generated
 /// adapter actually references. The `Option` type is needed
 /// whenever any param / result column is nullable or whenever any
-/// query is `QueryOne` / `QueryBatchOne` (the wrapper returns
+/// query is `One` / `BatchOne` (the wrapper returns
 /// `Option(Row)`); the `None` / `Some` constructors are only
-/// referenced by the `QueryOne` / `QueryBatchOne` row-list match
+/// referenced by the `One` / `BatchOne` row-list match
 /// (`[row, ..] -> Some(row)` / `[] -> None`). Pulling unused
 /// constructors into the import trips `gleam build`'s unused-import
 /// warnings under `warnings_as_errors`, which downstream users
@@ -1119,6 +1119,5 @@ fn adapter_needs_option_constructors(queries: List(model.AnalyzedQuery)) -> Bool
 }
 
 fn adapter_query_uses_option_constructors(query: model.AnalyzedQuery) -> Bool {
-  query.base.command == runtime.QueryOne
-  || query.base.command == runtime.QueryBatchOne
+  query.base.command == runtime.One || query.base.command == runtime.BatchOne
 }

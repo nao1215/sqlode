@@ -20,7 +20,7 @@ pub fn raw_query_minimal_prepare_test() {
     runtime.raw_query(
       name: "GetUser",
       sql: "SELECT * FROM users WHERE id = " <> runtime.param_marker(1),
-      command: runtime.QueryOne,
+      command: runtime.One,
       param_count: 1,
       placeholder_style: runtime.DollarNumbered,
       encode: fn(id) { [runtime.int(id)] },
@@ -42,7 +42,7 @@ pub fn raw_query_across_placeholder_styles_test() {
     runtime.raw_query(
       name: "GetByIds",
       sql: "SELECT * FROM users WHERE id IN (" <> runtime.slice_marker(1) <> ")",
-      command: runtime.QueryMany,
+      command: runtime.Many,
       param_count: 1,
       placeholder_style: style,
       encode: fn(ids) { list.map(ids, runtime.int) },
@@ -73,7 +73,7 @@ pub fn raw_query_zero_length_slice_collapses_to_null_test() {
     runtime.raw_query(
       name: "GetByIds",
       sql: "SELECT * FROM users WHERE id IN (" <> runtime.slice_marker(1) <> ")",
-      command: runtime.QueryMany,
+      command: runtime.Many,
       param_count: 1,
       placeholder_style: runtime.DollarNumbered,
       encode: fn(_) { [] },

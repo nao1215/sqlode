@@ -32,16 +32,13 @@ pub fn infer_result_columns(
   catalog: model.Catalog,
 ) -> Result(List(model.ResultItem), AnalysisError) {
   case query.command {
-    runtime.QueryExec
-    | runtime.QueryExecResult
-    | runtime.QueryExecRows
-    | runtime.QueryExecLastId
-    | runtime.QueryBatchExec
-    | runtime.QueryCopyFrom -> Ok([])
-    runtime.QueryOne
-    | runtime.QueryMany
-    | runtime.QueryBatchOne
-    | runtime.QueryBatchMany ->
+    runtime.Exec
+    | runtime.ExecResult
+    | runtime.ExecRows
+    | runtime.ExecLastId
+    | runtime.BatchExec
+    | runtime.CopyFrom -> Ok([])
+    runtime.One | runtime.Many | runtime.BatchOne | runtime.BatchMany ->
       infer_columns_from_ir(query.name, tokens, statement, catalog)
   }
 }
