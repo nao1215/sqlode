@@ -17,13 +17,13 @@ pub type QueryCommand {
 }
 
 pub type Value {
-  SqlNull
-  SqlString(String)
-  SqlInt(Int)
-  SqlFloat(Float)
-  SqlBool(Bool)
-  SqlBytes(BitArray)
-  SqlArray(List(Value))
+  Null
+  String(String)
+  Int(Int)
+  Float(Float)
+  Bool(Bool)
+  Bytes(BitArray)
+  Array(List(Value))
 }
 
 /// Lightweight metadata for a query, used by the generated `all()` function
@@ -164,37 +164,37 @@ pub fn prepare(query: RawQuery(p), params: p) -> #(String, List(Value)) {
 }
 
 pub fn null() -> Value {
-  SqlNull
+  Null
 }
 
 pub fn string(value: String) -> Value {
-  SqlString(value)
+  String(value)
 }
 
 pub fn int(value: Int) -> Value {
-  SqlInt(value)
+  Int(value)
 }
 
 pub fn float(value: Float) -> Value {
-  SqlFloat(value)
+  Float(value)
 }
 
 pub fn bool(value: Bool) -> Value {
-  SqlBool(value)
+  Bool(value)
 }
 
 pub fn bytes(value: BitArray) -> Value {
-  SqlBytes(value)
+  Bytes(value)
 }
 
 pub fn array(values: List(Value)) -> Value {
-  SqlArray(values)
+  Array(values)
 }
 
 pub fn nullable(value: option.Option(a), encode: fn(a) -> Value) -> Value {
   case value {
     option.Some(v) -> encode(v)
-    option.None -> SqlNull
+    option.None -> Null
   }
 }
 

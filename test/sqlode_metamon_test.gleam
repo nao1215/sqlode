@@ -16,31 +16,31 @@ import sqlode/runtime
 // ---------- runtime.Value encoders ----------
 
 pub fn null_returns_sql_null_test() -> Nil {
-  assert runtime.null() == runtime.SqlNull
+  assert runtime.null() == runtime.Null
 }
 
 pub fn string_round_trips_through_sql_string_test() -> Nil {
   metamon.forall(
     generator.string_alphanumeric(range.constant(0, 16)),
-    fn(value) { runtime.string(value) == runtime.SqlString(value) },
+    fn(value) { runtime.string(value) == runtime.String(value) },
   )
 }
 
 pub fn int_round_trips_through_sql_int_test() -> Nil {
   metamon.forall(generator.int(range.constant(-1000, 1000)), fn(value) {
-    runtime.int(value) == runtime.SqlInt(value)
+    runtime.int(value) == runtime.Int(value)
   })
 }
 
 pub fn bool_round_trips_through_sql_bool_test() -> Nil {
   metamon.forall(generator.bool(), fn(value) {
-    runtime.bool(value) == runtime.SqlBool(value)
+    runtime.bool(value) == runtime.Bool(value)
   })
 }
 
 pub fn bytes_round_trips_through_sql_bytes_test() -> Nil {
   metamon.forall(generator.bit_array(range.constant(0, 32)), fn(value) {
-    runtime.bytes(value) == runtime.SqlBytes(value)
+    runtime.bytes(value) == runtime.Bytes(value)
   })
 }
 
@@ -53,7 +53,7 @@ pub fn array_preserves_length_test() -> Nil {
     fn(values) {
       let encoded = list.map(values, runtime.int)
       case runtime.array(encoded) {
-        runtime.SqlArray(items) -> list.length(items) == list.length(values)
+        runtime.Array(items) -> list.length(items) == list.length(values)
         _ -> False
       }
     },

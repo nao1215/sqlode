@@ -559,8 +559,8 @@ pub fn render_sqlight_adapter_slice_test() {
     "fn value_to_sqlight(value: runtime.Value) -> sqlight.Value",
   )
   |> should.be_true()
-  // SqlArray should panic instead of silently converting to null (#502)
-  string.contains(rendered, "SqlArray is not supported in the SQLite native")
+  // Array should panic instead of silently converting to null (#502)
+  string.contains(rendered, "Array is not supported in the SQLite native")
   |> should.be_true()
 }
 
@@ -1288,7 +1288,7 @@ pub fn render_pog_adapter_with_array_columns_test() {
   // With `runtime.prepare`, parameter encoding of array columns lives
   // in the `params.*_values` function (which emits `runtime.array`).
   // The adapter just folds `runtime.Value`s through `value_to_pog`,
-  // whose SqlArray case recurses with `pog.array(value_to_pog, ...)`.
+  // whose Array case recurses with `pog.array(value_to_pog, ...)`.
   // So the adapter should contain the recursive helper, but not
   // `pog.array(pog.text)` / `pog.array(pog.int)` calls produced
   // per-param by the old codegen path.
@@ -1502,8 +1502,8 @@ pub fn render_mysql_native_adapter_uses_shork_test() {
   // The stub message must not be present anywhere.
   string.contains(rendered, "MySQL adapter generation is not yet available")
   |> should.be_false()
-  // SqlArray should panic instead of silently converting to null (#502)
-  string.contains(rendered, "SqlArray is not supported in the MySQL native")
+  // Array should panic instead of silently converting to null (#502)
+  string.contains(rendered, "Array is not supported in the MySQL native")
   |> should.be_true()
 }
 
@@ -1534,7 +1534,7 @@ pub fn render_mysql_native_adapter_decodes_affected_rows_for_execrows_test() {
 }
 
 pub fn render_mysql_native_adapter_passes_bytes_through_shork_ffi_test() {
-  // SqlBytes encoding goes through `shork_ffi.coerce` directly so
+  // Bytes encoding goes through `shork_ffi.coerce` directly so
   // BLOB / BINARY parameters reach mysql:query/4 byte-for-byte —
   // closes the previously-documented bytes round-trip gap from #418.
   let naming_ctx = naming.new()
@@ -1550,7 +1550,7 @@ pub fn render_mysql_native_adapter_passes_bytes_through_shork_ffi_test() {
     "fn bit_array_to_shork(value: BitArray) -> shork.Value",
   )
   |> should.be_true()
-  string.contains(rendered, "runtime.SqlBytes(v) -> bit_array_to_shork(v)")
+  string.contains(rendered, "runtime.Bytes(v) -> bit_array_to_shork(v)")
   |> should.be_true()
 }
 

@@ -124,9 +124,9 @@ fn is_slice_macro(item: model.Macro) -> Bool {
 ///   PostgreSQL `TEXT[]` column where the inferred parameter
 ///   carries the array element type)
 /// - `sqlode.slice(...)` macro usage, which lowers to an
-///   `SqlArray` runtime value at execution time. The native
+///   `Array` runtime value at execution time. The native
 ///   SQLite (`sqlight`) and MySQL (`shork`) adapters panic on
-///   `SqlArray`, so the only safe path for those engines is the
+///   `Array`, so the only safe path for those engines is the
 ///   raw runtime, which the user must opt into explicitly.
 pub fn validate_array_engine_support(
   engine: model.Engine,

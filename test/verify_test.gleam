@@ -368,7 +368,7 @@ pub fn verify_execresult_under_raw_runtime_is_allowed_test() {
 // ============================================================
 
 pub fn verify_rejects_slice_macro_on_sqlite_test() {
-  // sqlode.slice() lowers to a runtime SqlArray; the native SQLite
+  // sqlode.slice() lowers to a runtime Array; the native SQLite
   // adapter (`sqlight`) panics on that, so verify must catch the
   // mismatch before the user reaches runtime.
   let cfg =
