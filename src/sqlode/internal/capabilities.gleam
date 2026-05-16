@@ -37,12 +37,12 @@ pub fn supported_type_mappings() -> List(model.TypeMapping) {
 /// `validate_unsupported_annotations` guard rejecting them.
 pub fn fully_supported_query_commands() -> List(runtime.QueryCommand) {
   [
-    runtime.QueryOne,
-    runtime.QueryMany,
-    runtime.QueryExec,
-    runtime.QueryExecResult,
-    runtime.QueryExecRows,
-    runtime.QueryExecLastId,
+    runtime.One,
+    runtime.Many,
+    runtime.Exec,
+    runtime.ExecResult,
+    runtime.ExecRows,
+    runtime.ExecLastId,
   ]
 }
 
@@ -51,10 +51,10 @@ pub fn fully_supported_query_commands() -> List(runtime.QueryCommand) {
 /// `UnsupportedAnnotation` error.
 fn planned_query_commands() -> List(runtime.QueryCommand) {
   [
-    runtime.QueryBatchOne,
-    runtime.QueryBatchMany,
-    runtime.QueryBatchExec,
-    runtime.QueryCopyFrom,
+    runtime.BatchOne,
+    runtime.BatchMany,
+    runtime.BatchExec,
+    runtime.CopyFrom,
   ]
 }
 
@@ -236,15 +236,15 @@ fn yes_no(supported: Bool) -> String {
 
 fn command_annotation(command: runtime.QueryCommand) -> String {
   case command {
-    runtime.QueryOne -> ":one"
-    runtime.QueryMany -> ":many"
-    runtime.QueryExec -> ":exec"
-    runtime.QueryExecResult -> ":execresult"
-    runtime.QueryExecRows -> ":execrows"
-    runtime.QueryExecLastId -> ":execlastid"
-    runtime.QueryBatchOne -> ":batchone"
-    runtime.QueryBatchMany -> ":batchmany"
-    runtime.QueryBatchExec -> ":batchexec"
-    runtime.QueryCopyFrom -> ":copyfrom"
+    runtime.One -> ":one"
+    runtime.Many -> ":many"
+    runtime.Exec -> ":exec"
+    runtime.ExecResult -> ":execresult"
+    runtime.ExecRows -> ":execrows"
+    runtime.ExecLastId -> ":execlastid"
+    runtime.BatchOne -> ":batchone"
+    runtime.BatchMany -> ":batchmany"
+    runtime.BatchExec -> ":batchexec"
+    runtime.CopyFrom -> ":copyfrom"
   }
 }

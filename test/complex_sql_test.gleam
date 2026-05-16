@@ -108,7 +108,7 @@ pub fn cte_window_case_analyzer_test() {
   let assert [query] = analyzed
 
   query.base.name |> should.equal("ListRankedUsers")
-  query.base.command |> should.equal(runtime.QueryMany)
+  query.base.command |> should.equal(runtime.Many)
 
   // $1 is a cast timestamp (used in `p.created_at >= $1::timestamp`).
   // $2 is the cast int inside the scored_users arithmetic.
@@ -148,7 +148,7 @@ pub fn cte_window_case_codegen_test() {
     queries.render(naming_ctx, block, analyzed, dict.new(), False)
   string.contains(rendered_queries, "pub fn list_ranked_users(")
   |> should.be_true()
-  string.contains(rendered_queries, "command: runtime.QueryMany")
+  string.contains(rendered_queries, "command: runtime.Many")
   |> should.be_true()
 
   let rendered_params =
@@ -172,7 +172,7 @@ pub fn lateral_aggregate_analyzer_test() {
   let assert [query] = analyzed
 
   query.base.name |> should.equal("ListTeamsWithLatestPost")
-  query.base.command |> should.equal(runtime.QueryMany)
+  query.base.command |> should.equal(runtime.Many)
 
   // The query uses a single sqlode.slice(team_ids) param against
   // `t.id`. The slice macro keeps the parameter's list-ness at `True`.
@@ -212,7 +212,7 @@ pub fn exists_case_analyzer_test() {
   let assert [query] = analyzed
 
   query.base.name |> should.equal("ListReviewablePosts")
-  query.base.command |> should.equal(runtime.QueryMany)
+  query.base.command |> should.equal(runtime.Many)
 
   // $1 and $2 are int casts inside `(p.score + $1::int) > $2::int`.
   param_types(query.params)
@@ -252,7 +252,7 @@ pub fn insert_select_analyzer_test() {
   let assert [query] = analyzed
 
   query.base.name |> should.equal("CreateAuditRows")
-  query.base.command |> should.equal(runtime.QueryMany)
+  query.base.command |> should.equal(runtime.Many)
 
   // Only one placeholder ($1) — the updated_at cutoff inside the CTE.
   param_types(query.params)

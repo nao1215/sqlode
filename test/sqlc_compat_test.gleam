@@ -225,7 +225,7 @@ pub fn complex_query_basic_crud_test() {
   // GetPost :one - should have result columns
   let assert Ok(get_post) =
     list.find(analyzed, fn(q) { q.base.name == "GetPost" })
-  get_post.base.command |> should.equal(runtime.QueryOne)
+  get_post.base.command |> should.equal(runtime.One)
   list.length(get_post.result_columns) |> should.equal(4)
   let assert [
     model.ScalarResult(id),
@@ -241,14 +241,14 @@ pub fn complex_query_basic_crud_test() {
   // CreatePost :exec - no result columns
   let assert Ok(create_post) =
     list.find(analyzed, fn(q) { q.base.name == "CreatePost" })
-  create_post.base.command |> should.equal(runtime.QueryExec)
+  create_post.base.command |> should.equal(runtime.Exec)
   create_post.result_columns |> should.equal([])
   create_post.base.param_count |> should.equal(8)
 
   // DeletePost :exec
   let assert Ok(delete_post) =
     list.find(analyzed, fn(q) { q.base.name == "DeletePost" })
-  delete_post.base.command |> should.equal(runtime.QueryExec)
+  delete_post.base.command |> should.equal(runtime.Exec)
   delete_post.base.param_count |> should.equal(1)
 }
 
@@ -332,7 +332,7 @@ pub fn complex_query_returning_clause_test() {
   // INSERT ... RETURNING
   let assert Ok(create_returning) =
     list.find(analyzed, fn(q) { q.base.name == "CreatePostReturning" })
-  create_returning.base.command |> should.equal(runtime.QueryOne)
+  create_returning.base.command |> should.equal(runtime.One)
   list.length(create_returning.result_columns) |> should.equal(2)
   let assert [model.ScalarResult(id), model.ScalarResult(title)] =
     create_returning.result_columns
@@ -343,13 +343,13 @@ pub fn complex_query_returning_clause_test() {
   // DELETE ... RETURNING
   let assert Ok(delete_returning) =
     list.find(analyzed, fn(q) { q.base.name == "DeletePostReturning" })
-  delete_returning.base.command |> should.equal(runtime.QueryOne)
+  delete_returning.base.command |> should.equal(runtime.One)
   list.length(delete_returning.result_columns) |> should.equal(2)
 
   // UPDATE ... RETURNING
   let assert Ok(update_returning) =
     list.find(analyzed, fn(q) { q.base.name == "UpdatePostReturning" })
-  update_returning.base.command |> should.equal(runtime.QueryOne)
+  update_returning.base.command |> should.equal(runtime.One)
   list.length(update_returning.result_columns) |> should.equal(3)
   let assert [_, _, model.ScalarResult(published)] =
     update_returning.result_columns
@@ -530,7 +530,7 @@ pub fn upsert_on_conflict_test() {
 
   let assert Ok(upsert) =
     list.find(queries, fn(q) { q.base.name == "UpsertUser" })
-  upsert.base.command |> should.equal(runtime.QueryOne)
+  upsert.base.command |> should.equal(runtime.One)
   upsert.base.param_count |> should.equal(2)
 
   let assert Ok(analyzed) =
@@ -558,7 +558,7 @@ pub fn distinct_query_test() {
 
   let assert Ok(distinct) =
     list.find(queries, fn(q) { q.base.name == "ListPostsByTag" })
-  distinct.base.command |> should.equal(runtime.QueryMany)
+  distinct.base.command |> should.equal(runtime.Many)
   distinct.base.param_count |> should.equal(1)
 }
 
@@ -573,7 +573,7 @@ pub fn group_by_having_test() {
 
   let assert Ok(grouped) =
     list.find(queries, fn(q) { q.base.name == "ListActiveUsers" })
-  grouped.base.command |> should.equal(runtime.QueryMany)
+  grouped.base.command |> should.equal(runtime.Many)
   grouped.base.param_count |> should.equal(1)
 }
 
@@ -589,7 +589,7 @@ pub fn exists_subquery_test() {
 
   let assert Ok(with_posts) =
     list.find(queries, fn(q) { q.base.name == "ListUsersWithPosts" })
-  with_posts.base.command |> should.equal(runtime.QueryMany)
+  with_posts.base.command |> should.equal(runtime.Many)
   // No params in the outer query (subquery is correlated, not parameterized)
   with_posts.base.param_count |> should.equal(0)
 
@@ -616,7 +616,7 @@ pub fn not_exists_subquery_test() {
 
   let assert Ok(without_posts) =
     list.find(queries, fn(q) { q.base.name == "ListUsersWithoutPosts" })
-  without_posts.base.command |> should.equal(runtime.QueryMany)
+  without_posts.base.command |> should.equal(runtime.Many)
   without_posts.base.param_count |> should.equal(0)
 }
 
@@ -632,7 +632,7 @@ pub fn parameterized_pagination_test() {
 
   let assert Ok(paginate) =
     list.find(queries, fn(q) { q.base.name == "PaginateUsers" })
-  paginate.base.command |> should.equal(runtime.QueryMany)
+  paginate.base.command |> should.equal(runtime.Many)
   paginate.base.param_count |> should.equal(2)
 
   let assert Ok(analyzed) =
@@ -658,7 +658,7 @@ pub fn multiple_ctes_test() {
 
   let assert Ok(multi_cte) =
     list.find(queries, fn(q) { q.base.name == "RecentPostsWithAuthor" })
-  multi_cte.base.command |> should.equal(runtime.QueryMany)
+  multi_cte.base.command |> should.equal(runtime.Many)
   // No parameters in this query
   multi_cte.base.param_count |> should.equal(0)
 }
@@ -674,7 +674,7 @@ pub fn distinct_top_scores_test() {
 
   let assert Ok(top) =
     list.find(queries, fn(q) { q.base.name == "TopDistinctScores" })
-  top.base.command |> should.equal(runtime.QueryMany)
+  top.base.command |> should.equal(runtime.Many)
   top.base.param_count |> should.equal(1)
 }
 

@@ -4,16 +4,16 @@ import gleam/option
 import gleam/string
 
 pub type QueryCommand {
-  QueryOne
-  QueryMany
-  QueryExec
-  QueryExecResult
-  QueryExecRows
-  QueryExecLastId
-  QueryBatchOne
-  QueryBatchMany
-  QueryBatchExec
-  QueryCopyFrom
+  One
+  Many
+  Exec
+  ExecResult
+  ExecRows
+  ExecLastId
+  BatchOne
+  BatchMany
+  BatchExec
+  CopyFrom
 }
 
 pub type Value {

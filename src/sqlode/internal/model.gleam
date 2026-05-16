@@ -178,10 +178,7 @@ pub type Config {
 
 pub fn is_result_command(command: runtime.QueryCommand) -> Bool {
   case command {
-    runtime.QueryOne
-    | runtime.QueryMany
-    | runtime.QueryBatchOne
-    | runtime.QueryBatchMany -> True
+    runtime.One | runtime.Many | runtime.BatchOne | runtime.BatchMany -> True
     _ -> False
   }
 }
@@ -190,16 +187,16 @@ pub fn parse_query_command(
   value: String,
 ) -> Result(runtime.QueryCommand, String) {
   case value {
-    ":one" -> Ok(runtime.QueryOne)
-    ":many" -> Ok(runtime.QueryMany)
-    ":exec" -> Ok(runtime.QueryExec)
-    ":execresult" -> Ok(runtime.QueryExecResult)
-    ":execrows" -> Ok(runtime.QueryExecRows)
-    ":execlastid" -> Ok(runtime.QueryExecLastId)
-    ":batchone" -> Ok(runtime.QueryBatchOne)
-    ":batchmany" -> Ok(runtime.QueryBatchMany)
-    ":batchexec" -> Ok(runtime.QueryBatchExec)
-    ":copyfrom" -> Ok(runtime.QueryCopyFrom)
+    ":one" -> Ok(runtime.One)
+    ":many" -> Ok(runtime.Many)
+    ":exec" -> Ok(runtime.Exec)
+    ":execresult" -> Ok(runtime.ExecResult)
+    ":execrows" -> Ok(runtime.ExecRows)
+    ":execlastid" -> Ok(runtime.ExecLastId)
+    ":batchone" -> Ok(runtime.BatchOne)
+    ":batchmany" -> Ok(runtime.BatchMany)
+    ":batchexec" -> Ok(runtime.BatchExec)
+    ":copyfrom" -> Ok(runtime.CopyFrom)
     _ ->
       Error(
         "must be one of: :one, :many, :exec, :execresult, :execrows, :execlastid, :batchone, :batchmany, :batchexec, :copyfrom",
@@ -209,16 +206,16 @@ pub fn parse_query_command(
 
 pub fn query_command_to_string(command: runtime.QueryCommand) -> String {
   case command {
-    runtime.QueryOne -> "QueryOne"
-    runtime.QueryMany -> "QueryMany"
-    runtime.QueryExec -> "QueryExec"
-    runtime.QueryExecResult -> "QueryExecResult"
-    runtime.QueryExecRows -> "QueryExecRows"
-    runtime.QueryExecLastId -> "QueryExecLastId"
-    runtime.QueryBatchOne -> "QueryBatchOne"
-    runtime.QueryBatchMany -> "QueryBatchMany"
-    runtime.QueryBatchExec -> "QueryBatchExec"
-    runtime.QueryCopyFrom -> "QueryCopyFrom"
+    runtime.One -> "One"
+    runtime.Many -> "Many"
+    runtime.Exec -> "Exec"
+    runtime.ExecResult -> "ExecResult"
+    runtime.ExecRows -> "ExecRows"
+    runtime.ExecLastId -> "ExecLastId"
+    runtime.BatchOne -> "BatchOne"
+    runtime.BatchMany -> "BatchMany"
+    runtime.BatchExec -> "BatchExec"
+    runtime.CopyFrom -> "CopyFrom"
   }
 }
 

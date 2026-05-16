@@ -80,20 +80,20 @@ pub fn validate_unsupported_annotations(
 ) -> Result(Nil, ValidationError) {
   let unsupported = fn(command: runtime.QueryCommand) -> Bool {
     case command {
-      runtime.QueryBatchOne
-      | runtime.QueryBatchMany
-      | runtime.QueryBatchExec
-      | runtime.QueryCopyFrom -> True
+      runtime.BatchOne
+      | runtime.BatchMany
+      | runtime.BatchExec
+      | runtime.CopyFrom -> True
       _ -> False
     }
   }
   case list.find(queries, fn(q) { unsupported(q.base.command) }) {
     Ok(q) -> {
       let #(command, alternative) = case q.base.command {
-        runtime.QueryBatchOne -> #(":batchone", ":one")
-        runtime.QueryBatchMany -> #(":batchmany", ":many")
-        runtime.QueryBatchExec -> #(":batchexec", ":exec")
-        runtime.QueryCopyFrom -> #(":copyfrom", ":exec")
+        runtime.BatchOne -> #(":batchone", ":one")
+        runtime.BatchMany -> #(":batchmany", ":many")
+        runtime.BatchExec -> #(":batchexec", ":exec")
+        runtime.CopyFrom -> #(":copyfrom", ":exec")
         _ -> #("", ":exec")
       }
       Error(UnsupportedAnnotation(
@@ -174,7 +174,7 @@ pub fn validate_array_engine_support(
 pub fn validate_native_annotations(
   queries: List(model.AnalyzedQuery),
 ) -> Result(Nil, ValidationError) {
-  case list.find(queries, fn(q) { q.base.command == runtime.QueryExecResult }) {
+  case list.find(queries, fn(q) { q.base.command == runtime.ExecResult }) {
     Ok(q) ->
       Error(UnsupportedAnnotation(
         query_name: q.base.name,

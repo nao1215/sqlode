@@ -1373,11 +1373,11 @@ pub fn all_commands_generate_queries_test() {
   string.contains(queries, "pub fn insert_post()") |> should.be_true()
 
   // Verify command types
-  string.contains(queries, "runtime.QueryOne") |> should.be_true()
-  string.contains(queries, "runtime.QueryMany") |> should.be_true()
-  string.contains(queries, "runtime.QueryExec") |> should.be_true()
-  string.contains(queries, "runtime.QueryExecRows") |> should.be_true()
-  string.contains(queries, "runtime.QueryExecLastId") |> should.be_true()
+  string.contains(queries, "runtime.One") |> should.be_true()
+  string.contains(queries, "runtime.Many") |> should.be_true()
+  string.contains(queries, "runtime.Exec") |> should.be_true()
+  string.contains(queries, "runtime.ExecRows") |> should.be_true()
+  string.contains(queries, "runtime.ExecLastId") |> should.be_true()
 
   cleanup_commands()
 }
@@ -2542,7 +2542,7 @@ fn make_query(params: List(model.QueryParam)) -> model.AnalyzedQuery {
     base: model.ParsedQuery(
       name: "Test",
       function_name: "test",
-      command: runtime.QueryMany,
+      command: runtime.Many,
       sql: "",
       source_path: "fixture.sql",
       param_count: list.length(params),

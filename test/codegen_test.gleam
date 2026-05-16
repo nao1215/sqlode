@@ -36,7 +36,7 @@ pub fn render_queries_module_test() {
   |> should.be_true()
   string.contains(rendered, "import db/params")
   |> should.be_true()
-  string.contains(rendered, "command: runtime.QueryOne")
+  string.contains(rendered, "command: runtime.One")
   |> should.be_true()
   string.contains(rendered, "placeholder_style: runtime.DollarNumbered,")
   |> should.be_true()

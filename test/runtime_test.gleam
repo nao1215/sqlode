@@ -58,7 +58,7 @@ pub fn prepare_no_slices_test() {
     runtime.RawQuery(
       name: "GetUser",
       sql: "SELECT * FROM users WHERE id = __sqlode_param_1__",
-      command: runtime.QueryOne,
+      command: runtime.One,
       param_count: 1,
       placeholder_style: runtime.DollarNumbered,
       encode: fn(_) { [runtime.int(42)] },
@@ -74,7 +74,7 @@ pub fn prepare_with_slices_test() {
     runtime.RawQuery(
       name: "GetByIds",
       sql: "SELECT * FROM users WHERE id IN (__sqlode_slice_1__)",
-      command: runtime.QueryMany,
+      command: runtime.Many,
       param_count: 1,
       placeholder_style: runtime.DollarNumbered,
       encode: fn(ids) { list.map(ids, runtime.int) },
@@ -91,7 +91,7 @@ pub fn prepare_mixed_params_test() {
     runtime.RawQuery(
       name: "GetByNameAndIds",
       sql: "SELECT * FROM users WHERE name = __sqlode_param_1__ AND id IN (__sqlode_slice_2__)",
-      command: runtime.QueryMany,
+      command: runtime.Many,
       param_count: 2,
       placeholder_style: runtime.DollarNumbered,
       encode: fn(p: #(String, List(Int))) {
@@ -117,7 +117,7 @@ pub fn prepare_mysql_slice_expands_to_positional_test() {
     runtime.RawQuery(
       name: "GetByIds",
       sql: "SELECT * FROM users WHERE id IN (__sqlode_slice_1__)",
-      command: runtime.QueryMany,
+      command: runtime.Many,
       param_count: 1,
       placeholder_style: runtime.QuestionPositional,
       encode: fn(ids) { list.map(ids, runtime.int) },
@@ -132,7 +132,7 @@ pub fn prepare_mysql_mixed_params_and_slice_test() {
     runtime.RawQuery(
       name: "GetByNameAndIds",
       sql: "SELECT * FROM users WHERE name = __sqlode_param_1__ AND id IN (__sqlode_slice_2__) AND status = __sqlode_param_3__",
-      command: runtime.QueryMany,
+      command: runtime.Many,
       param_count: 3,
       placeholder_style: runtime.QuestionPositional,
       encode: fn(_) { [] },
@@ -152,7 +152,7 @@ pub fn prepare_sqlite_reads_style_from_raw_query_test() {
     runtime.RawQuery(
       name: "GetById",
       sql: "SELECT * FROM users WHERE id = __sqlode_param_1__",
-      command: runtime.QueryOne,
+      command: runtime.One,
       param_count: 1,
       placeholder_style: runtime.QuestionNumbered,
       encode: fn(_) { [runtime.int(1)] },
