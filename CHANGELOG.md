@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Documentation
+
+- README quick-start now passes `--runtime=native` to `sqlode init` and explains the choice next to the `--engine` flag. The flag was already wired in the CLI but the README still showed the bare `--engine=sqlite` form, so first-time users had to either accept the default `runtime: "raw"` or edit `sqlode.yaml` post-init to opt into the typed adapter output. Surfacing the flag at the moment of engine selection removes the post-edit step. The CLI usage block further down also lists `[--engine=...] [--runtime=...]` so the discoverability story is consistent. (#568)
+
 ### Changed
 
 - **BREAKING**: `sqlode/runtime.QueryCommand` variants drop the `Query` prefix: `QueryOne` → `One`, `QueryMany` → `Many`, `QueryExec` → `Exec`, `QueryExecResult` → `ExecResult`, `QueryExecRows` → `ExecRows`, `QueryExecLastId` → `ExecLastId`, `QueryBatchOne` → `BatchOne`, `QueryBatchMany` → `BatchMany`, `QueryBatchExec` → `BatchExec`, `QueryCopyFrom` → `CopyFrom`. The prefix repeated information already encoded in the type name and module path (`sqlode/runtime.QueryCommand`); every pattern match against the type carried it on every arm. Fully-qualified call sites read `runtime.Many` / `runtime.BatchExec` now. Companion to the `runtime.Value` rename in #570 — both pre-1.0 sweeps land together so callers face one regenerate-and-update cycle. (#571)
