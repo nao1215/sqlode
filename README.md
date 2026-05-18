@@ -54,7 +54,24 @@ VALUES (sqlode.arg(author_name), sqlode.narg(bio));
 ```
 
 Switch to native mode (so `sqlode` emits a ready-to-call `sqlight`
-adapter) and generate:
+adapter) and generate. `runtime` is nested under `sql[].gen.gleam` —
+not at the top of a `sql[]` entry (a top-level `runtime:` is rejected
+as `Unsupported config fields: sql.runtime`):
+
+```yaml
+# sqlode.yaml — the `init` command writes this file. Only the
+# `runtime: "native"` line below changes when you flip from `raw`.
+version: "2"
+sql:
+  - schema: "db/schema.sql"
+    queries: "db/query.sql"
+    engine: "sqlite"
+    gen:
+      gleam:
+        package: "myapp"
+        out: "src/db"
+        runtime: "native"
+```
 
 ```console
 sed -i 's/runtime: "raw"/runtime: "native"/' sqlode.yaml

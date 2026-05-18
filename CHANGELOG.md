@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `sqlode_ffi`: replaced the deprecated `catch port_close(Port)` form with `try port_close(Port) catch _:_ -> ok end`. The old expression form of `catch` is deprecated in recent OTP releases and emitted a `'catch ...' is deprecated; please use 'try ... catch ... end' instead` warning at every `gleam build` of any project that depends on `sqlode`. The new form preserves the original intent (swallow any error when closing an already-closed port). (#579)
+- `sqlode/internal/version`: bumped the `version` constant from `0.15.0` to `0.29.0` so `sqlode version` reports the package version actually shipped (it had drifted ~14 releases out of date). Added a `version_constant_matches_gleam_toml_test` that reads `gleam.toml` at test time and cross-checks the constant, so a future release bump cannot ship a stale CLI version. (#581)
+
+### Documentation
+
+- README "Quickstart (SQLite)" section now shows the full `sqlode.yaml` structure with `runtime: "native"` correctly nested under `sql[].gen.gleam.runtime`. A top-level `runtime:` (where the original prose was ambiguous) is rejected with `Unsupported config fields: sql.runtime`, so callers hand-writing the yaml from the README needed to see the actual nesting. (#580)
+
 ## [0.29.0] - 2026-05-16
 
 ### Documentation
