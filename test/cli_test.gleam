@@ -1,9 +1,11 @@
+import gleam/list
 import gleam/result
 import gleam/string
 import gleeunit/should
 import glint
 import simplifile
 import sqlode/cli
+import sqlode/internal/version
 
 const base_dir = "test_output/cli_test"
 
@@ -110,6 +112,35 @@ pub fn version_command_succeeds_test() {
   |> glint.execute(["version"])
   |> result.is_ok
   |> should.be_true
+}
+
+// Issue #581: the version constant exposed via `sqlode version` is
+// the source of truth for users diagnosing which build is installed.
+// Cross-check it against `gleam.toml` at test time so the CLI cannot
+// silently drift from the Hex metadata (this guard caught a 14-
+// release gap where the constant stuck at 0.15.0 while gleam.toml
+// reached 0.29.0).
+pub fn version_constant_matches_gleam_toml_test() {
+  let assert Ok(toml) = simplifile.read("gleam.toml")
+  let assert Ok(toml_version) = extract_toml_version(toml)
+  version.version
+  |> should.equal(toml_version)
+}
+
+fn extract_toml_version(toml: String) -> Result(String, Nil) {
+  toml
+  |> string.split("\n")
+  |> list.find(fn(line) { string.starts_with(string.trim(line), "version = ") })
+  |> result.try(fn(line) {
+    case string.split_once(line, "\"") {
+      Ok(#(_, after_open)) ->
+        case string.split_once(after_open, "\"") {
+          Ok(#(value, _)) -> Ok(value)
+          Error(_) -> Error(Nil)
+        }
+      Error(_) -> Error(Nil)
+    }
+  })
 }
 
 pub fn init_sqlite_engine_generates_sqlite_schema_test() {

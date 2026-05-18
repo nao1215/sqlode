@@ -69,6 +69,6 @@ collect_exit(Port, Acc) ->
         {Port, {exit_status, Code}} ->
             {Code, Acc}
     after 60000 ->
-        catch port_close(Port),
+        try port_close(Port) catch _:_ -> ok end,
         {1, <<Acc/binary, "(timed out after 60s)">>}
     end.

@@ -986,6 +986,10 @@ pub fn version_command_succeeds_test() {
   cli_test.version_command_succeeds_test()
 }
 
+pub fn version_constant_matches_gleam_toml_test() {
+  cli_test.version_constant_matches_gleam_toml_test()
+}
+
 // --- Entry-point error rewriting (#466) ---
 
 pub fn rewrite_error_no_args_says_missing_subcommand_test() {
