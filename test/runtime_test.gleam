@@ -224,6 +224,9 @@ pub fn expand_slice_placeholders_checked_negative_length_returns_error_test() {
 }
 
 pub fn expand_slice_placeholders_checked_index_out_of_range_returns_error_test() {
+  // Post-#585: a `start` that lies past `total_params` is surfaced as
+  // the refined `SliceStartAfterParams` variant rather than the legacy
+  // `SliceIndexOutOfRange` umbrella.
   let sql = "SELECT * FROM t WHERE id = " <> runtime.param_marker(1)
   let result =
     runtime.expand_slice_placeholders_checked(
@@ -233,14 +236,14 @@ pub fn expand_slice_placeholders_checked_index_out_of_range_returns_error_test()
       runtime.QuestionPositional,
     )
   result
-  |> should.equal(
-    Error(runtime.SliceIndexOutOfRange(index: 99, total_params: 1)),
-  )
+  |> should.equal(Error(runtime.SliceStartAfterParams(start: 99, total: 1)))
 }
 
 pub fn expand_slice_placeholders_checked_index_zero_returns_error_test() {
-  // 1-based indices: zero is out of range too. The marker constructor
-  // now panics on index < 1 (#551), so we hand-roll the marker literal
+  // 1-based indices: zero is non-positive. Post-#585 this surfaces as
+  // the refined `SliceStartNonPositive` variant rather than the legacy
+  // `SliceIndexOutOfRange` umbrella. The marker constructor itself
+  // panics on index < 1 (#551), so we hand-roll the marker literal
   // here to exercise the validator surface — that is what would happen
   // if a buggy adapter put `0` in the slices list while still emitting
   // a valid 1-based marker in the SQL.
@@ -253,9 +256,7 @@ pub fn expand_slice_placeholders_checked_index_zero_returns_error_test() {
       runtime.QuestionPositional,
     )
   result
-  |> should.equal(
-    Error(runtime.SliceIndexOutOfRange(index: 0, total_params: 1)),
-  )
+  |> should.equal(Error(runtime.SliceStartNonPositive(start: 0)))
 }
 
 pub fn expand_slice_placeholders_checked_negative_total_params_returns_error_test() {
@@ -276,10 +277,12 @@ pub fn expand_slice_placeholders_checked_negative_total_params_returns_error_tes
   |> should.equal(Error(runtime.TotalParamsNegative(total_params: -2)))
 }
 
-pub fn expand_slice_placeholders_checked_zero_length_collapses_to_null_test() {
-  // Length 0 is a legitimate degenerate case: expands to NULL so that
-  // `WHERE x IN (NULL)` evaluates to NULL (always-false). Validate this
-  // continues to work via the checked path.
+pub fn expand_slice_placeholders_checked_zero_length_reports_empty_slice_test() {
+  // Post-#585: the strict checked path rejects a length-0 slice as
+  // `EmptySlice(at_placeholder)` so callers can distinguish "the
+  // caller-supplied list was empty" from "the start index was wrong".
+  // The lenient panicking `expand_slice_placeholders` still collapses
+  // length 0 to `IN (NULL)` (pinned separately below).
   let sql = "SELECT * FROM t WHERE id IN (" <> runtime.slice_marker(1) <> ")"
   let result =
     runtime.expand_slice_placeholders_checked(
@@ -289,25 +292,45 @@ pub fn expand_slice_placeholders_checked_zero_length_collapses_to_null_test() {
       runtime.QuestionPositional,
     )
   result
-  |> should.equal(Ok("SELECT * FROM t WHERE id IN (NULL)"))
+  |> should.equal(Error(runtime.EmptySlice(at_placeholder: 1)))
+}
+
+pub fn expand_slice_placeholders_zero_length_collapses_to_null_test() {
+  // Panicking variant keeps the pre-#585 lenient behaviour: length=0
+  // collapses to `IN (NULL)` instead of panicking with the umbrella
+  // `SliceIndexOutOfRange`. The strict checked variant now reports
+  // `EmptySlice` for the same input (see the test above).
+  let sql = "SELECT * FROM t WHERE id IN (" <> runtime.slice_marker(1) <> ")"
+  let out =
+    runtime.expand_slice_placeholders(
+      sql,
+      [#(1, 0)],
+      1,
+      runtime.QuestionPositional,
+    )
+  out |> should.equal("SELECT * FROM t WHERE id IN (NULL)")
 }
 
 pub fn expand_slice_placeholders_checked_valid_slices_match_panicking_variant_test() {
   // For valid input the checked variant must produce byte-identical
-  // output to the panicking variant.
+  // output to the panicking variant. Post-#585 the strict validator
+  // rejects `[#(1, 3)]` against `total_params = 1` as
+  // `SliceLengthExceedsParams`, so the inputs are now sized so both
+  // paths accept them: a 3-element slice anchored at index 1 of a
+  // 3-parameter query.
   let sql = "SELECT * FROM t WHERE id IN (" <> runtime.slice_marker(1) <> ")"
   let panicking =
     runtime.expand_slice_placeholders(
       sql,
       [#(1, 3)],
-      1,
+      3,
       runtime.QuestionPositional,
     )
   let checked =
     runtime.expand_slice_placeholders_checked(
       sql,
       [#(1, 3)],
-      1,
+      3,
       runtime.QuestionPositional,
     )
   checked |> should.equal(Ok(panicking))
