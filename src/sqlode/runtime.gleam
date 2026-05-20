@@ -338,7 +338,7 @@ pub fn expand_slice_placeholders(
   total_params: Int,
   style: PlaceholderStyle,
 ) -> String {
-  case validate_slices(slices, total_params) {
+  case validate_slices_for_panic(slices, total_params) {
     Ok(_) -> Nil
     Error(SliceLengthNegative(index, length)) ->
       panic as {
@@ -364,6 +364,20 @@ pub fn expand_slice_placeholders(
         <> int.to_string(total)
         <> "). Use expand_slice_placeholders_checked for a Result-returning variant. (#565)"
       }
+    // The four `_checked`-only variants (`EmptySlice`,
+    // `SliceStartNonPositive`, `SliceStartAfterParams`,
+    // `SliceLengthExceedsParams`) are produced exclusively by
+    // `validate_slices`, which `expand_slice_placeholders_checked`
+    // calls. The panicking path uses `validate_slices_for_panic`,
+    // whose return shape preserves the pre-#585 panic contract
+    // (length=0 collapses to NULL, not an error). These arms are
+    // therefore unreachable here but listed to keep the `case`
+    // total — the compiler enforces exhaustiveness even on
+    // values that the validator never returns on this path.
+    Error(EmptySlice(_))
+    | Error(SliceStartNonPositive(_))
+    | Error(SliceStartAfterParams(_, _))
+    | Error(SliceLengthExceedsParams(_, _, _)) -> Nil
   }
   let #(_, mapping) =
     int.range(
@@ -422,14 +436,39 @@ fn render_placeholder(style: PlaceholderStyle, index: Int) -> String {
 
 /// Why `expand_slice_placeholders_checked` rejected its input.
 ///
-/// - `SliceLengthNegative` covers a `slices` entry whose length is
-///   negative. Lengths must be `>= 0` (zero is permitted; the
-///   placeholder list collapses to `NULL` per the SQL `IN ()` rewrite
-///   convention).
-/// - `SliceIndexOutOfRange` covers a `slices` entry whose 1-based
-///   index falls outside `[1, total_params]`. Indices outside that
-///   window can never match the loop's `orig_idx` and are silently
-///   ignored otherwise.
+/// All `start` / `at_placeholder` values use the same **1-based**
+/// indexing convention as the marker constructors: `start = 1` refers
+/// to the first parameter slot, and the valid window for a `slices`
+/// entry `#(start, length)` is `start >= 1` and
+/// `start + length - 1 <= total_params`.
+///
+/// - `SliceLengthNegative` covers a `slices` entry whose `length` is
+///   negative. Lengths must be `>= 0`; a length of `0` is reported
+///   separately via `EmptySlice` (post-#585) so callers can branch on
+///   the empty case without conflating it with "negative".
+/// - `EmptySlice` covers a `slices` entry whose `length` is exactly
+///   `0`. Before #585 this either silently collapsed to `IN (NULL)` or
+///   surfaced as a misleading `SliceIndexOutOfRange(0, 0)` when paired
+///   with `total_params = 0`; the dedicated variant lets callers
+///   detect "the caller-supplied list was empty" without parsing the
+///   `total_params` field. `at_placeholder` is the 1-based slice index
+///   the empty entry was registered against.
+/// - `SliceStartNonPositive` covers a `slices` entry whose 1-based
+///   `start` is `< 1`. The marker constructors reject index 0 since
+///   #551, and the expand loop is keyed on `orig_idx >= 1`; a
+///   non-positive start can never bind to a real slot. (#585)
+/// - `SliceStartAfterParams` covers a `slices` entry whose `start`
+///   is greater than `total_params`. There is no parameter slot at
+///   that position for the loop to expand against. (#585)
+/// - `SliceLengthExceedsParams` covers a `slices` entry whose
+///   `start + length - 1` exceeds `total_params`. The slice would
+///   spill past the last parameter slot. (#585)
+/// - `SliceIndexOutOfRange` is the legacy umbrella variant kept for
+///   pre-#585 source compatibility. The validator no longer returns
+///   it; new code should pattern-match the four refined variants
+///   above. It remains a public member of `ExpandError` so existing
+///   `case` arms that still spell `SliceIndexOutOfRange(_, _)`
+///   continue to compile.
 /// - `TotalParamsNegative` covers a `total_params` that is below 0.
 ///   Parameter counts cannot be negative; without this check the
 ///   `int.range` loop in `expand_slice_placeholders` would call
@@ -438,6 +477,10 @@ pub type ExpandError {
   SliceLengthNegative(index: Int, length: Int)
   SliceIndexOutOfRange(index: Int, total_params: Int)
   TotalParamsNegative(total_params: Int)
+  EmptySlice(at_placeholder: Int)
+  SliceStartNonPositive(start: Int)
+  SliceStartAfterParams(start: Int, total: Int)
+  SliceLengthExceedsParams(start: Int, length: Int, total: Int)
 }
 
 /// Like `expand_slice_placeholders`, but returns the validation
@@ -445,6 +488,12 @@ pub type ExpandError {
 /// or `total_params` come from a custom adapter / hand-rolled
 /// `RawQuery` and the caller wants to surface bookkeeping mistakes
 /// without crashing the process.
+///
+/// Validation rules follow a 1-based indexing convention: each
+/// `slices` entry `#(start, length)` is valid iff `start >= 1` and
+/// `start + length - 1 <= total_params`. A `length` of `0` is rejected
+/// as `EmptySlice` (post-#585); see the `ExpandError` doc-comment for
+/// the full failure taxonomy.
 ///
 /// On success the returned string is identical to
 /// `expand_slice_placeholders(sql, slices, total_params, style)`.
@@ -464,6 +513,14 @@ pub fn expand_slice_placeholders_checked(
   }
 }
 
+/// Strict validator used by `expand_slice_placeholders_checked`.
+///
+/// Produces one of the four post-#585 refined variants (`EmptySlice`,
+/// `SliceStartNonPositive`, `SliceStartAfterParams`,
+/// `SliceLengthExceedsParams`) in addition to the pre-existing
+/// `SliceLengthNegative` and `TotalParamsNegative`. The legacy
+/// `SliceIndexOutOfRange` variant is never produced here — it stays
+/// in the type purely for source compatibility.
 fn validate_slices(
   slices: List(#(Int, Int)),
   total_params: Int,
@@ -484,10 +541,65 @@ fn validate_slice_entries(
       case len < 0 {
         True -> Error(SliceLengthNegative(index: idx, length: len))
         False ->
+          case len == 0 {
+            True -> Error(EmptySlice(at_placeholder: idx))
+            False ->
+              case idx < 1 {
+                True -> Error(SliceStartNonPositive(start: idx))
+                False ->
+                  case idx > total_params {
+                    True ->
+                      Error(SliceStartAfterParams(
+                        start: idx,
+                        total: total_params,
+                      ))
+                    False ->
+                      case idx + len - 1 > total_params {
+                        True ->
+                          Error(SliceLengthExceedsParams(
+                            start: idx,
+                            length: len,
+                            total: total_params,
+                          ))
+                        False -> validate_slice_entries(rest, total_params)
+                      }
+                  }
+              }
+          }
+      }
+  }
+}
+
+/// Lenient validator used by the panicking
+/// `expand_slice_placeholders`. Preserves the pre-#585 panic shape:
+/// `length = 0` is accepted (the expand loop collapses the slice to
+/// `IN (NULL)`), and any other invalid start/length combination is
+/// folded into the umbrella `SliceIndexOutOfRange` variant the panic
+/// message expects.
+fn validate_slices_for_panic(
+  slices: List(#(Int, Int)),
+  total_params: Int,
+) -> Result(Nil, ExpandError) {
+  case total_params < 0 {
+    True -> Error(TotalParamsNegative(total_params: total_params))
+    False -> validate_slice_entries_for_panic(slices, total_params)
+  }
+}
+
+fn validate_slice_entries_for_panic(
+  slices: List(#(Int, Int)),
+  total_params: Int,
+) -> Result(Nil, ExpandError) {
+  case slices {
+    [] -> Ok(Nil)
+    [#(idx, len), ..rest] ->
+      case len < 0 {
+        True -> Error(SliceLengthNegative(index: idx, length: len))
+        False ->
           case idx < 1 || idx > total_params {
             True ->
               Error(SliceIndexOutOfRange(index: idx, total_params: total_params))
-            False -> validate_slice_entries(rest, total_params)
+            False -> validate_slice_entries_for_panic(rest, total_params)
           }
       }
   }
