@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 
 - `sqlode/runtime.raw_query_simple/6`: thin wrapper around `raw_query/7` that supplies `slice_info: fn(_) { [] }` so hand-rolled queries without slice-expanded `IN ($N)` placeholders no longer need to repeat the always-empty lambda at every call site. `sqlode generate` codegen continues to emit `raw_query/7` (or the bare constructor) so slice-bearing queries are unaffected. (#584)
+- `sqlode/runtime.ExpandError` now has four refined variants — `EmptySlice(at_placeholder: Int)`, `SliceStartNonPositive(start: Int)`, `SliceStartAfterParams(start: Int, total: Int)`, and `SliceLengthExceedsParams(start: Int, length: Int, total: Int)` — that `expand_slice_placeholders_checked` returns in place of the legacy `SliceIndexOutOfRange(0, 0)` umbrella, so callers can distinguish "the supplied slice was empty" from "the 1-based start index was non-positive" from "the slice spilled past `total_params`" without parsing the integer fields. The legacy `SliceIndexOutOfRange` variant stays in the type for pre-#585 source compatibility (the strict validator no longer produces it; the panicking `expand_slice_placeholders` keeps emitting it via its lenient validator path). The `ExpandError` doc-comment now also spells out the 1-based indexing convention used by all `start` / `at_placeholder` fields. (#585)
 
 ## [0.30.0] - 2026-05-18
 
