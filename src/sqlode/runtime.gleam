@@ -118,6 +118,44 @@ pub fn raw_query(
   )
 }
 
+/// Thin wrapper around `raw_query/7` for hand-rolled queries that do
+/// not use slice-expanded `IN ($1)` placeholders. Forwards every
+/// labelled argument to `raw_query` and supplies
+/// `slice_info: fn(_) { [] }` so ad-hoc callers do not have to repeat
+/// the always-empty lambda at every call site.
+///
+/// Reach for `raw_query_simple` when:
+///
+/// - writing a hand-rolled `INSERT` / `UPDATE` / `DELETE` or a fixed-
+///   shape `SELECT` whose SQL has zero slice markers; or
+/// - prototyping a query against `sqlode/runtime` as a library, before
+///   moving the SQL into a declarative fixture and regenerating
+///   through `sqlode generate`.
+///
+/// Keep using `raw_query/7` when the SQL contains slice-expanded
+/// `IN ($N)` placeholders — those queries need the real `slice_info`
+/// callback to expand at `prepare/2` time. `sqlode generate` codegen
+/// continues to emit `raw_query/7` (or the bare `RawQuery(...)`
+/// constructor) so this wrapper only affects ad-hoc callers.
+pub fn raw_query_simple(
+  name name: String,
+  sql sql: String,
+  command command: QueryCommand,
+  param_count param_count: Int,
+  placeholder_style placeholder_style: PlaceholderStyle,
+  encode encode: fn(p) -> List(Value),
+) -> RawQuery(p) {
+  raw_query(
+    name: name,
+    sql: sql,
+    command: command,
+    param_count: param_count,
+    placeholder_style: placeholder_style,
+    encode: encode,
+    slice_info: fn(_) { [] },
+  )
+}
+
 /// Deprecated alias for `raw_query/7`. The `_for_test` suffix
 /// discouraged library-mode callers from using the only sanctioned
 /// non-constructor path even though library use is exactly what the
