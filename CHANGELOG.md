@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-05-21
+
 ### Added
 
 - `sqlode/runtime.raw_query_simple/6`: thin wrapper around `raw_query/7` that supplies `slice_info: fn(_) { [] }` so hand-rolled queries without slice-expanded `IN ($N)` placeholders no longer need to repeat the always-empty lambda at every call site. `sqlode generate` codegen continues to emit `raw_query/7` (or the bare constructor) so slice-bearing queries are unaffected. (#584)
