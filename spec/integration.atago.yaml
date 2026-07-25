@@ -1,0 +1,151 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/nao1215/atago/main/schema/atago.schema.json
+version: "1"
+
+suite:
+  name: generated code compilation
+
+defaults:
+  run:
+    shell: true
+    cwd: ${env:PROJECT_ROOT}
+
+scenarios:
+  - name: raw mode generates and builds
+    steps:
+      - run:
+          command: ./spec/support/run_integration_case.sh case_compile_raw "${workdir}/integration"
+      - assert:
+          exit_code: 0
+          stdout:
+            contains: "PASS: raw mode"
+      - assert:
+          dir:
+            path: integration/integration_compile_raw/src/db
+            exists: true
+            contains:
+              - params.gleam
+              - queries.gleam
+              - models.gleam
+
+  - name: complex raw mode generates and builds
+    steps:
+      - run:
+          command: ./spec/support/run_integration_case.sh case_compile_complex "${workdir}/integration"
+      - assert:
+          exit_code: 0
+          stdout:
+            contains: "PASS: raw mode with complex schema"
+      - assert:
+          dir:
+            path: integration/integration_compile_complex/src/db
+            exists: true
+            contains:
+              - params.gleam
+              - queries.gleam
+              - models.gleam
+
+  - name: all-types raw mode generates and builds
+    steps:
+      - run:
+          command: ./spec/support/run_integration_case.sh case_compile_all_types "${workdir}/integration"
+      - assert:
+          exit_code: 0
+          stdout:
+            contains: "PASS: raw mode with all types"
+      - assert:
+          dir:
+            path: integration/integration_compile_all_types/src/db
+            exists: true
+            contains:
+              - params.gleam
+              - queries.gleam
+              - models.gleam
+
+  - name: vendor_runtime generation builds without a sqlode dependency
+    steps:
+      - run:
+          command: ./spec/support/run_integration_case.sh case_compile_vendor_runtime "${workdir}/integration"
+      - assert:
+          exit_code: 0
+          stdout:
+            contains: "PASS: raw mode with vendor_runtime"
+      - assert:
+          dir:
+            path: integration/integration_compile_vendor_runtime/src/db
+            exists: true
+            contains:
+              - params.gleam
+              - queries.gleam
+              - models.gleam
+              - runtime.gleam
+
+  - name: sqlite real database case generates builds and tests
+    steps:
+      - run:
+          command: ./spec/support/run_integration_case.sh case_sqlite_basic "${workdir}/integration"
+      - assert:
+          exit_code: 0
+          stdout:
+            contains: "PASS: SQLite real database"
+      - assert:
+          dir:
+            path: integration/sqlite_integration_test/src/db
+            exists: true
+            contains:
+              - params.gleam
+              - queries.gleam
+              - models.gleam
+              - sqlight_adapter.gleam
+
+  - name: sqlite extended case generates builds and tests
+    steps:
+      - run:
+          command: ./spec/support/run_integration_case.sh case_sqlite_extended "${workdir}/integration"
+      - assert:
+          exit_code: 0
+          stdout:
+            contains: "PASS: SQLite extended features"
+
+  - name: sqlite advanced case generates builds and tests
+    steps:
+      - run:
+          command: ./spec/support/run_integration_case.sh case_sqlite_advanced "${workdir}/integration"
+      - assert:
+          exit_code: 0
+          stdout:
+            contains: "PASS: SQLite advanced features"
+
+  - name: mysql raw mode generates and builds
+    steps:
+      - run:
+          command: ./spec/support/run_integration_case.sh case_mysql_compile_raw "${workdir}/integration"
+      - assert:
+          exit_code: 0
+          stdout:
+            contains: "PASS: MySQL raw mode"
+      - assert:
+          dir:
+            path: integration/mysql_compile_raw/src/db
+            exists: true
+            contains:
+              - params.gleam
+              - queries.gleam
+              - models.gleam
+
+  - name: mysql native mode generates and builds
+    steps:
+      - run:
+          command: ./spec/support/run_integration_case.sh case_mysql_compile_native "${workdir}/integration"
+      - assert:
+          exit_code: 0
+          stdout:
+            contains: "PASS: MySQL native mode"
+      - assert:
+          dir:
+            path: integration/mysql_compile_native/src/db
+            exists: true
+            contains:
+              - params.gleam
+              - queries.gleam
+              - models.gleam
+              - mysql_adapter.gleam

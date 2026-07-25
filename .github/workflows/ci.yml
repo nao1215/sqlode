@@ -40,10 +40,9 @@ jobs:
           wget -q https://s3.amazonaws.com/rebar3/rebar3 -O /usr/local/bin/rebar3
           chmod +x /usr/local/bin/rebar3
 
-      - name: Install ShellSpec
-        run: |
-          curl -fsSL https://git.io/shellspec | sh -s -- --yes
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - uses: nao1215/setup-atago@v0
+        with:
+          version: v0.11.0
 
       - name: Download dependencies
         run: gleam deps download
@@ -63,8 +62,10 @@ jobs:
       - name: Unit tests
         run: gleam test
 
-      - name: ShellSpec tests
-        run: shellspec
+      - name: atago E2E tests
+        env:
+          PROJECT_ROOT: ${{ github.workspace }}
+        run: atago run --ci --report gha --parallel 1 ./spec
 
       - name: PostgreSQL integration test
         env:

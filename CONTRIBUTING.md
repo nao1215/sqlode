@@ -6,7 +6,7 @@ You need the following tools installed:
 
 - [Gleam](https://gleam.run/) (1.x)
 - Erlang/OTP (27+)
-- [ShellSpec](https://shellspec.info/) for integration tests
+- [atago](https://github.com/nao1215/atago) (v0.11.0) for E2E tests
 - [just](https://github.com/casey/just) as a task runner (optional but recommended)
 
 Clone the repository and download dependencies:
@@ -25,7 +25,7 @@ Run the full test suite with:
 just all
 ```
 
-This runs format check, type check, build, unit tests, integration dependency prepare, and ShellSpec integration tests in order. You can also run individual steps:
+This runs format check, type check, build, unit tests, integration dependency prepare, and atago E2E tests in order. You can also run individual steps:
 
 | Command | What it does |
 |---------|-------------|
@@ -34,11 +34,11 @@ This runs format check, type check, build, unit tests, integration dependency pr
 | `gleam build --warnings-as-errors` | Build (warnings fail the build) |
 | `gleam test` | Run Gleam unit tests |
 | `just integration-prepare` | Pre-populate Hex cache for the integration harness |
-| `shellspec` | Run ShellSpec integration tests |
+| `just e2e` | Run atago E2E tests |
 
 ### Online/offline contract for the integration harness
 
-`spec/compile_spec.sh` scaffolds temporary Gleam projects and runs `gleam build` on each one. `just integration-prepare` is the single step that requires network access: it resolves and downloads every dependency allowed by `integration_test/warmup/gleam.toml` into the shared Hex cache. The resulting `integration_test/warmup/manifest.toml` is checked in, so the pinned versions are reproducible from repository state.
+`spec/integration.atago.yaml` drives temporary Gleam projects through the shared integration harness under `integration_test/` and runs `gleam build` / `gleam test` on each one. `just integration-prepare` is the single step that requires network access: it resolves and downloads every dependency allowed by `integration_test/warmup/gleam.toml` into the shared Hex cache. The resulting `integration_test/warmup/manifest.toml` is checked in, so the pinned versions are reproducible from repository state.
 
 Each generated test project picks up a copy of that pinned manifest, so compile cases use the same versions on every run instead of re-resolving against the current Hex registry.
 

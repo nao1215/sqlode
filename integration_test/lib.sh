@@ -1,8 +1,8 @@
 #!/bin/sh
 # shellcheck shell=sh
 #
-# Shared integration-project scaffolding used by both `spec/compile_spec.sh`
-# (ShellSpec) and the per-scenario scripts in `integration_test/`.
+# Shared integration-project scaffolding used by the atago E2E suite under
+# `spec/` and the per-scenario scripts in `integration_test/`.
 #
 # Callers are expected to export $PROJECT_ROOT before sourcing this file.
 # Each helper is idempotent; they operate on the directory passed in and
