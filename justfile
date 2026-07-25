@@ -37,14 +37,15 @@ test-javascript:
 lint:
   gleam run -m glinter
 
-shellspec:
-  shellspec
+e2e:
+  PROJECT_ROOT="$PWD" atago run --parallel 1 ./spec
 
-# Pre-populate the shared Hex cache used by `spec/compile_spec.sh` and
-# the `integration_test/` harness. This is the one step that requires
-# network access; once it has run successfully, each compile-spec case
-# uses pinned versions from `integration_test/warmup/manifest.toml` and
-# no further Hex resolution is needed.
+# Pre-populate the shared Hex cache used by the atago suite under
+# `spec/` and the `integration_test/` harness. This is the one step
+# that requires network access; once it has run successfully, each
+# generated-project case uses pinned versions from
+# `integration_test/warmup/manifest.toml` and no further Hex
+# resolution is needed.
 integration-prepare:
   cd integration_test/warmup && gleam deps download
 
@@ -67,4 +68,4 @@ all:
   gleam test
   just test-javascript
   just integration-prepare
-  shellspec
+  just e2e

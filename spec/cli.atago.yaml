@@ -1,0 +1,518 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/nao1215/atago/main/schema/atago.schema.json
+version: "1"
+
+suite:
+  name: sqlode cli
+  env:
+    PROJECT_ROOT: ${env:PROJECT_ROOT}
+  setup:
+    - run:
+        shell: true
+        cwd: ${env:PROJECT_ROOT}
+        command: gleam export erlang-shipment >/dev/null
+
+defaults:
+  run:
+    shell: true
+    cwd: ${env:PROJECT_ROOT}
+
+scenarios:
+  - name: init creates config file and stub files
+    steps:
+      - run:
+          command: |
+            rm -rf "${workdir}/init-default"
+            ./spec/support/sqlode.sh init --output="${workdir}/init-default/sqlode.yaml"
+      - assert:
+          exit_code: 0
+          stdout:
+            contains: Created
+          stderr:
+            empty: true
+      - assert:
+          file:
+            path: init-default/sqlode.yaml
+            exists: true
+      - assert:
+          dir:
+            path: init-default/db
+            exists: true
+            contains:
+              - schema.sql
+              - query.sql
+
+  - name: init fails when config file already exists
+    steps:
+      - fixture:
+          file: init-existing/sqlode.yaml
+          content: existing
+      - run:
+          command: ./spec/support/sqlode.sh init --output="${workdir}/init-existing/sqlode.yaml"
+      - assert:
+          exit_code:
+            not: 0
+          stderr:
+            contains: already exists
+
+  - name: init scaffolds mysql native runtime
+    steps:
+      - run:
+          command: |
+            rm -rf "${workdir}/init-mysql-native"
+            ./spec/support/sqlode.sh init \
+              --output="${workdir}/init-mysql-native/sqlode.yaml" \
+              --engine=mysql \
+              --runtime=native
+      - assert:
+          exit_code: 0
+          stdout:
+            contains: Created
+          stderr:
+            empty: true
+      - assert:
+          file:
+            path: init-mysql-native/sqlode.yaml
+            contains:
+              - 'engine: "mysql"'
+              - 'runtime: "native"'
+      - assert:
+          file:
+            path: init-mysql-native/db/schema.sql
+            contains: BIGINT AUTO_INCREMENT PRIMARY KEY
+
+  - name: init sqlite stub schema gives created_at a default timestamp
+    steps:
+      - run:
+          command: |
+            rm -rf "${workdir}/init-sqlite-default"
+            ./spec/support/sqlode.sh init \
+              --output="${workdir}/init-sqlite-default/sqlode.yaml" \
+              --engine=sqlite
+      - assert:
+          exit_code: 0
+          stdout:
+            contains: Created
+      - assert:
+          file:
+            path: init-sqlite-default/db/schema.sql
+            contains: created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+
+  - name: init mysql stub schema gives created_at a default timestamp
+    steps:
+      - run:
+          command: |
+            rm -rf "${workdir}/init-mysql-default"
+            ./spec/support/sqlode.sh init \
+              --output="${workdir}/init-mysql-default/sqlode.yaml" \
+              --engine=mysql
+      - assert:
+          exit_code: 0
+          stdout:
+            contains: Created
+      - assert:
+          file:
+            path: init-mysql-default/db/schema.sql
+            contains: created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+
+  - name: init postgresql stub schema gives created_at a default timestamp
+    steps:
+      - run:
+          command: |
+            rm -rf "${workdir}/init-postgresql-default"
+            ./spec/support/sqlode.sh init \
+              --output="${workdir}/init-postgresql-default/sqlode.yaml" \
+              --engine=postgresql
+      - assert:
+          exit_code: 0
+          stdout:
+            contains: Created
+      - assert:
+          file:
+            path: init-postgresql-default/db/schema.sql
+            contains: created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+
+  - name: generate help shows usage
+    steps:
+      - run:
+          command: ./spec/support/sqlode.sh generate --help
+      - assert:
+          exit_code: 0
+          stdout:
+            contains:
+              - "Command: generate"
+              - auto-discover
+          stderr:
+            empty: true
+
+  - name: generate fails when config file does not exist
+    steps:
+      - run:
+          command: ./spec/support/sqlode.sh generate --config=nonexistent.yaml
+      - assert:
+          exit_code:
+            not: 0
+          stderr:
+            contains: Config file not found
+
+  - name: generate fails with invalid config
+    steps:
+      - run:
+          command: ./spec/support/sqlode.sh generate --config=test/fixtures/malformed.yaml
+      - assert:
+          exit_code:
+            not: 0
+          stderr:
+            contains: Error
+
+  - name: generate creates params queries and models from sqlc-style input
+    steps:
+      - run:
+          command: |
+            rm -rf "${workdir}/generate-basic"
+            mkdir -p "${workdir}/generate-basic"
+            cp test/fixtures/schema.sql "${workdir}/generate-basic/schema.sql"
+            cp test/fixtures/query.sql "${workdir}/generate-basic/query.sql"
+      - fixture:
+          file: generate-basic/sqlode.yaml
+          content: |
+            version: "2"
+            sql:
+              - schema: "schema.sql"
+                queries: "query.sql"
+                engine: "postgresql"
+                gen:
+                  gleam:
+                    out: "src/db"
+                    runtime: "raw"
+      - run:
+          command: ./spec/support/sqlode.sh generate --config="${workdir}/generate-basic/sqlode.yaml"
+      - assert:
+          exit_code: 0
+          stdout:
+            contains: Successfully generated 3 files
+          stderr:
+            empty: true
+      - assert:
+          dir:
+            path: generate-basic/src/db
+            exists: true
+            contains:
+              - params.gleam
+              - queries.gleam
+              - models.gleam
+      - assert:
+          file:
+            path: generate-basic/src/db/params.gleam
+            contains:
+              - "GetAuthorParams(id: Int)"
+              - runtime.int(params.id)
+      - assert:
+          file:
+            path: generate-basic/src/db/queries.gleam
+            contains:
+              - "pub fn get_author() -> runtime.RawQuery(params.GetAuthorParams) {"
+              - "pub fn list_authors() -> runtime.RawQuery(Nil) {"
+      - assert:
+          file:
+            path: generate-basic/src/db/models.gleam
+            contains:
+              - "pub type GetAuthorRow {"
+              - "pub type ListAuthorsRow {"
+
+  - name: generate autodiscovery fails with a helpful message when no config exists
+    steps:
+      - run:
+          command: |
+            rm -rf "${workdir}/autodiscover-empty"
+            mkdir -p "${workdir}/autodiscover-empty"
+      - run:
+          cwd: ${workdir}/autodiscover-empty
+          command: '"$PROJECT_ROOT/spec/support/sqlode.sh" generate'
+      - assert:
+          exit_code:
+            not: 0
+          stderr:
+            contains:
+              - No config file found
+              - sqlode.yaml
+              - sqlc.json
+
+  - name: generate autodiscovery picks up sqlode.yaml
+    steps:
+      - run:
+          command: |
+            rm -rf "${workdir}/autodiscover-sqlode"
+            mkdir -p "${workdir}/autodiscover-sqlode"
+            cp test/fixtures/schema.sql "${workdir}/autodiscover-sqlode/schema.sql"
+            cp test/fixtures/query.sql "${workdir}/autodiscover-sqlode/query.sql"
+      - fixture:
+          file: autodiscover-sqlode/sqlode.yaml
+          content: |
+            version: "2"
+            sql:
+              - schema: "schema.sql"
+                queries: "query.sql"
+                engine: "postgresql"
+                gen:
+                  gleam:
+                    out: "src/db"
+                    runtime: "raw"
+      - run:
+          cwd: ${workdir}/autodiscover-sqlode
+          command: '"$PROJECT_ROOT/spec/support/sqlode.sh" generate'
+      - assert:
+          exit_code: 0
+          stdout:
+            contains:
+              - "Loading config from: sqlode.yaml"
+              - Successfully generated
+          stderr:
+            empty: true
+      - assert:
+          dir:
+            path: autodiscover-sqlode/src/db
+            exists: true
+            contains:
+              - params.gleam
+              - queries.gleam
+              - models.gleam
+
+  - name: generate autodiscovery falls back to sqlc.yaml
+    steps:
+      - run:
+          command: |
+            rm -rf "${workdir}/autodiscover-sqlc-yaml"
+            mkdir -p "${workdir}/autodiscover-sqlc-yaml"
+            cp test/fixtures/schema.sql "${workdir}/autodiscover-sqlc-yaml/schema.sql"
+            cp test/fixtures/query.sql "${workdir}/autodiscover-sqlc-yaml/query.sql"
+      - fixture:
+          file: autodiscover-sqlc-yaml/sqlc.yaml
+          content: |
+            version: "2"
+            sql:
+              - schema: "schema.sql"
+                queries: "query.sql"
+                engine: "postgresql"
+                gen:
+                  gleam:
+                    out: "src/db"
+                    runtime: "raw"
+      - run:
+          cwd: ${workdir}/autodiscover-sqlc-yaml
+          command: '"$PROJECT_ROOT/spec/support/sqlode.sh" generate'
+      - assert:
+          exit_code: 0
+          stdout:
+            contains:
+              - "Loading config from: sqlc.yaml"
+              - Successfully generated
+          stderr:
+            empty: true
+
+  - name: generate autodiscovery falls back to sqlc.json
+    steps:
+      - run:
+          command: |
+            rm -rf "${workdir}/autodiscover-sqlc-json"
+            mkdir -p "${workdir}/autodiscover-sqlc-json"
+            cp test/fixtures/schema.sql "${workdir}/autodiscover-sqlc-json/schema.sql"
+            cp test/fixtures/query.sql "${workdir}/autodiscover-sqlc-json/query.sql"
+      - fixture:
+          file: autodiscover-sqlc-json/sqlc.json
+          content: |
+            {
+              "version": "2",
+              "sql": [
+                {
+                  "schema": "schema.sql",
+                  "queries": "query.sql",
+                  "engine": "postgresql",
+                  "gen": {
+                    "gleam": {
+                      "out": "src/db",
+                      "runtime": "raw"
+                    }
+                  }
+                }
+              ]
+            }
+      - run:
+          cwd: ${workdir}/autodiscover-sqlc-json
+          command: '"$PROJECT_ROOT/spec/support/sqlode.sh" generate'
+      - assert:
+          exit_code: 0
+          stdout:
+            contains:
+              - "Loading config from: sqlc.json"
+              - Successfully generated
+          stderr:
+            empty: true
+
+  - name: generate autodiscovery refuses to pick when multiple candidates exist
+    steps:
+      - run:
+          command: |
+            rm -rf "${workdir}/autodiscover-multiple"
+            mkdir -p "${workdir}/autodiscover-multiple"
+            cp test/fixtures/schema.sql "${workdir}/autodiscover-multiple/schema.sql"
+            cp test/fixtures/query.sql "${workdir}/autodiscover-multiple/query.sql"
+      - fixture:
+          file: autodiscover-multiple/sqlode.yaml
+          content: |
+            version: "2"
+            sql:
+              - schema: "schema.sql"
+                queries: "query.sql"
+                engine: "postgresql"
+                gen:
+                  gleam:
+                    out: "src/db"
+                    runtime: "raw"
+      - fixture:
+          file: autodiscover-multiple/sqlc.yaml
+          content: |
+            version: "2"
+            sql:
+              - schema: "schema.sql"
+                queries: "query.sql"
+                engine: "postgresql"
+                gen:
+                  gleam:
+                    out: "src/db"
+                    runtime: "raw"
+      - run:
+          cwd: ${workdir}/autodiscover-multiple
+          command: '"$PROJECT_ROOT/spec/support/sqlode.sh" generate'
+      - assert:
+          exit_code:
+            not: 0
+          stderr:
+            contains:
+              - Multiple config files found
+              - sqlode.yaml
+              - sqlc.yaml
+
+  - name: verify fails when config file does not exist
+    steps:
+      - run:
+          command: ./spec/support/sqlode.sh verify --config=nonexistent.yaml
+      - assert:
+          exit_code:
+            not: 0
+          stderr:
+            contains: Config file not found
+
+  - name: verify fails with invalid config
+    steps:
+      - run:
+          command: ./spec/support/sqlode.sh verify --config=test/fixtures/malformed.yaml
+      - assert:
+          exit_code:
+            not: 0
+          stderr:
+            contains: Error
+
+  - name: version prints the version string
+    steps:
+      - run:
+          command: ./spec/support/sqlode.sh version
+      - assert:
+          exit_code: 0
+          stdout:
+            contains: sqlode v
+          stderr:
+            empty: true
+
+  - name: init help shows usage
+    steps:
+      - run:
+          command: ./spec/support/sqlode.sh init --help
+      - assert:
+          exit_code: 0
+          stdout:
+            contains: Scaffold a sqlode.yaml
+          stderr:
+            empty: true
+
+  - name: version help shows usage
+    steps:
+      - run:
+          command: ./spec/support/sqlode.sh version --help
+      - assert:
+          exit_code: 0
+          stdout:
+            contains: Print the sqlode version
+          stderr:
+            empty: true
+
+  - name: example sqlite-basic stays fresh
+    steps:
+      - run:
+          command: |
+            rm -rf "${workdir}/sqlite-basic"
+            cp -R examples/sqlite-basic "${workdir}/sqlite-basic"
+            rm -rf "${workdir}/sqlite-basic/src/db"
+      - run:
+          command: ./spec/support/sqlode.sh generate --config="${workdir}/sqlite-basic/sqlode.yaml"
+      - assert:
+          exit_code: 0
+          stdout:
+            contains: Successfully generated
+          stderr:
+            empty: true
+      - assert:
+          dir:
+            path: sqlite-basic/src/db
+            exists: true
+            contains:
+              - params.gleam
+              - models.gleam
+              - queries.gleam
+              - sqlight_adapter.gleam
+      - assert:
+          file:
+            path: sqlite-basic/src/db/params.gleam
+            contains:
+              - "GetAuthorParams(id: Int)"
+              - "CreateAuthorParams(name: String"
+      - assert:
+          file:
+            path: sqlite-basic/src/db/sqlight_adapter.gleam
+            contains:
+              - "pub fn get_author("
+              - "pub fn list_authors("
+              - "pub fn create_author("
+              - "pub fn delete_author("
+
+  - name: invalid invocations keep diagnostics on stderr
+    steps:
+      - run:
+          command: gleam run -- --xyz
+      - assert:
+          exit_code:
+            not: 0
+          stdout:
+            not_contains: "error:"
+          stderr:
+            contains: "error:"
+      - run:
+          command: gleam run --
+      - assert:
+          exit_code:
+            not: 0
+          stdout:
+            not_contains: "error:"
+          stderr:
+            contains: "error:"
+
+  - name: help text stays on stdout
+    steps:
+      - run:
+          command: gleam run -- --help
+      - assert:
+          exit_code: 0
+          stdout:
+            contains: sqlode
+      - assert:
+          stderr:
+            not_contains: "error: failed"
