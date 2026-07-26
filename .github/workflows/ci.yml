@@ -62,6 +62,9 @@ jobs:
       - name: Unit tests
         run: gleam test
 
+      - name: Prepare integration dependency cache
+        run: cd integration_test/warmup && gleam deps download
+
       - name: atago E2E tests
         env:
           PROJECT_ROOT: ${{ github.workspace }}
