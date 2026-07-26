@@ -67,7 +67,7 @@ jobs:
         run: gleam run -m sqlode_js_test --target javascript
 
       - name: Prepare integration dependency cache
-        run: just integration-prepare
+        run: cd integration_test/warmup && gleam deps download
 
       - name: atago E2E tests
         env:
