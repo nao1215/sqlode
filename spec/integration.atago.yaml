@@ -83,6 +83,7 @@ scenarios:
     steps:
       - run:
           command: ./spec/support/run_integration_case.sh case_sqlite_basic "${workdir}/integration"
+          timeout: 2m
       - assert:
           exit_code: 0
           stdout:
@@ -101,6 +102,7 @@ scenarios:
     steps:
       - run:
           command: ./spec/support/run_integration_case.sh case_sqlite_extended "${workdir}/integration"
+          timeout: 2m
       - assert:
           exit_code: 0
           stdout:
@@ -110,6 +112,7 @@ scenarios:
     steps:
       - run:
           command: ./spec/support/run_integration_case.sh case_sqlite_advanced "${workdir}/integration"
+          timeout: 2m
       - assert:
           exit_code: 0
           stdout:
