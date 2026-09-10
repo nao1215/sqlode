@@ -10,6 +10,10 @@ on:
 # to preserve the Actions usage budget; the lightweight unit test suite in
 # ci.yml still runs on every PR.
 
+# Read-only Hex key for dependency resolution; see the note in ci.yml.
+env:
+  HEXPM_READ_API_KEY: ${{ secrets.HEXPM_READ_API_KEY }}
+
 jobs:
   integration:
     name: Release-path integration

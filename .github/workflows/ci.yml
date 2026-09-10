@@ -15,6 +15,13 @@ on:
 #   oldest maintained OTP. Keep its Gleam version in sync with gleam.toml,
 #   otherwise the declared floor is no longer verified.
 
+# The integration tests resolve dependencies for freshly generated projects many
+# times per run. Unauthenticated Hex API calls share a per-IP rate limit, which
+# Gleam 1.18 runs into; a read-only key moves them to the per-user limit.
+# An unset secret expands to an empty value, which Gleam treats as no key.
+env:
+  HEXPM_READ_API_KEY: ${{ secrets.HEXPM_READ_API_KEY }}
+
 jobs:
   all:
     name: All checks (Gleam 1.x, OTP 29)
