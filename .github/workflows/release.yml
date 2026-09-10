@@ -13,6 +13,12 @@ jobs:
   # (`.github/workflows/ci.yml`) and `just all`. Any step added to
   # those contracts should be added here too so tag-driven releases
   # cannot ship a commit the PR lane would have rejected.
+  #
+  # Gleam follows CI's latest lane (1.x). OTP stays on the oldest
+  # maintained release (27) on purpose: this job builds the escript
+  # attached to the GitHub Release, and BEAM files compiled by a newer
+  # OTP are not guaranteed to load on an older one. Building on 27 keeps
+  # the documented "Erlang/OTP 27 or later" requirement true.
   build:
     name: Build and verify
     runs-on: ubuntu-latest
@@ -22,20 +28,16 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "27"
-          gleam-version: "1.15"
+          gleam-version: "1.x"
+          rebar3-version: "3"
 
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
 
-      - name: Install rebar3
-        run: |
-          wget -q https://s3.amazonaws.com/rebar3/rebar3 -O /usr/local/bin/rebar3
-          chmod +x /usr/local/bin/rebar3
-
       - uses: nao1215/setup-atago@v0
         with:
-          version: v0.20.0
+          version: v0.21.0
 
       - name: Download dependencies
         run: gleam deps download
@@ -99,12 +101,8 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "27"
-          gleam-version: "1.15"
-
-      - name: Install rebar3
-        run: |
-          wget -q https://s3.amazonaws.com/rebar3/rebar3 -O /usr/local/bin/rebar3
-          chmod +x /usr/local/bin/rebar3
+          gleam-version: "1.x"
+          rebar3-version: "3"
 
       - name: Download dependencies
         run: gleam deps download

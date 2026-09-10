@@ -4,9 +4,9 @@
 
 You need the following tools installed:
 
-- [Gleam](https://gleam.run/) (1.x)
+- [Gleam](https://gleam.run/) (1.14 or later; use the latest 1.x for `gleam format`, because CI checks formatting with the latest compiler)
 - Erlang/OTP (27+)
-- [atago](https://github.com/nao1215/atago) (v0.11.0) for E2E tests
+- [atago](https://github.com/nao1215/atago) (v0.21.0) for E2E tests
 - [just](https://github.com/casey/just) as a task runner (optional but recommended)
 
 Clone the repository and download dependencies:
