@@ -469,7 +469,10 @@ fn is_hex_digit(g: String) -> Bool {
 
 // --- Word/identifier helpers ---
 
-fn read_word(input: List(String), acc: List(String)) -> #(String, List(String)) {
+fn read_word(
+  input: List(String),
+  acc: List(String),
+) -> #(String, List(String)) {
   case input {
     [g, ..rest] ->
       case char_utils.is_alnum_or_underscore(g) {

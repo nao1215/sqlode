@@ -382,7 +382,9 @@ fn walk_expr(expr: query_ir.Expr) -> List(token_utils.EqualityMatch) {
   }
 }
 
-fn walk_in_source(source: query_ir.InSource) -> List(token_utils.EqualityMatch) {
+fn walk_in_source(
+  source: query_ir.InSource,
+) -> List(token_utils.EqualityMatch) {
   case source {
     query_ir.InSubquery(core:) -> walk_select_core(core)
     query_ir.InList(values:) -> list.flat_map(values, walk_expr)
@@ -529,7 +531,9 @@ fn walk_select_core_iq(
   ])
 }
 
-fn walk_order_key_iq(key: query_ir.OrderKey) -> List(token_utils.EqualityMatch) {
+fn walk_order_key_iq(
+  key: query_ir.OrderKey,
+) -> List(token_utils.EqualityMatch) {
   walk_expr_iq(key.expr)
 }
 

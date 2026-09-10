@@ -24,8 +24,7 @@ type AdapterConfig {
       String,
       String,
       List(model.QueryParam),
-    ) ->
-      List(String),
+    ) -> List(String),
     render_one_result: fn() -> List(String),
     render_many_result: fn() -> List(String),
     render_exec_rows_result: fn() -> List(String),
@@ -803,7 +802,10 @@ fn render_pog_query_call(
 /// returned values through `value_to_pog`, so the param-string is
 /// redundant. Kept for the `AdapterConfig.render_params` field so the
 /// wider shape of the config record does not shift in this change.
-fn render_pog_params(_params: List(model.QueryParam), _prefix: String) -> String {
+fn render_pog_params(
+  _params: List(model.QueryParam),
+  _prefix: String,
+) -> String {
   ""
 }
 
@@ -1114,7 +1116,9 @@ fn adapter_needs_option_type(queries: List(model.AnalyzedQuery)) -> Bool {
   })
 }
 
-fn adapter_needs_option_constructors(queries: List(model.AnalyzedQuery)) -> Bool {
+fn adapter_needs_option_constructors(
+  queries: List(model.AnalyzedQuery),
+) -> Bool {
   list.any(queries, adapter_query_uses_option_constructors)
 }
 

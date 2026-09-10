@@ -241,7 +241,10 @@ pub fn scalar_type_to_value_function(
   }
 }
 
-pub fn scalar_type_to_decoder(engine: Engine, scalar_type: ScalarType) -> String {
+pub fn scalar_type_to_decoder(
+  engine: Engine,
+  scalar_type: ScalarType,
+) -> String {
   case resolve_type(scalar_type) {
     LeafType(info) ->
       case scalar_type {

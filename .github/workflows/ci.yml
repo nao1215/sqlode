@@ -6,9 +6,26 @@ on:
   pull_request:
     branches: [main]
 
+# Two compiler lanes:
+# - Latest lane (`all`, `build-javascript`): Gleam floats on 1.x with the
+#   newest OTP, so new compiler warnings and deprecations surface here
+#   first. Format, lint, warnings-as-errors, E2E and the database
+#   integration tests only run here.
+# - Floor lane (`test-floor`): the `gleam` requirement in gleam.toml on the
+#   oldest maintained OTP. Keep its Gleam version in sync with gleam.toml,
+#   otherwise the declared floor is no longer verified.
+
+# The integration tests resolve dependencies for freshly generated projects many
+# times per run. Unauthenticated Hex API calls share a per-IP rate limit, which
+# GitHub-hosted runners can exceed; integration_test/lib.sh waits and retries
+# when that happens, and a read-only key moves the calls to the per-key limit.
+# An unset secret expands to an empty value, which Gleam treats as no key.
+env:
+  HEXPM_READ_API_KEY: ${{ secrets.HEXPM_READ_API_KEY }}
+
 jobs:
   all:
-    name: All checks
+    name: All checks (Gleam 1.x, OTP 29)
     runs-on: ubuntu-latest
 
     services:
@@ -32,17 +49,13 @@ jobs:
 
       - uses: erlef/setup-beam@v1
         with:
-          otp-version: "27"
-          gleam-version: "1.15"
-
-      - name: Install rebar3
-        run: |
-          wget -q https://s3.amazonaws.com/rebar3/rebar3 -O /usr/local/bin/rebar3
-          chmod +x /usr/local/bin/rebar3
+          otp-version: "29"
+          gleam-version: "1.x"
+          rebar3-version: "3"
 
       - uses: nao1215/setup-atago@v0
         with:
-          version: v0.20.0
+          version: v0.21.0
 
       - name: Download dependencies
         run: gleam deps download
@@ -92,6 +105,22 @@ jobs:
           MYSQL_URL: mysql://root:root@localhost:3306/sqlode_integration
         run: sh integration_test/run.sh case_mysql_real
 
+  test-floor:
+    # No --warnings-as-errors here: an old compiler's warnings cannot
+    # always be fixed without breaking the latest lane.
+    name: Unit tests (Gleam 1.14.0, OTP 27)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          gleam-version: "1.14.0"
+          rebar3-version: "3"
+      - run: gleam deps download
+      - run: gleam build
+      - run: gleam test
+
   build-javascript:
     name: Build (JavaScript)
     runs-on: ubuntu-latest
@@ -99,8 +128,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: erlef/setup-beam@v1
         with:
-          otp-version: "27"
-          gleam-version: "1.15"
+          otp-version: "29"
+          gleam-version: "1.x"
       - uses: actions/setup-node@v7
         with:
           node-version: "22"

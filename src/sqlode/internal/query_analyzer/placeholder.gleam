@@ -190,7 +190,11 @@ fn build_occurrences(
   }
 }
 
-fn default_param_name(ctx: AnalyzerContext, token: String, index: Int) -> String {
+fn default_param_name(
+  ctx: AnalyzerContext,
+  token: String,
+  index: Int,
+) -> String {
   case named_placeholder_name(token) {
     Some(name) -> naming.to_snake_case(ctx.naming, name)
     None -> "param" <> int.to_string(index)

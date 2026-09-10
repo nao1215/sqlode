@@ -513,7 +513,8 @@ fn extract_aggregate_inner_type(
   tables: List(model.Table),
 ) -> Option(model.Column) {
   case tokens {
-    [lexer.Ident(name), lexer.RParen, ..] | [lexer.Ident(name), lexer.Comma, ..] ->
+    [lexer.Ident(name), lexer.RParen, ..]
+    | [lexer.Ident(name), lexer.Comma, ..] ->
       find_column_in_tables(tables, string.lowercase(name))
     [lexer.Ident(_table), lexer.Dot, lexer.Ident(col), lexer.RParen, ..]
     | [lexer.Ident(_table), lexer.Dot, lexer.Ident(col), lexer.Comma, ..] ->
@@ -860,7 +861,9 @@ fn classify_alter_table_from_tokens(
   }
 }
 
-fn skip_alter_modifiers(tokens: List(lexer.Token)) -> #(List(lexer.Token), Bool) {
+fn skip_alter_modifiers(
+  tokens: List(lexer.Token),
+) -> #(List(lexer.Token), Bool) {
   case tokens {
     [lexer.Keyword("if"), lexer.Keyword("exists"), ..rest] ->
       skip_alter_modifiers(rest)

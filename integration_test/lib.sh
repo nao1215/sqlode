@@ -169,9 +169,34 @@ integration_generate() {
 }
 
 integration_build() {
-  (cd "$1" && gleam build)
+  (cd "$1" && _integration_gleam build)
 }
 
 integration_test() {
-  (cd "$1" && gleam test)
+  (cd "$1" && _integration_gleam test)
+}
+
+# The first build of each project re-resolves its dependencies (the path
+# dependency on sqlode has no fingerprint yet), which calls the Hex API once
+# per package. Hex rate limits unauthenticated clients per IP and
+# GitHub-hosted runners share IPs, so a run can be refused part-way through.
+# When that happens, wait for the limit window to pass and run the same
+# command again. Setting HEXPM_READ_API_KEY moves Gleam to the per-key limit.
+_integration_gleam() {
+  _ig_attempt=1
+  while :; do
+    _ig_status=0
+    _ig_output=$(gleam "$@" 2>&1) || _ig_status=$?
+    printf '%s\n' "$_ig_output"
+    if [ "$_ig_status" -eq 0 ] || [ "$_ig_attempt" -gt 3 ]; then
+      return "$_ig_status"
+    fi
+    case "$_ig_output" in
+      *"rate limit for the Hex API"*) ;;
+      *) return "$_ig_status" ;;
+    esac
+    echo "Hex API rate limit reached; retrying in 60s (retry $_ig_attempt of 3)" >&2
+    sleep 60
+    _ig_attempt=$((_ig_attempt + 1))
+  done
 }

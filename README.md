@@ -2,6 +2,7 @@
 
 [![Hex](https://img.shields.io/hexpm/v/sqlode)](https://hex.pm/packages/sqlode)
 [![Hex Downloads](https://img.shields.io/hexpm/dt/sqlode)](https://hex.pm/packages/sqlode)
+[![Hex Docs](https://img.shields.io/badge/hex-docs-ffaff3)](https://hexdocs.pm/sqlode/)
 [![CI](https://github.com/nao1215/sqlode/actions/workflows/ci.yml/badge.svg)](https://github.com/nao1215/sqlode/actions/workflows/ci.yml)
 [![tested with atago](https://img.shields.io/badge/tested%20with-atago-7c3aed?logo=data:image/svg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0iI2ZmZiIgZD0iTTMuNiA0LjIgMTEuOSAxMmwtOC4zIDcuOC0xLjktMi4yTDcuOSAxMiAxLjcgNi40eiIvPjxyZWN0IGZpbGw9IiNmZmYiIHg9IjEyLjYiIHk9IjE3LjIiIHdpZHRoPSI5LjciIGhlaWdodD0iMi44IiByeD0iMS40Ii8%2BPC9zdmc%2B&logoColor=white)](https://github.com/nao1215/atago)
 [![license](https://img.shields.io/github/license/nao1215/sqlode)](./LICENSE)
@@ -149,7 +150,7 @@ docker run --rm -v "$PWD:/work" ghcr.io/nao1215/sqlode:latest init --engine=sqli
 docker run --rm -v "$PWD:/work" ghcr.io/nao1215/sqlode:latest generate
 ```
 
-The container's working directory is `/work`, so mounting your project there lets `init` / `generate` / `verify` write into the host. Swap `:latest` for a version tag (`:0.10.0`) to pin a release. The `:latest` tag appears once the docker workflow has run on `main`; before that, `docker build -t sqlode .` at the repo root produces the same image.
+The container's working directory is `/work`, so mounting your project there lets `init` / `generate` / `verify` write into the host. Swap `:latest` for a version tag (`:0.31.0`) to pin a release. The `:latest` tag appears once the docker workflow has run on `main`; before that, `docker build -t sqlode .` at the repo root produces the same image.
 
 #### E. mise (recommended for Gleam projects)
 
@@ -164,7 +165,7 @@ This installs the escript and manages versions alongside your Gleam/Erlang toolc
 
 ```toml
 [tools]
-sqlode = "0.12.0"
+sqlode = "0.31.0"
 ```
 
 mise handles `PATH` automatically — no manual exports needed.

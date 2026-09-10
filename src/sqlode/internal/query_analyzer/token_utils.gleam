@@ -374,7 +374,9 @@ pub type EqualityMatch {
 }
 
 /// Find all column [op] placeholder patterns in tokens.
-pub fn find_equality_patterns(tokens: List(lexer.Token)) -> List(EqualityMatch) {
+pub fn find_equality_patterns(
+  tokens: List(lexer.Token),
+) -> List(EqualityMatch) {
   find_equality_loop(tokens, [])
   |> list.reverse
 }

@@ -12,7 +12,9 @@ pub type WriteError {
   FileWriteError(path: String, detail: String)
 }
 
-pub fn write_all(files: List(GeneratedFile)) -> Result(List(String), WriteError) {
+pub fn write_all(
+  files: List(GeneratedFile),
+) -> Result(List(String), WriteError) {
   list.try_fold(files, [], fn(written, file) {
     use _ <- result.try(
       simplifile.create_directory_all(file.directory)
