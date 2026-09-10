@@ -279,7 +279,9 @@ fn derive_column_name_from_tokens(tokens: List(lexer.Token)) -> String {
 }
 
 /// Derive a source table from a simple table.column reference.
-fn derive_source_table_from_tokens(tokens: List(lexer.Token)) -> Option(String) {
+fn derive_source_table_from_tokens(
+  tokens: List(lexer.Token),
+) -> Option(String) {
   case tokens {
     [lexer.Ident(table), lexer.Dot, lexer.Ident(_col)] -> Some(table)
     [lexer.Ident(table), lexer.Dot, lexer.QuotedIdent(_col)] -> Some(table)
@@ -998,7 +1000,9 @@ fn stmt_ctes(stmt: query_ir.Stmt) -> List(query_ir.CteDef) {
 /// builds a `model.Table` using the first row's literal types.
 /// Rows whose expressions do not classify as simple literals are
 /// skipped silently, matching the token-based extractor.
-pub fn extract_values_tables_from_stmt(stmt: query_ir.Stmt) -> List(model.Table) {
+pub fn extract_values_tables_from_stmt(
+  stmt: query_ir.Stmt,
+) -> List(model.Table) {
   list.filter_map(collect_from_items(stmt), ir_from_item_to_values_table)
 }
 
@@ -2601,7 +2605,10 @@ fn tok_nullable_loop(
   }
 }
 
-fn tok_skip_keyword(tokens: List(lexer.Token), kw: String) -> List(lexer.Token) {
+fn tok_skip_keyword(
+  tokens: List(lexer.Token),
+  kw: String,
+) -> List(lexer.Token) {
   case tokens {
     [lexer.Keyword(k), ..rest] if k == kw -> rest
     _ -> tokens

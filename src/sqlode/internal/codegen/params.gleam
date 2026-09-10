@@ -254,7 +254,10 @@ fn plan_encoding(
 /// `types.<fn_name>`. When the type has no module prefix the user is
 /// expected to ensure the function is reachable in the generated
 /// file's scope; we emit the bare name so any import strategy works.
-fn qualified_hook_call(module: option.Option(String), fn_name: String) -> String {
+fn qualified_hook_call(
+  module: option.Option(String),
+  fn_name: String,
+) -> String {
   case module {
     option.Some(module_path) -> module_alias_for(module_path) <> "." <> fn_name
     option.None -> fn_name

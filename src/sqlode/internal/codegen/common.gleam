@@ -135,7 +135,9 @@ pub fn queries_have_enums(queries: List(model.AnalyzedQuery)) -> Bool {
 }
 
 /// Collect import statements for module-qualified custom types from scalar types.
-pub fn custom_type_imports(scalar_types: List(model.ScalarType)) -> List(String) {
+pub fn custom_type_imports(
+  scalar_types: List(model.ScalarType),
+) -> List(String) {
   scalar_types
   |> list.filter_map(fn(st) {
     case st {

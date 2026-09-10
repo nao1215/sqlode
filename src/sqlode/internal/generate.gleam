@@ -89,7 +89,9 @@ fn resolve_path(base_dir: String, path: String) -> String {
   }
 }
 
-pub fn generate_config(cfg: model.Config) -> Result(List(String), GenerateError) {
+pub fn generate_config(
+  cfg: model.Config,
+) -> Result(List(String), GenerateError) {
   let naming_ctx = naming.new()
   use files <- result.try(
     cfg.sql
@@ -342,7 +344,9 @@ fn prune_catalog_to_used(
   model.Catalog(tables: retained_tables, enums: retained_enums)
 }
 
-fn collect_referenced_tables(queries: List(model.AnalyzedQuery)) -> List(String) {
+fn collect_referenced_tables(
+  queries: List(model.AnalyzedQuery),
+) -> List(String) {
   queries
   |> list.flat_map(fn(query) {
     list.flat_map(query.result_columns, fn(item) {
@@ -493,7 +497,9 @@ fn validate_no_duplicate_query_names(
   |> result.map(fn(_) { queries })
 }
 
-fn wrap_validation_error(err: query_validation.ValidationError) -> GenerateError {
+fn wrap_validation_error(
+  err: query_validation.ValidationError,
+) -> GenerateError {
   case err {
     query_validation.DuplicateName(name:, paths:) ->
       DuplicateQueryName(name:, paths:)
@@ -677,7 +683,9 @@ pub fn disambiguate_param_names(
   list.map(queries, disambiguate_query_params)
 }
 
-fn disambiguate_query_params(query: model.AnalyzedQuery) -> model.AnalyzedQuery {
+fn disambiguate_query_params(
+  query: model.AnalyzedQuery,
+) -> model.AnalyzedQuery {
   let counts =
     list.fold(query.params, dict.new(), fn(acc, p) {
       dict.upsert(acc, p.field_name, fn(prev) {
@@ -863,7 +871,10 @@ fn try_match_query_to_table(
   ))
 }
 
-fn guard_result(condition: Bool, next: fn() -> Result(a, Nil)) -> Result(a, Nil) {
+fn guard_result(
+  condition: Bool,
+  next: fn() -> Result(a, Nil),
+) -> Result(a, Nil) {
   case condition {
     True -> next()
     False -> Error(Nil)

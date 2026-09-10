@@ -77,7 +77,9 @@ fn parse_version(root: yay.Node) -> Result(Int, ConfigError) {
   }
 }
 
-fn parse_sql_blocks(root: yay.Node) -> Result(List(model.SqlBlock), ConfigError) {
+fn parse_sql_blocks(
+  root: yay.Node,
+) -> Result(List(model.SqlBlock), ConfigError) {
   use node <- result.try(require_node(root, "sql"))
 
   case node {
@@ -301,7 +303,10 @@ fn parse_codec_hooks(
   }
 }
 
-fn validate_codec_hook(side: String, value: String) -> Result(Nil, ConfigError) {
+fn validate_codec_hook(
+  side: String,
+  value: String,
+) -> Result(Nil, ConfigError) {
   case string.is_empty(value) {
     True ->
       Error(InvalidValue(
