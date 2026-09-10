@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-09-10
+
 ### Changed
 
 - `gleam.toml` now declares `gleam = ">= 1.14.0"`, the oldest compiler that builds and tests sqlode with its current dependency set (`gleam_stdlib` 1.0 already requires 1.14), so an older compiler fails with a clear version error instead of a confusing build failure. CI tests this floor alongside the latest 1.x compiler.
