@@ -4,7 +4,7 @@
 # Produces the self-contained `sqlode` escript. We pin the Gleam
 # version to match the erlef/setup-beam toolchain used in CI so the
 # artefact is byte-identical with what the release workflow ships.
-FROM ghcr.io/gleam-lang/gleam:v1.15.2-erlang-alpine AS builder
+FROM ghcr.io/gleam-lang/gleam:v1.18.1-erlang-alpine AS builder
 
 WORKDIR /build
 
