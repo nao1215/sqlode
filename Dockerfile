@@ -31,7 +31,7 @@ RUN gleam run -m gleescript
 # OTP must match the version used by the gleam-lang/gleam builder
 # image above (OTP 28 for Gleam v1.15.2) — otherwise the escript's
 # compiled BEAM modules fail to load at runtime.
-FROM erlang:28-alpine AS runtime
+FROM erlang:29-alpine AS runtime
 
 LABEL org.opencontainers.image.source="https://github.com/nao1215/sqlode"
 LABEL org.opencontainers.image.description="sqlode — typed Gleam code generator for SQL schemas and queries."
