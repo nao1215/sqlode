@@ -83,6 +83,19 @@ jobs:
           PROJECT_ROOT: ${{ github.workspace }}
         run: atago run --ci --report gha --parallel 1 ./spec
 
+      # The suite above drives the erlang-shipment. Users run the escript
+      # attached to the release (and baked into the Docker image), which
+      # starts and stops the runtime differently, so the CLI contract is
+      # checked on that file too.
+      - name: Build escript binary
+        run: gleam run -m gleescript
+
+      - name: atago E2E tests (escript)
+        env:
+          PROJECT_ROOT: ${{ github.workspace }}
+          SQLODE_BIN: ${{ github.workspace }}/sqlode
+        run: atago run --ci --report gha --parallel 1 ./spec/cli.atago.yaml
+
       - name: PostgreSQL integration test
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/sqlode_integration

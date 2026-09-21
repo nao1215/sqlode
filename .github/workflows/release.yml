@@ -90,6 +90,12 @@ jobs:
       - name: Smoke-test built escript
         run: bash scripts/smoke_escript.sh ./sqlode
 
+      - name: atago E2E tests (escript)
+        env:
+          PROJECT_ROOT: ${{ github.workspace }}
+          SQLODE_BIN: ${{ github.workspace }}/sqlode
+        run: atago run --ci --report gha --parallel 1 ./spec/cli.atago.yaml
+
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:

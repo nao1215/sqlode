@@ -49,8 +49,7 @@ scenarios:
       - run:
           command: ./spec/support/sqlode.sh init --output="${workdir}/init-existing/sqlode.yaml"
       - assert:
-          exit_code:
-            not: 0
+          exit_code: 1
           stderr:
             contains: already exists
 
@@ -149,8 +148,7 @@ scenarios:
       - run:
           command: ./spec/support/sqlode.sh generate --config=nonexistent.yaml
       - assert:
-          exit_code:
-            not: 0
+          exit_code: 1
           stderr:
             contains: Config file not found
 
@@ -159,8 +157,7 @@ scenarios:
       - run:
           command: ./spec/support/sqlode.sh generate --config=test/fixtures/malformed.yaml
       - assert:
-          exit_code:
-            not: 0
+          exit_code: 1
           stderr:
             contains: Error
 
@@ -229,8 +226,7 @@ scenarios:
           cwd: ${workdir}/autodiscover-empty
           command: '"$PROJECT_ROOT/spec/support/sqlode.sh" generate'
       - assert:
-          exit_code:
-            not: 0
+          exit_code: 1
           stderr:
             contains:
               - No config file found
@@ -384,8 +380,7 @@ scenarios:
           cwd: ${workdir}/autodiscover-multiple
           command: '"$PROJECT_ROOT/spec/support/sqlode.sh" generate'
       - assert:
-          exit_code:
-            not: 0
+          exit_code: 1
           stderr:
             contains:
               - Multiple config files found
@@ -397,8 +392,7 @@ scenarios:
       - run:
           command: ./spec/support/sqlode.sh verify --config=nonexistent.yaml
       - assert:
-          exit_code:
-            not: 0
+          exit_code: 1
           stderr:
             contains: Config file not found
 
@@ -407,8 +401,7 @@ scenarios:
       - run:
           command: ./spec/support/sqlode.sh verify --config=test/fixtures/malformed.yaml
       - assert:
-          exit_code:
-            not: 0
+          exit_code: 1
           stderr:
             contains: Error
 
@@ -487,19 +480,17 @@ scenarios:
   - name: invalid invocations keep diagnostics on stderr
     steps:
       - run:
-          command: gleam run -- --xyz
+          command: ./spec/support/sqlode.sh --xyz
       - assert:
-          exit_code:
-            not: 0
+          exit_code: 1
           stdout:
             not_contains: "error:"
           stderr:
             contains: "error:"
       - run:
-          command: gleam run --
+          command: ./spec/support/sqlode.sh
       - assert:
-          exit_code:
-            not: 0
+          exit_code: 1
           stdout:
             not_contains: "error:"
           stderr:
@@ -508,7 +499,7 @@ scenarios:
   - name: help text stays on stdout
     steps:
       - run:
-          command: gleam run -- --help
+          command: ./spec/support/sqlode.sh --help
       - assert:
           exit_code: 0
           stdout:
