@@ -40,6 +40,14 @@ lint:
 e2e:
   PROJECT_ROOT="$PWD" atago run --parallel 1 ./spec
 
+# Measure the sqlode escript with the himorime suite in bench/ (requires himorime on PATH)
+bench:
+  himorime run bench
+
+# Compare main with the working tree on the himorime suite (BASE=main)
+bench-compare:
+  himorime compare --against ${BASE:-main} bench
+
 # Pre-populate the shared Hex cache used by the atago suite under
 # `spec/` and the `integration_test/` harness. This is the one step
 # that requires network access; once it has run successfully, each
