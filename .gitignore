@@ -12,3 +12,4 @@ doc/reference
 # build helpers. Always rooted so a future module/test named `sqlode`
 # is not matched.
 /sqlode
+.atago/
