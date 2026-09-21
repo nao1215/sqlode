@@ -7,6 +7,7 @@ You need the following tools installed:
 - [Gleam](https://gleam.run/) (1.14 or later; use the latest 1.x for `gleam format`, because CI checks formatting with the latest compiler)
 - Erlang/OTP (27+)
 - [atago](https://github.com/nao1215/atago) for E2E tests (`go install github.com/nao1215/atago@latest`; CI pins the version in `.github/workflows/ci.yml`)
+- [himorime](https://github.com/nao1215/himorime) for benchmarks (`go install github.com/nao1215/himorime@latest`; CI pins the version in `.github/workflows/bench.yml`)
 - [just](https://github.com/casey/just) as a task runner (optional but recommended)
 
 Clone the repository and download dependencies:
@@ -35,6 +36,8 @@ This runs format check, type check, build, unit tests, integration dependency pr
 | `gleam test` | Run Gleam unit tests |
 | `just integration-prepare` | Pre-populate Hex cache for the integration harness |
 | `just e2e` | Run atago E2E tests |
+| `just bench` | Measure the escript with himorime ([bench/README.md](./bench/README.md)) |
+| `just bench-compare` | Compare main with the working tree on the same suite |
 
 ### Online/offline contract for the integration harness
 
