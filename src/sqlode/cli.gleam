@@ -472,10 +472,9 @@ WHERE id = " <> get_placeholder <> ";\n" <> "\n" <> "-- name: ListAuthors :many\
 }
 
 @target(erlang)
-/// Exit the process with the given status code, flushing I/O before shutdown.
-/// Uses init:stop/1 which triggers a graceful OTP shutdown instead of the
-/// abrupt erlang:halt/1.
-@external(erlang, "init", "stop")
+/// Exit the process with the given status code. Output already written to
+/// stdout and stderr is flushed before the runtime stops.
+@external(erlang, "sqlode_ffi", "halt")
 fn halt(code: Int) -> Nil
 
 @target(javascript)

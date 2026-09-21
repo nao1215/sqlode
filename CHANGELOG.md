@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The `sqlode` escript (the file attached to each GitHub Release and run by the Docker image) exited with status 0 on every error: a missing or invalid config, an unknown option, a missing subcommand, and `init` over an existing file. `sqlode verify` in CI therefore never failed a build. The CLI now stops the runtime with `erlang:halt/1` instead of `init:stop/1`, which only requested a shutdown that the escript overtook by exiting 0; errors exit 1 as documented, and output is still flushed first. `gleam run` and the erlang-shipment were not affected.
+
 ## [0.32.0] - 2026-09-10
 
 ### Changed
