@@ -6,7 +6,17 @@
 %% type for.
 -module(sqlode_ffi).
 
--export([is_stdout_terminal/0, no_color_env/0, find_executable/1, run_executable/2]).
+-export([is_stdout_terminal/0, no_color_env/0, find_executable/1, run_executable/2, halt/1]).
+
+%% Stop the runtime with the given exit status. `init:stop/1` only
+%% requests an orderly shutdown and returns at once; when sqlode runs
+%% as an escript, `main/1` then returns and escript calls `halt(0)`
+%% itself before that shutdown finishes, so every failure exited 0.
+%% `erlang:halt/1` ends with the status we give, and it flushes the
+%% output ports first, so nothing written to stdout or stderr is lost.
+-spec halt(integer()) -> no_return().
+halt(Status) ->
+    erlang:halt(Status).
 
 %% Returns true iff `standard_io` is connected to an interactive
 %% terminal. When stdout is redirected to a file or pipe (as in

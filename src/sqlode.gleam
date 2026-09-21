@@ -64,7 +64,7 @@ fn classify_invocation(args: List(String)) -> String {
 }
 
 @target(erlang)
-@external(erlang, "init", "stop")
+@external(erlang, "sqlode_ffi", "halt")
 fn exit(status: Int) -> Nil
 
 @target(javascript)
