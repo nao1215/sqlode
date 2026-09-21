@@ -1,10 +1,10 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.27
 
 # ---------- builder ----------
 # Produces the self-contained `sqlode` escript. We pin the Gleam
 # version to match the erlef/setup-beam toolchain used in CI so the
 # artefact is byte-identical with what the release workflow ships.
-FROM ghcr.io/gleam-lang/gleam:v1.15.2-erlang-alpine AS builder
+FROM ghcr.io/gleam-lang/gleam:v1.18.1-erlang-alpine AS builder
 
 WORKDIR /build
 
@@ -29,9 +29,9 @@ RUN gleam run -m gleescript
 # Minimal Erlang image so evaluators do not have to install Erlang/OTP
 # themselves. `escript` (part of Erlang/OTP) runs the packaged CLI.
 # OTP must match the version used by the gleam-lang/gleam builder
-# image above (OTP 28 for Gleam v1.15.2) — otherwise the escript's
+# image above (OTP 29 for Gleam v1.18.1) — otherwise the escript's
 # compiled BEAM modules fail to load at runtime.
-FROM erlang:28-alpine AS runtime
+FROM erlang:29-alpine AS runtime
 
 LABEL org.opencontainers.image.source="https://github.com/nao1215/sqlode"
 LABEL org.opencontainers.image.description="sqlode — typed Gleam code generator for SQL schemas and queries."
