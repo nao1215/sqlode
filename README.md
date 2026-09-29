@@ -774,18 +774,21 @@ sqlode is still early. A few constraints to check before adopting it; most are t
 
 ### Parameter type inference
 
-sqlode infers a parameter's type from its surrounding SQL. Four contexts are recognised today:
+sqlode infers a parameter's type from its surrounding SQL. These contexts are recognised today:
 
 1. `INSERT INTO t (col) VALUES ($1)` — parameter inherits `col`'s type.
 2. `WHERE col = $1` (and `!=`, `<`, `<=`, `>`, `>=`).
 3. `WHERE col IN ($1, $2, ...)` and `sqlode.slice($1)`.
-4. `$1::int` / `CAST($1 AS int)` — explicit cast.
+4. `WHERE col = ANY($1)` — a list of `col`'s type; `WHERE $1 = ANY(tags)` — an element of the array column.
+5. `visits + $1`, `SET visits = visits + $1` (and `-`, `*`, `/`, `%`) — the type of a numeric column.
+6. `LIMIT $1` / `OFFSET $1` — `Int`.
+7. `$1::int` / `CAST($1 AS int)` — explicit cast.
 
 Anywhere else, sqlode fails generation with:
 
 > `Query "Name": could not infer type for parameter $N. Use a type cast (e.g. $N::int) to specify the type`
 
-Cases that need an explicit cast today: scalar arithmetic (`price + $1`), parameters inside `CASE WHEN` branches whose other branches are also parameters, and function arguments sqlode does not yet recognise. Pin the type with `$N::int` (PostgreSQL) or `CAST($N AS INTEGER)` (SQLite).
+Cases that need an explicit cast today: arithmetic with a non-numeric operand (`created_at + $1`), parameters inside `CASE WHEN` branches whose other branches are also parameters, and function arguments sqlode does not yet recognise. Pin the type with `$N::int` (PostgreSQL) or `CAST($N AS INTEGER)` (SQLite).
 
 ### Schema DDL scope
 

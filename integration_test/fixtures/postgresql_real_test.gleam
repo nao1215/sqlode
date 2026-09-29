@@ -62,7 +62,7 @@ fn reset_authors(db: pog.Connection) -> Nil {
     |> pog.execute(db)
   let _ =
     pog.query(
-      "CREATE TABLE posts (id BIGSERIAL PRIMARY KEY, title TEXT NOT NULL, tags TEXT[] NOT NULL)",
+      "CREATE TABLE posts (id BIGSERIAL PRIMARY KEY, title TEXT NOT NULL, tags TEXT[] NOT NULL, views INTEGER NOT NULL DEFAULT 0)",
     )
     |> pog.returning(ignore())
     |> pog.execute(db)
@@ -249,4 +249,30 @@ pub fn placeholder_any_over_array_column_binds_an_element_test() {
   rows
   |> list.map(fn(row) { #(row.id, row.title) })
   |> should.equal([#(first, "Gleam"), #(third, "Erlang")])
+}
+
+// `views + $1` and `views * $1` give $1 the type of the INTEGER column.
+pub fn placeholder_in_arithmetic_takes_the_column_type_test() {
+  use db <- with_db
+  let assert Ok(first) =
+    pog_adapter.create_post(
+      db,
+      params.CreatePostParams(title: "Gleam", tags: []),
+    )
+  let assert Ok(_) =
+    pog_adapter.create_post(db, params.CreatePostParams(title: "SQL", tags: []))
+
+  let assert Ok(1) =
+    pog_adapter.add_post_views(
+      db,
+      params.AddPostViewsParams(views: 30, id: first),
+    )
+  let assert Ok(rows) =
+    pog_adapter.list_popular_posts(
+      db,
+      params.ListPopularPostsParams(views: 4),
+    )
+  rows
+  |> list.map(fn(row) { #(row.id, row.title) })
+  |> should.equal([#(first, "Gleam")])
 }

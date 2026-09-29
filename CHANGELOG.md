@@ -9,10 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- A parameter in arithmetic with a numeric column, such as `UPDATE accounts SET visits = visits + $1`, `WHERE price * $1 > 100` or an upsert tail `ON CONFLICT (name) DO UPDATE SET n = counters.n + $2`, takes the column's type. It used to stop `generate` with `could not infer type for parameter $1` unless the parameter was cast. A non-numeric operand (`created_at + $1`, which takes an interval) still asks for a cast.
 - A parameter compared with the elements of an array column, `WHERE $1 = ANY(tags)`, is inferred as the element type (`String` for a `TEXT[]` column). It used to stop `generate` with `could not infer type for parameter $1` unless the parameter was cast.
 
 ### Fixed
 
+- `sqlode init`, `generate` and `verify` rejected a flag value given after a space (`--config sqlode.yaml`, `--engine sqlite`) with `flag 'config' has no assigned value`; only `--config=sqlode.yaml` worked. Both forms are accepted now.
 - A parameter on the right of `ANY`, `ALL` or `SOME` (`WHERE id = ANY($1)`, the PostgreSQL way to pass a list) was generated as the column's scalar type, so the call failed at runtime with `UnexpectedArgumentType("_int4", ...)`. It is now a list of that type (`List(Int)`) and is sent as an array. `SOME` is also recognised as the synonym of `ANY` it is.
 - A cast to an array type (`$1::bigint[]`) dropped the `[]` and typed the parameter as its element type. It is now the array type.
 - `generate` and `verify` accepted `sqlode.slice(...)` inside `ANY`, `ALL` or `SOME` (`WHERE id = ANY(sqlode.slice(ids))`), which expands to `ANY($1, $2)` and fails on PostgreSQL every time (a syntax error, or `requires array on right side` for one element). They now stop with a message that names the two forms that work: `IN (sqlode.slice(ids))`, or one array parameter with `= ANY($1)`.

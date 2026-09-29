@@ -1,5 +1,6 @@
 import argv
 import gleam/io
+import gleam/list
 import gleam/string
 import glint
 import sqlode/cli
@@ -22,7 +23,7 @@ pub fn main() -> Nil {
   // (`unrecognized option '--xyz'`, `missing subcommand`, etc.) so
   // the user sees the actual failure mode instead of a misleading
   // `127`-style "binary not found" reading. (#465, #466)
-  let args = argv.load().arguments
+  let args = join_flag_values(argv.load().arguments)
   case glint.execute(cli.app(), args) {
     Error(message) -> {
       io.println_error(rewrite_error(args, message))
@@ -30,6 +31,23 @@ pub fn main() -> Nil {
     }
     Ok(glint.Help(text)) -> io.println(text)
     Ok(glint.Out(_)) -> Nil
+  }
+}
+
+/// glint reads a flag's value only in the `--flag=value` form. Join
+/// `--flag value` into that form for the flags that take a value, so
+/// both spellings work.
+fn join_flag_values(args: List(String)) -> List(String) {
+  case args {
+    [flag, value, ..rest] ->
+      case
+        list.contains(["--config", "--output", "--engine", "--runtime"], flag)
+        && !string.starts_with(value, "-")
+      {
+        True -> [flag <> "=" <> value, ..join_flag_values(rest)]
+        False -> [flag, ..join_flag_values([value, ..rest])]
+      }
+    _ -> args
   }
 }
 

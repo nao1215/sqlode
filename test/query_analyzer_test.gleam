@@ -1,5 +1,6 @@
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/result
 import gleam/string
 import gleeunit
 import gleeunit/should
@@ -3653,6 +3654,94 @@ pub fn quantified_placeholder_is_an_array_test() {
       )
     let assert [param] = query.params
     #(select, param.scalar_type) |> should.equal(#(select, expected))
+  })
+}
+
+pub fn placeholder_in_arithmetic_with_numeric_column_test() {
+  // In `visits + $1` the database resolves $1 to the type of the numeric
+  // operand. A non-numeric column (`created_at + $1` takes an interval)
+  // leaves the parameter uninferred, so the existing cast hint applies.
+  let schema =
+    "CREATE TABLE accounts (
+      id BIGSERIAL PRIMARY KEY,
+      visits INTEGER NOT NULL,
+      score DOUBLE PRECISION,
+      balance NUMERIC(10, 2) NOT NULL,
+      created_at TIMESTAMP NOT NULL
+    );
+    CREATE TABLE counters (name TEXT PRIMARY KEY, n INTEGER NOT NULL);"
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("inline_schema.sql", schema)])
+  [
+    #(
+      model.PostgreSQL,
+      "INSERT INTO counters (name, n) VALUES ($1, 1) ON CONFLICT (name) DO UPDATE SET n = counters.n + $2;",
+      Ok([model.StringType, model.IntType]),
+    ),
+    #(
+      model.SQLite,
+      "INSERT INTO counters (name, n) VALUES (?, 1) ON CONFLICT (name) DO UPDATE SET n = n + ?;",
+      Ok([model.StringType, model.IntType]),
+    ),
+    #(
+      model.MySQL,
+      "INSERT INTO counters (name, n) VALUES (?, 1) ON DUPLICATE KEY UPDATE n = n + ?;",
+      Ok([model.StringType, model.IntType]),
+    ),
+    #(
+      model.PostgreSQL,
+      "SELECT id FROM accounts WHERE visits + $1 > 3;",
+      Ok([model.IntType]),
+    ),
+    #(
+      model.PostgreSQL,
+      "SELECT id FROM accounts a WHERE $1 * a.score < 10;",
+      Ok([model.FloatType]),
+    ),
+    #(
+      model.PostgreSQL,
+      "SELECT id FROM accounts WHERE balance - $1 >= 0;",
+      Ok([model.FloatType]),
+    ),
+    #(
+      model.PostgreSQL,
+      "UPDATE accounts SET visits = visits + $1 WHERE id = $2;",
+      Ok([model.IntType, model.IntType]),
+    ),
+    #(
+      model.PostgreSQL,
+      "SELECT id, visits * $1 AS weighted FROM accounts;",
+      Ok([model.IntType]),
+    ),
+    #(
+      model.SQLite,
+      "UPDATE accounts SET visits = visits + ? WHERE id = ?;",
+      Ok([model.IntType, model.IntType]),
+    ),
+    #(
+      model.PostgreSQL,
+      "SELECT id FROM accounts WHERE created_at + $1 > now();",
+      Error(Nil),
+    ),
+  ]
+  |> list.each(fn(entry) {
+    let #(engine, sql, expected) = entry
+    let naming_ctx = naming.new()
+    let assert Ok(queries) =
+      query_parser.parse_file(
+        "arith.sql",
+        engine,
+        naming_ctx,
+        "-- name: Q :many\n" <> sql,
+      )
+    let actual =
+      query_analyzer.analyze_queries(engine, catalog, naming_ctx, queries)
+      |> result.map(fn(analyzed) {
+        let assert [query] = analyzed
+        list.map(query.params, fn(p) { p.scalar_type })
+      })
+      |> result.replace_error(Nil)
+    #(sql, actual) |> should.equal(#(sql, expected))
   })
 }
 

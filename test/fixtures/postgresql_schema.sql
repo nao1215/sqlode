@@ -7,5 +7,6 @@ CREATE TABLE authors (
 CREATE TABLE posts (
   id BIGSERIAL PRIMARY KEY,
   title TEXT NOT NULL,
-  tags TEXT[] NOT NULL
+  tags TEXT[] NOT NULL,
+  views INTEGER NOT NULL DEFAULT 0
 );

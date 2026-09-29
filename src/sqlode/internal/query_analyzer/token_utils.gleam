@@ -517,6 +517,67 @@ fn find_equality_loop(
 // IN clause pattern helpers
 // ============================================================
 
+/// Find all `column <arithmetic op> placeholder` patterns, such as
+/// `counters.n + $2` in an `ON CONFLICT ... DO UPDATE SET` tail, which
+/// the IR does not model.
+pub fn find_arithmetic_patterns(
+  tokens: List(lexer.Token),
+) -> List(EqualityMatch) {
+  find_arithmetic_loop(tokens, [])
+  |> list.reverse
+}
+
+fn find_arithmetic_loop(
+  tokens: List(lexer.Token),
+  acc: List(EqualityMatch),
+) -> List(EqualityMatch) {
+  case tokens {
+    [] -> acc
+    [lexer.Ident(t), lexer.Dot, column, op, lexer.Placeholder(p), ..rest] ->
+      case column_token_name(column), is_arithmetic_token(op) {
+        Some(c), True ->
+          find_arithmetic_loop(rest, [
+            EqualityMatch(
+              column_name: naming.normalize_identifier(c),
+              table_qualifier: Some(string.lowercase(t)),
+              placeholder: p,
+            ),
+            ..acc
+          ])
+        _, _ -> find_arithmetic_loop(list.drop(tokens, 1), acc)
+      }
+    [column, op, lexer.Placeholder(p), ..rest] ->
+      case column_token_name(column), is_arithmetic_token(op) {
+        Some(c), True ->
+          find_arithmetic_loop(rest, [
+            EqualityMatch(
+              column_name: naming.normalize_identifier(c),
+              table_qualifier: None,
+              placeholder: p,
+            ),
+            ..acc
+          ])
+        _, _ -> find_arithmetic_loop(list.drop(tokens, 1), acc)
+      }
+    [_, ..rest] -> find_arithmetic_loop(rest, acc)
+  }
+}
+
+fn column_token_name(token: lexer.Token) -> Option(String) {
+  case token {
+    lexer.Ident(c) | lexer.QuotedIdent(c) -> Some(c)
+    _ -> None
+  }
+}
+
+fn is_arithmetic_token(token: lexer.Token) -> Bool {
+  case token {
+    lexer.Star -> True
+    lexer.Operator(op) -> op == "+" || op == "-" || op == "/" || op == "%"
+    _ -> False
+  }
+}
+
 /// Find all column IN (placeholder) patterns in tokens.
 pub fn find_in_patterns(tokens: List(lexer.Token)) -> List(EqualityMatch) {
   find_in_loop(tokens, [])

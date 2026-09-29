@@ -152,6 +152,39 @@ scenarios:
           stderr:
             contains: Config file not found
 
+  # `--flag value` is as common as `--flag=value`; both must work for
+  # every flag that takes a value.
+  - name: flags take a value after a space
+    steps:
+      - run:
+          command: |
+            rm -rf "${workdir}/space-flags"
+            ./spec/support/sqlode.sh init --output "${workdir}/space-flags/sqlode.yaml" --engine sqlite --runtime native
+      - assert:
+          exit_code: 0
+          stderr:
+            empty: true
+      - assert:
+          file:
+            path: space-flags/sqlode.yaml
+            contains:
+              - 'engine: "sqlite"'
+              - 'runtime: "native"'
+      - run:
+          command: ./spec/support/sqlode.sh verify --config "${workdir}/space-flags/sqlode.yaml"
+      - assert:
+          exit_code: 0
+      - run:
+          command: ./spec/support/sqlode.sh generate --config "${workdir}/space-flags/sqlode.yaml"
+      - assert:
+          exit_code: 0
+          stdout:
+            contains: Successfully generated
+      - run:
+          command: ./spec/support/sqlode.sh generate --config
+      - assert:
+          exit_code: 1
+
   - name: generate fails with invalid config
     steps:
       - run:
