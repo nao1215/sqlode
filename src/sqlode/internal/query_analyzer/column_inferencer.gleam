@@ -348,7 +348,7 @@ fn infer_columns_from_tokens_scoped(
       }
     }
     None -> {
-      let main_tokens = tok_strip_cte(tokens)
+      let main_tokens = token_utils.strip_leading_with(tokens)
       use _ <- result.try(validate_compound_column_counts(
         query_name,
         main_tokens,
@@ -432,7 +432,7 @@ fn infer_table_less_columns(
 /// so `WITH … INSERT INTO target` still picks `target`. Returns
 /// `None` for SELECT / unrecognised statements.
 fn detect_dml_target(tokens: List(lexer.Token)) -> Option(String) {
-  let stripped = tok_strip_cte(tokens)
+  let stripped = token_utils.strip_leading_with(tokens)
   case stripped {
     [lexer.Keyword("insert"), ..rest] ->
       case token_utils.strip_insert_or_action(rest) {
@@ -2420,28 +2420,6 @@ fn resolve_column_type_from_tokens(
 // ============================================================
 // Token-based extraction (Phase 3 of #203)
 // ============================================================
-
-/// Strip CTE: skip everything from WITH to the main SELECT/INSERT/UPDATE/DELETE.
-fn tok_strip_cte(tokens: List(lexer.Token)) -> List(lexer.Token) {
-  case tokens {
-    [lexer.Keyword("with"), ..rest] -> tok_skip_cte_defs(rest)
-    _ -> tokens
-  }
-}
-
-fn tok_skip_cte_defs(tokens: List(lexer.Token)) -> List(lexer.Token) {
-  case tokens {
-    [] -> []
-    [lexer.Keyword(kw), ..]
-      if kw == "select" || kw == "insert" || kw == "update" || kw == "delete"
-    -> tokens
-    [lexer.LParen, ..rest] -> {
-      let remaining = token_utils.skip_parens(rest, 1)
-      tok_skip_cte_defs(remaining)
-    }
-    [_, ..rest] -> tok_skip_cte_defs(rest)
-  }
-}
 
 /// Strip compound operators (UNION, INTERSECT, EXCEPT) at depth 0.
 fn tok_strip_compound(tokens: List(lexer.Token)) -> List(lexer.Token) {

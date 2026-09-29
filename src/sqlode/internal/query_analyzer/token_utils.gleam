@@ -129,8 +129,8 @@ pub fn read_table_name(
 /// tables are visible to a top-level WHERE/ON predicate.
 pub fn strip_leading_with(tokens: List(lexer.Token)) -> List(lexer.Token) {
   case tokens {
-    [lexer.Keyword("with"), lexer.Keyword("recursive"), ..rest] ->
-      skip_with_body(rest)
+    // `WITH RECURSIVE` needs no arm of its own: `recursive` is skipped
+    // like any other token before the main statement.
     [lexer.Keyword("with"), ..rest] -> skip_with_body(rest)
     _ -> tokens
   }
@@ -777,36 +777,13 @@ fn read_array_suffix(
 /// (WHERE predicates, etc.) remain as raw token lists — this is
 /// intentionally a *thin* IR that avoids building a full expression AST.
 pub fn structure_tokens(tokens: List(lexer.Token)) -> query_ir.SqlStatement {
-  let stripped = strip_leading_cte(tokens)
+  let stripped = strip_leading_with(tokens)
   case stripped {
     [lexer.Keyword("select"), ..] -> structure_select(stripped)
     [lexer.Keyword("insert"), ..] -> structure_insert(stripped)
     [lexer.Keyword("update"), ..] -> structure_update(stripped)
     [lexer.Keyword("delete"), ..] -> structure_delete(stripped)
     _ -> query_ir.UnstructuredStatement(tokens: stripped)
-  }
-}
-
-fn strip_leading_cte(tokens: List(lexer.Token)) -> List(lexer.Token) {
-  case tokens {
-    [lexer.Keyword("with"), ..rest] -> skip_cte_body(rest)
-    _ -> tokens
-  }
-}
-
-fn skip_cte_body(tokens: List(lexer.Token)) -> List(lexer.Token) {
-  case tokens {
-    [] -> []
-    // When we hit a top-level SELECT/INSERT/UPDATE/DELETE after the CTE, stop
-    [lexer.Keyword("select"), ..] as t -> t
-    [lexer.Keyword("insert"), ..] as t -> t
-    [lexer.Keyword("update"), ..] as t -> t
-    [lexer.Keyword("delete"), ..] as t -> t
-    [lexer.LParen, ..rest] -> {
-      let after = skip_parens(rest, 1)
-      skip_cte_body(after)
-    }
-    [_, ..rest] -> skip_cte_body(rest)
   }
 }
 
