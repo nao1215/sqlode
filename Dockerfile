@@ -4,7 +4,7 @@
 # Produces the self-contained `sqlode` escript. We pin the Gleam
 # version to match the erlef/setup-beam toolchain used in CI so the
 # artefact is byte-identical with what the release workflow ships.
-FROM ghcr.io/gleam-lang/gleam:v1.18.1-erlang-alpine AS builder
+FROM ghcr.io/gleam-lang/gleam:v1.18.1-erlang-alpine@sha256:7c82e4a284b7c05c26eac34db497ea0e63ce7cb04bd019d966d70338eb172b68 AS builder
 
 WORKDIR /build
 
@@ -30,7 +30,7 @@ RUN sh scripts/build_escript.sh /build/sqlode
 # OTP must match the version used by the gleam-lang/gleam builder
 # image above (OTP 29 for Gleam v1.18.1) — otherwise the escript's
 # compiled BEAM modules fail to load at runtime.
-FROM erlang:29-alpine AS runtime
+FROM erlang:29-alpine@sha256:e7a27e743d17abf139518a69ba3861b43a88ad8396296f0a859d7f37031dbde0 AS runtime
 
 LABEL org.opencontainers.image.source="https://github.com/nao1215/sqlode"
 LABEL org.opencontainers.image.description="sqlode — typed Gleam code generator for SQL schemas and queries."
