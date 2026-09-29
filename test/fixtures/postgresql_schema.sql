@@ -3,3 +3,9 @@ CREATE TABLE authors (
   name TEXT NOT NULL,
   bio TEXT
 );
+
+CREATE TABLE posts (
+  id BIGSERIAL PRIMARY KEY,
+  title TEXT NOT NULL,
+  tags TEXT[] NOT NULL
+);

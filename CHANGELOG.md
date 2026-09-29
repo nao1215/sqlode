@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- A parameter compared with the elements of an array column, `WHERE $1 = ANY(tags)`, is inferred as the element type (`String` for a `TEXT[]` column). It used to stop `generate` with `could not infer type for parameter $1` unless the parameter was cast.
+
 ### Fixed
 
 - A parameter on the right of `ANY`, `ALL` or `SOME` (`WHERE id = ANY($1)`, the PostgreSQL way to pass a list) was generated as the column's scalar type, so the call failed at runtime with `UnexpectedArgumentType("_int4", ...)`. It is now a list of that type (`List(Int)`) and is sent as an array. `SOME` is also recognised as the synonym of `ANY` it is.

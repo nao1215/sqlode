@@ -56,6 +56,16 @@ fn reset_authors(db: pog.Connection) -> Nil {
     )
     |> pog.returning(ignore())
     |> pog.execute(db)
+  let _ =
+    pog.query("DROP TABLE IF EXISTS posts")
+    |> pog.returning(ignore())
+    |> pog.execute(db)
+  let _ =
+    pog.query(
+      "CREATE TABLE posts (id BIGSERIAL PRIMARY KEY, title TEXT NOT NULL, tags TEXT[] NOT NULL)",
+    )
+    |> pog.returning(ignore())
+    |> pog.execute(db)
   Nil
 }
 
@@ -212,4 +222,31 @@ pub fn any_placeholder_binds_an_array_test() {
   rows
   |> list.map(fn(row) { row.name })
   |> should.equal(["One", "Three"])
+}
+
+// `$1 = ANY(tags)` compares $1 with each element of the TEXT[] column,
+// so the generated parameter is a String, not a List(String).
+pub fn placeholder_any_over_array_column_binds_an_element_test() {
+  use db <- with_db
+  let assert Ok(first) =
+    pog_adapter.create_post(
+      db,
+      params.CreatePostParams(title: "Gleam", tags: ["beam", "types"]),
+    )
+  let assert Ok(_) =
+    pog_adapter.create_post(
+      db,
+      params.CreatePostParams(title: "SQL", tags: ["db"]),
+    )
+  let assert Ok(third) =
+    pog_adapter.create_post(
+      db,
+      params.CreatePostParams(title: "Erlang", tags: ["beam"]),
+    )
+
+  let assert Ok(rows) =
+    pog_adapter.list_posts_by_tag(db, params.ListPostsByTagParams(tags: "beam"))
+  rows
+  |> list.map(fn(row) { #(row.id, row.title) })
+  |> should.equal([#(first, "Gleam"), #(third, "Erlang")])
 }

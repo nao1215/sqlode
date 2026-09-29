@@ -3655,3 +3655,45 @@ pub fn quantified_placeholder_is_an_array_test() {
     #(select, param.scalar_type) |> should.equal(#(select, expected))
   })
 }
+
+pub fn placeholder_quantified_over_array_column_is_an_element_test() {
+  // `$1 = ANY(tags)` asks whether the array column contains $1, so $1
+  // has the element type of the column.
+  let schema =
+    "CREATE TABLE posts (
+      id BIGSERIAL PRIMARY KEY,
+      tags TEXT[] NOT NULL,
+      scores INTEGER[]
+    );"
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("inline_schema.sql", schema)])
+  [
+    #("SELECT id FROM posts WHERE $1 = ANY(tags);", model.StringType),
+    #("SELECT id FROM posts WHERE $1 = ANY(posts.tags);", model.StringType),
+    #("SELECT id FROM posts p WHERE $1 = ANY(p.scores);", model.IntType),
+    #("SELECT id FROM posts WHERE $1 <> ALL(scores);", model.IntType),
+    #("SELECT id FROM posts WHERE $1::text = SOME(tags);", model.StringType),
+    #("DELETE FROM posts WHERE $1 = ANY(tags);", model.StringType),
+  ]
+  |> list.each(fn(entry) {
+    let #(select, expected) = entry
+    let naming_ctx = naming.new()
+    let assert Ok(queries) =
+      query_parser.parse_file(
+        "any.sql",
+        model.PostgreSQL,
+        naming_ctx,
+        "-- name: Q :many\n" <> select,
+      )
+    let assert Ok([query]) =
+      query_analyzer.analyze_queries(
+        model.PostgreSQL,
+        catalog,
+        naming_ctx,
+        queries,
+      )
+    let assert [param] = query.params
+    #(select, param.scalar_type, param.nullable)
+    |> should.equal(#(select, expected, False))
+  })
+}
