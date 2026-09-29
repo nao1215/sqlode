@@ -364,63 +364,33 @@ pub fn verify_execresult_under_raw_runtime_is_allowed_test() {
 // the shared validator.
 
 // ============================================================
-// Issue #531: reject sqlode.slice() on non-PostgreSQL engines
+// sqlode.slice() on every engine
 // ============================================================
 
-pub fn verify_rejects_slice_macro_on_sqlite_test() {
-  // sqlode.slice() lowers to a runtime Array; the native SQLite
-  // adapter (`sqlight`) panics on that, so verify must catch the
-  // mismatch before the user reaches runtime.
-  let cfg =
-    model.Config(version: 2, sql: [
-      make_block_for_engine(
-        model.SQLite,
-        "test/fixtures/verify_ok_schema.sql",
-        "test/fixtures/verify_slice_query.sql",
-        "src/verify_slice_sqlite_out",
-        option.None,
-      ),
-    ])
-  let report = verify.verify_config(cfg)
-  let assert [finding] = report.findings
-  string.contains(finding.detail, "GetAuthorsByIds") |> should.be_true()
-  string.contains(finding.detail, "sqlode.slice()") |> should.be_true()
-  string.contains(finding.detail, "sqlite") |> should.be_true()
-}
-
-pub fn verify_rejects_slice_macro_on_mysql_test() {
-  let cfg =
-    model.Config(version: 2, sql: [
-      make_block_for_engine(
-        model.MySQL,
-        "test/fixtures/verify_ok_schema.sql",
-        "test/fixtures/verify_slice_query.sql",
-        "src/verify_slice_mysql_out",
-        option.None,
-      ),
-    ])
-  let report = verify.verify_config(cfg)
-  let assert [finding] = report.findings
-  string.contains(finding.detail, "GetAuthorsByIds") |> should.be_true()
-  string.contains(finding.detail, "sqlode.slice()") |> should.be_true()
-  string.contains(finding.detail, "mysql") |> should.be_true()
-}
-
-pub fn verify_allows_slice_macro_on_postgresql_test() {
-  // PostgreSQL is the supported engine for slice / array binding;
-  // verify must NOT flag the same query when the block targets it.
-  let cfg =
-    model.Config(version: 2, sql: [
-      make_block_for_engine(
-        model.PostgreSQL,
-        "test/fixtures/verify_ok_schema.sql",
-        "test/fixtures/verify_slice_query.sql",
-        "src/verify_slice_postgres_out",
-        option.None,
-      ),
-    ])
-  let report = verify.verify_config(cfg)
-  report.findings |> should.equal([])
+pub fn verify_allows_slice_macro_on_every_engine_test() {
+  // A slice parameter is flattened into one scalar value per element and
+  // its marker is expanded into that many placeholders by
+  // runtime.prepare, so no array value reaches the pog, sqlight or shork
+  // adapter. The same query must therefore pass on all three engines.
+  [
+    #(model.PostgreSQL, "src/verify_slice_postgres_out"),
+    #(model.SQLite, "src/verify_slice_sqlite_out"),
+    #(model.MySQL, "src/verify_slice_mysql_out"),
+  ]
+  |> list.each(fn(entry) {
+    let #(engine, out) = entry
+    let cfg =
+      model.Config(version: 2, sql: [
+        make_block_for_engine(
+          engine,
+          "test/fixtures/verify_ok_schema.sql",
+          "test/fixtures/verify_slice_query.sql",
+          out,
+          option.None,
+        ),
+      ])
+    verify.verify_config(cfg).findings |> should.equal([])
+  })
 }
 
 // ============================================================

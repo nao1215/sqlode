@@ -27,3 +27,9 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON DUPLICATE KEY UPDATE
   display_name = VALUES(display_name),
   bio = VALUES(bio);
+
+-- name: ListAuthorsByIds :many
+SELECT id, email, display_name
+FROM authors
+WHERE id IN (sqlode.slice(ids)) AND display_name <> ?
+ORDER BY id;
