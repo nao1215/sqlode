@@ -26,3 +26,9 @@ INSERT INTO posts (title, tags) VALUES ($1, $2) RETURNING id;
 
 -- name: ListPostsByTag :many
 SELECT id, title FROM posts WHERE $1 = ANY(tags) ORDER BY id;
+
+-- name: AddPostViews :execrows
+UPDATE posts SET views = views + $1 WHERE id = $2;
+
+-- name: ListPopularPosts :many
+SELECT id, title FROM posts WHERE views * $1 >= 100 ORDER BY id;

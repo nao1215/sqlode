@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- A parameter in arithmetic with a numeric column, such as `UPDATE accounts SET visits = visits + $1` or `WHERE price * $1 > 100`, takes the column's type. It used to stop `generate` with `could not infer type for parameter $1` unless the parameter was cast. A non-numeric operand (`created_at + $1`, which takes an interval) still asks for a cast.
 - A parameter compared with the elements of an array column, `WHERE $1 = ANY(tags)`, is inferred as the element type (`String` for a `TEXT[]` column). It used to stop `generate` with `could not infer type for parameter $1` unless the parameter was cast.
 
 ### Fixed

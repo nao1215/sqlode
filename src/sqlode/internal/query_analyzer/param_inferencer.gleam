@@ -150,7 +150,7 @@ pub fn infer_equality_params(
         catalog,
         query_name,
         all_tables,
-        matches,
+        list.map(matches, InMatch(match: _, binding: SameAsColumn)),
         1,
         dict.new(),
         [],
@@ -391,6 +391,10 @@ fn walk_in_source(
   }
 }
 
+fn is_arithmetic_op(op: String) -> Bool {
+  op == "+" || op == "-" || op == "*" || op == "/" || op == "%"
+}
+
 fn is_comparison_op(op: String) -> Bool {
   op == "="
   || op == "!="
@@ -469,9 +473,9 @@ fn normalize_table_qualifier(table: Option(String)) -> Option(String) {
 // IR-based IN / quantified walker (Issue #406)
 // ============================================================
 
-/// A placeholder bound by `col IN (placeholder)`, by
-/// `col <op> ANY|ALL|SOME(placeholder)` or by
-/// `placeholder <op> ANY|ALL|SOME(col)`.
+/// A placeholder bound to a column: by a comparison, by
+/// `col IN (placeholder)`, by `col <op> ANY|ALL|SOME(placeholder)`, by
+/// `placeholder <op> ANY|ALL|SOME(col)` or by `col + placeholder`.
 type InMatch {
   InMatch(match: token_utils.EqualityMatch, binding: InBinding)
 }
@@ -485,6 +489,40 @@ type InBinding {
   /// `placeholder = ANY(col)`: `col` is an array and the placeholder
   /// is compared with its elements.
   ElementOfColumn
+  /// `col + placeholder`: the database gives the placeholder the type
+  /// of the other operand when that operand is numeric.
+  NumericOperand
+}
+
+/// The type a placeholder takes from the column it is bound to, or
+/// `None` when the binding says nothing about it.
+fn bind_to_column(
+  binding: InBinding,
+  placeholder: String,
+  column: model.Column,
+) -> Option(model.Column) {
+  case binding, column.scalar_type {
+    SameAsColumn, _ -> Some(column)
+    // `ANY(sqlode.slice(ids))` already expands to one placeholder per
+    // element, so a slice stays a list of scalars.
+    ArrayOfColumn, scalar_type ->
+      case string.starts_with(placeholder, "__sqlode_slice_") {
+        True -> Some(column)
+        False ->
+          Some(
+            model.Column(..column, scalar_type: model.ArrayType(scalar_type)),
+          )
+      }
+    ElementOfColumn, model.ArrayType(element) ->
+      Some(model.Column(..column, scalar_type: element))
+    NumericOperand, model.IntType
+    | NumericOperand, model.FloatType
+    | NumericOperand, model.DecimalType
+    -> Some(column)
+    // `$1 = ANY(col)` needs `col` to be an array, and `created_at + $1`
+    // takes an interval; leave the parameter uninferred rather than guess.
+    ElementOfColumn, _ | NumericOperand, _ -> None
+  }
 }
 
 /// Walk a parsed `Stmt` in source order and emit an `EqualityMatch`
@@ -627,8 +665,11 @@ fn walk_expr_iq(expr: query_ir.Expr) -> List(InMatch) {
     // Remaining expression shapes: descend like the equality walker
     // so placeholders buried inside nested boolean/CASE/function/etc.
     // still surface.
-    query_ir.Binary(left:, right:, ..) ->
-      list.append(walk_expr_iq(left), walk_expr_iq(right))
+    query_ir.Binary(op:, left:, right:) ->
+      case is_arithmetic_op(op), comparison_match(left, right) {
+        True, Some(m) -> [InMatch(match: m, binding: NumericOperand)]
+        _, _ -> list.append(walk_expr_iq(left), walk_expr_iq(right))
+      }
     query_ir.LikeExpr(expr: subject, pattern:, ..) ->
       list.append(walk_expr_iq(subject), walk_expr_iq(pattern))
     query_ir.Unary(arg:, ..) -> walk_expr_iq(arg)
@@ -745,14 +786,14 @@ fn scan_token_matches(
   catalog: model.Catalog,
   query_name: String,
   all_tables: List(String),
-  matches: List(token_utils.EqualityMatch),
+  matches: List(InMatch),
   occurrence: Int,
   seen: dict.Dict(String, Int),
   acc: List(#(Int, model.Column)),
 ) -> Result(List(#(Int, model.Column)), AnalysisError) {
   case matches {
     [] -> Ok(acc)
-    [match, ..rest] -> {
+    [InMatch(match:, binding:), ..rest] -> {
       let #(maybe_index, next_occurrence, updated_seen) =
         placeholder.resolve_index(engine, match.placeholder, occurrence, seen)
 
@@ -818,7 +859,13 @@ fn scan_token_matches(
                 rest,
                 next_occurrence,
                 updated_seen,
-                [#(index, model.Column(..column, nullable: False)), ..acc],
+                case bind_to_column(binding, match.placeholder, column) {
+                  Some(column) -> [
+                    #(index, model.Column(..column, nullable: False)),
+                    ..acc
+                  ]
+                  None -> acc
+                },
               )
             Ok(None) ->
               scan_token_matches(
@@ -874,58 +921,17 @@ pub fn infer_in_params(
           )
         stmt -> find_in_quantified_matches_in_stmt(stmt)
       }
-      // The inference passes receive tokens numbered by
-      // `placeholder.number_tokens`, so each placeholder carries its
-      // query-wide index.
-      let bindings =
-        list.filter_map(matches, fn(m) {
-          // `ANY(sqlode.slice(ids))` already expands to one placeholder
-          // per element, so a slice stays a list of scalars.
-          case
-            m.binding != SameAsColumn
-            && !string.starts_with(m.match.placeholder, "__sqlode_slice_")
-          {
-            True ->
-              placeholder.explicit_index(m.match.placeholder)
-              |> option.map(fn(index) { #(index, m.binding) })
-              |> option.to_result(Nil)
-            False -> Error(Nil)
-          }
-        })
-        |> dict.from_list
       scan_token_matches(
         engine,
         catalog,
         query_name,
         all_tables,
-        list.map(matches, fn(m) { m.match }),
+        matches,
         1,
         dict.new(),
         [],
       )
-      |> result.map(fn(pairs) {
-        pairs
-        |> list.reverse
-        |> list.filter_map(fn(pair) {
-          let #(index, column) = pair
-          case dict.get(bindings, index), column.scalar_type {
-            Ok(ArrayOfColumn), scalar_type ->
-              Ok(#(
-                index,
-                model.Column(
-                  ..column,
-                  scalar_type: model.ArrayType(scalar_type),
-                ),
-              ))
-            Ok(ElementOfColumn), model.ArrayType(element) ->
-              Ok(#(index, model.Column(..column, scalar_type: element)))
-            // `$1 = ANY(col)` needs `col` to be an array; leave the
-            // parameter uninferred rather than guess.
-            Ok(ElementOfColumn), _ -> Error(Nil)
-            _, _ -> Ok(pair)
-          }
-        })
-      })
+      |> result.map(list.reverse)
     }
   }
 }
