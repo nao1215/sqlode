@@ -22,7 +22,7 @@ pub fn infer_insert_params_from_ir(
   catalog: model.Catalog,
 ) -> List(#(Int, model.Column)) {
   case statement {
-    query_ir.InsertStatement(table_name:, columns:, value_groups:, ..) ->
+    query_ir.InsertStatement(table_name:, columns:, value_groups:) ->
       map_insert_columns(
         engine,
         catalog,

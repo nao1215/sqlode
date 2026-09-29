@@ -18,7 +18,6 @@ type ScalarTypeInfo {
     rich_type: option.Option(String),
     runtime_fn: String,
     db_name: String,
-    value_fn: String,
     decoder: String,
     unwrap_fn: option.Option(String),
   )
@@ -44,7 +43,6 @@ fn resolve_type(scalar_type: ScalarType) -> TypeResolution {
         rich_type: option.None,
         runtime_fn: "runtime.int",
         db_name: "int",
-        value_fn: "int",
         decoder: "decode.int",
         unwrap_fn: option.None,
       ))
@@ -54,7 +52,6 @@ fn resolve_type(scalar_type: ScalarType) -> TypeResolution {
         rich_type: option.None,
         runtime_fn: "runtime.float",
         db_name: "float",
-        value_fn: "float",
         decoder: "decode.float",
         unwrap_fn: option.None,
       ))
@@ -64,7 +61,6 @@ fn resolve_type(scalar_type: ScalarType) -> TypeResolution {
         rich_type: option.None,
         runtime_fn: "runtime.bool",
         db_name: "bool",
-        value_fn: "bool",
         decoder: "decode.bool",
         unwrap_fn: option.None,
       ))
@@ -74,7 +70,6 @@ fn resolve_type(scalar_type: ScalarType) -> TypeResolution {
         rich_type: option.None,
         runtime_fn: "runtime.string",
         db_name: "string",
-        value_fn: "text",
         decoder: "decode.string",
         unwrap_fn: option.None,
       ))
@@ -84,7 +79,6 @@ fn resolve_type(scalar_type: ScalarType) -> TypeResolution {
         rich_type: option.None,
         runtime_fn: "runtime.bytes",
         db_name: "bytes",
-        value_fn: "bytea",
         decoder: "decode.bit_array",
         unwrap_fn: option.None,
       ))
@@ -94,7 +88,6 @@ fn resolve_type(scalar_type: ScalarType) -> TypeResolution {
         rich_type: option.Some("SqlTimestamp"),
         runtime_fn: "runtime.string",
         db_name: "datetime",
-        value_fn: "text",
         decoder: "decode.string",
         unwrap_fn: option.Some("sql_timestamp_to_string"),
       ))
@@ -104,7 +97,6 @@ fn resolve_type(scalar_type: ScalarType) -> TypeResolution {
         rich_type: option.Some("SqlDate"),
         runtime_fn: "runtime.string",
         db_name: "date",
-        value_fn: "text",
         decoder: "decode.string",
         unwrap_fn: option.Some("sql_date_to_string"),
       ))
@@ -114,7 +106,6 @@ fn resolve_type(scalar_type: ScalarType) -> TypeResolution {
         rich_type: option.Some("SqlTime"),
         runtime_fn: "runtime.string",
         db_name: "time",
-        value_fn: "text",
         decoder: "decode.string",
         unwrap_fn: option.Some("sql_time_to_string"),
       ))
@@ -124,7 +115,6 @@ fn resolve_type(scalar_type: ScalarType) -> TypeResolution {
         rich_type: option.Some("SqlUuid"),
         runtime_fn: "runtime.string",
         db_name: "uuid",
-        value_fn: "text",
         decoder: "decode.string",
         unwrap_fn: option.Some("sql_uuid_to_string"),
       ))
@@ -134,7 +124,6 @@ fn resolve_type(scalar_type: ScalarType) -> TypeResolution {
         rich_type: option.Some("SqlJson"),
         runtime_fn: "runtime.string",
         db_name: "json",
-        value_fn: "text",
         decoder: "decode.string",
         unwrap_fn: option.Some("sql_json_to_string"),
       ))
@@ -144,7 +133,6 @@ fn resolve_type(scalar_type: ScalarType) -> TypeResolution {
         rich_type: option.Some("SqlDecimal"),
         runtime_fn: "runtime.string",
         db_name: "decimal",
-        value_fn: "text",
         decoder: "decode.string",
         unwrap_fn: option.Some("sql_decimal_to_string"),
       ))
@@ -215,29 +203,6 @@ pub fn scalar_type_to_db_name(scalar_type: ScalarType) -> String {
     SetResolution(name) -> name
     CustomResolution(_, _, underlying) -> scalar_type_to_db_name(underlying)
     ArrayResolution(element) -> scalar_type_to_db_name(element) <> "[]"
-  }
-}
-
-pub fn scalar_type_to_value_function(
-  engine: Engine,
-  scalar_type: ScalarType,
-) -> String {
-  case resolve_type(scalar_type) {
-    LeafType(info) ->
-      case scalar_type {
-        BytesType ->
-          case engine {
-            PostgreSQL -> "bytea"
-            SQLite | MySQL -> "blob"
-          }
-        _ -> info.value_fn
-      }
-    EnumResolution(_) -> "text"
-    SetResolution(_) -> "text"
-    CustomResolution(_, _, underlying) ->
-      scalar_type_to_value_function(engine, underlying)
-    ArrayResolution(element) ->
-      "array(pog." <> scalar_type_to_value_function(engine, element) <> ")"
   }
 }
 

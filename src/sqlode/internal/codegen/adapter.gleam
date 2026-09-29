@@ -15,22 +15,13 @@ type AdapterConfig {
     library_import: String,
     connection_type: String,
     error_type: String,
-    value_function: fn(model.ScalarType) -> String,
     decoder_function: fn(model.ScalarType) -> String,
-    render_params: fn(List(model.QueryParam), String) -> String,
-    render_query_call: fn(
-      String,
-      String,
-      String,
-      String,
-      List(model.QueryParam),
-    ) -> List(String),
+    /// Lines that prepare `q` and run it with the given decoder.
+    render_query_call: fn(String, List(model.QueryParam)) -> List(String),
     render_one_result: fn() -> List(String),
     render_many_result: fn() -> List(String),
     render_exec_rows_result: fn() -> List(String),
-    render_exec_last_id: fn(String, String, String, List(model.QueryParam)) ->
-      List(String),
-    placeholder_prefix: String,
+    render_exec_last_id: fn(List(model.QueryParam)) -> List(String),
     /// Gleam source text for a `value_to_<driver>` helper that converts
     /// a `runtime.Value` into this driver's parameter type. Emitted
     /// once per adapter file; each generated query function folds
@@ -38,10 +29,11 @@ type AdapterConfig {
     /// re-encoding parameters per call.
     value_to_driver_helper: String,
     /// Decoder source text that `render_adapter_exec_rows` passes
-    /// through to `render_query_call`. pog/sqlight rely on a follow-up
-    /// `SELECT` for the affected-row count, so they decode `Nil`;
-    /// shork's `Returned` surfaces the count as column index 1 of the
-    /// synthetic INSERT/UPDATE/DELETE row, so it needs a real decoder.
+    /// through to `render_query_call`. pog reads the affected-row count
+    /// from `returned.count` and sqlight from a follow-up
+    /// `SELECT changes()`, so both decode `Nil`; shork's `Returned`
+    /// surfaces the count as column index 1 of the synthetic
+    /// INSERT/UPDATE/DELETE row, so it needs a real decoder.
     exec_rows_decoder: String,
   )
 }
@@ -100,18 +92,12 @@ fn pog_adapter_config() -> AdapterConfig {
     library_import: "import pog",
     connection_type: "pog.Connection",
     error_type: "pog.QueryError",
-    value_function: type_mapping.scalar_type_to_value_function(
-      model.PostgreSQL,
-      _,
-    ),
     decoder_function: type_mapping.scalar_type_to_decoder(model.PostgreSQL, _),
-    render_params: render_pog_params,
     render_query_call: render_pog_query_call,
     render_one_result: render_pog_one_result,
     render_many_result: render_pog_many_result,
     render_exec_rows_result: render_pog_exec_rows_result,
     render_exec_last_id: render_pog_exec_last_id,
-    placeholder_prefix: "$",
     value_to_driver_helper: pog_value_to_driver_helper(),
     exec_rows_decoder: "decode.success(Nil)",
   )
@@ -122,15 +108,12 @@ fn sqlight_adapter_config() -> AdapterConfig {
     library_import: "import sqlight",
     connection_type: "sqlight.Connection",
     error_type: "sqlight.Error",
-    value_function: type_mapping.scalar_type_to_value_function(model.SQLite, _),
     decoder_function: type_mapping.scalar_type_to_decoder(model.SQLite, _),
-    render_params: render_sqlight_params,
     render_query_call: render_sqlight_query_call,
     render_one_result: render_sqlight_one_result,
     render_many_result: render_sqlight_many_result,
     render_exec_rows_result: render_sqlight_exec_rows_result,
     render_exec_last_id: render_sqlight_exec_last_id,
-    placeholder_prefix: "?",
     value_to_driver_helper: sqlight_value_to_driver_helper(),
     exec_rows_decoder: "decode.success(Nil)",
   )
@@ -169,15 +152,12 @@ fn shork_adapter_config() -> AdapterConfig {
     library_import: "import shork",
     connection_type: "shork.Connection",
     error_type: "shork.QueryError",
-    value_function: type_mapping.scalar_type_to_value_function(model.MySQL, _),
     decoder_function: type_mapping.scalar_type_to_decoder(model.MySQL, _),
-    render_params: render_shork_params,
     render_query_call: render_shork_query_call,
     render_one_result: render_shork_one_result,
     render_many_result: render_shork_many_result,
     render_exec_rows_result: render_shork_exec_rows_result,
     render_exec_last_id: render_shork_exec_last_id,
-    placeholder_prefix: "?",
     value_to_driver_helper: shork_value_to_driver_helper(),
     // Pull the `affected_rows` field (column 1) out of shork's
     // synthetic INSERT/UPDATE/DELETE row. The exec_rows result path
@@ -248,10 +228,9 @@ fn render_adapter(
 
   let has_enums = common.queries_have_enums(queries)
 
-  // `list.fold` / `list.map` are used in every query function that has
-  // parameters; sqlight adapters additionally use `list.map` to feed
-  // the `with:` argument. Whenever any query carries params, the
-  // generated adapter needs the list module.
+  // `list.fold` (pog, shork) and `list.map` (sqlight) appear only in
+  // query functions that take parameters, so the list module is
+  // imported only when some query does.
   let imports =
     list.flatten([
       [
@@ -266,9 +245,8 @@ fn render_adapter(
       ["import gleam/result"],
       adapter_option_import(queries),
       [config.library_import],
-      // Every generated adapter now calls `runtime.expand_slice_placeholders`
-      // to substitute the placeholder markers emitted by the query parser,
-      // so the import is always required (not only when slices are used).
+      // Every generated query function calls `runtime.prepare`, so the
+      // runtime import is always required.
       ["import " <> common.runtime_import_path(gleam)],
       case has_results || has_enums {
         True -> ["import " <> module_path <> "/models"]
@@ -296,17 +274,9 @@ fn render_adapter(
     |> list.map(render_adapter_function(ctx, _))
     |> string.join("\n\n")
 
-  let helper = value_to_driver_helper(config)
+  let helper = config.value_to_driver_helper
 
   string.join(list.flatten([imports, ["", helper, "", functions]]), "\n")
-}
-
-/// Render a single `value_to_pog` / `value_to_sqlight` function per
-/// adapter file. Generated query functions fold the `runtime.Value`
-/// list returned by `runtime.prepare` through this helper, so param
-/// encoding lives in one place instead of being inlined per-param.
-fn value_to_driver_helper(config: AdapterConfig) -> String {
-  config.value_to_driver_helper
 }
 
 fn render_adapter_function(
@@ -327,15 +297,7 @@ fn render_adapter_function(
       render_adapter_one(ctx, query, fn_name, has_params)
     runtime.Many | runtime.BatchMany ->
       render_adapter_many(ctx, query, fn_name, has_params)
-    runtime.Exec | runtime.BatchExec | runtime.CopyFrom ->
-      render_adapter_exec(
-        ctx.naming_ctx,
-        query,
-        fn_name,
-        has_params,
-        ctx.config,
-      )
-    runtime.ExecResult ->
+    runtime.Exec | runtime.ExecResult | runtime.BatchExec | runtime.CopyFrom ->
       render_adapter_exec(
         ctx.naming_ctx,
         query,
@@ -470,7 +432,7 @@ fn render_base_decoder(
       "decode.map("
       <> config.decoder_function(scalar_type)
       <> ", "
-      <> qualified_decoder_hook_call(module, hooks.decode)
+      <> common.qualified_hook_call(module, hooks.decode)
       <> ")"
     _ ->
       case
@@ -490,30 +452,6 @@ fn render_base_decoder(
           <> ")"
         }
         False -> config.decoder_function(scalar_type)
-      }
-  }
-}
-
-/// Build the module-qualified call site for a decode hook so it
-/// matches the existing `import myapp/types.{type UserId}` shape (the
-/// trailing-segment module alias is what's reachable in scope).
-fn qualified_decoder_hook_call(
-  module: option.Option(String),
-  fn_name: String,
-) -> String {
-  case module {
-    option.Some(module_path) -> module_alias_for(module_path) <> "." <> fn_name
-    option.None -> fn_name
-  }
-}
-
-fn module_alias_for(module_path: String) -> String {
-  case string.split(module_path, "/") {
-    [] -> module_path
-    segments ->
-      case list.last(segments) {
-        Ok(last) -> last
-        Error(_) -> module_path
       }
   }
 }
@@ -638,7 +576,6 @@ fn render_adapter_query_result(
     Error(_) -> type_name
   }
   let params_arg = render_params_arg(ctx.naming_ctx, query, has_params)
-  let params_str = ctx.config.render_params(query.params, "p")
   let decoder = render_decoder(ctx, query, constructor_name)
   let return_type = return_type_wrapper <> "(models." <> type_name <> ")"
 
@@ -651,13 +588,7 @@ fn render_adapter_query_result(
       ctx.config.error_type,
     )),
     builder.line("  let q = queries." <> fn_name <> "()"),
-    builder.lines(ctx.config.render_query_call(
-      fn_name,
-      params_str,
-      decoder,
-      "q.sql",
-      query.params,
-    )),
+    builder.lines(ctx.config.render_query_call(decoder, query.params)),
     builder.lines(render_result()),
     builder.line("}"),
   ])
@@ -694,7 +625,6 @@ fn render_adapter_exec(
   config: AdapterConfig,
 ) -> String {
   let params_arg = render_params_arg(naming_ctx, query, has_params)
-  let params_str = config.render_params(query.params, "p")
 
   builder.concat([
     builder.line(query_fn_signature(
@@ -705,13 +635,7 @@ fn render_adapter_exec(
       config.error_type,
     )),
     builder.line("  let q = queries." <> fn_name <> "()"),
-    builder.lines(config.render_query_call(
-      fn_name,
-      params_str,
-      "decode.success(Nil)",
-      "q.sql",
-      query.params,
-    )),
+    builder.lines(config.render_query_call("decode.success(Nil)", query.params)),
     builder.line("  |> result.map(fn(_) { Nil })"),
     builder.line("}"),
   ])
@@ -726,7 +650,6 @@ fn render_adapter_exec_rows(
   config: AdapterConfig,
 ) -> String {
   let params_arg = render_params_arg(naming_ctx, query, has_params)
-  let params_str = config.render_params(query.params, "p")
 
   builder.concat([
     builder.line(query_fn_signature(
@@ -738,10 +661,7 @@ fn render_adapter_exec_rows(
     )),
     builder.line("  let q = queries." <> fn_name <> "()"),
     builder.lines(config.render_query_call(
-      fn_name,
-      params_str,
       config.exec_rows_decoder,
-      "q.sql",
       query.params,
     )),
     builder.lines(config.render_exec_rows_result()),
@@ -758,7 +678,6 @@ fn render_adapter_exec_last_id(
   config: AdapterConfig,
 ) -> String {
   let params_arg = render_params_arg(naming_ctx, query, has_params)
-  let params_str = config.render_params(query.params, "p")
 
   builder.concat([
     builder.line(query_fn_signature(
@@ -769,12 +688,7 @@ fn render_adapter_exec_last_id(
       config.error_type,
     )),
     builder.line("  let q = queries." <> fn_name <> "()"),
-    builder.lines(config.render_exec_last_id(
-      fn_name,
-      params_str,
-      "q.sql",
-      query.params,
-    )),
+    builder.lines(config.render_exec_last_id(query.params)),
     builder.line("}"),
   ])
   |> builder.render
@@ -785,28 +699,13 @@ fn render_adapter_exec_last_id(
 // ============================================================
 
 fn render_pog_query_call(
-  _fn_name: String,
-  _params_str: String,
   decoder: String,
-  _sql_expr: String,
   params: List(model.QueryParam),
 ) -> List(String) {
   list.flatten([
     render_prepare_lines("pog", "value_to_pog", params),
     ["  |> pog.returning(" <> decoder <> ")", "  |> pog.execute(db)"],
   ])
-}
-
-/// No longer generates per-param `pog.parameter(...)` lines. Every
-/// generated query now reuses `runtime.prepare(q, p)` and folds the
-/// returned values through `value_to_pog`, so the param-string is
-/// redundant. Kept for the `AdapterConfig.render_params` field so the
-/// wider shape of the config record does not shift in this change.
-fn render_pog_params(
-  _params: List(model.QueryParam),
-  _prefix: String,
-) -> String {
-  ""
 }
 
 /// Shared prepare-and-fold block used by every pog/sqlight query
@@ -850,12 +749,7 @@ fn render_pog_exec_rows_result() -> List(String) {
   ["  |> result.map(fn(returned) { returned.count })"]
 }
 
-fn render_pog_exec_last_id(
-  _fn_name: String,
-  _params_str: String,
-  _sql_expr: String,
-  params: List(model.QueryParam),
-) -> List(String) {
+fn render_pog_exec_last_id(params: List(model.QueryParam)) -> List(String) {
   // pog rows decode as positional arrays by default. Decoding
   // `decode.int` directly at the row level tries to interpret the
   // whole row as an integer and fails with UnexpectedResultType; we
@@ -879,34 +773,32 @@ fn render_pog_exec_last_id(
 // ============================================================
 
 fn render_sqlight_query_call(
-  _fn_name: String,
-  _params_str: String,
   decoder: String,
-  _sql_expr: String,
   params: List(model.QueryParam),
 ) -> List(String) {
-  let prepare_line = case list.is_empty(params) {
-    True -> "  let #(sql, values) = runtime.prepare(q, Nil)"
-    False -> "  let #(sql, values) = runtime.prepare(q, p)"
-  }
+  let #(prepare_line, with_line) = sqlight_prepare_lines(params)
   [
     prepare_line,
     "  sqlight.query(",
     "    sql,",
     "    on: db,",
-    "    with: list.map(values, value_to_sqlight),",
+    with_line,
     "    expecting: " <> decoder <> ",",
     "  )",
   ]
 }
 
-/// Unused under the prepare-and-fold adapter shape; see
-/// `render_pog_params` for the rationale.
-fn render_sqlight_params(
-  _params: List(model.QueryParam),
-  _prefix: String,
-) -> String {
-  ""
+/// A query without parameters binds nothing, so it passes `[]` instead
+/// of mapping the prepared values: the adapter imports `gleam/list`
+/// only when some query has parameters.
+fn sqlight_prepare_lines(params: List(model.QueryParam)) -> #(String, String) {
+  case list.is_empty(params) {
+    True -> #("  let #(sql, _) = runtime.prepare(q, Nil)", "    with: [],")
+    False -> #(
+      "  let #(sql, values) = runtime.prepare(q, p)",
+      "    with: list.map(values, value_to_sqlight),",
+    )
+  }
 }
 
 fn render_sqlight_one_result() -> List(String) {
@@ -933,23 +825,15 @@ fn render_sqlight_exec_rows_result() -> List(String) {
   ])
 }
 
-fn render_sqlight_exec_last_id(
-  _fn_name: String,
-  _params_str: String,
-  _sql_expr: String,
-  params: List(model.QueryParam),
-) -> List(String) {
-  let prepare_line = case list.is_empty(params) {
-    True -> "  let #(sql, values) = runtime.prepare(q, Nil)"
-    False -> "  let #(sql, values) = runtime.prepare(q, p)"
-  }
+fn render_sqlight_exec_last_id(params: List(model.QueryParam)) -> List(String) {
+  let #(prepare_line, with_line) = sqlight_prepare_lines(params)
   list.flatten([
     [
       prepare_line,
       "  sqlight.query(",
       "    sql,",
       "    on: db,",
-      "    with: list.map(values, value_to_sqlight),",
+      with_line,
       "    expecting: decode.success(Nil),",
       "  )",
       "  |> result.try(fn(_) {",
@@ -979,25 +863,13 @@ fn render_sqlight_exec_last_id(
 // `SELECT LAST_INSERT_ID()`.
 
 fn render_shork_query_call(
-  _fn_name: String,
-  _params_str: String,
   decoder: String,
-  _sql_expr: String,
   params: List(model.QueryParam),
 ) -> List(String) {
   list.flatten([
     render_prepare_lines("shork", "value_to_shork", params),
     ["  |> shork.returning(" <> decoder <> ")", "  |> shork.execute(db)"],
   ])
-}
-
-/// Unused under the prepare-and-fold adapter shape; kept so the
-/// AdapterConfig record shape stays uniform across drivers.
-fn render_shork_params(
-  _params: List(model.QueryParam),
-  _prefix: String,
-) -> String {
-  ""
 }
 
 fn render_shork_one_result() -> List(String) {
@@ -1023,12 +895,7 @@ fn render_shork_exec_rows_result() -> List(String) {
 
 /// `:execlastid` — shork's synthetic INSERT row has
 /// `last_insert_id` in column index 0. No follow-up SELECT needed.
-fn render_shork_exec_last_id(
-  _fn_name: String,
-  _params_str: String,
-  _sql_expr: String,
-  params: List(model.QueryParam),
-) -> List(String) {
+fn render_shork_exec_last_id(params: List(model.QueryParam)) -> List(String) {
   list.flatten([
     render_prepare_lines("shork", "value_to_shork", params),
     [

@@ -6,7 +6,7 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 # Read-only Hex key for dependency resolution in the integration tests; see the
 # note in ci.yml. Publishing still uses HEXPM_API_KEY in the publish job.
@@ -27,6 +27,15 @@ jobs:
   build:
     name: Build and verify
     runs-on: ubuntu-latest
+    # Signs SHA256SUMS with cosign keyless (id-token) and writes a GitHub
+    # attestation for the escript (attestations).
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    outputs:
+      # base64 of SHA256SUMS: the subjects the SLSA provenance job attests.
+      hashes: ${{ steps.hash.outputs.hashes }}
     steps:
       - uses: actions/checkout@v7
 
@@ -98,11 +107,51 @@ jobs:
           SQLODE_BIN: ${{ github.workspace }}/sqlode
         run: atago run --ci --report gha --parallel 1 ./spec/cli.atago.yaml
 
+      # Everything below runs before the Release exists, so a failure here
+      # stops the release instead of leaving an unsigned one behind.
+      - name: Check the escript carries no test modules
+        run: python3 scripts/supply_chain.py contents sqlode --strict
+
+      - name: SBOM (CycloneDX, from the escript's contents)
+        run: python3 scripts/supply_chain.py sbom --manifest manifest.toml --escript sqlode --out sqlode.cdx.json
+
+      - name: Check dependency licenses and bundle their texts
+        run: |
+          python3 scripts/supply_chain.py licenses --manifest manifest.toml --escript sqlode --bundle third_party_licenses
+          tar -czf sqlode-third-party-licenses.tar.gz third_party_licenses
+
+      - name: Checksums
+        run: sha256sum sqlode sqlode.cdx.json sqlode-third-party-licenses.tar.gz > SHA256SUMS
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign checksums (cosign keyless)
+        run: cosign sign-blob --yes --bundle SHA256SUMS.sigstore.json SHA256SUMS
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            sqlode
+            sqlode.cdx.json
+            sqlode-third-party-licenses.tar.gz
+            SHA256SUMS
+
+      - name: Provenance subjects
+        id: hash
+        run: echo "hashes=$(base64 -w0 < SHA256SUMS)" >> "$GITHUB_OUTPUT"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
           name: sqlode
-          path: sqlode
+          path: |
+            sqlode
+            sqlode.cdx.json
+            sqlode-third-party-licenses.tar.gz
+            SHA256SUMS
+            SHA256SUMS.sigstore.json
 
   publish:
     name: Publish to Hex
@@ -132,6 +181,8 @@ jobs:
     name: Create GitHub Release
     runs-on: ubuntu-latest
     needs: build
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -203,9 +254,73 @@ jobs:
             chmod +x sqlode
             ./sqlode generate --config=sqlode.yaml
             ```
-          files: sqlode
+
+            `SHA256SUMS` is signed with cosign (`SHA256SUMS.sigstore.json`), and SLSA provenance is attached. See "Verifying release integrity" in the README.
+          files: |
+            sqlode
+            sqlode.cdx.json
+            sqlode-third-party-licenses.tar.gz
+            SHA256SUMS
+            SHA256SUMS.sigstore.json
           draft: false
           prerelease: ${{ contains(steps.tag.outputs.TAG_NAME, '-alpha') || contains(steps.tag.outputs.TAG_NAME, '-beta') || contains(steps.tag.outputs.TAG_NAME, '-rc') }}
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # SLSA build provenance as a release asset (multiple.intoto.jsonl). The GitHub
+  # attestation in the build job is kept, but it is not a release asset, so it is
+  # invisible to anyone who only has the downloaded files and to OpenSSF
+  # Scorecard's Signed-Releases check. The generator must be referenced by tag,
+  # not by commit SHA: slsa-verifier checks the reusable workflow's ref.
+  provenance:
+    name: SLSA provenance
+    needs: [build, release]
+    permissions:
+      actions: read # To read the workflow path.
+      id-token: write # To sign the provenance.
+      contents: write # To add assets to a release.
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
+    with:
+      base64-subjects: "${{ needs.build.outputs.hashes }}"
+      upload-assets: true
+
+  # Verify the published escript against the published provenance and
+  # signature, the way a user would, so a release that does not verify fails.
+  verification:
+    name: Verify release assets
+    needs: [build, provenance]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Install the verifier
+        uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Download assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROVENANCE: "${{ needs.provenance.outputs.provenance-name }}"
+        run: |
+          set -euo pipefail
+          gh -R "$GITHUB_REPOSITORY" release download "$GITHUB_REF_NAME" \
+            -p sqlode -p sqlode.cdx.json -p sqlode-third-party-licenses.tar.gz \
+            -p SHA256SUMS -p SHA256SUMS.sigstore.json -p "$PROVENANCE"
+
+      - name: Verify checksums, signature and provenance
+        env:
+          PROVENANCE: "${{ needs.provenance.outputs.provenance-name }}"
+        run: |
+          set -euo pipefail
+          sha256sum -c SHA256SUMS
+          cosign verify-blob --bundle SHA256SUMS.sigstore.json \
+            --certificate-identity-regexp "^https://github.com/$GITHUB_REPOSITORY/" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            SHA256SUMS
+          slsa-verifier verify-artifact --provenance-path "$PROVENANCE" \
+            --source-uri "github.com/$GITHUB_REPOSITORY" \
+            --source-tag "$GITHUB_REF_NAME" \
+            sqlode

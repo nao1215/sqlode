@@ -36,54 +36,32 @@ pub type SqlStatement {
     select_items: List(SelectItem),
     from: List(FromItem),
     joins: List(JoinClause),
-    where_tokens: Option(List(lexer.Token)),
-    group_by_tokens: Option(List(lexer.Token)),
-    having_tokens: Option(List(lexer.Token)),
-    order_by_tokens: Option(List(lexer.Token)),
-    limit_tokens: Option(List(lexer.Token)),
   )
   InsertStatement(
     table_name: String,
     columns: List(String),
     value_groups: List(List(lexer.Token)),
-    returning_tokens: Option(List(lexer.Token)),
   )
-  UpdateStatement(
-    table_name: String,
-    set_tokens: List(lexer.Token),
-    where_tokens: Option(List(lexer.Token)),
-    returning_tokens: Option(List(lexer.Token)),
-  )
-  DeleteStatement(
-    table_name: String,
-    where_tokens: Option(List(lexer.Token)),
-    returning_tokens: Option(List(lexer.Token)),
-  )
+  UpdateStatement(table_name: String)
+  DeleteStatement(table_name: String)
   /// Fallback for statements that don't match the above patterns.
   UnstructuredStatement(tokens: List(lexer.Token))
 }
 
-/// A single item in a SELECT list.
+/// A single item in a SELECT list, possibly aliased. `*` and `t.*` are
+/// items too: their tokens are `[Star]` and `[Ident(t), Dot, Star]`.
 pub type SelectItem {
-  /// `*` or `table.*`
-  StarItem(table_prefix: Option(String))
-  /// An expression, possibly aliased
   ExpressionItem(tokens: List(lexer.Token), alias: Option(String))
 }
 
-/// A table or subquery in the FROM clause.
+/// A table in the FROM clause.
 pub type FromItem {
   TableRef(name: String, alias: Option(String))
-  SubqueryRef(tokens: List(lexer.Token), alias: Option(String))
 }
 
 /// A JOIN clause.
 pub type JoinClause {
-  JoinClause(
-    table_name: String,
-    alias: Option(String),
-    on_tokens: Option(List(lexer.Token)),
-  )
+  JoinClause(table_name: String, alias: Option(String))
 }
 
 // ============================================================
@@ -179,9 +157,7 @@ pub type CteDef {
 pub type SelectItemEx {
   /// `*`, `table.*`
   StarEx(table_prefix: Option(String))
-  /// An expression, possibly aliased. `origin` records the source
-  /// table when the expression is a simple qualified column, so
-  /// result-column resolution can skip the token rescan.
+  /// An expression, possibly aliased.
   ExprItem(expr: Expr, alias: Option(String))
 }
 

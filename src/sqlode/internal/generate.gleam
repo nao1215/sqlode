@@ -63,7 +63,12 @@ pub fn run(config_path: String) -> Result(List(String), GenerateError) {
   generate_config(resolved)
 }
 
-fn resolve_config_paths(cfg: model.Config, base_dir: String) -> model.Config {
+/// Resolve the paths in `cfg` against the directory of the config file,
+/// as `generate` and `verify` both read them.
+pub fn resolve_config_paths(
+  cfg: model.Config,
+  base_dir: String,
+) -> model.Config {
   let sql =
     list.map(cfg.sql, fn(block) {
       let schema = list.map(block.schema, resolve_path(base_dir, _))
@@ -518,7 +523,7 @@ fn wrap_validation_error(
   }
 }
 
-fn apply_type_overrides(
+pub fn apply_type_overrides(
   catalog: model.Catalog,
   overrides: List(model.TypeOverride),
 ) -> model.Catalog {
@@ -771,7 +776,7 @@ fn find_column_rename(
   })
 }
 
-fn validate_out_path(out: String) -> Result(Nil, GenerateError) {
+pub fn validate_out_path(out: String) -> Result(Nil, GenerateError) {
   let module_path = common.out_to_module_path(out)
   case
     string.starts_with(module_path, "/") || string.starts_with(module_path, ".")

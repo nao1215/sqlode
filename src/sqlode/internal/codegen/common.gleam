@@ -262,3 +262,22 @@ pub fn gleam_fn(
   ])
   |> builder.render
 }
+
+/// The call site for a user's codec hook. A type with a module prefix
+/// (`myapp/types.UserId`) is imported as `import myapp/types.{type UserId}`,
+/// which binds the last segment as the module alias, so the call is
+/// `types.<fn_name>`. Without a module the user makes the function
+/// reachable, so the bare name is emitted.
+pub fn qualified_hook_call(
+  module: option.Option(String),
+  fn_name: String,
+) -> String {
+  case module {
+    option.Some(module_path) ->
+      case list.last(string.split(module_path, "/")) {
+        Ok(alias) -> alias <> "." <> fn_name
+        Error(Nil) -> fn_name
+      }
+    option.None -> fn_name
+  }
+}

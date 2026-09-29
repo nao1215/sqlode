@@ -9,12 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Each GitHub Release carries `SHA256SUMS` over the escript, a CycloneDX SBOM of its contents (`sqlode.cdx.json`) and the bundled licenses of its dependencies (`sqlode-third-party-licenses.tar.gz`), a cosign keyless signature of `SHA256SUMS`, SLSA provenance, and a GitHub attestation. The GHCR image is signed and attested by digest. The release fails before publishing if the escript holds test modules or a dependency has a license outside the allowed set. README's "Verifying release integrity" has the commands.
 - Every error sqlode prints, and every `verify` finding, starts with a stable code such as `SQD4003` (`Error: SQD4003: Query "GetAuthor": could not infer type for parameter $1. ...`). [doc/errors.md](doc/errors.md) explains each code and how to fix it. The first digit names the area (config, schema, query files, analysis, output); the exit status stays 1 for every error. The wording after the code is unchanged, but a script that matched the start of a message (`Error: Query`) now sees the code first; match on the code instead.
 - A parameter in arithmetic with a numeric column, such as `UPDATE accounts SET visits = visits + $1`, `WHERE price * $1 > 100` or an upsert tail `ON CONFLICT (name) DO UPDATE SET n = counters.n + $2`, takes the column's type. It used to stop `generate` with `could not infer type for parameter $1` unless the parameter was cast. A non-numeric operand (`created_at + $1`, which takes an interval) still asks for a cast.
 - A parameter compared with the elements of an array column, `WHERE $1 = ANY(tags)`, is inferred as the element type (`String` for a `TEXT[]` column). It used to stop `generate` with `could not infer type for parameter $1` unless the parameter was cast.
 
+### Changed
+
+- `generate` and `verify` are several times faster on projects with many queries: 1000 queries over 100 tables take 0.49s instead of 1.89s to generate and 0.28s instead of 1.68s to verify. Each column lookup normalised the names it was given once for every table and column it compared against.
+
 ### Fixed
 
+- A SQLite native adapter whose queries all take no parameters did not compile: it called `list.map` on the prepared values but imported `gleam/list` only when some query had parameters. Queries without parameters now pass `with: []`.
+- A YAML syntax error in the config crashed `generate` and `verify` with an Erlang stack trace and exit status 127. They now report `SQD1105: Config parse error: YAML parse error: ... at line 3, column 22` and exit 1. yay, the YAML library, returns these errors in a shape its own type does not declare.
 - `sqlode verify` printed a query file's path twice in front of a parse error (`db/query.sql: db/query.sql:3: invalid query annotation: ...`), and its messages for an unreadable path and a `strict_views` failure differed from `generate`'s. They now read the same as in `generate`.
 - `sqlode init`, `generate` and `verify` rejected a flag value given after a space (`--config sqlode.yaml`, `--engine sqlite`) with `flag 'config' has no assigned value`; only `--config=sqlode.yaml` worked. Both forms are accepted now.
 - A parameter on the right of `ANY`, `ALL` or `SOME` (`WHERE id = ANY($1)`, the PostgreSQL way to pass a list) was generated as the column's scalar type, so the call failed at runtime with `UnexpectedArgumentType("_int4", ...)`. It is now a list of that type (`List(Int)`) and is sent as an array. `SOME` is also recognised as the synonym of `ANY` it is.

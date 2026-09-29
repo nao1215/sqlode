@@ -59,7 +59,6 @@ fn infer_columns_from_ir(
       select_items: items,
       from: from_items,
       joins: join_clauses,
-      ..,
     ) -> {
       // Fall back to token-based for compound queries or when IR is incomplete
       case has_compound_keyword(tokens) {
@@ -135,16 +134,12 @@ fn has_compound_keyword_loop(tokens: List(lexer.Token), depth: Int) -> Bool {
 /// Check if any select item contains an embed expression.
 fn has_embed_items(items: List(query_ir.SelectItem)) -> Bool {
   list.any(items, fn(item) {
-    case item {
-      query_ir.ExpressionItem(tokens: expr_tokens, ..) ->
-        list.any(expr_tokens, fn(tok) {
-          case tok {
-            lexer.Ident(name) -> string.lowercase(name) == "embed"
-            _ -> False
-          }
-        })
-      _ -> False
-    }
+    list.any(item.tokens, fn(tok) {
+      case tok {
+        lexer.Ident(name) -> string.lowercase(name) == "embed"
+        _ -> False
+      }
+    })
   })
 }
 
@@ -158,8 +153,6 @@ fn extract_ir_table_names(
       case item {
         query_ir.TableRef(alias: Some(a), ..) -> Ok(a)
         query_ir.TableRef(name:, alias: None) -> Ok(name)
-        query_ir.SubqueryRef(alias: Some(a), ..) -> Ok(a)
-        query_ir.SubqueryRef(alias: None, ..) -> Error(Nil)
       }
     })
   let join_names =
@@ -180,23 +173,6 @@ fn ir_select_items_to_extracted(
 ) -> List(ExtractedColumn) {
   list.flat_map(items, fn(item) {
     case item {
-      query_ir.StarItem(None) -> [
-        ExtractedColumn(
-          name: "*",
-          source_table: None,
-          expression: None,
-          expression_tokens: None,
-        ),
-      ]
-      query_ir.StarItem(Some(prefix)) -> [
-        ExtractedColumn(
-          name: prefix <> ".*",
-          source_table: Some(prefix),
-          expression: None,
-          expression_tokens: None,
-        ),
-      ]
-      // Handle Star token that IR didn't recognize (lexer produces Star, not Operator("*"))
       query_ir.ExpressionItem(tokens: [lexer.Star], alias: _) -> [
         ExtractedColumn(
           name: "*",
@@ -348,7 +324,7 @@ fn infer_columns_from_tokens_scoped(
       }
     }
     None -> {
-      let main_tokens = tok_strip_cte(tokens)
+      let main_tokens = token_utils.strip_leading_with(tokens)
       use _ <- result.try(validate_compound_column_counts(
         query_name,
         main_tokens,
@@ -432,7 +408,7 @@ fn infer_table_less_columns(
 /// so `WITH … INSERT INTO target` still picks `target`. Returns
 /// `None` for SELECT / unrecognised statements.
 fn detect_dml_target(tokens: List(lexer.Token)) -> Option(String) {
-  let stripped = tok_strip_cte(tokens)
+  let stripped = token_utils.strip_leading_with(tokens)
   case stripped {
     [lexer.Keyword("insert"), ..rest] ->
       case token_utils.strip_insert_or_action(rest) {
@@ -701,27 +677,16 @@ fn infer_literal_type_with_nullability(
   tokens: List(lexer.Token),
 ) -> Result(#(model.ScalarType, Bool), Nil) {
   case tokens {
-    [lexer.NumberLit(n)] -> Ok(#(number_scalar_type(n), False))
+    [lexer.NumberLit(n)] -> Ok(#(type_inference.number_type(n), False))
     [lexer.Operator("-"), lexer.NumberLit(n)] ->
-      Ok(#(number_scalar_type(n), False))
+      Ok(#(type_inference.number_type(n), False))
     [lexer.Operator("+"), lexer.NumberLit(n)] ->
-      Ok(#(number_scalar_type(n), False))
+      Ok(#(type_inference.number_type(n), False))
     [lexer.StringLit(_)] -> Ok(#(model.StringType, False))
     [lexer.Keyword("true")] | [lexer.Keyword("false")] ->
       Ok(#(model.BoolType, False))
     [lexer.Keyword("null")] -> Ok(#(model.StringType, True))
     _ -> Error(Nil)
-  }
-}
-
-fn number_scalar_type(n: String) -> model.ScalarType {
-  case
-    string.contains(n, ".")
-    || string.contains(n, "e")
-    || string.contains(n, "E")
-  {
-    True -> model.FloatType
-    False -> model.IntType
   }
 }
 
@@ -1034,11 +999,11 @@ fn ir_literal_expr_to_type(
   expr: query_ir.Expr,
 ) -> Result(#(model.ScalarType, Bool), Nil) {
   case expr {
-    query_ir.NumberLit(value: n) -> Ok(#(number_scalar_type(n), False))
+    query_ir.NumberLit(value: n) -> Ok(#(type_inference.number_type(n), False))
     query_ir.Unary(op: "-", arg: query_ir.NumberLit(value: n)) ->
-      Ok(#(number_scalar_type(n), False))
+      Ok(#(type_inference.number_type(n), False))
     query_ir.Unary(op: "+", arg: query_ir.NumberLit(value: n)) ->
-      Ok(#(number_scalar_type(n), False))
+      Ok(#(type_inference.number_type(n), False))
     query_ir.StringLit(_) -> Ok(#(model.StringType, False))
     query_ir.BoolLit(_) -> Ok(#(model.BoolType, False))
     query_ir.NullLit -> Ok(#(model.StringType, True))
@@ -2420,28 +2385,6 @@ fn resolve_column_type_from_tokens(
 // ============================================================
 // Token-based extraction (Phase 3 of #203)
 // ============================================================
-
-/// Strip CTE: skip everything from WITH to the main SELECT/INSERT/UPDATE/DELETE.
-fn tok_strip_cte(tokens: List(lexer.Token)) -> List(lexer.Token) {
-  case tokens {
-    [lexer.Keyword("with"), ..rest] -> tok_skip_cte_defs(rest)
-    _ -> tokens
-  }
-}
-
-fn tok_skip_cte_defs(tokens: List(lexer.Token)) -> List(lexer.Token) {
-  case tokens {
-    [] -> []
-    [lexer.Keyword(kw), ..]
-      if kw == "select" || kw == "insert" || kw == "update" || kw == "delete"
-    -> tokens
-    [lexer.LParen, ..rest] -> {
-      let remaining = token_utils.skip_parens(rest, 1)
-      tok_skip_cte_defs(remaining)
-    }
-    [_, ..rest] -> tok_skip_cte_defs(rest)
-  }
-}
 
 /// Strip compound operators (UNION, INTERSECT, EXCEPT) at depth 0.
 fn tok_strip_compound(tokens: List(lexer.Token)) -> List(lexer.Token) {

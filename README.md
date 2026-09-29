@@ -151,6 +151,23 @@ sqlode = "0.33.0"
 
 mise handles `PATH` automatically — no manual exports needed.
 
+#### Verifying release integrity
+
+From v0.34.0, each release carries `SHA256SUMS` (the escript, its CycloneDX SBOM `sqlode.cdx.json` and the bundled third-party licenses), a cosign keyless signature of it, and SLSA provenance. With the release files in the current directory:
+
+```console
+sha256sum -c SHA256SUMS
+cosign verify-blob --bundle SHA256SUMS.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/nao1215/sqlode/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  SHA256SUMS
+gh attestation verify sqlode --repo nao1215/sqlode
+slsa-verifier verify-artifact --provenance-path multiple.intoto.jsonl \
+  --source-uri github.com/nao1215/sqlode --source-tag v0.34.0 sqlode
+```
+
+The Docker image is signed by digest: `cosign verify ghcr.io/nao1215/sqlode:0.34.0 --certificate-identity-regexp '^https://github.com/nao1215/sqlode/' --certificate-oidc-issuer https://token.actions.githubusercontent.com`.
+
 ### Initialize config
 
 ```console

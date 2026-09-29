@@ -500,7 +500,7 @@ fn render_raw_base_decoder(
       "decode.map("
       <> type_mapping.scalar_type_to_decoder(engine, scalar_type)
       <> ", "
-      <> qualified_decoder_hook_call(module, hooks.decode)
+      <> common.qualified_hook_call(module, hooks.decode)
       <> ")"
     _ ->
       case
@@ -520,30 +520,6 @@ fn render_raw_base_decoder(
           <> ")"
         }
         False -> type_mapping.scalar_type_to_decoder(engine, scalar_type)
-      }
-  }
-}
-
-/// Build the module-qualified call site for a decode hook so it
-/// matches the `import myapp/types.{type UserId}` shape (the
-/// trailing-segment module alias is what's reachable in scope).
-fn qualified_decoder_hook_call(
-  module: option.Option(String),
-  fn_name: String,
-) -> String {
-  case module {
-    option.Some(module_path) -> module_alias_for(module_path) <> "." <> fn_name
-    option.None -> fn_name
-  }
-}
-
-fn module_alias_for(module_path: String) -> String {
-  case string.split(module_path, "/") {
-    [] -> module_path
-    segments ->
-      case list.last(segments) {
-        Ok(last) -> last
-        Error(_) -> module_path
       }
   }
 }

@@ -2551,7 +2551,7 @@ pub fn structure_tokens_insert_test() {
     )
   let statement = token_utils.structure_tokens(tokens)
   case statement {
-    query_ir.InsertStatement(table_name:, columns:, value_groups:, ..) -> {
+    query_ir.InsertStatement(table_name:, columns:, value_groups:) -> {
       table_name |> should.equal("authors")
       list.length(columns) |> should.equal(2)
       list.length(value_groups) |> should.equal(2)
@@ -2568,7 +2568,7 @@ pub fn structure_tokens_update_test() {
     )
   let statement = token_utils.structure_tokens(tokens)
   case statement {
-    query_ir.UpdateStatement(table_name:, ..) -> {
+    query_ir.UpdateStatement(table_name:) -> {
       table_name |> should.equal("authors")
     }
     _ -> should.fail()
@@ -2580,7 +2580,7 @@ pub fn structure_tokens_delete_test() {
     lexer.tokenize("DELETE FROM authors WHERE id = $1", model.PostgreSQL)
   let statement = token_utils.structure_tokens(tokens)
   case statement {
-    query_ir.DeleteStatement(table_name:, ..) -> {
+    query_ir.DeleteStatement(table_name:) -> {
       table_name |> should.equal("authors")
     }
     _ -> should.fail()

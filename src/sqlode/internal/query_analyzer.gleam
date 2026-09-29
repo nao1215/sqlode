@@ -331,8 +331,8 @@ fn check_referenced_tables_exist(
 ) -> Result(Nil, context.AnalysisError) {
   let referenced = case statement {
     query_ir.InsertStatement(table_name:, ..) -> [table_name]
-    query_ir.UpdateStatement(table_name:, ..) -> [table_name]
-    query_ir.DeleteStatement(table_name:, ..) -> [table_name]
+    query_ir.UpdateStatement(table_name:) -> [table_name]
+    query_ir.DeleteStatement(table_name:) -> [table_name]
     query_ir.SelectStatement(..) -> {
       let main_tokens = token_utils.strip_leading_with(tokens)
       token_utils.extract_table_names(main_tokens)

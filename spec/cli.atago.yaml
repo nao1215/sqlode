@@ -187,6 +187,24 @@ scenarios:
           stderr:
             contains: "error: SQD1004: "
 
+  # A YAML syntax error used to crash the CLI with a stack trace and
+  # exit 127 (yay returns errors in a shape its Gleam type does not have).
+  - name: a YAML syntax error in the config is reported, not crashed on
+    steps:
+      - run:
+          command: ./spec/support/sqlode.sh generate --config=test/fixtures/invalid_yaml_syntax.yaml
+      - assert:
+          exit_code: 1
+          stderr:
+            contains: "Error: SQD1105: Config parse error: YAML parse error: Unfinished flow collection at line 3"
+            not_contains: exception
+      - run:
+          command: ./spec/support/sqlode.sh verify --config=test/fixtures/invalid_yaml_syntax.yaml
+      - assert:
+          exit_code: 1
+          stderr:
+            contains: "Error: SQD1105: "
+
   - name: generate fails with invalid config
     steps:
       - run:

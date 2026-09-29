@@ -228,7 +228,7 @@ fn plan_encoding(
     // through to the legacy paths so wrapped collections still work.
     model.CustomType(module:, codec: option.Some(hooks), ..) -> {
       let runtime_fn = type_mapping.scalar_type_to_runtime_function(scalar_type)
-      let hook_call = qualified_hook_call(module, hooks.encode)
+      let hook_call = common.qualified_hook_call(module, hooks.encode)
       HookEncode(runtime_fn:, hook_call:)
     }
     _ -> {
@@ -243,35 +243,6 @@ fn plan_encoding(
         _ -> DirectEncode(runtime_fn:)
       }
     }
-  }
-}
-
-/// Build a callable expression for a codec hook function.
-///
-/// When the type carried a module prefix (e.g. `myapp/types.UserId`),
-/// the existing `import myapp/types.{type UserId}` line in the
-/// generated file binds `types` as a module alias, so we produce
-/// `types.<fn_name>`. When the type has no module prefix the user is
-/// expected to ensure the function is reachable in the generated
-/// file's scope; we emit the bare name so any import strategy works.
-fn qualified_hook_call(
-  module: option.Option(String),
-  fn_name: String,
-) -> String {
-  case module {
-    option.Some(module_path) -> module_alias_for(module_path) <> "." <> fn_name
-    option.None -> fn_name
-  }
-}
-
-fn module_alias_for(module_path: String) -> String {
-  case string.split(module_path, "/") {
-    [] -> module_path
-    segments ->
-      case list.last(segments) {
-        Ok(last) -> last
-        Error(_) -> module_path
-      }
   }
 }
 
