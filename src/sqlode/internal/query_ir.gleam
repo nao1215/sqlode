@@ -179,9 +179,7 @@ pub type CteDef {
 pub type SelectItemEx {
   /// `*`, `table.*`
   StarEx(table_prefix: Option(String))
-  /// An expression, possibly aliased. `origin` records the source
-  /// table when the expression is a simple qualified column, so
-  /// result-column resolution can skip the token rescan.
+  /// An expression, possibly aliased.
   ExprItem(expr: Expr, alias: Option(String))
 }
 

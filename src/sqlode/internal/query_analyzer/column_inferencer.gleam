@@ -701,27 +701,16 @@ fn infer_literal_type_with_nullability(
   tokens: List(lexer.Token),
 ) -> Result(#(model.ScalarType, Bool), Nil) {
   case tokens {
-    [lexer.NumberLit(n)] -> Ok(#(number_scalar_type(n), False))
+    [lexer.NumberLit(n)] -> Ok(#(type_inference.number_type(n), False))
     [lexer.Operator("-"), lexer.NumberLit(n)] ->
-      Ok(#(number_scalar_type(n), False))
+      Ok(#(type_inference.number_type(n), False))
     [lexer.Operator("+"), lexer.NumberLit(n)] ->
-      Ok(#(number_scalar_type(n), False))
+      Ok(#(type_inference.number_type(n), False))
     [lexer.StringLit(_)] -> Ok(#(model.StringType, False))
     [lexer.Keyword("true")] | [lexer.Keyword("false")] ->
       Ok(#(model.BoolType, False))
     [lexer.Keyword("null")] -> Ok(#(model.StringType, True))
     _ -> Error(Nil)
-  }
-}
-
-fn number_scalar_type(n: String) -> model.ScalarType {
-  case
-    string.contains(n, ".")
-    || string.contains(n, "e")
-    || string.contains(n, "E")
-  {
-    True -> model.FloatType
-    False -> model.IntType
   }
 }
 
@@ -1034,11 +1023,11 @@ fn ir_literal_expr_to_type(
   expr: query_ir.Expr,
 ) -> Result(#(model.ScalarType, Bool), Nil) {
   case expr {
-    query_ir.NumberLit(value: n) -> Ok(#(number_scalar_type(n), False))
+    query_ir.NumberLit(value: n) -> Ok(#(type_inference.number_type(n), False))
     query_ir.Unary(op: "-", arg: query_ir.NumberLit(value: n)) ->
-      Ok(#(number_scalar_type(n), False))
+      Ok(#(type_inference.number_type(n), False))
     query_ir.Unary(op: "+", arg: query_ir.NumberLit(value: n)) ->
-      Ok(#(number_scalar_type(n), False))
+      Ok(#(type_inference.number_type(n), False))
     query_ir.StringLit(_) -> Ok(#(model.StringType, False))
     query_ir.BoolLit(_) -> Ok(#(model.BoolType, False))
     query_ir.NullLit -> Ok(#(model.StringType, True))

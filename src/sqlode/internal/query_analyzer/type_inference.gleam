@@ -138,7 +138,8 @@ fn ok(
   Ok(InferredType(scalar: scalar, nullable: nullable))
 }
 
-fn number_type(n: String) -> model.ScalarType {
+/// `IntType` for an integer literal, `FloatType` for a decimal or exponent.
+pub fn number_type(n: String) -> model.ScalarType {
   case
     string.contains(n, ".")
     || string.contains(n, "e")
