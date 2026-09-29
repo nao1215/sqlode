@@ -2568,12 +2568,12 @@ fn tok_nullable_loop(
           }
         }
         [lexer.Keyword("join"), ..after_join] -> {
-          let #(name, remaining) = token_utils.read_table_name(after_join)
-          case name {
-            Some(n) ->
-              tok_nullable_loop(remaining, [n, ..acc], primary_nullable)
-            None -> tok_nullable_loop(remaining, acc, primary_nullable)
-          }
+          let #(names, remaining) = read_joined_table(after_join)
+          tok_nullable_loop(
+            remaining,
+            list.append(names, acc),
+            primary_nullable,
+          )
         }
         _ -> tok_nullable_loop(rest, acc, primary_nullable)
       }
@@ -2583,11 +2583,8 @@ fn tok_nullable_loop(
       let rest2 = tok_skip_keyword(rest, "outer")
       case rest2 {
         [lexer.Keyword("join"), ..after_join] -> {
-          let #(name, remaining) = token_utils.read_table_name(after_join)
-          case name {
-            Some(n) -> tok_nullable_loop(remaining, [n, ..acc], True)
-            None -> tok_nullable_loop(remaining, acc, True)
-          }
+          let #(names, remaining) = read_joined_table(after_join)
+          tok_nullable_loop(remaining, list.append(names, acc), True)
         }
         _ -> tok_nullable_loop(rest, acc, primary_nullable)
       }
@@ -2602,6 +2599,23 @@ fn tok_nullable_loop(
       }
     }
     [_, ..rest] -> tok_nullable_loop(rest, acc, primary_nullable)
+  }
+}
+
+/// The joined table's name and, when present, its alias. Columns of an
+/// outer-joined table are referenced through either, so both have to be
+/// marked nullable: `LEFT JOIN authors a` makes `a.name` nullable too.
+fn read_joined_table(
+  tokens: List(lexer.Token),
+) -> #(List(String), List(lexer.Token)) {
+  let #(name, remaining) = token_utils.read_table_name(tokens)
+  case name {
+    None -> #([], remaining)
+    Some(table) ->
+      case token_utils.read_subquery_alias(remaining) {
+        #(Some(alias), after_alias) -> #([alias, table], after_alias)
+        #(None, _) -> #([table], remaining)
+      }
   }
 }
 
