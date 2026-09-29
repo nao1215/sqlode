@@ -919,6 +919,10 @@ pub fn infer_in_params(
             token_utils.find_quantified_patterns(main_tokens)
               |> list.map(InMatch(match: _, binding: ArrayOfColumn)),
           )
+          |> list.append(
+            token_utils.find_arithmetic_patterns(main_tokens)
+            |> list.map(InMatch(match: _, binding: NumericOperand)),
+          )
         stmt -> find_in_quantified_matches_in_stmt(stmt)
       }
       scan_token_matches(

@@ -3668,10 +3668,26 @@ pub fn placeholder_in_arithmetic_with_numeric_column_test() {
       score DOUBLE PRECISION,
       balance NUMERIC(10, 2) NOT NULL,
       created_at TIMESTAMP NOT NULL
-    );"
+    );
+    CREATE TABLE counters (name TEXT PRIMARY KEY, n INTEGER NOT NULL);"
   let assert Ok(#(catalog, _)) =
     schema_parser.parse_files([#("inline_schema.sql", schema)])
   [
+    #(
+      model.PostgreSQL,
+      "INSERT INTO counters (name, n) VALUES ($1, 1) ON CONFLICT (name) DO UPDATE SET n = counters.n + $2;",
+      Ok([model.StringType, model.IntType]),
+    ),
+    #(
+      model.SQLite,
+      "INSERT INTO counters (name, n) VALUES (?, 1) ON CONFLICT (name) DO UPDATE SET n = n + ?;",
+      Ok([model.StringType, model.IntType]),
+    ),
+    #(
+      model.MySQL,
+      "INSERT INTO counters (name, n) VALUES (?, 1) ON DUPLICATE KEY UPDATE n = n + ?;",
+      Ok([model.StringType, model.IntType]),
+    ),
     #(
       model.PostgreSQL,
       "SELECT id FROM accounts WHERE visits + $1 > 3;",
