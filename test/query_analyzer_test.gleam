@@ -3551,3 +3551,50 @@ pub fn outer_join_through_alias_keeps_nullability_test() {
     |> should.equal(expected)
   })
 }
+
+// ------------------------------------------------------------
+// A select column missing from the schema
+// ------------------------------------------------------------
+
+pub fn missing_select_column_reports_column_not_found_test() {
+  // After a column is renamed or dropped in the schema, the queries that
+  // still select it must say so, whichever way the column is written and
+  // even when its name is also an SQL keyword (`name`, `status`, `value`).
+  // The unqualified keyword form used to report `unsupported expression
+  // "name", cannot infer result type. Use CAST ...`, which points at the
+  // wrong fix.
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([
+      #(
+        "renamed.sql",
+        "CREATE TABLE authors (id INTEGER PRIMARY KEY, full_name TEXT NOT NULL, bio2 TEXT);",
+      ),
+    ])
+  [
+    #("SELECT id, name FROM authors;", "name"),
+    #("SELECT a.id, a.name FROM authors a;", "name"),
+    #("SELECT authors.id, authors.name FROM authors;", "name"),
+    #("SELECT id, bio FROM authors;", "bio"),
+    #("SELECT a.id, a.bio FROM authors a;", "bio"),
+    #("SELECT id, name FROM authors WHERE id = ?;", "name"),
+    #("SELECT id, bio FROM authors WHERE id = ?;", "bio"),
+    #("SELECT a.id, a.name FROM authors a WHERE a.id = ?;", "name"),
+  ]
+  |> list.each(fn(entry) {
+    let #(select, column) = entry
+    let naming_ctx = naming.new()
+    let assert Ok(queries) =
+      query_parser.parse_file(
+        "missing.sql",
+        model.SQLite,
+        naming_ctx,
+        "-- name: Q :many\n" <> select,
+      )
+    let assert Error(error) =
+      query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, queries)
+    let message = query_analyzer.analysis_error_to_string(error, model.SQLite)
+    string.contains(message, "column \"" <> column <> "\" not found")
+    |> should.be_true()
+    string.contains(message, "CAST") |> should.be_false()
+  })
+}
