@@ -14,6 +14,7 @@ import envoy
 import gleam/dynamic/decode
 import gleam/erlang/process
 import gleam/io
+import gleam/list
 import gleam/option
 import gleam/otp/actor
 import gleeunit
@@ -157,4 +158,28 @@ pub fn count_authors_returns_row_count_test() {
 
   let assert Ok(option.Some(row)) = pog_adapter.count_authors(db)
   row.total |> should.equal(3)
+}
+
+// The outer side of a LEFT JOIN referenced through an alias (`s.name`)
+// is nullable: the last author has no successor, so its row carries NULL.
+pub fn left_join_through_alias_decodes_null_test() {
+  use db <- with_db
+  let assert Ok(_) =
+    pog_adapter.create_author(
+      db,
+      params.CreateAuthorParams(name: "First", bio: option.None),
+    )
+  let assert Ok(_) =
+    pog_adapter.create_author(
+      db,
+      params.CreateAuthorParams(name: "Second", bio: option.None),
+    )
+
+  let assert Ok(rows) = pog_adapter.list_authors_with_successor(db)
+  rows
+  |> list.map(fn(row) { #(row.name, row.successor_name) })
+  |> should.equal([
+    #("First", option.Some("Second")),
+    #("Second", option.None),
+  ])
 }

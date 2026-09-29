@@ -3494,3 +3494,60 @@ pub fn bare_placeholder_takes_query_wide_position_test() {
     |> should.equal(expected)
   })
 }
+
+// ------------------------------------------------------------
+// Outer joins through a table alias
+// ------------------------------------------------------------
+
+pub fn outer_join_through_alias_keeps_nullability_test() {
+  // A column of the outer side of a join is nullable whether it is
+  // referenced by table name, unqualified, or through an alias. Only the
+  // table name after JOIN used to be recorded, so `a.name` below came out
+  // as a non-nullable String and the generated decoder failed on NULL.
+  [
+    #(
+      "SELECT b.title, a.name FROM books b LEFT JOIN authors a ON b.author_id = a.id;",
+      [#("title", False), #("name", True)],
+    ),
+    #(
+      "SELECT b.title, a.name FROM books AS b LEFT JOIN authors AS a ON b.author_id = a.id;",
+      [#("title", False), #("name", True)],
+    ),
+    #(
+      "SELECT b.title, a.name FROM books b LEFT OUTER JOIN authors a ON b.author_id = a.id;",
+      [#("title", False), #("name", True)],
+    ),
+    #(
+      "SELECT b.title, a.name AS author_name FROM books b LEFT JOIN authors a ON b.author_id = a.id;",
+      [#("title", False), #("author_name", True)],
+    ),
+    #(
+      "SELECT b.title, a.name FROM books b FULL JOIN authors a ON b.author_id = a.id;",
+      [#("title", True), #("name", True)],
+    ),
+  ]
+  |> list.each(fn(entry) {
+    let #(select, expected) = entry
+    let naming_ctx = naming.new()
+    let assert Ok(queries) =
+      query_parser.parse_file(
+        "oj.sql",
+        model.PostgreSQL,
+        naming_ctx,
+        "-- name: Q :many\n" <> select,
+      )
+    let assert Ok([query]) =
+      query_analyzer.analyze_queries(
+        model.PostgreSQL,
+        join_catalog(),
+        naming_ctx,
+        queries,
+      )
+    query.result_columns
+    |> list.map(fn(item) {
+      let assert model.ScalarResult(column) = item
+      #(column.name, column.nullable)
+    })
+    |> should.equal(expected)
+  })
+}
