@@ -59,7 +59,6 @@ fn infer_columns_from_ir(
       select_items: items,
       from: from_items,
       joins: join_clauses,
-      ..,
     ) -> {
       // Fall back to token-based for compound queries or when IR is incomplete
       case has_compound_keyword(tokens) {
@@ -135,16 +134,12 @@ fn has_compound_keyword_loop(tokens: List(lexer.Token), depth: Int) -> Bool {
 /// Check if any select item contains an embed expression.
 fn has_embed_items(items: List(query_ir.SelectItem)) -> Bool {
   list.any(items, fn(item) {
-    case item {
-      query_ir.ExpressionItem(tokens: expr_tokens, ..) ->
-        list.any(expr_tokens, fn(tok) {
-          case tok {
-            lexer.Ident(name) -> string.lowercase(name) == "embed"
-            _ -> False
-          }
-        })
-      _ -> False
-    }
+    list.any(item.tokens, fn(tok) {
+      case tok {
+        lexer.Ident(name) -> string.lowercase(name) == "embed"
+        _ -> False
+      }
+    })
   })
 }
 
@@ -158,8 +153,6 @@ fn extract_ir_table_names(
       case item {
         query_ir.TableRef(alias: Some(a), ..) -> Ok(a)
         query_ir.TableRef(name:, alias: None) -> Ok(name)
-        query_ir.SubqueryRef(alias: Some(a), ..) -> Ok(a)
-        query_ir.SubqueryRef(alias: None, ..) -> Error(Nil)
       }
     })
   let join_names =
@@ -180,23 +173,6 @@ fn ir_select_items_to_extracted(
 ) -> List(ExtractedColumn) {
   list.flat_map(items, fn(item) {
     case item {
-      query_ir.StarItem(None) -> [
-        ExtractedColumn(
-          name: "*",
-          source_table: None,
-          expression: None,
-          expression_tokens: None,
-        ),
-      ]
-      query_ir.StarItem(Some(prefix)) -> [
-        ExtractedColumn(
-          name: prefix <> ".*",
-          source_table: Some(prefix),
-          expression: None,
-          expression_tokens: None,
-        ),
-      ]
-      // Handle Star token that IR didn't recognize (lexer produces Star, not Operator("*"))
       query_ir.ExpressionItem(tokens: [lexer.Star], alias: _) -> [
         ExtractedColumn(
           name: "*",
