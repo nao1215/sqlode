@@ -17,13 +17,12 @@ RUN apk add --no-cache bash curl \
 COPY gleam.toml manifest.toml ./
 RUN gleam deps download
 
-# Copy source, build the project, and bundle the escript. An
-# explicit `gleam build` pass materialises the sqlode BEAM files in
-# `build/dev/erlang/sqlode/ebin` so gleescript can include them in
-# the escript archive.
+# Copy source and bundle the escript the same way release.yml does:
+# packed from the production Erlang shipment, so it carries sqlode and
+# its runtime dependencies only.
 COPY src ./src
-RUN gleam build
-RUN gleam run -m gleescript
+COPY scripts/build_escript.sh scripts/escript.erl ./scripts/
+RUN sh scripts/build_escript.sh /build/sqlode
 
 # ---------- runtime ----------
 # Minimal Erlang image so evaluators do not have to install Erlang/OTP
