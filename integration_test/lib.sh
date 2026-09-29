@@ -106,6 +106,13 @@ _integration_dev_deps_block() {
     gleeunit+envoy)
       printf '\n[dev-dependencies]\ngleeunit = ">= 1.0.0 and < 2.0.0"\nenvoy = ">= 1.0.0 and < 2.0.0"\n'
       ;;
+    gleeunit+envoy+otp)
+      # For test modules that import gleam/erlang/process and
+      # gleam/otp/actor directly (the PostgreSQL case starts a pog pool),
+      # so the packages are direct dependencies rather than transitive
+      # ones reached through pog.
+      printf '\n[dev-dependencies]\ngleeunit = ">= 1.0.0 and < 2.0.0"\nenvoy = ">= 1.0.0 and < 2.0.0"\ngleam_erlang = ">= 1.0.0 and < 2.0.0"\ngleam_otp = ">= 1.0.0 and < 2.0.0"\n'
+      ;;
     *)
       # Passed through verbatim as an entry list separated by newlines.
       printf '\n[dev-dependencies]\n%s\n' "$1"
