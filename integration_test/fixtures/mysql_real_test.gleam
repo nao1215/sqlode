@@ -301,3 +301,39 @@ pub fn set_tags_round_trips_through_helpers_test() {
     mysql_adapter.get_author(db, params.GetAuthorParams(id:))
   author.tags |> should.equal(option.Some(tags))
 }
+
+// sqlode.slice() expands to one bare `?` per element, and the plain `?`
+// after it must still bind the last value.
+pub fn list_authors_by_ids_binds_slice_and_trailing_param_test() {
+  use db <- with_db
+  let assert Ok(first) =
+    mysql_adapter.create_author(
+      db,
+      default_create_params("fay@example.com", "Fay"),
+    )
+  let assert Ok(_) =
+    mysql_adapter.create_author(
+      db,
+      default_create_params("gus@example.com", "Gus"),
+    )
+  let assert Ok(third) =
+    mysql_adapter.create_author(
+      db,
+      default_create_params("hal@example.com", "Hal"),
+    )
+  let assert Ok(authors) =
+    mysql_adapter.list_authors_by_ids(
+      db,
+      params.ListAuthorsByIdsParams(ids: [first, third], display_name: "Hal"),
+    )
+  authors
+  |> list.map(fn(a: models.ListAuthorsByIdsRow) { a.display_name })
+  |> should.equal(["Fay"])
+
+  let assert Ok(none) =
+    mysql_adapter.list_authors_by_ids(
+      db,
+      params.ListAuthorsByIdsParams(ids: [], display_name: "Hal"),
+    )
+  none |> should.equal([])
+}

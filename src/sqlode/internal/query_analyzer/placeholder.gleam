@@ -40,6 +40,59 @@ pub fn unique(
   list.reverse(result)
 }
 
+/// Rewrite every placeholder token to the internal marker of the index
+/// that `extract` assigned it, in the same order. The inference passes
+/// that look at part of a query (comparison sites, `IN` lists, `CAST`s,
+/// `LIMIT`) then read the query-wide index from the marker instead of
+/// counting placeholders locally, which numbered a bare MySQL or SQLite
+/// `?` wrongly whenever an earlier placeholder sat outside the pattern
+/// being scanned (a `sqlode.slice`, a function argument, a `CAST`).
+/// Slice markers keep their form so slice detection still sees them.
+pub fn number_tokens(
+  tokens: List(lexer.Token),
+  occurrences: List(PlaceholderOccurrence),
+) -> List(lexer.Token) {
+  let #(numbered, _) =
+    list.fold(tokens, #([], occurrences), fn(acc, token) {
+      let #(out, remaining) = acc
+      case token, remaining {
+        lexer.Placeholder(raw), [occurrence, ..rest] -> {
+          let marker = case string.starts_with(raw, "__sqlode_slice_") {
+            True -> raw
+            False ->
+              "__sqlode_param_" <> int.to_string(occurrence.index) <> "__"
+          }
+          #([lexer.Placeholder(marker), ..out], rest)
+        }
+        _, _ -> #([token, ..out], remaining)
+      }
+    })
+  list.reverse(numbered)
+}
+
+/// The index a placeholder token stands for: the number inside an
+/// internal marker, the `N` of a PostgreSQL `$N`, or else `occurrence`.
+pub fn index_of(engine: model.Engine, token: String, occurrence: Int) -> Int {
+  case placeholder_index_for_token(engine, token, occurrence) {
+    Some(index) -> index
+    None -> occurrence
+  }
+}
+
+/// The index written in the token itself (an internal marker or a
+/// PostgreSQL `$N`), or `None` for a placeholder that is numbered by
+/// its position.
+pub fn explicit_index(token: String) -> Option(Int) {
+  case marker_index(token) {
+    Some(_) as matched -> matched
+    None ->
+      case string.starts_with(token, "$") {
+        True -> token |> string.drop_start(1) |> int.parse |> option.from_result
+        False -> None
+      }
+  }
+}
+
 fn placeholder_index_for_token(
   engine: model.Engine,
   token: String,

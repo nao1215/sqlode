@@ -3445,3 +3445,52 @@ pub fn insert_values_into_nullable_column_keeps_option_wrapper_test() {
   parent_id_param.nullable |> should.equal(True)
   created_at_param.nullable |> should.equal(False)
 }
+
+// ------------------------------------------------------------
+// A bare `?` takes its query-wide position
+// ------------------------------------------------------------
+
+pub fn bare_placeholder_takes_query_wide_position_test() {
+  // A bare `?` after a placeholder that no comparison pattern covers
+  // (a CAST argument, a sqlode.slice) is still the next parameter. The
+  // comparison scan used to count only the placeholders it matched, so
+  // the second `?` below was read as parameter 1.
+  [
+    #(
+      model.MySQL,
+      "-- name: Q :many\nSELECT id FROM authors WHERE name = CONCAT(CAST(? AS CHAR), 'x') AND id = ?;",
+      [#("param1", model.StringType), #("id", model.IntType)],
+    ),
+    #(
+      model.SQLite,
+      "-- name: Q :many\nSELECT id FROM authors WHERE name = CAST(? AS TEXT) || 'x' AND id = ?;",
+      [#("param1", model.StringType), #("id", model.IntType)],
+    ),
+    #(
+      model.MySQL,
+      "-- name: Q :many\nSELECT id FROM authors WHERE id IN (sqlode.slice(ids)) AND name <> ?;",
+      [#("ids", model.IntType), #("name", model.StringType)],
+    ),
+    #(
+      model.SQLite,
+      "-- name: Q :many\nSELECT id FROM authors WHERE id IN (sqlode.slice(ids)) AND name <> ?;",
+      [#("ids", model.IntType), #("name", model.StringType)],
+    ),
+  ]
+  |> list.each(fn(entry) {
+    let #(engine, sql, expected) = entry
+    let naming_ctx = naming.new()
+    let assert Ok(queries) =
+      query_parser.parse_file("q.sql", engine, naming_ctx, sql)
+    let assert Ok([query]) =
+      query_analyzer.analyze_queries(
+        engine,
+        test_catalog(),
+        naming_ctx,
+        queries,
+      )
+    query.params
+    |> list.map(fn(param) { #(param.field_name, param.scalar_type) })
+    |> should.equal(expected)
+  })
+}

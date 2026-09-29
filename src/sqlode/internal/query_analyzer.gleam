@@ -185,18 +185,21 @@ fn build_params(
     tokens,
     statement,
   ))
+  // Every inference pass below reads the query-wide placeholder index
+  // from these numbered tokens, so all of them agree with `occurrences`.
+  let numbered = placeholder.number_tokens(tokens, occurrences)
   use equality <- result.try(param_inferencer.infer_equality_params(
     ctx,
     engine,
     query.name,
-    tokens,
+    numbered,
     catalog,
   ))
   use in_params <- result.try(param_inferencer.infer_in_params(
     ctx,
     engine,
     query.name,
-    tokens,
+    numbered,
     catalog,
   ))
   let inferences =
@@ -205,7 +208,7 @@ fn build_params(
     |> list.append(in_params)
 
   use cast_dict <- result.try(
-    param_inferencer.extract_type_casts(ctx, engine, tokens)
+    param_inferencer.extract_type_casts(ctx, engine, numbered)
     |> result.map_error(fn(err) {
       let #(index, cast_type) = err
       context.UnrecognizedCastType(
@@ -221,7 +224,7 @@ fn build_params(
   // user-written `CAST(? AS <type>)` still wins because `extract_type_casts`
   // is layered on top.
   let int_context_dict =
-    param_inferencer.extract_int_context_params(tokens, engine)
+    param_inferencer.extract_int_context_params(numbered, engine)
   let cast_dict = dict.merge(int_context_dict, cast_dict)
   let macro_dict = build_macro_dict(query.macros)
   use inference_dict <- result.try(build_inference_dict(query.name, inferences))

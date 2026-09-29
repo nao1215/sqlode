@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - The `sqlode` escript attached to each GitHub Release and copied into the Docker image also carried sqlode's 26 test modules and its dev-dependencies (gleeunit, glinter, metamon, gleescript and their own dependencies): 23 OTP applications where the CLI runs 13. It is now packed from the production build by `scripts/build_escript.sh`, so it holds sqlode and its runtime dependencies only and is about half the size (3.1 MB to 1.5 MB). The commands behave the same.
+- `sqlode.slice(...)` works again on SQLite and MySQL. Since v0.19.0 `generate` and `verify` rejected it on those engines on the assumption that the list reached the `sqlight` / `shork` adapter as an array value, but the generated code binds one value per element and expands the marker into that many placeholders, so the queries ran correctly before the check was added. The SQLite and MySQL integration tests run slice queries against real databases again, including an empty list and a `?` after the slice.
+- A bare `?` (MySQL, SQLite) that came after a placeholder outside a `column = ?` comparison, such as a `sqlode.slice`, a `CAST(? AS ...)` or a function argument, was numbered as an earlier parameter, so `generate` failed with a type conflict or asked for a cast the query did not need (`WHERE id IN (sqlode.slice(ids)) AND name <> ?`, `WHERE name = CONCAT(CAST(? AS CHAR), 'x') AND id = ?`). Parameter inference now reads each placeholder's position in the whole query.
 
 ## [0.33.0] - 2026-09-21
 

@@ -1,5 +1,4 @@
 import gleam/dict
-import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
@@ -888,17 +887,13 @@ pub fn extract_type_casts(
   let pg_casts = token_utils.find_type_casts(tokens)
   use pg_dict <- result.try(
     list.try_fold(pg_casts, dict.new(), fn(d, cast) {
-      case
-        cast.placeholder
-        |> string.replace("$", "")
-        |> int.parse
-      {
-        Ok(index) ->
+      case placeholder.explicit_index(cast.placeholder) {
+        Some(index) ->
           case cast_type_to_scalar(cast.cast_type) {
             Ok(scalar_type) -> Ok(dict.insert(d, index, scalar_type))
             Error(Nil) -> Error(#(index, string.trim(cast.cast_type)))
           }
-        Error(_) -> Ok(d)
+        None -> Ok(d)
       }
     }),
   )
@@ -971,18 +966,7 @@ fn resolve_placeholder_index(
   raw: String,
   occurrence: Int,
 ) -> Int {
-  case engine {
-    model.PostgreSQL ->
-      case
-        raw
-        |> string.replace("$", "")
-        |> int.parse
-      {
-        Ok(n) -> n
-        Error(_) -> occurrence
-      }
-    _ -> occurrence
-  }
+  placeholder.index_of(engine, raw, occurrence)
 }
 
 fn cast_type_to_scalar(type_name: String) -> Result(model.ScalarType, Nil) {
@@ -1043,19 +1027,7 @@ fn scan_int_context_indices(
       scan_int_context_indices(rest, engine, occurrence, next_state, acc)
     }
     [lexer.Placeholder(raw), ..rest] -> {
-      let assigned = case engine {
-        model.PostgreSQL ->
-          // `$N` carries an explicit index in its raw text.
-          case
-            raw
-            |> string.replace("$", "")
-            |> int.parse
-          {
-            Ok(n) -> n
-            Error(_) -> occurrence
-          }
-        _ -> occurrence
-      }
+      let assigned = placeholder.index_of(engine, raw, occurrence)
       let acc = case in_int_context {
         True -> [assigned, ..acc]
         False -> acc

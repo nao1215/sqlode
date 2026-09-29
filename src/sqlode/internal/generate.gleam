@@ -49,7 +49,6 @@ pub type GenerateError {
   WriteError(writer.WriteError)
   VendorRuntimeNotFound
   UnsupportedArrayForEngine(query_name: String, engine: String)
-  UnsupportedSliceForEngine(query_name: String, engine: String)
 }
 
 pub fn run(config_path: String) -> Result(List(String), GenerateError) {
@@ -509,8 +508,6 @@ fn wrap_validation_error(
       UnsupportedAnnotation(query_name:, command:, detail:)
     query_validation.UnsupportedArrayForEngine(query_name:, engine:) ->
       UnsupportedArrayForEngine(query_name:, engine:)
-    query_validation.UnsupportedSliceForEngine(query_name:, engine:) ->
-      UnsupportedSliceForEngine(query_name:, engine:)
   }
 }
 
@@ -981,10 +978,6 @@ pub fn error_to_string(error: GenerateError) -> String {
     UnsupportedArrayForEngine(query_name:, engine:) ->
       query_validation.error_to_string(
         query_validation.UnsupportedArrayForEngine(query_name:, engine:),
-      )
-    UnsupportedSliceForEngine(query_name:, engine:) ->
-      query_validation.error_to_string(
-        query_validation.UnsupportedSliceForEngine(query_name:, engine:),
       )
   }
 }
