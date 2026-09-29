@@ -130,17 +130,12 @@ pub fn verify_surfaces_analysis_error_as_finding_test() {
       ),
     ])
   let report = verify.verify_config(cfg)
-  list.length(report.findings) |> should.equal(1)
-  let assert [finding] = report.findings
   // The verify_ok_query references the `authors` table, which the
-  // ambiguous_param schema does not define. Any finding mentioning
-  // `authors` proves the analyser error propagated through.
-  // The finding must name one of the queries from the input file
-  // so operators can locate the offending query in the source. The
-  // exact error shape depends on which analysis step tripped first
-  // (table-not-found vs. parameter inference failure), and both are
-  // acceptable reports for this mismatched schema/query pair.
-  string.contains(finding.detail, "GetAuthor") |> should.be_true()
+  // ambiguous_param schema does not define, so every query in it fails
+  // analysis and each one is reported, named, as its own finding.
+  let assert [first, second] = report.findings
+  string.contains(first.detail, "GetAuthor") |> should.be_true()
+  string.contains(second.detail, "ListAuthors") |> should.be_true()
 }
 
 pub fn report_to_string_joins_findings_with_block_tag_test() {
@@ -412,4 +407,27 @@ pub fn verify_rejects_empty_query_file_test() {
   let report = verify.verify_config(cfg)
   let assert [finding] = report.findings
   string.contains(finding.detail, "no queries") |> should.be_true()
+}
+
+// ============================================================
+// verify reports every broken query, not only the first
+// ============================================================
+
+pub fn verify_reports_every_broken_query_test() {
+  let cfg =
+    model.Config(version: 2, sql: [
+      make_block(
+        "test/fixtures/verify_ok_schema.sql",
+        "test/fixtures/verify_two_broken_queries.sql",
+        "src/verify_two_broken_out",
+        option.None,
+      ),
+    ])
+  let report = verify.verify_config(cfg)
+  let assert [first, second] = report.findings
+  string.contains(first.detail, "GetAuthorBio") |> should.be_true()
+  string.contains(first.detail, "column \"bio\" not found") |> should.be_true()
+  string.contains(second.detail, "ListAuthorEmails") |> should.be_true()
+  string.contains(second.detail, "column \"email\" not found")
+  |> should.be_true()
 }

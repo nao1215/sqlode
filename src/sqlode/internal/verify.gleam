@@ -79,7 +79,8 @@ fn verify_block(
     Error(detail) -> [Finding(block_out: out, detail: detail)]
     Ok(catalog) ->
       case load_and_analyze(naming_ctx, block, catalog) {
-        Error(detail) -> [Finding(block_out: out, detail: detail)]
+        Error(details) ->
+          list.map(details, fn(detail) { Finding(block_out: out, detail:) })
         Ok(analyzed) ->
           case analyzed {
             [] -> [
@@ -121,21 +122,58 @@ fn load_catalog(block: model.SqlBlock) -> Result(model.Catalog, String) {
   }
 }
 
+/// Errors are returned as a list so that every query the analyser rejects
+/// is reported in one run, not only the first; the later checks run on
+/// fully analysed queries and stay single.
 fn load_and_analyze(
   naming_ctx: naming.NamingContext,
   block: model.SqlBlock,
   catalog: model.Catalog,
-) -> Result(List(model.AnalyzedQuery), String) {
-  use entries <- result.try(read_files(block.queries))
-  use queries <- result.try(parse_all_queries(entries, block.engine, naming_ctx))
+) -> Result(List(model.AnalyzedQuery), List(String)) {
+  use analyzed <- result.try(analyze_each(naming_ctx, block, catalog))
+  validate_analyzed(block, analyzed) |> result.map_error(fn(e) { [e] })
+}
+
+fn analyze_each(
+  naming_ctx: naming.NamingContext,
+  block: model.SqlBlock,
+  catalog: model.Catalog,
+) -> Result(List(model.AnalyzedQuery), List(String)) {
+  use entries <- result.try(
+    read_files(block.queries) |> result.map_error(fn(e) { [e] }),
+  )
+  use queries <- result.try(
+    parse_all_queries(entries, block.engine, naming_ctx)
+    |> result.map_error(fn(e) { [e] }),
+  )
   use Nil <- result.try(
     query_validation.validate_no_duplicate_names(queries)
-    |> result.map_error(query_validation.error_to_string),
+    |> result.map_error(fn(e) { [query_validation.error_to_string(e)] }),
   )
-  use analyzed <- result.try(
-    query_analyzer.analyze_queries(block.engine, catalog, naming_ctx, queries)
-    |> result.map_error(query_analyzer.analysis_error_to_string(_, block.engine)),
-  )
+  // Each query is analysed on its own (the analyser keeps no state
+  // between queries), so one broken query does not hide the next.
+  let results =
+    list.map(queries, fn(query) {
+      query_analyzer.analyze_queries(block.engine, catalog, naming_ctx, [query])
+    })
+  case
+    list.filter_map(results, fn(analysis) {
+      case analysis {
+        Error(error) ->
+          Ok(query_analyzer.analysis_error_to_string(error, block.engine))
+        Ok(_) -> Error(Nil)
+      }
+    })
+  {
+    [] -> Ok(list.flat_map(results, result.unwrap(_, [])))
+    errors -> Error(errors)
+  }
+}
+
+fn validate_analyzed(
+  block: model.SqlBlock,
+  analyzed: List(model.AnalyzedQuery),
+) -> Result(List(model.AnalyzedQuery), String) {
   use Nil <- result.try(
     query_validation.validate_unsupported_annotations(analyzed)
     |> result.map_error(query_validation.error_to_string),

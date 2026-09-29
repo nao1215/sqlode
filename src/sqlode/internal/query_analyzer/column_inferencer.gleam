@@ -1424,6 +1424,53 @@ fn infer_expression_type_from_tokens(
   table_names: List(String),
   query_name: String,
 ) -> Result(#(model.ScalarType, Bool), AnalysisError) {
+  let result =
+    infer_expression_type_any_path(tokens, catalog, table_names, query_name)
+  // A lone column reference that neither path could type is a column the
+  // schema does not have (renamed, dropped or misspelled). Say that rather
+  // than "unsupported expression ... Use CAST", which points at the wrong
+  // fix. Column names that are also SQL keywords (`name`, `status`) reach
+  // this point as expressions.
+  case result, missing_column_reference(tokens, table_names) {
+    Error(UnsupportedExpression(..)), Some(#(table_name, column_name)) ->
+      Error(ColumnNotFound(query_name:, table_name:, column_name:))
+    _, _ -> result
+  }
+}
+
+fn missing_column_reference(
+  tokens: List(lexer.Token),
+  table_names: List(String),
+) -> Option(#(String, String)) {
+  case tokens, table_names {
+    [lexer.Ident(table), lexer.Dot, column], _ ->
+      column_token_name(column)
+      |> option.map(fn(name) { #(string.lowercase(table), name) })
+    [column], [_, ..] ->
+      column_token_name(column)
+      |> option.map(fn(name) { #(string.join(table_names, ", "), name) })
+    _, _ -> None
+  }
+}
+
+fn column_token_name(token: lexer.Token) -> Option(String) {
+  case token {
+    lexer.Ident(name) | lexer.QuotedIdent(name) -> Some(string.lowercase(name))
+    lexer.Keyword("null")
+    | lexer.Keyword("true")
+    | lexer.Keyword("false")
+    | lexer.Keyword("default") -> None
+    lexer.Keyword(name) -> Some(name)
+    _ -> None
+  }
+}
+
+fn infer_expression_type_any_path(
+  tokens: List(lexer.Token),
+  catalog: model.Catalog,
+  table_names: List(String),
+  query_name: String,
+) -> Result(#(model.ScalarType, Bool), AnalysisError) {
   // Engine threading through column inference is tracked by Issue #406;
   // passing PostgreSQL here is a temporary default and only affects
   // engine-specific subquery LIMIT parsing, which is not reached today.

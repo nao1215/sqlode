@@ -565,3 +565,49 @@ scenarios:
           exit_code: 0
           stdout:
             contains: Successfully generated
+
+  # README recommends `sqlode verify` as a CI gate before generate. It has
+  # to pass on a project that generates, and fail with exit 1 once the
+  # schema drops a column that queries still select, reporting every
+  # broken query (not only the first) with the query and the column. generate must stop the same way without touching the files
+  # it wrote before.
+  - name: verify gates a schema change that breaks a query
+    steps:
+      - run:
+          command: |
+            rm -rf "${workdir}/gate"
+            mkdir -p "${workdir}/gate/db"
+            printf 'CREATE TABLE authors (\n  id INTEGER PRIMARY KEY,\n  name TEXT NOT NULL\n);\n' > "${workdir}/gate/db/schema.sql"
+            printf -- '-- name: GetAuthor :one\nSELECT id, name FROM authors WHERE id = ?;\n\n-- name: ListNames :many\nSELECT name FROM authors ORDER BY name;\n' > "${workdir}/gate/db/query.sql"
+            printf 'version: "2"\nsql:\n  - schema: "db/schema.sql"\n    queries: "db/query.sql"\n    engine: "sqlite"\n    gen:\n      gleam:\n        out: "src/db"\n        runtime: "native"\n' > "${workdir}/gate/sqlode.yaml"
+            ./spec/support/sqlode.sh verify --config="${workdir}/gate/sqlode.yaml"
+      - assert:
+          exit_code: 0
+          stdout:
+            contains: All checks passed.
+      - run:
+          command: |
+            ./spec/support/sqlode.sh generate --config="${workdir}/gate/sqlode.yaml" > /dev/null
+            cat "${workdir}/gate/src/db/"*.gleam | cksum > "${workdir}/gate/before.cksum"
+            printf 'CREATE TABLE authors (\n  id INTEGER PRIMARY KEY,\n  full_name TEXT NOT NULL\n);\n' > "${workdir}/gate/db/schema.sql"
+            ./spec/support/sqlode.sh verify --config="${workdir}/gate/sqlode.yaml"
+      - assert:
+          exit_code: 1
+          stdout:
+            contains:
+              - Query "GetAuthor"
+              - Query "ListNames"
+              - column "name" not found in table "authors"
+            not_contains: CAST
+      - run:
+          command: ./spec/support/sqlode.sh generate --config="${workdir}/gate/sqlode.yaml"
+      - assert:
+          exit_code: 1
+          stderr:
+            contains: column "name" not found in table "authors"
+      - run:
+          command: |
+            cat "${workdir}/gate/src/db/"*.gleam | cksum > "${workdir}/gate/after.cksum"
+            cmp "${workdir}/gate/before.cksum" "${workdir}/gate/after.cksum"
+      - assert:
+          exit_code: 0
