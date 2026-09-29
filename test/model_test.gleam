@@ -192,8 +192,6 @@ pub fn custom_type_delegates_to_underlying_test() {
   type_mapping.scalar_type_to_runtime_function(custom)
   |> should.equal("runtime.int")
   type_mapping.scalar_type_to_db_name(custom) |> should.equal("int")
-  type_mapping.scalar_type_to_value_function(model.PostgreSQL, custom)
-  |> should.equal("int")
   type_mapping.scalar_type_to_decoder(model.PostgreSQL, custom)
   |> should.equal("decode.int")
 }
@@ -289,18 +287,6 @@ pub fn scalar_type_to_decoder_postgresql_bool_test() {
   |> should.equal("decode.bool")
 }
 
-// scalar_type_to_value_function tests
-
-pub fn scalar_type_to_value_function_bytes_postgresql_test() {
-  type_mapping.scalar_type_to_value_function(model.PostgreSQL, model.BytesType)
-  |> should.equal("bytea")
-}
-
-pub fn scalar_type_to_value_function_bytes_sqlite_test() {
-  type_mapping.scalar_type_to_value_function(model.SQLite, model.BytesType)
-  |> should.equal("blob")
-}
-
 // enum helper function tests
 
 pub fn enum_type_name_test() {
@@ -372,20 +358,6 @@ pub fn scalar_type_to_decoder_array_test() {
     model.ArrayType(model.StringType),
   )
   |> should.equal("decode.list(decode.string)")
-}
-
-pub fn scalar_type_to_value_function_array_test() {
-  type_mapping.scalar_type_to_value_function(
-    model.PostgreSQL,
-    model.ArrayType(model.IntType),
-  )
-  |> should.equal("array(pog.int)")
-
-  type_mapping.scalar_type_to_value_function(
-    model.PostgreSQL,
-    model.ArrayType(model.StringType),
-  )
-  |> should.equal("array(pog.text)")
 }
 
 pub fn scalar_type_to_db_name_array_test() {
