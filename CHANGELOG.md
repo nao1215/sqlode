@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `sqlode init`, `generate` and `verify` rejected a flag value given after a space (`--config sqlode.yaml`, `--engine sqlite`) with `flag 'config' has no assigned value`; only `--config=sqlode.yaml` worked. Both forms are accepted now.
 - A parameter on the right of `ANY`, `ALL` or `SOME` (`WHERE id = ANY($1)`, the PostgreSQL way to pass a list) was generated as the column's scalar type, so the call failed at runtime with `UnexpectedArgumentType("_int4", ...)`. It is now a list of that type (`List(Int)`) and is sent as an array. `SOME` is also recognised as the synonym of `ANY` it is.
 - A cast to an array type (`$1::bigint[]`) dropped the `[]` and typed the parameter as its element type. It is now the array type.
 - `generate` and `verify` accepted `sqlode.slice(...)` inside `ANY`, `ALL` or `SOME` (`WHERE id = ANY(sqlode.slice(ids))`), which expands to `ANY($1, $2)` and fails on PostgreSQL every time (a syntax error, or `requires array on right side` for one element). They now stop with a message that names the two forms that work: `IN (sqlode.slice(ids))`, or one array parameter with `= ANY($1)`.
