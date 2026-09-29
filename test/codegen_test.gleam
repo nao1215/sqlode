@@ -1684,3 +1684,49 @@ fn mysql_native_block() -> model.SqlBlock {
     overrides: model.empty_overrides(),
   )
 }
+
+// An adapter whose queries take no parameters must still compile: every
+// `list.` it emits needs `import gleam/list`, which is only added when a
+// query has parameters.
+pub fn adapter_without_parameters_imports_what_it_uses_test() {
+  let content =
+    "-- name: GetFirst :one
+SELECT id, name FROM authors LIMIT 1;
+
+-- name: ListAuthors :many
+SELECT id, name FROM authors;
+
+-- name: DeleteAll :exec
+DELETE FROM authors;
+
+-- name: DeleteAllRows :execrows
+DELETE FROM authors;
+
+-- name: AddAnonymous :execlastid
+INSERT INTO authors (name) VALUES ('anonymous');
+"
+  [model.PostgreSQL, model.SQLite, model.MySQL]
+  |> list.each(fn(engine) {
+    let naming_ctx = naming.new()
+    let assert Ok(queries) =
+      query_parser.parse_file("q.sql", engine, naming_ctx, content)
+    let assert Ok(analyzed) =
+      query_analyzer.analyze_queries(
+        engine,
+        test_catalog(),
+        naming_ctx,
+        queries,
+      )
+    let block = model.SqlBlock(..test_block_native(), engine:)
+    let rendered = adapter.render(naming_ctx, block, analyzed, dict.new())
+    let uses_list = string.contains(rendered, "list.")
+    let imports_list = string.contains(rendered, "import gleam/list\n")
+    #(engine, uses_list && !imports_list) |> should.equal(#(engine, False))
+    // No parameters, so nothing may bind the prepared values unused.
+    #(
+      engine,
+      string.contains(rendered, "let #(sql, values) = runtime.prepare(q, Nil)"),
+    )
+    |> should.equal(#(engine, False))
+  })
+}

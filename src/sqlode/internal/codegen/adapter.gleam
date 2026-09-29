@@ -885,19 +885,29 @@ fn render_sqlight_query_call(
   _sql_expr: String,
   params: List(model.QueryParam),
 ) -> List(String) {
-  let prepare_line = case list.is_empty(params) {
-    True -> "  let #(sql, values) = runtime.prepare(q, Nil)"
-    False -> "  let #(sql, values) = runtime.prepare(q, p)"
-  }
+  let #(prepare_line, with_line) = sqlight_prepare_lines(params)
   [
     prepare_line,
     "  sqlight.query(",
     "    sql,",
     "    on: db,",
-    "    with: list.map(values, value_to_sqlight),",
+    with_line,
     "    expecting: " <> decoder <> ",",
     "  )",
   ]
+}
+
+/// A query without parameters binds nothing, so it passes `[]` instead
+/// of mapping the prepared values: the adapter imports `gleam/list`
+/// only when some query has parameters.
+fn sqlight_prepare_lines(params: List(model.QueryParam)) -> #(String, String) {
+  case list.is_empty(params) {
+    True -> #("  let #(sql, _) = runtime.prepare(q, Nil)", "    with: [],")
+    False -> #(
+      "  let #(sql, values) = runtime.prepare(q, p)",
+      "    with: list.map(values, value_to_sqlight),",
+    )
+  }
 }
 
 /// Unused under the prepare-and-fold adapter shape; see
@@ -939,17 +949,14 @@ fn render_sqlight_exec_last_id(
   _sql_expr: String,
   params: List(model.QueryParam),
 ) -> List(String) {
-  let prepare_line = case list.is_empty(params) {
-    True -> "  let #(sql, values) = runtime.prepare(q, Nil)"
-    False -> "  let #(sql, values) = runtime.prepare(q, p)"
-  }
+  let #(prepare_line, with_line) = sqlight_prepare_lines(params)
   list.flatten([
     [
       prepare_line,
       "  sqlight.query(",
       "    sql,",
       "    on: db,",
-      "    with: list.map(values, value_to_sqlight),",
+      with_line,
       "    expecting: decode.success(Nil),",
       "  )",
       "  |> result.try(fn(_) {",

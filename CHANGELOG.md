@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A SQLite native adapter whose queries all take no parameters did not compile: it called `list.map` on the prepared values but imported `gleam/list` only when some query had parameters. Queries without parameters now pass `with: []`.
 - A YAML syntax error in the config crashed `generate` and `verify` with an Erlang stack trace and exit status 127. They now report `SQD1105: Config parse error: YAML parse error: ... at line 3, column 22` and exit 1. yay, the YAML library, returns these errors in a shape its own type does not declare.
 - `sqlode verify` printed a query file's path twice in front of a parse error (`db/query.sql: db/query.sql:3: invalid query annotation: ...`), and its messages for an unreadable path and a `strict_views` failure differed from `generate`'s. They now read the same as in `generate`.
 - `sqlode init`, `generate` and `verify` rejected a flag value given after a space (`--config sqlode.yaml`, `--engine sqlite`) with `flag 'config' has no assigned value`; only `--config=sqlode.yaml` worked. Both forms are accepted now.
