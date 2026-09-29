@@ -40,6 +40,27 @@ pub fn analysis_error_to_string(
   error: AnalysisError,
   engine: model.Engine,
 ) -> String {
+  analysis_error_code(error) <> ": " <> analysis_error_message(error, engine)
+}
+
+/// The stable code for each error, documented in `doc/errors.md`.
+fn analysis_error_code(error: AnalysisError) -> String {
+  case error {
+    TableNotFound(..) -> "SQD4001"
+    ColumnNotFound(..) -> "SQD4002"
+    ParameterTypeNotInferred(..) -> "SQD4003"
+    ParameterTypeConflict(..) -> "SQD4004"
+    UnrecognizedCastType(..) -> "SQD4005"
+    CompoundColumnCountMismatch(..) -> "SQD4006"
+    UnsupportedExpression(..) -> "SQD4007"
+    AmbiguousColumnName(..) -> "SQD4008"
+  }
+}
+
+fn analysis_error_message(
+  error: AnalysisError,
+  engine: model.Engine,
+) -> String {
   case error {
     TableNotFound(query_name:, table_name:) ->
       "Query \""

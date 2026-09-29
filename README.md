@@ -786,7 +786,7 @@ sqlode infers a parameter's type from its surrounding SQL. These contexts are re
 
 Anywhere else, sqlode fails generation with:
 
-> `Query "Name": could not infer type for parameter $N. Use a type cast (e.g. $N::int) to specify the type`
+> `SQD4003: Query "Name": could not infer type for parameter $N. Use a type cast (e.g. $N::int) to specify the type`
 
 Cases that need an explicit cast today: arithmetic with a non-numeric operand (`created_at + $1`), parameters inside `CASE WHEN` branches whose other branches are also parameters, and function arguments sqlode does not yet recognise. Pin the type with `$N::int` (PostgreSQL) or `CAST($N AS INTEGER)` (SQLite).
 
@@ -863,6 +863,8 @@ gleam run -m sqlode -- verify   [--config=./sqlode.yaml]
 gleam run -m sqlode -- init     [--output=./sqlode.yaml] [--engine=postgresql|sqlite|mysql] [--runtime=raw|native]
 ```
 
+Every error starts with a stable code, such as `Error: SQD4003: ...`, and exits 1. [doc/errors.md](doc/errors.md) explains each code and how to fix it.
+
 ### `sqlode verify`
 
 `verify` is the static check lane for CI. It loads the project like `generate` does — schema parsing, query parsing, analyser pass — but writes no files and collects every failure into a single report instead of short-circuiting on the first error.
@@ -870,7 +872,7 @@ gleam run -m sqlode -- init     [--output=./sqlode.yaml] [--engine=postgresql|sq
 ```
 $ sqlode verify
 Verifying config: sqlode.yaml
-[src/db] query "FilterAuthors" has 4 inferred parameter(s), exceeds query_parameter_limit 3
+[src/db] SQD4012: query "FilterAuthors" has 4 inferred parameter(s), exceeds query_parameter_limit 3
 ```
 
 Non-zero exit on any finding, so it gates generation in CI:

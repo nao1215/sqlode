@@ -51,7 +51,7 @@ scenarios:
       - assert:
           exit_code: 1
           stderr:
-            contains: already exists
+            contains: "SQD1006: "
 
   - name: init scaffolds mysql native runtime
     steps:
@@ -150,7 +150,7 @@ scenarios:
       - assert:
           exit_code: 1
           stderr:
-            contains: Config file not found
+            contains: "SQD1103: Config file not found"
 
   # `--flag value` is as common as `--flag=value`; both must work for
   # every flag that takes a value.
@@ -184,6 +184,8 @@ scenarios:
           command: ./spec/support/sqlode.sh generate --config
       - assert:
           exit_code: 1
+          stderr:
+            contains: "error: SQD1004: "
 
   - name: generate fails with invalid config
     steps:
@@ -427,7 +429,7 @@ scenarios:
       - assert:
           exit_code: 1
           stderr:
-            contains: Config file not found
+            contains: "SQD1103: Config file not found"
 
   - name: verify fails with invalid config
     steps:
@@ -519,7 +521,7 @@ scenarios:
           stdout:
             not_contains: "error:"
           stderr:
-            contains: "error:"
+            contains: "error: SQD1003: "
       - run:
           command: ./spec/support/sqlode.sh
       - assert:
@@ -527,7 +529,7 @@ scenarios:
           stdout:
             not_contains: "error:"
           stderr:
-            contains: "error:"
+            contains: "error: SQD1001: "
 
   - name: help text stays on stdout
     steps:
@@ -577,7 +579,7 @@ scenarios:
       - assert:
           exit_code: 1
           stderr:
-            contains: Config file not found
+            contains: "SQD1103: Config file not found"
 
   # The README Quickstart shows the sqlode.yaml that `init` writes. A key
   # the config loader rejects (it once showed `package:`) stops a reader
@@ -628,8 +630,8 @@ scenarios:
           exit_code: 1
           stdout:
             contains:
-              - Query "GetAuthor"
-              - Query "ListNames"
+              - 'SQD4002: Query "GetAuthor"'
+              - 'SQD4002: Query "ListNames"'
               - column "name" not found in table "authors"
             not_contains: CAST
       - run:
@@ -637,7 +639,7 @@ scenarios:
       - assert:
           exit_code: 1
           stderr:
-            contains: column "name" not found in table "authors"
+            contains: 'Error: SQD4002: Query "GetAuthor": column "name" not found in table "authors"'
       - run:
           command: |
             cat "${workdir}/gate/src/db/"*.gleam | cksum > "${workdir}/gate/after.cksum"

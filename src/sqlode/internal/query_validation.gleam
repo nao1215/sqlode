@@ -196,6 +196,21 @@ pub fn validate_native_annotations(
 }
 
 pub fn error_to_string(error: ValidationError) -> String {
+  error_code(error) <> ": " <> error_message(error)
+}
+
+/// The stable code for each error, documented in `doc/errors.md`.
+fn error_code(error: ValidationError) -> String {
+  case error {
+    DuplicateName(..) -> "SQD3007"
+    NormalizedNameCollision(..) -> "SQD3008"
+    UnsupportedAnnotation(..) -> "SQD4009"
+    UnsupportedArrayForEngine(..) -> "SQD4010"
+    SliceInsideQuantifier(..) -> "SQD4011"
+  }
+}
+
+fn error_message(error: ValidationError) -> String {
   case error {
     DuplicateName(name:, paths:) ->
       "duplicate query name \""

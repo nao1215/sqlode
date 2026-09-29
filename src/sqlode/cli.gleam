@@ -288,14 +288,14 @@ fn autodiscover_config() -> Result(String, String) {
   case found {
     [] ->
       Error(
-        "No config file found. Looked for: "
+        "SQD1101: No config file found. Looked for: "
         <> string.join(config_candidates, ", ")
         <> ". Create one with `sqlode init` or pass --config=<path>.",
       )
     [single] -> Ok(single)
     multiple ->
       Error(
-        "Multiple config files found: "
+        "SQD1102: Multiple config files found: "
         <> string.join(multiple, ", ")
         <> ". Pick one explicitly with --config=<path>.",
       )
@@ -312,7 +312,7 @@ fn run_init(path: String, engine: String, runtime: String) -> Nil {
       let template = config_template(engine, runtime)
       case simplifile.is_file(path) {
         Ok(True) -> {
-          io.println_error("Error: " <> path <> " already exists")
+          io.println_error("Error: SQD1006: " <> path <> " already exists")
           halt(1)
         }
         _ -> {
@@ -333,7 +333,7 @@ fn run_init(path: String, engine: String, runtime: String) -> Nil {
                 }
                 Error(err) -> {
                   io.println_error(
-                    "Error: failed to write "
+                    "Error: SQD1007: failed to write "
                     <> path
                     <> ": "
                     <> simplifile.describe_error(err),
@@ -356,7 +356,7 @@ fn ensure_parent_directory(dir: String) -> Result(Nil, String) {
         Ok(Nil) -> Ok(Nil)
         Error(err) ->
           Error(
-            "failed to create directory "
+            "SQD1007: failed to create directory "
             <> dir
             <> ": "
             <> simplifile.describe_error(err),
@@ -370,7 +370,7 @@ fn validate_init_flags(engine: String, runtime: String) -> Result(Nil, String) {
     "postgresql" | "sqlite" | "mysql" -> Ok(Nil)
     _ ->
       Error(
-        "unsupported engine \""
+        "SQD1005: unsupported engine \""
         <> engine
         <> "\"; expected postgresql, sqlite, or mysql",
       )
@@ -380,7 +380,9 @@ fn validate_init_flags(engine: String, runtime: String) -> Result(Nil, String) {
       "raw" | "native" -> Ok(Nil)
       _ ->
         Error(
-          "unsupported runtime \"" <> runtime <> "\"; expected raw or native",
+          "SQD1005: unsupported runtime \""
+          <> runtime
+          <> "\"; expected raw or native",
         )
     }
   })

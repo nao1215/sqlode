@@ -443,7 +443,7 @@ fn load_catalog(
   case strict_views, warnings {
     True, [_, ..] -> {
       let detail =
-        "strict_views is enabled but the schema produced resolution warnings:\n  "
+        "SQD2005: strict_views is enabled but the schema produced resolution warnings:\n  "
         <> string.join(
           list.map(warnings, schema_parser.warning_to_string),
           "\n  ",
@@ -923,9 +923,9 @@ fn columns_match(
 pub fn error_to_string(error: GenerateError) -> String {
   case error {
     ConfigError(inner) -> config.error_to_string(inner)
-    SchemaReadError(path:, detail:) -> path <> ": " <> detail
+    SchemaReadError(path:, detail:) -> "SQD2001: " <> path <> ": " <> detail
     SchemaParseError(detail:) -> detail
-    QueryReadError(path:, detail:) -> path <> ": " <> detail
+    QueryReadError(path:, detail:) -> "SQD3001: " <> path <> ": " <> detail
     QueryParseError(detail:, ..) -> detail
     QueryAnalysisError(detail:) -> detail
     NoQueriesGenerated(
@@ -935,7 +935,7 @@ pub fn error_to_string(error: GenerateError) -> String {
       query_paths:,
       schema_paths:,
     ) ->
-      "No queries were generated for output directory: "
+      "SQD5001: No queries were generated for output directory: "
       <> output
       <> "\n  Parsed queries: "
       <> int.to_string(parsed_query_count)
@@ -976,12 +976,12 @@ pub fn error_to_string(error: GenerateError) -> String {
         detail:,
       ))
     InvalidOutPath(path:) ->
-      "Invalid output path \""
+      "SQD5002: Invalid output path \""
       <> path
       <> "\": produces an invalid Gleam module path. Use a relative path under src/ (e.g., \"src/db\")"
     WriteError(inner) -> writer.error_to_string(inner)
     VendorRuntimeNotFound ->
-      "vendor_runtime is enabled but the sqlode/runtime source file could not be found. Tried: src/sqlode/runtime.gleam, build/packages/sqlode/src/sqlode/runtime.gleam, build/dev/erlang/sqlode/src/sqlode/runtime.gleam"
+      "SQD5004: vendor_runtime is enabled but the sqlode/runtime source file could not be found. Tried: src/sqlode/runtime.gleam, build/packages/sqlode/src/sqlode/runtime.gleam, build/dev/erlang/sqlode/src/sqlode/runtime.gleam"
     UnsupportedArrayForEngine(query_name:, engine:) ->
       query_validation.error_to_string(
         query_validation.UnsupportedArrayForEngine(query_name:, engine:),

@@ -9,11 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Every error sqlode prints, and every `verify` finding, starts with a stable code such as `SQD4003` (`Error: SQD4003: Query "GetAuthor": could not infer type for parameter $1. ...`). [doc/errors.md](doc/errors.md) explains each code and how to fix it. The first digit names the area (config, schema, query files, analysis, output); the exit status stays 1 for every error. The wording after the code is unchanged, but a script that matched the start of a message (`Error: Query`) now sees the code first; match on the code instead.
 - A parameter in arithmetic with a numeric column, such as `UPDATE accounts SET visits = visits + $1`, `WHERE price * $1 > 100` or an upsert tail `ON CONFLICT (name) DO UPDATE SET n = counters.n + $2`, takes the column's type. It used to stop `generate` with `could not infer type for parameter $1` unless the parameter was cast. A non-numeric operand (`created_at + $1`, which takes an interval) still asks for a cast.
 - A parameter compared with the elements of an array column, `WHERE $1 = ANY(tags)`, is inferred as the element type (`String` for a `TEXT[]` column). It used to stop `generate` with `could not infer type for parameter $1` unless the parameter was cast.
 
 ### Fixed
 
+- `sqlode verify` printed a query file's path twice in front of a parse error (`db/query.sql: db/query.sql:3: invalid query annotation: ...`), and its messages for an unreadable path and a `strict_views` failure differed from `generate`'s. They now read the same as in `generate`.
 - `sqlode init`, `generate` and `verify` rejected a flag value given after a space (`--config sqlode.yaml`, `--engine sqlite`) with `flag 'config' has no assigned value`; only `--config=sqlode.yaml` worked. Both forms are accepted now.
 - A parameter on the right of `ANY`, `ALL` or `SOME` (`WHERE id = ANY($1)`, the PostgreSQL way to pass a list) was generated as the column's scalar type, so the call failed at runtime with `UnexpectedArgumentType("_int4", ...)`. It is now a list of that type (`List(Int)`) and is sent as an array. `SOME` is also recognised as the synonym of `ANY` it is.
 - A cast to an array type (`$1::bigint[]`) dropped the `[]` and typed the parameter as its element type. It is now the array type.

@@ -483,6 +483,22 @@ fn require_node(
 }
 
 pub fn error_to_string(error: ConfigError) -> String {
+  error_code(error) <> ": " <> error_message(error)
+}
+
+/// The stable code for each error, documented in `doc/errors.md`.
+fn error_code(error: ConfigError) -> String {
+  case error {
+    FileNotFound(..) -> "SQD1103"
+    FileReadError(..) -> "SQD1104"
+    ParseError(..) -> "SQD1105"
+    MissingField(..) -> "SQD1106"
+    InvalidValue(..) -> "SQD1107"
+    UnsupportedFields(..) -> "SQD1108"
+  }
+}
+
+fn error_message(error: ConfigError) -> String {
   case error {
     FileNotFound(path:) -> "Config file not found: " <> path
     FileReadError(path:, detail:) ->

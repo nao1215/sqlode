@@ -1792,6 +1792,19 @@ fn find_enum(type_text: String, enums: List(model.EnumDef)) -> Option(String) {
 }
 
 pub fn error_to_string(error: ParseError) -> String {
+  error_code(error) <> ": " <> error_message(error)
+}
+
+/// The stable code for each error, documented in `doc/errors.md`.
+fn error_code(error: ParseError) -> String {
+  case error {
+    InvalidCreateTable(..) -> "SQD2002"
+    InvalidColumn(..) -> "SQD2003"
+    UnsupportedMysqlDdl(..) -> "SQD2004"
+  }
+}
+
+fn error_message(error: ParseError) -> String {
   case error {
     InvalidCreateTable(path:, detail:) ->
       path_prefix(path) <> "Invalid CREATE TABLE statement: " <> detail

@@ -59,22 +59,27 @@ fn join_flag_values(args: List(String)) -> List(String) {
 pub fn rewrite_error(args: List(String), original: String) -> String {
   case string.contains(original, "command not found") {
     True -> classify_invocation(args)
-    False -> original
+    // Any other argument error from glint (a bad flag or flag value).
+    False ->
+      case string.starts_with(original, "error: ") {
+        True -> "error: SQD1004: " <> string.drop_start(original, 7)
+        False -> "error: SQD1004: " <> original
+      }
   }
 }
 
 fn classify_invocation(args: List(String)) -> String {
   case args {
     [] ->
-      "error: missing subcommand. Run 'sqlode --help' to see available commands."
+      "error: SQD1001: missing subcommand. Run 'sqlode --help' to see available commands."
     [first, ..] ->
       case string.starts_with(first, "-") {
         True ->
-          "error: unrecognized option '"
+          "error: SQD1003: unrecognized option '"
           <> first
           <> "'. Run 'sqlode --help' to see available options."
         False ->
-          "error: unknown subcommand '"
+          "error: SQD1002: unknown subcommand '"
           <> first
           <> "'. Run 'sqlode --help' to see available commands."
       }
