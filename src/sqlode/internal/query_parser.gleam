@@ -471,6 +471,21 @@ fn extract_marker_index(p: String) -> Result(Int, Nil) {
 }
 
 pub fn error_to_string(error: ParseError) -> String {
+  error_code(error) <> ": " <> error_message(error)
+}
+
+/// The stable code for each error, documented in `doc/errors.md`.
+fn error_code(error: ParseError) -> String {
+  case error {
+    InvalidAnnotation(..) -> "SQD3002"
+    MissingSql(..) -> "SQD3003"
+    InvalidPlaceholder(..) -> "SQD3004"
+    WrongEngineUpsert(..) -> "SQD3005"
+    SparseNumberedPlaceholders(..) -> "SQD3006"
+  }
+}
+
+fn error_message(error: ParseError) -> String {
   case error {
     InvalidAnnotation(path:, line:, detail:) ->
       path

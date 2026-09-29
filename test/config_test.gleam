@@ -26,7 +26,7 @@ pub fn reject_unsupported_config_version_test() {
   let assert Error(error) = config.load("test/fixtures/invalid_version.yaml")
 
   config.error_to_string(error)
-  |> should.equal("Invalid value for version: expected \"2\", got 1")
+  |> should.equal("SQD1107: Invalid value for version: expected \"2\", got 1")
 }
 
 // Error cases

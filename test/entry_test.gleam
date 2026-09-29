@@ -7,6 +7,7 @@
 //// a class-specific message; this file pins the classification so a
 //// regression that broadens or narrows a branch fails loudly. (#466)
 
+import gleam/list
 import gleam/string
 import gleeunit/should
 import sqlode
@@ -56,13 +57,32 @@ pub fn rewrite_error_unknown_subcommand_says_unknown_subcommand_test() {
   |> should.be_true
 }
 
-pub fn rewrite_error_passes_through_unrelated_messages_test() {
-  // Errors that did NOT originate from glint's "command not found"
-  // path must reach the user verbatim — sqlode does not own their
-  // wording (e.g. config-load failures, generate-time errors).
-  let original = "error: config file not found at /tmp/missing.yaml"
-  sqlode.rewrite_error(["generate"], original)
-  |> should.equal(original)
+pub fn rewrite_error_codes_every_class_test() {
+  [
+    #([], "error: SQD1001: "),
+    #(["foo"], "error: SQD1002: "),
+    #(["--xyz"], "error: SQD1003: "),
+  ]
+  |> list.each(fn(entry) {
+    let #(args, prefix) = entry
+    sqlode.rewrite_error(args, glint_command_not_found)
+    |> string.starts_with(prefix)
+    |> should.be_true
+  })
+}
+
+pub fn rewrite_error_codes_other_argument_errors_test() {
+  // Any other glint error (a bad flag or flag value) keeps glint's
+  // wording, which names the flag, and gains the argument-error code.
+  let original =
+    "error: failed to run command
+
+cause:
+  0: invalid flag 'config'
+  1: flag 'config' has no assigned value
+"
+  sqlode.rewrite_error(["generate", "--config"], original)
+  |> should.equal("error: SQD1004: " <> string.drop_start(original, 7))
 }
 
 pub fn rewrite_error_no_args_does_not_call_unrecognized_option_test() {

@@ -40,7 +40,12 @@ pub fn write_all(
   |> result.map(list.reverse)
 }
 
+/// Both failures carry `SQD5003`, documented in `doc/errors.md`.
 pub fn error_to_string(error: WriteError) -> String {
+  "SQD5003: " <> error_message(error)
+}
+
+fn error_message(error: WriteError) -> String {
   case error {
     DirectoryCreateError(path:, detail:) ->
       "Failed to create directory " <> path <> ": " <> detail

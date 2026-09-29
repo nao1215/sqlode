@@ -53,7 +53,7 @@ pub fn reject_query_without_sql_body_test() {
     parse_file("broken.sql", model.PostgreSQL, naming_ctx, content)
 
   query_parser.error_to_string(error)
-  |> should.equal("broken.sql:1: query GetAuthor is missing SQL body")
+  |> should.equal("SQD3003: broken.sql:1: query GetAuthor is missing SQL body")
 }
 
 pub fn count_mysql_placeholders_test() {
@@ -946,7 +946,7 @@ pub fn parse_block_annotation_missing_sql_body_test() {
     parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
 
   query_parser.error_to_string(error)
-  |> should.equal("block.sql:1: query NoBody is missing SQL body")
+  |> should.equal("SQD3003: block.sql:1: query NoBody is missing SQL body")
 }
 
 pub fn skip_annotation_applies_to_block_annotation_test() {
@@ -978,7 +978,7 @@ SELECT id FROM authors WHERE name = :name;"
 
   query_parser.error_to_string(error)
   |> should.equal(
-    "q.sql:1: query GetAuthor: placeholder `:name` is not valid for engine mysql; MySQL accepts positional `?` or sqlode macros (`sqlode.arg(name)`)",
+    "SQD3004: q.sql:1: query GetAuthor: placeholder `:name` is not valid for engine mysql; MySQL accepts positional `?` or sqlode macros (`sqlode.arg(name)`)",
   )
 }
 
@@ -993,7 +993,7 @@ SELECT id FROM authors WHERE id = @id;"
 
   query_parser.error_to_string(error)
   |> should.equal(
-    "q.sql:1: query GetAuthor: placeholder `@id` is not valid for engine mysql; MySQL accepts positional `?` or sqlode macros (`sqlode.arg(name)`)",
+    "SQD3004: q.sql:1: query GetAuthor: placeholder `@id` is not valid for engine mysql; MySQL accepts positional `?` or sqlode macros (`sqlode.arg(name)`)",
   )
 }
 
@@ -1008,7 +1008,7 @@ SELECT id FROM authors WHERE id = ?1;"
 
   query_parser.error_to_string(error)
   |> should.equal(
-    "q.sql:1: query GetAuthor: placeholder `?1` is not valid for engine mysql; MySQL accepts positional `?` or sqlode macros (`sqlode.arg(name)`)",
+    "SQD3004: q.sql:1: query GetAuthor: placeholder `?1` is not valid for engine mysql; MySQL accepts positional `?` or sqlode macros (`sqlode.arg(name)`)",
   )
 }
 
@@ -1023,7 +1023,7 @@ SELECT id FROM authors WHERE name = :name;"
 
   query_parser.error_to_string(error)
   |> should.equal(
-    "q.sql:1: query GetAuthor: placeholder `:name` is not valid for engine postgresql; PostgreSQL accepts `$N` or sqlode macros (`@name`, `sqlode.arg(name)`)",
+    "SQD3004: q.sql:1: query GetAuthor: placeholder `:name` is not valid for engine postgresql; PostgreSQL accepts `$N` or sqlode macros (`@name`, `sqlode.arg(name)`)",
   )
 }
 
@@ -1038,7 +1038,7 @@ SELECT id FROM authors WHERE id = ?;"
 
   query_parser.error_to_string(error)
   |> should.equal(
-    "q.sql:1: query GetAuthor: placeholder `?` is not valid for engine postgresql; PostgreSQL accepts `$N` or sqlode macros (`@name`, `sqlode.arg(name)`)",
+    "SQD3004: q.sql:1: query GetAuthor: placeholder `?` is not valid for engine postgresql; PostgreSQL accepts `$N` or sqlode macros (`@name`, `sqlode.arg(name)`)",
   )
 }
 
@@ -1053,7 +1053,7 @@ SELECT id FROM authors WHERE slug = $slug;"
 
   query_parser.error_to_string(error)
   |> should.equal(
-    "q.sql:1: query GetAuthor: placeholder `$slug` is not valid for engine postgresql; PostgreSQL accepts `$N` or sqlode macros (`@name`, `sqlode.arg(name)`)",
+    "SQD3004: q.sql:1: query GetAuthor: placeholder `$slug` is not valid for engine postgresql; PostgreSQL accepts `$N` or sqlode macros (`@name`, `sqlode.arg(name)`)",
   )
 }
 
@@ -1116,7 +1116,7 @@ SELECT id FROM authors WHERE name = :name;"
 
   query_parser.error_to_string(error)
   |> should.equal(
-    "q.sql:3: query GetAuthor: placeholder `:name` is not valid for engine mysql; MySQL accepts positional `?` or sqlode macros (`sqlode.arg(name)`)",
+    "SQD3004: q.sql:3: query GetAuthor: placeholder `:name` is not valid for engine mysql; MySQL accepts positional `?` or sqlode macros (`sqlode.arg(name)`)",
   )
 }
 
@@ -1132,7 +1132,7 @@ ON DUPLICATE KEY UPDATE name = $2;"
 
   query_parser.error_to_string(error)
   |> should.equal(
-    "q.sql:1: query UpsertAuthor: `ON DUPLICATE KEY UPDATE` is not valid for engine postgresql; use `ON CONFLICT ... DO UPDATE` or `ON CONFLICT ... DO NOTHING`",
+    "SQD3005: q.sql:1: query UpsertAuthor: `ON DUPLICATE KEY UPDATE` is not valid for engine postgresql; use `ON CONFLICT ... DO UPDATE` or `ON CONFLICT ... DO NOTHING`",
   )
 }
 
@@ -1148,7 +1148,7 @@ ON DUPLICATE KEY UPDATE name = ?2;"
 
   query_parser.error_to_string(error)
   |> should.equal(
-    "q.sql:1: query UpsertAuthor: `ON DUPLICATE KEY UPDATE` is not valid for engine sqlite; use `ON CONFLICT ... DO UPDATE` or `ON CONFLICT ... DO NOTHING`",
+    "SQD3005: q.sql:1: query UpsertAuthor: `ON DUPLICATE KEY UPDATE` is not valid for engine sqlite; use `ON CONFLICT ... DO UPDATE` or `ON CONFLICT ... DO NOTHING`",
   )
 }
 
@@ -1164,7 +1164,7 @@ ON CONFLICT (id) DO UPDATE SET name = sqlode.arg(updated_name);"
 
   query_parser.error_to_string(error)
   |> should.equal(
-    "q.sql:1: query UpsertAuthor: `ON CONFLICT` is not valid for engine mysql; use `ON DUPLICATE KEY UPDATE`",
+    "SQD3005: q.sql:1: query UpsertAuthor: `ON CONFLICT` is not valid for engine mysql; use `ON DUPLICATE KEY UPDATE`",
   )
 }
 
@@ -1230,7 +1230,7 @@ SELECT id, name FROM authors WHERE id = ?2;"
 
   query_parser.error_to_string(error)
   |> should.equal(
-    "q.sql:1: query GetAuthor: sparse SQLite numbered placeholders ?2; numbered placeholders must form a contiguous set starting from ?1 (e.g. ?1, ?2, ?3)",
+    "SQD3006: q.sql:1: query GetAuthor: sparse SQLite numbered placeholders ?2; numbered placeholders must form a contiguous set starting from ?1 (e.g. ?1, ?2, ?3)",
   )
 }
 
@@ -1245,7 +1245,7 @@ SELECT id FROM authors WHERE id = ?1 OR name = ?3;"
 
   query_parser.error_to_string(error)
   |> should.equal(
-    "q.sql:1: query GetAuthor: sparse SQLite numbered placeholders ?1, ?3; numbered placeholders must form a contiguous set starting from ?1 (e.g. ?1, ?2, ?3)",
+    "SQD3006: q.sql:1: query GetAuthor: sparse SQLite numbered placeholders ?1, ?3; numbered placeholders must form a contiguous set starting from ?1 (e.g. ?1, ?2, ?3)",
   )
 }
 

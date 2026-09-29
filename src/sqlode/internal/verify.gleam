@@ -86,7 +86,7 @@ fn verify_block(
             [] -> [
               Finding(
                 block_out: out,
-                detail: "no queries were generated — query files are empty or contain no valid annotations",
+                detail: "SQD5001: no queries were generated — query files are empty or contain no valid annotations",
               ),
             ]
             _ ->
@@ -105,7 +105,7 @@ fn verify_block(
 // ============================================================
 
 fn load_catalog(block: model.SqlBlock) -> Result(model.Catalog, String) {
-  use entries <- result.try(read_files(block.schema))
+  use entries <- result.try(read_files(block.schema, generate.SchemaReadError))
   case schema_parser.parse_files_with_engine(entries, block.engine) {
     Ok(#(catalog, warnings)) ->
       case block.gleam.strict_views, warnings {
@@ -114,7 +114,10 @@ fn load_catalog(block: model.SqlBlock) -> Result(model.Catalog, String) {
             warnings
             |> list.map(schema_parser.warning_to_string)
             |> string.join("\n  ")
-          Error("strict_views policy rejects the schema:\n  " <> formatted)
+          Error(
+            "SQD2005: strict_views is enabled but the schema produced resolution warnings:\n  "
+            <> formatted,
+          )
         }
         _, _ -> Ok(catalog)
       }
@@ -140,7 +143,8 @@ fn analyze_each(
   catalog: model.Catalog,
 ) -> Result(List(model.AnalyzedQuery), List(String)) {
   use entries <- result.try(
-    read_files(block.queries) |> result.map_error(fn(e) { [e] }),
+    read_files(block.queries, generate.QueryReadError)
+    |> result.map_error(fn(e) { [e] }),
   )
   use queries <- result.try(
     parse_all_queries(entries, block.engine, naming_ctx)
@@ -208,20 +212,30 @@ fn parse_all_queries(
     let #(path, content) = entry
     case query_parser.parse_file(path, engine, naming_ctx, content) {
       Ok(qs) -> Ok(list.append(acc, qs))
-      Error(err) -> Error(path <> ": " <> query_parser.error_to_string(err))
+      Error(err) -> Error(query_parser.error_to_string(err))
     }
   })
 }
 
-fn read_files(paths: List(String)) -> Result(List(#(String, String)), String) {
-  use expanded <- result.try(
-    sql_paths.expand(paths, fn(path, detail) { path <> ": " <> detail }),
-  )
+/// `read_error` is `generate.SchemaReadError` or `generate.QueryReadError`,
+/// so a path that cannot be read is reported as `generate` reports it.
+fn read_files(
+  paths: List(String),
+  read_error: fn(String, String) -> generate.GenerateError,
+) -> Result(List(#(String, String)), String) {
+  let to_string = fn(path, detail) {
+    generate.error_to_string(read_error(path, detail))
+  }
+  use expanded <- result.try(sql_paths.expand(paths, to_string))
   expanded
   |> list.try_map(fn(path) {
     case simplifile.read(path) {
       Ok(content) -> Ok(#(path, content))
-      Error(reason) -> Error(path <> ": " <> simplifile.describe_error(reason))
+      Error(reason) ->
+        Error(to_string(
+          path,
+          "Failed to read file: " <> simplifile.describe_error(reason),
+        ))
     }
   })
 }
@@ -247,7 +261,7 @@ fn enforce_query_parameter_limit(
               True ->
                 Ok(Finding(
                   block_out: block_out,
-                  detail: "query \""
+                  detail: "SQD4012: query \""
                     <> q.base.name
                     <> "\" has "
                     <> int.to_string(count)

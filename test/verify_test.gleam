@@ -455,3 +455,36 @@ pub fn verify_rejects_slice_inside_any_test() {
   string.contains(finding.detail, "IN (sqlode.slice(") |> should.be_true()
   string.contains(finding.detail, "= ANY($1)") |> should.be_true()
 }
+
+pub fn verify_names_a_query_file_error_once_with_its_code_test() {
+  // The parser's message already starts with `path:line:`; verify used
+  // to put the path in front of it a second time.
+  let path = "test/fixtures/verify_bad_annotation_query.sql"
+  let cfg =
+    model.Config(version: 2, sql: [
+      make_block(
+        "test/fixtures/verify_ok_schema.sql",
+        path,
+        "src/verify_bad_annotation_out",
+        option.None,
+      ),
+    ])
+  let assert [finding] = verify.verify_config(cfg).findings
+  string.starts_with(finding.detail, "SQD3002: " <> path <> ":1: ")
+  |> should.be_true()
+  string.split(finding.detail, path) |> list.length |> should.equal(2)
+}
+
+pub fn verify_findings_carry_error_codes_test() {
+  let cfg =
+    model.Config(version: 2, sql: [
+      make_block(
+        "test/fixtures/verify_ok_schema.sql",
+        "test/fixtures/verify_slice_in_any_query.sql",
+        "src/verify_slice_in_any_out",
+        option.None,
+      ),
+    ])
+  let assert [finding] = verify.verify_config(cfg).findings
+  string.starts_with(finding.detail, "SQD4011: ") |> should.be_true()
+}

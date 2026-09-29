@@ -1012,8 +1012,12 @@ pub fn rewrite_error_unknown_subcommand_says_unknown_subcommand_test() {
   entry_test.rewrite_error_unknown_subcommand_says_unknown_subcommand_test()
 }
 
-pub fn rewrite_error_passes_through_unrelated_messages_test() {
-  entry_test.rewrite_error_passes_through_unrelated_messages_test()
+pub fn rewrite_error_codes_every_class_test() {
+  entry_test.rewrite_error_codes_every_class_test()
+}
+
+pub fn rewrite_error_codes_other_argument_errors_test() {
+  entry_test.rewrite_error_codes_other_argument_errors_test()
 }
 
 pub fn rewrite_error_no_args_does_not_call_unrecognized_option_test() {
