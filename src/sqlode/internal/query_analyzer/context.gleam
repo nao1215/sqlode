@@ -184,18 +184,14 @@ pub fn find_column(
   table_name: String,
   column_name: String,
 ) -> Option(model.Column) {
-  case
-    catalog.tables
-    |> list.find(fn(table) {
-      table.name == naming.normalize_identifier(table_name)
-    })
-  {
-    Ok(table) ->
+  let table_name = naming.normalize_identifier(table_name)
+  case list.find(catalog.tables, fn(table) { table.name == table_name }) {
+    Ok(table) -> {
+      let column_name = naming.normalize_identifier(column_name)
       table.columns
-      |> list.find(fn(column) {
-        column.name == naming.normalize_identifier(column_name)
-      })
+      |> list.find(fn(column) { column.name == column_name })
       |> option.from_result
+    }
     Error(_) -> None
   }
 }

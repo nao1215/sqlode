@@ -107,24 +107,17 @@ pub fn normalize_identifier(identifier: String) -> String {
 }
 
 fn strip_identifier_quotes(identifier: String) -> String {
-  let length = string.length(identifier)
-
-  case length >= 2 {
-    False -> identifier
-    True -> {
-      let first = string.slice(identifier, 0, 1)
-      let last = string.slice(identifier, length - 1, 1)
-
-      let is_quoted =
-        { first == "\"" && last == "\"" }
-        || { first == "`" && last == "`" }
-        || { first == "[" && last == "]" }
-
-      case is_quoted {
-        True -> string.slice(identifier, 1, length - 2)
-        False -> identifier
-      }
+  let unquote = fn(rest, close) {
+    case string.ends_with(rest, close) {
+      True -> string.drop_end(rest, 1)
+      False -> identifier
     }
+  }
+  case identifier {
+    "\"" <> rest -> unquote(rest, "\"")
+    "`" <> rest -> unquote(rest, "`")
+    "[" <> rest -> unquote(rest, "]")
+    _ -> identifier
   }
 }
 
