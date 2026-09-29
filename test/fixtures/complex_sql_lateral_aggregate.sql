@@ -1,7 +1,7 @@
 -- Fixture 2 for Issue #393: LATERAL subquery + aggregate projection.
 -- Exercises the expression-aware IR on LATERAL joins, correlated
 -- access to outer columns (`p.team_id = t.id`), COALESCE and the
--- `sqlode.slice` macro used inside an ANY(...) comparison.
+-- `sqlode.slice` macro in an IN list.
 
 -- name: ListTeamsWithLatestPost :many
 SELECT
@@ -22,4 +22,4 @@ LEFT JOIN (
   FROM memberships AS m
   GROUP BY m.team_id
 ) AS stats ON stats.team_id = t.id
-WHERE t.id = ANY(sqlode.slice(team_ids));
+WHERE t.id IN (sqlode.slice(team_ids));

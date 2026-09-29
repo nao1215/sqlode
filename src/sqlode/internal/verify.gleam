@@ -182,6 +182,10 @@ fn validate_analyzed(
     query_validation.validate_array_engine_support(block.engine, analyzed)
     |> result.map_error(query_validation.error_to_string),
   )
+  use Nil <- result.try(
+    query_validation.validate_slice_placement(analyzed)
+    |> result.map_error(query_validation.error_to_string),
+  )
   use Nil <- result.try(case block.gleam.runtime {
     model.Native ->
       query_validation.validate_native_annotations(analyzed)

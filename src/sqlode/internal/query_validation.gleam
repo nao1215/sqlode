@@ -10,6 +10,7 @@
 import gleam/dict
 import gleam/list
 import gleam/string
+import sqlode/internal/lexer
 import sqlode/internal/model
 import sqlode/internal/query_ir
 import sqlode/runtime
@@ -27,6 +28,7 @@ pub type ValidationError {
   )
   UnsupportedAnnotation(query_name: String, command: String, detail: String)
   UnsupportedArrayForEngine(query_name: String, engine: String)
+  SliceInsideQuantifier(query_name: String)
 }
 
 /// Reject two tokenized queries that declare the same annotation
@@ -144,6 +146,37 @@ pub fn validate_array_engine_support(
   }
 }
 
+/// Reject `sqlode.slice(...)` written inside `ANY` / `ALL` / `SOME`.
+/// A slice expands to one placeholder per element, so
+/// `col = ANY(sqlode.slice(ids))` becomes `col = ANY($1, $2)`, which
+/// PostgreSQL rejects as a syntax error (and `ANY($1)` with a single
+/// scalar as "requires array on right side"). The query could never
+/// run, so it is stopped before any code is written.
+pub fn validate_slice_placement(
+  queries: List(model.AnalyzedQuery),
+) -> Result(Nil, ValidationError) {
+  case
+    list.find(queries, fn(q) {
+      slice_inside_quantifier(lexer.tokenize(q.base.sql, model.PostgreSQL))
+    })
+  {
+    Ok(q) -> Error(SliceInsideQuantifier(query_name: q.base.name))
+    Error(_) -> Ok(Nil)
+  }
+}
+
+fn slice_inside_quantifier(tokens: List(lexer.Token)) -> Bool {
+  case tokens {
+    [] -> False
+    [lexer.Keyword(quantifier), lexer.LParen, lexer.Placeholder(marker), ..rest]
+      if quantifier == "any" || quantifier == "all" || quantifier == "some"
+    ->
+      string.starts_with(marker, "__sqlode_slice_")
+      || slice_inside_quantifier(rest)
+    [_, ..rest] -> slice_inside_quantifier(rest)
+  }
+}
+
 /// Reject annotations that clash with the native runtime. Call
 /// only when the block targets the native runtime; raw-runtime
 /// projects can still emit `:execresult` and should not be
@@ -185,6 +218,10 @@ pub fn error_to_string(error: ValidationError) -> String {
       <> "\": array parameters are not supported for engine \""
       <> engine
       <> "\". Arrays are only supported with PostgreSQL"
+    SliceInsideQuantifier(query_name:) ->
+      "Query \""
+      <> query_name
+      <> "\": sqlode.slice() cannot be used inside ANY, ALL or SOME. It expands to one placeholder per element, and ANY takes a single array. Write `col IN (sqlode.slice(ids))`, or pass the list as one array with `col = ANY($1)`"
   }
 }
 
