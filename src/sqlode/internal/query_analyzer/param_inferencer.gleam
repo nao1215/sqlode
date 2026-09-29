@@ -469,6 +469,14 @@ fn normalize_table_qualifier(table: Option(String)) -> Option(String) {
 // IR-based IN / quantified walker (Issue #406)
 // ============================================================
 
+/// A placeholder bound by `col IN (placeholder)` or by
+/// `col <op> ANY|ALL|SOME(placeholder)`. `array` is True for the
+/// quantified form: the placeholder there is an array whose elements
+/// are compared with `col`, so its type is a list of the column's type.
+type InMatch {
+  InMatch(match: token_utils.EqualityMatch, array: Bool)
+}
+
 /// Walk a parsed `Stmt` in source order and emit an `EqualityMatch`
 /// for every `col IN (placeholder)` or `col <op> ANY|ALL|SOME(placeholder)`
 /// predicate reachable from the outer statement.
@@ -487,9 +495,7 @@ fn normalize_table_qualifier(table: Option(String)) -> Option(String) {
 /// paren wrapping the placeholder). Multi-element `IN (a, b, c)` and
 /// `IN (SELECT …)` / `ANY (SELECT …)` are intentionally skipped —
 /// those aren't simple single-parameter bindings.
-fn find_in_quantified_matches_in_stmt(
-  stmt: query_ir.Stmt,
-) -> List(token_utils.EqualityMatch) {
+fn find_in_quantified_matches_in_stmt(stmt: query_ir.Stmt) -> List(InMatch) {
   case stmt {
     query_ir.SelectStmt(core:, ..) -> walk_select_core_iq(core)
     query_ir.UpdateStmt(assignments:, where_:, ..) ->
@@ -508,9 +514,7 @@ fn find_in_quantified_matches_in_stmt(
   }
 }
 
-fn walk_select_core_iq(
-  core: query_ir.SelectCore,
-) -> List(token_utils.EqualityMatch) {
+fn walk_select_core_iq(core: query_ir.SelectCore) -> List(InMatch) {
   // Walk every expression-bearing field of the SelectCore so the IR
   // walker stays shape-compatible with the legacy token scanner —
   // `order_by`, `limit`, `offset`, and the `set_op` continuation could
@@ -530,42 +534,32 @@ fn walk_select_core_iq(
   ])
 }
 
-fn walk_order_key_iq(
-  key: query_ir.OrderKey,
-) -> List(token_utils.EqualityMatch) {
+fn walk_order_key_iq(key: query_ir.OrderKey) -> List(InMatch) {
   walk_expr_iq(key.expr)
 }
 
-fn walk_set_op_iq(
-  set_op: Option(query_ir.SetOp),
-) -> List(token_utils.EqualityMatch) {
+fn walk_set_op_iq(set_op: Option(query_ir.SetOp)) -> List(InMatch) {
   case set_op {
     Some(query_ir.SetOp(right:, ..)) -> walk_select_core_iq(right)
     None -> []
   }
 }
 
-fn walk_window_spec_iq(
-  spec: query_ir.WindowSpec,
-) -> List(token_utils.EqualityMatch) {
+fn walk_window_spec_iq(spec: query_ir.WindowSpec) -> List(InMatch) {
   list.flatten([
     list.flat_map(spec.partition_by, walk_expr_iq),
     list.flat_map(spec.order_by, walk_order_key_iq),
   ])
 }
 
-fn walk_select_item_iq(
-  item: query_ir.SelectItemEx,
-) -> List(token_utils.EqualityMatch) {
+fn walk_select_item_iq(item: query_ir.SelectItemEx) -> List(InMatch) {
   case item {
     query_ir.ExprItem(expr:, ..) -> walk_expr_iq(expr)
     query_ir.StarEx(..) -> []
   }
 }
 
-fn walk_from_item_joins_iq(
-  from: query_ir.FromItemEx,
-) -> List(token_utils.EqualityMatch) {
+fn walk_from_item_joins_iq(from: query_ir.FromItemEx) -> List(InMatch) {
   case from {
     query_ir.FromJoin(left:, right:, on:, ..) ->
       list.flatten([
@@ -577,16 +571,14 @@ fn walk_from_item_joins_iq(
   }
 }
 
-fn walk_join_on_iq(on: query_ir.JoinOn) -> List(token_utils.EqualityMatch) {
+fn walk_join_on_iq(on: query_ir.JoinOn) -> List(InMatch) {
   case on {
     query_ir.JoinOnExpr(expr:) -> walk_expr_iq(expr)
     _ -> []
   }
 }
 
-fn walk_optional_expr_iq(
-  expr: Option(query_ir.Expr),
-) -> List(token_utils.EqualityMatch) {
+fn walk_optional_expr_iq(expr: Option(query_ir.Expr)) -> List(InMatch) {
   case expr {
     Some(e) -> walk_expr_iq(e)
     None -> []
@@ -599,13 +591,13 @@ fn walk_optional_expr_iq(
 /// `IN (SELECT …)`) are traversed too so placeholders buried inside
 /// them still surface, matching the token path which scans the full
 /// main body after `strip_leading_with`.
-fn walk_expr_iq(expr: query_ir.Expr) -> List(token_utils.EqualityMatch) {
+fn walk_expr_iq(expr: query_ir.Expr) -> List(InMatch) {
   case expr {
     // `col IN (<single placeholder>)` — emit the match. Multi-element
     // lists and subquery sources fall through to the recursive branch.
     query_ir.InExpr(expr: subject, source: query_ir.InList(values), ..) ->
       case in_list_match(subject, values) {
-        Some(m) -> [m]
+        Some(m) -> [InMatch(match: m, array: False)]
         None ->
           list.append(
             walk_expr_iq(subject),
@@ -618,7 +610,7 @@ fn walk_expr_iq(expr: query_ir.Expr) -> List(token_utils.EqualityMatch) {
     // recurse when the shape doesn't match.
     query_ir.Quantified(left:, quantifier:, right:, ..) ->
       case quantified_match(left, quantifier, right) {
-        Some(m) -> [m]
+        Some(m) -> [InMatch(match: m, array: True)]
         None -> list.append(walk_expr_iq(left), walk_expr_iq(right))
       }
     // Remaining expression shapes: descend like the equality walker
@@ -664,9 +656,7 @@ fn walk_expr_iq(expr: query_ir.Expr) -> List(token_utils.EqualityMatch) {
   }
 }
 
-fn walk_in_source_iq(
-  source: query_ir.InSource,
-) -> List(token_utils.EqualityMatch) {
+fn walk_in_source_iq(source: query_ir.InSource) -> List(InMatch) {
   case source {
     query_ir.InSubquery(core:) -> walk_select_core_iq(core)
     query_ir.InList(values:) -> list.flat_map(values, walk_expr_iq)
@@ -858,22 +848,57 @@ pub fn infer_in_params(
       let matches = case expr_parser.parse_stmt(tokens, engine) {
         query_ir.UnstructuredStmt(..) | query_ir.InsertStmt(..) ->
           list.append(
-            token_utils.find_in_patterns(main_tokens),
-            token_utils.find_quantified_patterns(main_tokens),
+            token_utils.find_in_patterns(main_tokens)
+              |> list.map(InMatch(match: _, array: False)),
+            token_utils.find_quantified_patterns(main_tokens)
+              |> list.map(InMatch(match: _, array: True)),
           )
         stmt -> find_in_quantified_matches_in_stmt(stmt)
       }
+      // The inference passes receive tokens numbered by
+      // `placeholder.number_tokens`, so each placeholder carries its
+      // query-wide index.
+      let array_indices =
+        list.filter_map(matches, fn(m) {
+          // `ANY(sqlode.slice(ids))` already expands to one placeholder
+          // per element, so a slice stays a list of scalars.
+          case
+            m.array
+            && !string.starts_with(m.match.placeholder, "__sqlode_slice_")
+          {
+            True ->
+              placeholder.explicit_index(m.match.placeholder)
+              |> option.to_result(Nil)
+            False -> Error(Nil)
+          }
+        })
       scan_token_matches(
         engine,
         catalog,
         query_name,
         all_tables,
-        matches,
+        list.map(matches, fn(m) { m.match }),
         1,
         dict.new(),
         [],
       )
-      |> result.map(list.reverse)
+      |> result.map(fn(pairs) {
+        pairs
+        |> list.reverse
+        |> list.map(fn(pair) {
+          let #(index, column) = pair
+          case list.contains(array_indices, index) {
+            True -> #(
+              index,
+              model.Column(
+                ..column,
+                scalar_type: model.ArrayType(column.scalar_type),
+              ),
+            )
+            False -> pair
+          }
+        })
+      })
     }
   }
 }

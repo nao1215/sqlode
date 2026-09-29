@@ -17,3 +17,6 @@ SELECT COUNT(*) AS total FROM authors;
 SELECT a.name, s.name AS successor_name
 FROM authors a LEFT JOIN authors s ON s.id = a.id + 1
 ORDER BY a.id;
+
+-- name: ListAuthorsByIds :many
+SELECT id, name FROM authors WHERE id = ANY($1) ORDER BY id;

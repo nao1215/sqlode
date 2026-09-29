@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A parameter on the right of `ANY`, `ALL` or `SOME` (`WHERE id = ANY($1)`, the PostgreSQL way to pass a list) was generated as the column's scalar type, so the call failed at runtime with `UnexpectedArgumentType("_int4", ...)`. It is now a list of that type (`List(Int)`) and is sent as an array. `SOME` is also recognised as the synonym of `ANY` it is.
+- A cast to an array type (`$1::bigint[]`) dropped the `[]` and typed the parameter as its element type. It is now the array type.
 - A column from the outer side of a `LEFT JOIN` (or either side of a `FULL JOIN`) referenced through a table alias, such as `b.guest` in `FROM rooms r LEFT JOIN bookings b ON ...`, was generated as a non-nullable type. The generated decoder then failed at runtime with `UnexpectedResultType` whenever the join found no row. Only the table name after `JOIN` was marked nullable, not its alias; referencing the column by table name or unqualified was not affected.
 - `sqlode verify` reported only the first query the analyser rejected in each `sql` block, although it is documented to collect every failure into one report. A schema change that breaks several queries now lists all of them in one run, so CI does not reveal them one fix at a time.
 - A query that still selects a column the schema no longer has reported `unsupported expression "name", cannot infer result type. Use CAST to specify the type explicitly` when the column name is also an SQL keyword (`name`, `status`, `value`) and the query had a `WHERE` clause. It now reports `column "name" not found in table "authors"`, as it already did for other column names.

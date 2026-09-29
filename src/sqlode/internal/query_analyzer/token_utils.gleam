@@ -673,18 +673,37 @@ fn find_type_cast_loop(
   case tokens {
     [] -> acc
 
-    // $N::type_name
-    [lexer.Placeholder(p), lexer.Operator("::"), lexer.Ident(t), ..rest] ->
+    // $N::type_name, $N::type_name[]
+    [lexer.Placeholder(p), lexer.Operator("::"), lexer.Ident(t), ..rest] -> {
+      let #(suffix, rest) = read_array_suffix(rest)
       find_type_cast_loop(rest, [
-        TypeCast(placeholder: p, cast_type: string.lowercase(t)),
+        TypeCast(placeholder: p, cast_type: string.lowercase(t) <> suffix),
         ..acc
       ])
+    }
 
-    // $N::keyword (e.g. $1::int where int is a keyword)
-    [lexer.Placeholder(p), lexer.Operator("::"), lexer.Keyword(t), ..rest] ->
-      find_type_cast_loop(rest, [TypeCast(placeholder: p, cast_type: t), ..acc])
+    // $N::keyword (e.g. $1::int where int is a keyword), $N::int[]
+    [lexer.Placeholder(p), lexer.Operator("::"), lexer.Keyword(t), ..rest] -> {
+      let #(suffix, rest) = read_array_suffix(rest)
+      find_type_cast_loop(rest, [
+        TypeCast(placeholder: p, cast_type: t <> suffix),
+        ..acc
+      ])
+    }
 
     [_, ..rest] -> find_type_cast_loop(rest, acc)
+  }
+}
+
+/// The `[]` after a cast type (`$1::int[]`). Without it the cast read as
+/// the element type and an array parameter was generated as a scalar.
+fn read_array_suffix(
+  tokens: List(lexer.Token),
+) -> #(String, List(lexer.Token)) {
+  case tokens {
+    [lexer.Operator("[]"), ..rest] -> #("[]", rest)
+    [lexer.Operator("["), lexer.Operator("]"), ..rest] -> #("[]", rest)
+    _ -> #("", tokens)
   }
 }
 

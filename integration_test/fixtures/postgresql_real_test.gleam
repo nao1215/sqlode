@@ -183,3 +183,33 @@ pub fn left_join_through_alias_decodes_null_test() {
     #("Second", option.None),
   ])
 }
+
+// `id = ANY($1)` binds $1 as an array: the generated parameter is a
+// List(Int) and pog sends it as int8[].
+pub fn any_placeholder_binds_an_array_test() {
+  use db <- with_db
+  let assert Ok(first) =
+    pog_adapter.create_author(
+      db,
+      params.CreateAuthorParams(name: "One", bio: option.None),
+    )
+  let assert Ok(_) =
+    pog_adapter.create_author(
+      db,
+      params.CreateAuthorParams(name: "Two", bio: option.None),
+    )
+  let assert Ok(third) =
+    pog_adapter.create_author(
+      db,
+      params.CreateAuthorParams(name: "Three", bio: option.None),
+    )
+
+  let assert Ok(rows) =
+    pog_adapter.list_authors_by_ids(
+      db,
+      params.ListAuthorsByIdsParams(id: [first, third, 999_999]),
+    )
+  rows
+  |> list.map(fn(row) { row.name })
+  |> should.equal(["One", "Three"])
+}
