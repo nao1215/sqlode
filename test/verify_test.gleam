@@ -431,3 +431,27 @@ pub fn verify_reports_every_broken_query_test() {
   string.contains(second.detail, "column \"email\" not found")
   |> should.be_true()
 }
+
+// ============================================================
+// sqlode.slice() inside ANY / ALL / SOME
+// ============================================================
+
+pub fn verify_rejects_slice_inside_any_test() {
+  // `id = ANY(sqlode.slice(ids))` expands to `ANY($1, $2)`, which
+  // PostgreSQL rejects as a syntax error (and `ANY($1)` with one
+  // scalar as "requires array on right side"), so the generated query
+  // could never run. verify must say so and name the two forms that work.
+  let cfg =
+    model.Config(version: 2, sql: [
+      make_block(
+        "test/fixtures/verify_ok_schema.sql",
+        "test/fixtures/verify_slice_in_any_query.sql",
+        "src/verify_slice_in_any_out",
+        option.None,
+      ),
+    ])
+  let assert [finding] = verify.verify_config(cfg).findings
+  string.contains(finding.detail, "GetAuthorsByAnySlice") |> should.be_true()
+  string.contains(finding.detail, "IN (sqlode.slice(") |> should.be_true()
+  string.contains(finding.detail, "= ANY($1)") |> should.be_true()
+}

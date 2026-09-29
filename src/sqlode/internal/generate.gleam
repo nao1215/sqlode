@@ -49,6 +49,7 @@ pub type GenerateError {
   WriteError(writer.WriteError)
   VendorRuntimeNotFound
   UnsupportedArrayForEngine(query_name: String, engine: String)
+  SliceInsideQuantifier(query_name: String)
 }
 
 pub fn run(config_path: String) -> Result(List(String), GenerateError) {
@@ -147,6 +148,10 @@ fn load_and_analyze_queries(
   )
   use Nil <- result.try(validate_unsupported_annotations(analyzed))
   use Nil <- result.try(validate_array_engine_support(block.engine, analyzed))
+  use Nil <- result.try(
+    query_validation.validate_slice_placement(analyzed)
+    |> result.map_error(wrap_validation_error),
+  )
   let analyzed = apply_column_renames(analyzed, block.overrides.column_renames)
   let analyzed = disambiguate_param_names(analyzed)
   Ok(#(queries, analyzed))
@@ -508,6 +513,8 @@ fn wrap_validation_error(
       UnsupportedAnnotation(query_name:, command:, detail:)
     query_validation.UnsupportedArrayForEngine(query_name:, engine:) ->
       UnsupportedArrayForEngine(query_name:, engine:)
+    query_validation.SliceInsideQuantifier(query_name:) ->
+      SliceInsideQuantifier(query_name:)
   }
 }
 
@@ -979,5 +986,9 @@ pub fn error_to_string(error: GenerateError) -> String {
       query_validation.error_to_string(
         query_validation.UnsupportedArrayForEngine(query_name:, engine:),
       )
+    SliceInsideQuantifier(query_name:) ->
+      query_validation.error_to_string(query_validation.SliceInsideQuantifier(
+        query_name:,
+      ))
   }
 }
