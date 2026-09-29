@@ -2882,7 +2882,8 @@ SELECT id, name FROM authors WHERE id = ANY($1);"
   let assert [param] = query.params
   param.index |> should.equal(1)
   param.field_name |> should.equal("id")
-  param.scalar_type |> should.equal(model.IntType)
+  // $1 is the array whose elements are compared with id.
+  param.scalar_type |> should.equal(model.ArrayType(model.IntType))
 }
 
 pub fn ir_walker_infers_update_assignment_in_subquery_test() {
@@ -3596,5 +3597,61 @@ pub fn missing_select_column_reports_column_not_found_test() {
     string.contains(message, "column \"" <> column <> "\" not found")
     |> should.be_true()
     string.contains(message, "CAST") |> should.be_false()
+  })
+}
+
+// ------------------------------------------------------------
+// The right side of ANY / ALL / SOME is an array
+// ------------------------------------------------------------
+
+pub fn quantified_placeholder_is_an_array_test() {
+  // `col = ANY($1)` compares col with each element of the array $1, so
+  // $1 is a list of col's type. It used to be typed as col's scalar
+  // type, and pog rejected the call at runtime with
+  // UnexpectedArgumentType("_int4", ...). `col IN ($1)` binds one value
+  // and stays scalar.
+  [
+    #(
+      "SELECT id FROM authors WHERE id = ANY($1);",
+      model.ArrayType(model.IntType),
+    ),
+    #(
+      "SELECT id FROM authors WHERE name = ANY($1);",
+      model.ArrayType(model.StringType),
+    ),
+    #(
+      "SELECT id FROM authors WHERE id <> ALL($1);",
+      model.ArrayType(model.IntType),
+    ),
+    #(
+      "SELECT id FROM authors WHERE id = SOME($1);",
+      model.ArrayType(model.IntType),
+    ),
+    #(
+      "SELECT id FROM authors WHERE id = ANY($1::bigint[]);",
+      model.ArrayType(model.IntType),
+    ),
+    #("DELETE FROM authors WHERE id = ANY($1);", model.ArrayType(model.IntType)),
+    #("SELECT id FROM authors WHERE id IN ($1);", model.IntType),
+  ]
+  |> list.each(fn(entry) {
+    let #(select, expected) = entry
+    let naming_ctx = naming.new()
+    let assert Ok(queries) =
+      query_parser.parse_file(
+        "any.sql",
+        model.PostgreSQL,
+        naming_ctx,
+        "-- name: Q :many\n" <> select,
+      )
+    let assert Ok([query]) =
+      query_analyzer.analyze_queries(
+        model.PostgreSQL,
+        test_catalog(),
+        naming_ctx,
+        queries,
+      )
+    let assert [param] = query.params
+    #(select, param.scalar_type) |> should.equal(#(select, expected))
   })
 }

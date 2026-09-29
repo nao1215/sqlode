@@ -1164,6 +1164,19 @@ fn parse_comparison_tail(
             after,
           )
         }
+        [lexer.Keyword("some"), lexer.LParen, ..after_lp] -> {
+          let #(inner, after) = collect_parens(after_lp)
+          let right = parse_expr(inner, engine)
+          #(
+            query_ir.Quantified(
+              op: op,
+              left: left,
+              quantifier: query_ir.QSome,
+              right: right,
+            ),
+            after,
+          )
+        }
         _ -> {
           let #(right, after) = parse_additive(rest, engine)
           #(query_ir.Binary(op: op, left: left, right: right), after)
