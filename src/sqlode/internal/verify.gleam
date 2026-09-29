@@ -56,7 +56,7 @@ pub fn run(config_path: String) -> Result(Report, VerifyError) {
     |> result.map_error(ConfigError),
   )
   let base_dir = filepath.directory_name(config_path)
-  let resolved = resolve_paths(cfg, base_dir)
+  let resolved = generate.resolve_config_paths(cfg, base_dir)
   Ok(verify_config(resolved))
 }
 
@@ -75,6 +75,7 @@ fn verify_block(
   block: model.SqlBlock,
 ) -> List(Finding) {
   let out = block.gleam.out
+  use <- guard_out_path(out)
   case load_catalog(block) {
     Error(detail) -> [Finding(block_out: out, detail: detail)]
     Ok(catalog) ->
@@ -100,6 +101,17 @@ fn verify_block(
   }
 }
 
+/// generate stops on an `out` that is not a Gleam module path before it
+/// reads anything, so verify reports it the same way.
+fn guard_out_path(out: String, next: fn() -> List(Finding)) -> List(Finding) {
+  case generate.validate_out_path(out) {
+    Error(error) -> [
+      Finding(block_out: out, detail: generate.error_to_string(error)),
+    ]
+    Ok(Nil) -> next()
+  }
+}
+
 // ============================================================
 // Schema / query pipeline (read-only mirror of generate.load_*)
 // ============================================================
@@ -107,7 +119,9 @@ fn verify_block(
 fn load_catalog(block: model.SqlBlock) -> Result(model.Catalog, String) {
   use entries <- result.try(read_files(block.schema, generate.SchemaReadError))
   case schema_parser.parse_files_with_engine(entries, block.engine) {
-    Ok(#(catalog, warnings)) ->
+    Ok(#(catalog, warnings)) -> {
+      let catalog =
+        generate.apply_type_overrides(catalog, block.overrides.type_overrides)
       case block.gleam.strict_views, warnings {
         True, [_, ..] -> {
           let formatted =
@@ -121,6 +135,7 @@ fn load_catalog(block: model.SqlBlock) -> Result(model.Catalog, String) {
         }
         _, _ -> Ok(catalog)
       }
+    }
     Error(error) -> Error(schema_parser.error_to_string(error))
   }
 }
@@ -208,13 +223,12 @@ fn parse_all_queries(
   naming_ctx: naming.NamingContext,
 ) -> Result(List(query_ir.TokenizedQuery), String) {
   entries
-  |> list.try_fold([], fn(acc, entry) {
+  |> list.try_map(fn(entry) {
     let #(path, content) = entry
-    case query_parser.parse_file(path, engine, naming_ctx, content) {
-      Ok(qs) -> Ok(list.append(acc, qs))
-      Error(err) -> Error(query_parser.error_to_string(err))
-    }
+    query_parser.parse_file(path, engine, naming_ctx, content)
+    |> result.map_error(query_parser.error_to_string)
   })
+  |> result.map(list.flatten)
 }
 
 /// `read_error` is `generate.SchemaReadError` or `generate.QueryReadError`,
@@ -278,32 +292,6 @@ fn enforce_query_parameter_limit(
 // ============================================================
 // Path resolution and reporting
 // ============================================================
-
-fn resolve_paths(cfg: model.Config, base_dir: String) -> model.Config {
-  let sql =
-    list.map(cfg.sql, fn(block) {
-      let schema = list.map(block.schema, resolve_path(base_dir, _))
-      let queries = list.map(block.queries, resolve_path(base_dir, _))
-      let gleam =
-        model.GleamOutput(
-          ..block.gleam,
-          out: resolve_path(base_dir, block.gleam.out),
-        )
-      model.SqlBlock(..block, schema: schema, queries: queries, gleam: gleam)
-    })
-  model.Config(..cfg, sql: sql)
-}
-
-fn resolve_path(base_dir: String, path: String) -> String {
-  case filepath.is_absolute(path) {
-    True -> path
-    False ->
-      case filepath.expand(filepath.join(base_dir, path)) {
-        Ok(expanded) -> expanded
-        Error(_) -> filepath.join(base_dir, path)
-      }
-  }
-}
 
 pub fn report_to_string(report: Report) -> String {
   case report.findings {

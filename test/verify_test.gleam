@@ -488,3 +488,19 @@ pub fn verify_findings_carry_error_codes_test() {
   let assert [finding] = verify.verify_config(cfg).findings
   string.starts_with(finding.detail, "SQD4011: ") |> should.be_true()
 }
+
+pub fn verify_reports_an_out_path_generate_rejects_test() {
+  // generate stops on an `out` outside a `src/` directory (it would not
+  // be a Gleam module path); verify used to pass the same config.
+  let cfg =
+    model.Config(version: 2, sql: [
+      make_block(
+        "test/fixtures/verify_ok_schema.sql",
+        "test/fixtures/verify_ok_query.sql",
+        "/tmp/sqlode_verify_no_src/db",
+        option.None,
+      ),
+    ])
+  let assert [finding] = verify.verify_config(cfg).findings
+  string.starts_with(finding.detail, "SQD5002: ") |> should.be_true()
+}
