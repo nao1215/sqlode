@@ -6,7 +6,7 @@
 %% type for.
 -module(sqlode_ffi).
 
--export([is_stdout_terminal/0, no_color_env/0, find_executable/1, run_executable/2, halt/1]).
+-export([is_stdout_terminal/0, no_color_env/0, find_executable/1, run_executable/2, halt/1, yaml_error_message/1]).
 
 %% Stop the runtime with the given exit status. `init:stop/1` only
 %% requests an orderly shutdown and returns at once; when sqlode runs
@@ -82,3 +82,22 @@ collect_exit(Port, Acc) ->
         try port_close(Port) catch _:_ -> ok end,
         {1, <<Acc/binary, "(timed out after 60s)">>}
     end.
+
+%% Describe a `yay.parse_string` error. yay 2.0.2's Erlang FFI returns
+%% `{yaml_error, Message, {Line, Column}}` or
+%% `{yaml_error, unexpected_parsing_error}`, neither of which is a
+%% value of its Gleam `YamlError` type, so a Gleam `case` on the error
+%% crashed with case_clause on every YAML syntax error. Accept both
+%% those shapes and the documented ones.
+-spec yaml_error_message(term()) -> binary().
+yaml_error_message({yaml_error, Message, {Line, Column}}) when is_binary(Message) ->
+    with_location(Message, Line, Column);
+yaml_error_message({parsing_error, Message, {yaml_error_loc, Line, Column}}) when is_binary(Message) ->
+    with_location(Message, Line, Column);
+yaml_error_message(_) ->
+    <<"Unexpected parsing error">>.
+
+with_location(Message, Line, Column) when Line > 0 ->
+    iolist_to_binary(io_lib:format("~ts at line ~b, column ~b", [Message, Line, Column]));
+with_location(Message, _, _) ->
+    Message.

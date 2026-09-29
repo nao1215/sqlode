@@ -515,9 +515,19 @@ fn error_message(error: ConfigError) -> String {
   }
 }
 
+/// On Erlang the error does not have the shape its type says (see
+/// `sqlode_ffi:yaml_error_message/1`), so it is read there. yay's
+/// JavaScript FFI builds real `YamlError` values.
+@external(erlang, "sqlode_ffi", "yaml_error_message")
 fn yaml_error_to_string(error: yay.YamlError) -> String {
   case error {
     yay.UnexpectedParsingError -> "Unexpected parsing error"
-    yay.ParsingError(msg:, ..) -> msg
+    yay.ParsingError(msg:, loc: yay.YamlErrorLoc(line: 0, ..)) -> msg
+    yay.ParsingError(msg:, loc: yay.YamlErrorLoc(line:, column:)) ->
+      msg
+      <> " at line "
+      <> int.to_string(line)
+      <> ", column "
+      <> int.to_string(column)
   }
 }

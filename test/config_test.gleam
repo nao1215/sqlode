@@ -31,6 +31,18 @@ pub fn reject_unsupported_config_version_test() {
 
 // Error cases
 
+pub fn yaml_syntax_error_is_reported_not_crashed_test() {
+  // yay's Erlang FFI returns errors in a shape its own Gleam type does
+  // not have, so matching on `yay.YamlError` crashed the CLI with a
+  // case_clause and exit 127 on any YAML syntax error.
+  let assert Error(error) =
+    config.load("test/fixtures/invalid_yaml_syntax.yaml")
+  config.error_to_string(error)
+  |> should.equal(
+    "SQD1105: Config parse error: YAML parse error: Unfinished flow collection at line 3, column 22",
+  )
+}
+
 pub fn file_not_found_test() {
   let assert Error(error) = config.load("nonexistent/path/sqlode.yaml")
   let msg = config.error_to_string(error)
