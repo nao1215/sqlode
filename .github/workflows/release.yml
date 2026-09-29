@@ -84,8 +84,10 @@ jobs:
       - name: Integration tests
         run: bash integration_test/run.sh
 
+      # Packed from the production Erlang shipment, so the escript carries
+      # sqlode and its runtime dependencies only (scripts/escript.erl).
       - name: Build escript binary
-        run: gleam run -m gleescript
+        run: sh scripts/build_escript.sh sqlode
 
       - name: Smoke-test built escript
         run: bash scripts/smoke_escript.sh ./sqlode

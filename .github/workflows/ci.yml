@@ -88,7 +88,7 @@ jobs:
       # starts and stops the runtime differently, so the CLI contract is
       # checked on that file too.
       - name: Build escript binary
-        run: gleam run -m gleescript
+        run: sh scripts/build_escript.sh sqlode
 
       - name: atago E2E tests (escript)
         env:

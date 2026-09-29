@@ -24,18 +24,23 @@ name: sqlode
 description: Start-up, generate and verify of the sqlode escript on SQLite projects of 10 and 1000 queries, and a failing generate.
 
 # The escript is what users download from the GitHub Release and what the
-# Docker image runs (release.yml and the Dockerfile build it the same way).
-# gleescript packs the BEAM files under build/, so sqlode itself is compiled
-# first; `gleam run -m gleescript` alone compiles only the dependencies.
+# Docker image runs; release.yml and the Dockerfile build it with the same
+# script. Each revision is built its own way, so a compare against a
+# revision older than scripts/build_escript.sh builds that side with
+# gleescript as it was released.
 build:
   command:
     - sh
     - -c
     - |
       set -e
-      gleam build
-      gleam run -m gleescript -- --out=build/himorime
-      cp build/himorime/sqlode "$1"
+      if [ -f scripts/build_escript.sh ]; then
+        sh scripts/build_escript.sh "$1"
+      else
+        gleam build
+        gleam run -m gleescript -- --out=build/himorime
+        cp build/himorime/sqlode "$1"
+      fi
     - sh
     - "${artifact}"
   cwd: ..

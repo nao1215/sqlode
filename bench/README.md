@@ -1,6 +1,6 @@
 # Benchmarks
 
-sqlode is measured the way a user runs it, one escript process per call from start to exit, with [himorime](https://github.com/nao1215/himorime). himorime builds the escript (`gleam build` and `gleam run -m gleescript`, as release.yml and the Dockerfile do), runs each command in interleaved rounds, and reports latency, CPU time, peak RSS and, for the large projects, throughput in queries per second.
+sqlode is measured the way a user runs it, one escript process per call from start to exit, with [himorime](https://github.com/nao1215/himorime). himorime builds the escript with `scripts/build_escript.sh`, as release.yml and the Dockerfile do, runs each command in interleaved rounds, and reports latency, CPU time, peak RSS and, for the large projects, throughput in queries per second.
 
 ```console
 $ go install github.com/nao1215/himorime@latest

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The `sqlode` escript attached to each GitHub Release and copied into the Docker image also carried sqlode's 26 test modules and its dev-dependencies (gleeunit, glinter, metamon, gleescript and their own dependencies): 23 OTP applications where the CLI runs 13. It is now packed from the production build by `scripts/build_escript.sh`, so it holds sqlode and its runtime dependencies only and is about half the size (3.1 MB to 1.5 MB). The commands behave the same.
+
 ## [0.33.0] - 2026-09-21
 
 ### Fixed

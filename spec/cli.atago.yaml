@@ -507,3 +507,41 @@ scenarios:
       - assert:
           stderr:
             not_contains: "error: failed"
+
+  # The escript attached to the GitHub Release and copied into the Docker
+  # image is built by scripts/build_escript.sh. It must carry sqlode and its
+  # runtime dependencies only: no test modules and no dev-dependencies.
+  - name: the release escript packs only sqlode and its runtime dependencies
+    steps:
+      - run:
+          command: ./scripts/build_escript.sh "${workdir}/bin/sqlode"
+      - assert:
+          exit_code: 0
+      - run:
+          command: escript scripts/escript.erl list "${workdir}/bin/sqlode"
+      - assert:
+          exit_code: 0
+          stdout:
+            contains:
+              - sqlode.app
+              - sqlode_escript_main.beam
+              - yamerl.app
+              - glint.app
+            not_contains:
+              - _test.beam
+              - gleeunit
+              - glinter
+              - metamon
+              - gleescript
+      - run:
+          command: '"${workdir}/bin/sqlode" version'
+      - assert:
+          exit_code: 0
+          stdout:
+            contains: sqlode
+      - run:
+          command: '"${workdir}/bin/sqlode" generate --config="${workdir}/missing.yaml"'
+      - assert:
+          exit_code: 1
+          stderr:
+            contains: Config file not found
