@@ -545,3 +545,23 @@ scenarios:
           exit_code: 1
           stderr:
             contains: Config file not found
+
+  # The README Quickstart shows the sqlode.yaml that `init` writes. A key
+  # the config loader rejects (it once showed `package:`) stops a reader
+  # who copies it at the first generate.
+  - name: README quickstart config is what init writes
+    steps:
+      - run:
+          command: |
+            rm -rf "${workdir}/quickstart"
+            ./spec/support/sqlode.sh init --engine=sqlite --runtime=native --output="${workdir}/quickstart/sqlode.yaml"
+            awk '/^## Quickstart/{q=1} q&&/^```yaml/{f=1;next} f&&/^```/{exit} f' README.md > "${workdir}/readme.yaml"
+            diff "${workdir}/readme.yaml" "${workdir}/quickstart/sqlode.yaml"
+      - assert:
+          exit_code: 0
+      - run:
+          command: ./spec/support/sqlode.sh generate --config="${workdir}/quickstart/sqlode.yaml"
+      - assert:
+          exit_code: 0
+          stdout:
+            contains: Successfully generated

@@ -26,18 +26,24 @@ gleam new myapp
 cd myapp
 gleam add sqlode sqlight
 gleam run -m sqlode -- init --engine=sqlite --runtime=native
+gleam run -m sqlode -- generate
 ```
 
-`--runtime=native` (default: `raw`) opts into the strongly-typed adapter
-output — the recommended choice for new projects on any engine. Drop
-the flag, or pass `--runtime=raw`, to keep the runtime-tagged
-`runtime.Value` shape (useful when you want to hand-roll your adapter
-or interleave queries from multiple drivers). Either way, the choice
-is baked into the `sqlode.yaml` that `init` writes; you no longer have
-to edit the file before the first `generate`.
+`init` writes `sqlode.yaml` and stub `db/schema.sql` / `db/query.sql` files that already compile, so `generate` works on the first run. `--runtime=native` (default: `raw`) makes `generate` emit a ready-to-call `sqlight` adapter; drop the flag to keep the runtime-tagged `runtime.Value` shape for a hand-rolled adapter. The choice is written into `sqlode.yaml`:
 
-Edit the generated `db/schema.sql` and `db/query.sql` (the `init` stubs
-already compile, so it is fine to leave them as-is for the first run):
+```yaml
+version: "2"
+sql:
+  - schema: "db/schema.sql"
+    queries: "db/query.sql"
+    engine: "sqlite"
+    gen:
+      gleam:
+        out: "src/db"
+        runtime: "native"
+```
+
+Then replace the stubs with your own schema and queries and run `gleam run -m sqlode -- generate` again:
 
 ```sql
 -- db/schema.sql
@@ -54,32 +60,6 @@ SELECT id, name, bio FROM authors WHERE id = ?;
 -- name: CreateAuthor :exec
 INSERT INTO authors (name, bio)
 VALUES (sqlode.arg(author_name), sqlode.narg(bio));
-```
-
-Switch to native mode (so `sqlode` emits a ready-to-call `sqlight`
-adapter) and generate. `runtime` is nested under `sql[].gen.gleam` —
-not at the top of a `sql[]` entry (a top-level `runtime:` is rejected
-as `Unsupported config fields: sql.runtime`):
-
-```yaml
-# sqlode.yaml — the `init` command writes this file. Only the
-# `runtime: "native"` line below changes when you flip from `raw`.
-version: "2"
-sql:
-  - schema: "db/schema.sql"
-    queries: "db/query.sql"
-    engine: "sqlite"
-    gen:
-      gleam:
-        package: "myapp"
-        out: "src/db"
-        runtime: "native"
-```
-
-```console
-sed -i 's/runtime: "raw"/runtime: "native"/' sqlode.yaml
-gleam run -m sqlode -- generate
-gleam run
 ```
 
 The generated `src/db/sqlight_adapter.gleam` then exposes

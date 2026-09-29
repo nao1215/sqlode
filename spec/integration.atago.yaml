@@ -8,6 +8,12 @@ defaults:
   run:
     shell: true
     cwd: ${env:PROJECT_ROOT}
+    # Each case resolves its generated project's dependencies through the
+    # Hex API. When Hex rate-limits the runner, integration_test/lib.sh
+    # waits 60s and retries up to 3 times, so a step needs room for about
+    # three minutes of waiting on top of the build. atago's 60s default
+    # killed every case that hit a single retry.
+    timeout: 5m
 
 scenarios:
   - name: raw mode generates and builds
@@ -83,7 +89,6 @@ scenarios:
     steps:
       - run:
           command: ./spec/support/run_integration_case.sh case_sqlite_basic "${workdir}/integration"
-          timeout: 2m
       - assert:
           exit_code: 0
           stdout:
@@ -102,7 +107,6 @@ scenarios:
     steps:
       - run:
           command: ./spec/support/run_integration_case.sh case_sqlite_extended "${workdir}/integration"
-          timeout: 2m
       - assert:
           exit_code: 0
           stdout:
@@ -112,7 +116,6 @@ scenarios:
     steps:
       - run:
           command: ./spec/support/run_integration_case.sh case_sqlite_advanced "${workdir}/integration"
-          timeout: 2m
       - assert:
           exit_code: 0
           stdout:

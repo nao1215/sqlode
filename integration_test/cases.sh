@@ -175,7 +175,7 @@ case_postgresql_real() {
     runtime="native" \
     schema="$PROJECT_ROOT/test/fixtures/postgresql_schema.sql" \
     queries="$PROJECT_ROOT/test/fixtures/postgresql_crud_query.sql" \
-    dev_deps="gleeunit+envoy" \
+    dev_deps="gleeunit+envoy+otp" \
     expected_files="params.gleam queries.gleam models.gleam pog_adapter.gleam" \
     test_module_src="$PROJECT_ROOT/integration_test/fixtures/postgresql_real_test.gleam" \
     test_module_name="postgresql_real_test_test.gleam"
