@@ -20,3 +20,9 @@ ORDER BY a.id;
 
 -- name: ListAuthorsByIds :many
 SELECT id, name FROM authors WHERE id = ANY($1) ORDER BY id;
+
+-- name: CreatePost :execlastid
+INSERT INTO posts (title, tags) VALUES ($1, $2) RETURNING id;
+
+-- name: ListPostsByTag :many
+SELECT id, title FROM posts WHERE $1 = ANY(tags) ORDER BY id;

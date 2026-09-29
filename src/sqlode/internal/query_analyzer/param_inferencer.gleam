@@ -469,12 +469,22 @@ fn normalize_table_qualifier(table: Option(String)) -> Option(String) {
 // IR-based IN / quantified walker (Issue #406)
 // ============================================================
 
-/// A placeholder bound by `col IN (placeholder)` or by
-/// `col <op> ANY|ALL|SOME(placeholder)`. `array` is True for the
-/// quantified form: the placeholder there is an array whose elements
-/// are compared with `col`, so its type is a list of the column's type.
+/// A placeholder bound by `col IN (placeholder)`, by
+/// `col <op> ANY|ALL|SOME(placeholder)` or by
+/// `placeholder <op> ANY|ALL|SOME(col)`.
 type InMatch {
-  InMatch(match: token_utils.EqualityMatch, array: Bool)
+  InMatch(match: token_utils.EqualityMatch, binding: InBinding)
+}
+
+type InBinding {
+  /// `col IN (placeholder)`: the placeholder has the column's type.
+  SameAsColumn
+  /// `col = ANY(placeholder)`: the placeholder is an array whose
+  /// elements are compared with `col`.
+  ArrayOfColumn
+  /// `placeholder = ANY(col)`: `col` is an array and the placeholder
+  /// is compared with its elements.
+  ElementOfColumn
 }
 
 /// Walk a parsed `Stmt` in source order and emit an `EqualityMatch`
@@ -597,7 +607,7 @@ fn walk_expr_iq(expr: query_ir.Expr) -> List(InMatch) {
     // lists and subquery sources fall through to the recursive branch.
     query_ir.InExpr(expr: subject, source: query_ir.InList(values), ..) ->
       case in_list_match(subject, values) {
-        Some(m) -> [InMatch(match: m, array: False)]
+        Some(m) -> [InMatch(match: m, binding: SameAsColumn)]
         None ->
           list.append(
             walk_expr_iq(subject),
@@ -606,11 +616,12 @@ fn walk_expr_iq(expr: query_ir.Expr) -> List(InMatch) {
       }
     query_ir.InExpr(expr: subject, source:, ..) ->
       list.append(walk_expr_iq(subject), walk_in_source_iq(source))
-    // `col <op> ANY|ALL|SOME(<placeholder>)` — emit the match, or
+    // `col <op> ANY|ALL|SOME(<placeholder>)` or
+    // `<placeholder> <op> ANY|ALL|SOME(col)` — emit the match, or
     // recurse when the shape doesn't match.
-    query_ir.Quantified(left:, quantifier:, right:, ..) ->
-      case quantified_match(left, quantifier, right) {
-        Some(m) -> [InMatch(match: m, array: True)]
+    query_ir.Quantified(left:, right:, ..) ->
+      case quantified_match(left, right) {
+        Some(m) -> [m]
         None -> list.append(walk_expr_iq(left), walk_expr_iq(right))
       }
     // Remaining expression shapes: descend like the equality walker
@@ -692,21 +703,29 @@ fn in_list_match(
 /// `Quantified(right: Tuple([Param]))`. Both are accepted so the
 /// walker is shape-compatible with `find_quantified_patterns`.
 /// `Cast(Param)` on the placeholder side is transparently unwrapped.
+/// The reversed form `<placeholder> <op> ANY|ALL|SOME(col)` binds the
+/// placeholder to an element of the array column.
 fn quantified_match(
   left: query_ir.Expr,
-  _quantifier: query_ir.Quantifier,
   right: query_ir.Expr,
-) -> Option(token_utils.EqualityMatch) {
-  case column_of(left), quantified_param_of(right) {
-    Some(#(table, name)), Some(raw) -> Some(build_match(table, name, raw))
-    _, _ -> None
+) -> Option(InMatch) {
+  let right = unwrap_single_tuple(right)
+  case column_of(left), param_of(right) {
+    Some(#(table, name)), Some(raw) ->
+      Some(InMatch(build_match(table, name, raw), ArrayOfColumn))
+    _, _ ->
+      case param_of(left), column_of(right) {
+        Some(raw), Some(#(table, name)) ->
+          Some(InMatch(build_match(table, name, raw), ElementOfColumn))
+        _, _ -> None
+      }
   }
 }
 
-fn quantified_param_of(expr: query_ir.Expr) -> Option(String) {
+fn unwrap_single_tuple(expr: query_ir.Expr) -> query_ir.Expr {
   case expr {
-    query_ir.Tuple(elements: [only]) -> param_of(only)
-    _ -> param_of(expr)
+    query_ir.Tuple(elements: [only]) -> only
+    _ -> expr
   }
 }
 
@@ -849,29 +868,31 @@ pub fn infer_in_params(
         query_ir.UnstructuredStmt(..) | query_ir.InsertStmt(..) ->
           list.append(
             token_utils.find_in_patterns(main_tokens)
-              |> list.map(InMatch(match: _, array: False)),
+              |> list.map(InMatch(match: _, binding: SameAsColumn)),
             token_utils.find_quantified_patterns(main_tokens)
-              |> list.map(InMatch(match: _, array: True)),
+              |> list.map(InMatch(match: _, binding: ArrayOfColumn)),
           )
         stmt -> find_in_quantified_matches_in_stmt(stmt)
       }
       // The inference passes receive tokens numbered by
       // `placeholder.number_tokens`, so each placeholder carries its
       // query-wide index.
-      let array_indices =
+      let bindings =
         list.filter_map(matches, fn(m) {
           // `ANY(sqlode.slice(ids))` already expands to one placeholder
           // per element, so a slice stays a list of scalars.
           case
-            m.array
+            m.binding != SameAsColumn
             && !string.starts_with(m.match.placeholder, "__sqlode_slice_")
           {
             True ->
               placeholder.explicit_index(m.match.placeholder)
+              |> option.map(fn(index) { #(index, m.binding) })
               |> option.to_result(Nil)
             False -> Error(Nil)
           }
         })
+        |> dict.from_list
       scan_token_matches(
         engine,
         catalog,
@@ -885,17 +906,23 @@ pub fn infer_in_params(
       |> result.map(fn(pairs) {
         pairs
         |> list.reverse
-        |> list.map(fn(pair) {
+        |> list.filter_map(fn(pair) {
           let #(index, column) = pair
-          case list.contains(array_indices, index) {
-            True -> #(
-              index,
-              model.Column(
-                ..column,
-                scalar_type: model.ArrayType(column.scalar_type),
-              ),
-            )
-            False -> pair
+          case dict.get(bindings, index), column.scalar_type {
+            Ok(ArrayOfColumn), scalar_type ->
+              Ok(#(
+                index,
+                model.Column(
+                  ..column,
+                  scalar_type: model.ArrayType(scalar_type),
+                ),
+              ))
+            Ok(ElementOfColumn), model.ArrayType(element) ->
+              Ok(#(index, model.Column(..column, scalar_type: element)))
+            // `$1 = ANY(col)` needs `col` to be an array; leave the
+            // parameter uninferred rather than guess.
+            Ok(ElementOfColumn), _ -> Error(Nil)
+            _, _ -> Ok(pair)
           }
         })
       })
