@@ -12,7 +12,8 @@ import gleam/string
 import gleeunit/should
 import sqlode
 
-const glint_command_not_found = "error: failed to run command
+const glint_command_not_found =
+  "error: failed to run command
 
 cause:
   0: command not found
