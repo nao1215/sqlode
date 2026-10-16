@@ -198,16 +198,17 @@ pub fn upsert_author_updates_existing_row_test() {
       db,
       default_create_params("eve@example.com", "Eve"),
     )
-  let updated = params.UpsertAuthorParams(
-    email: "eve@example.com",
-    display_name: "Eve Updated",
-    bio: option.Some("new"),
-    is_active: True,
-    avatar: option.None,
-    balance: "0.000000",
-    status: models.Draft,
-    tags: option.None,
-  )
+  let updated =
+    params.UpsertAuthorParams(
+      email: "eve@example.com",
+      display_name: "Eve Updated",
+      bio: option.Some("new"),
+      is_active: True,
+      avatar: option.None,
+      balance: "0.000000",
+      status: models.Draft,
+      tags: option.None,
+    )
   let assert Ok(_) = mysql_adapter.upsert_author(db, updated)
 
   let assert Ok(authors) = mysql_adapter.list_authors(db)

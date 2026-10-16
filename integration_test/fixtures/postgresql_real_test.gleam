@@ -268,10 +268,7 @@ pub fn placeholder_in_arithmetic_takes_the_column_type_test() {
       params.AddPostViewsParams(views: 30, id: first),
     )
   let assert Ok(rows) =
-    pog_adapter.list_popular_posts(
-      db,
-      params.ListPopularPostsParams(views: 4),
-    )
+    pog_adapter.list_popular_posts(db, params.ListPopularPostsParams(views: 4))
   rows
   |> list.map(fn(row) { #(row.id, row.title) })
   |> should.equal([#(first, "Gleam")])

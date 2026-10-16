@@ -183,7 +183,10 @@ pub fn get_authors_by_ids_empty_slice_test() {
       params.CreateAuthorParams(name: "Alice", bio: Some("A")),
     )
   let assert Ok([]) =
-    sqlight_adapter.get_authors_by_ids(db, params.GetAuthorsByIdsParams(ids: []))
+    sqlight_adapter.get_authors_by_ids(
+      db,
+      params.GetAuthorsByIdsParams(ids: []),
+    )
   Nil
 }
 
