@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.27
+# syntax=docker/dockerfile:1.28
 
 # ---------- builder ----------
 # Produces the self-contained `sqlode` escript. We pin the Gleam
