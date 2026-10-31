@@ -29,7 +29,8 @@ env:
 jobs:
   all:
     name: All checks (Gleam 1.x, OTP 29)
-    runs-on: ubuntu-latest
+    # This integration job uses the MySQL server bundled in the 24.04 image.
+    runs-on: ubuntu-24.04
 
     services:
       postgres:
