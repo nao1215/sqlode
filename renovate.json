@@ -1,4 +1,12 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>nao1215/renovate-config"]
+  "extends": ["github>nao1215/renovate-config"],
+  "packageRules": [
+    {
+      "description": "The integration job relies on the MySQL server bundled in the ubuntu-24.04 runner image; ubuntu-26.04 does not ship it.",
+      "matchDatasources": ["github-runners"],
+      "matchPackageNames": ["ubuntu"],
+      "enabled": false
+    }
+  ]
 }
