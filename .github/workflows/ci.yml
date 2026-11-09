@@ -29,12 +29,13 @@ env:
 jobs:
   all:
     name: All checks (Gleam 1.x, OTP 29)
-    # This integration job uses the MySQL server bundled in the 24.04 image.
+    # This integration job uses the MySQL server bundled in the 24.04 image;
+    # ubuntu-26.04 no longer ships MySQL, so renovate.json holds this pin.
     runs-on: ubuntu-24.04
 
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
