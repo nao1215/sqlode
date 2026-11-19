@@ -4,7 +4,7 @@ gleam = ">= 1.14.0"
 description = "Generate type-safe Gleam code from SQL schemas and queries"
 licences = ["MIT"]
 repository = { type = "github", user = "nao1215", repo = "sqlode" }
-internal_modules = ["sqlode/internal/**", "sqlode/scripts/**"]
+internal_modules = ["sqlode/cli", "sqlode/internal/**", "sqlode/scripts/**"]
 links = [
   { title = "Homepage", href = "https://github.com/nao1215/sqlode" },
   { title = "Documentation", href = "https://hexdocs.pm/sqlode" },
