@@ -37,7 +37,7 @@ The `snapshot of ...` scenarios at the end of `spec/cli.atago.yaml` pin whole ou
 
 ## Real databases
 
-The `All checks` job runs `integration_test/run.sh` against PostgreSQL 18 (service container) and the runner's MySQL 8, and `spec/integration.atago.yaml` runs the SQLite cases (`integration_test/cases.sh`) with sqlight. The generated adapters execute their queries there, so a type or decoder that does not match what the database returns fails the run.
+The `All checks` job runs `integration_test/run.sh` against PostgreSQL 18 (service container) and the runner's MySQL 8, and the `atago E2E integration` job runs `spec/integration.atago.yaml`, the SQLite cases (`integration_test/cases.sh`) with sqlight. The generated adapters execute their queries there, so a type or decoder that does not match what the database returns fails the run.
 
 ## Paired CI benchmarks
 
