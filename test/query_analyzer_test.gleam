@@ -3883,3 +3883,45 @@ pub fn placeholder_quantified_over_array_column_is_an_element_test() {
     |> should.equal(#(select, expected, False))
   })
 }
+
+// Every placeholder of a literal IN list takes the column's type, as a
+// single placeholder always did.
+
+fn in_list_param_types(
+  engine: model.Engine,
+  sql: String,
+) -> List(model.ScalarType) {
+  let naming_ctx = naming.new()
+  let assert Ok(queries) =
+    query_parser.parse_file("in_list.sql", engine, naming_ctx, sql)
+  let assert Ok([query]) =
+    query_analyzer.analyze_queries(engine, test_catalog(), naming_ctx, queries)
+  list.map(query.params, fn(param) { param.scalar_type })
+}
+
+pub fn in_list_with_several_placeholders_takes_the_column_type_test() {
+  in_list_param_types(
+    model.SQLite,
+    "-- name: AuthorsByIds :many
+SELECT name FROM authors WHERE id IN (?, ?, ?);",
+  )
+  |> should.equal([model.IntType, model.IntType, model.IntType])
+}
+
+pub fn not_in_list_with_several_placeholders_takes_the_column_type_test() {
+  in_list_param_types(
+    model.PostgreSQL,
+    "-- name: AuthorsExcept :many
+SELECT name FROM authors WHERE id NOT IN ($1, $2) AND name = $3;",
+  )
+  |> should.equal([model.IntType, model.IntType, model.StringType])
+}
+
+pub fn in_list_mixing_literals_and_placeholders_test() {
+  in_list_param_types(
+    model.PostgreSQL,
+    "-- name: AuthorsByName :many
+SELECT id FROM authors WHERE name IN ('admin', $1, $2::text);",
+  )
+  |> should.equal([model.StringType, model.StringType])
+}
