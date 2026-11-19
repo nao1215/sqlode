@@ -664,3 +664,70 @@ scenarios:
             cmp "${workdir}/gate/before.cksum" "${workdir}/gate/after.cksum"
       - assert:
           exit_code: 0
+
+  # Whole-output snapshots. The scenarios above check single lines; these
+  # pin the full help text and a full verify report, so a reworded flag,
+  # a dropped line or a reordered finding shows up in review as a diff of
+  # spec/snapshots/. Refresh with `atago snapshot update --filter snapshot spec/cli.atago.yaml`.
+  - name: snapshot of the top-level help
+    steps:
+      - run:
+          command: ./spec/support/sqlode.sh --help
+      - assert:
+          exit_code: 0
+          stdout:
+            snapshot: snapshots/help.txt
+
+  - name: snapshot of the subcommand help
+    steps:
+      - run:
+          command: |
+            for command in init generate verify version; do
+              echo "== $command"
+              ./spec/support/sqlode.sh "$command" --help
+            done
+      - assert:
+          exit_code: 0
+          stdout:
+            snapshot: snapshots/subcommand-help.txt
+
+  - name: snapshot of a verify report with several findings
+    steps:
+      - fixture:
+          file: report/sqlode.yaml
+          content: |
+            version: "2"
+            sql:
+              - schema: "db/schema.sql"
+                queries: "db/query.sql"
+                engine: "sqlite"
+                gen:
+                  gleam:
+                    out: "src/db"
+      - fixture:
+          file: report/db/schema.sql
+          content: |
+            CREATE TABLE authors (
+              id INTEGER PRIMARY KEY,
+              name TEXT NOT NULL
+            );
+      - fixture:
+          file: report/db/query.sql
+          content: |
+            -- name: GetAuthor :one
+            SELECT id, name FROM authors WHERE id = ?;
+
+            -- name: GetMissingColumn :one
+            SELECT id, nickname FROM authors WHERE id = ?;
+
+            -- name: ListFromMissingTable :many
+            SELECT id FROM books;
+
+            -- name: Untyped :many
+            SELECT id FROM authors WHERE id + 1 = ? + ?;
+      - run:
+          command: ./spec/support/sqlode.sh verify --config="${workdir}/report/sqlode.yaml"
+      - assert:
+          exit_code: 1
+          stdout:
+            snapshot: snapshots/verify-report.txt

@@ -40,6 +40,11 @@ lint:
 e2e:
   PROJECT_ROOT="$PWD" atago run --parallel 1 ./spec
 
+# Compare sqlode's analysis of the SQLite fixtures with SQLite itself
+# (Python 3 with the standard sqlite3 module)
+differential:
+  python3 scripts/differential_sqlite.py
+
 # Measure the sqlode escript with the himorime suite in bench/ (requires himorime on PATH)
 bench:
   himorime run bench
@@ -74,6 +79,7 @@ all:
   gleam build --warnings-as-errors
   gleam run -m glinter
   gleam test
+  just differential
   just test-javascript
   just integration-prepare
   just e2e
