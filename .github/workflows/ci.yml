@@ -7,10 +7,11 @@ on:
     branches: [main]
 
 # Two compiler lanes:
-# - Latest lane (`all`, `build-javascript`): Gleam floats on 1.x with the
-#   newest OTP, so new compiler warnings and deprecations surface here
-#   first. Format, lint, warnings-as-errors, E2E and the database
-#   integration tests only run here.
+# - Latest lane (`all`, `e2e-integration`, `build-javascript`): Gleam
+#   floats on 1.x with the newest OTP, so new compiler warnings and
+#   deprecations surface here first. Format, lint, warnings-as-errors, E2E
+#   and the database integration tests only run here. The atago
+#   integration suite has its own job so it runs beside `all`.
 # - Floor lane (`test-floor`): the `gleam` requirement in gleam.toml on the
 #   oldest maintained OTP. Keep its Gleam version in sync with gleam.toml,
 #   otherwise the declared floor is no longer verified.
@@ -22,6 +23,11 @@ on:
 # An unset secret expands to an empty value, which Gleam treats as no key.
 permissions:
   contents: read
+
+# A new push to a pull request cancels the run of the previous one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   HEXPM_READ_API_KEY: ${{ secrets.HEXPM_READ_API_KEY }}
@@ -62,6 +68,18 @@ jobs:
         with:
           version: v0.26.3
 
+      # Hex packages and the downloaded sources, keyed on the lockfile.
+      # Restored on every run, saved from main only.
+      - name: Restore Gleam dependency cache
+        id: gleam-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/gleam
+            build/packages
+          key: gleam-${{ runner.os }}-${{ github.job }}-${{ hashFiles('manifest.toml', 'integration_test/warmup/manifest.toml') }}
+          restore-keys: gleam-${{ runner.os }}-${{ github.job }}-
+
       - name: Download dependencies
         run: gleam deps download
 
@@ -96,13 +114,12 @@ jobs:
       - name: Differential test against SQLite
         run: python3 scripts/differential_sqlite.py
 
-      - name: Prepare integration dependency cache
-        run: cd integration_test/warmup && gleam deps download
-
-      - name: atago E2E tests
+      # spec/integration.atago.yaml, the slowest suite, runs in the
+      # e2e-integration job beside this one.
+      - name: atago E2E tests (CLI)
         env:
           PROJECT_ROOT: ${{ github.workspace }}
-        run: atago run --ci --report gha --parallel 1 ./spec
+        run: atago run --ci --report gha --parallel 1 ./spec/cli.atago.yaml
 
       # The suite above drives the erlang-shipment. Users run the escript
       # attached to the release (and baked into the Docker image), which
@@ -139,6 +156,67 @@ jobs:
           MYSQL_URL: mysql://root:root@localhost:3306/sqlode_integration
         run: sh integration_test/run.sh case_mysql_real
 
+      - name: Save Gleam dependency cache
+        if: ${{ github.ref == 'refs/heads/main' && steps.gleam-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/gleam
+            build/packages
+          key: ${{ steps.gleam-cache.outputs.cache-primary-key }}
+
+  e2e-integration:
+    # spec/integration.atago.yaml generates code into temporary Gleam
+    # projects and builds and tests them. It took two thirds of the
+    # `all` job, so it runs here in parallel with it, on the same
+    # toolchain.
+    name: atago E2E integration (Gleam 1.x, OTP 29)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          otp-version: "29"
+          gleam-version: "1.x"
+          rebar3-version: "3"
+
+      - uses: nao1215/setup-atago@5dca90fe652651408ccd1c2aee030767484482a9 # v0.1.5
+        with:
+          version: v0.26.3
+
+      # Hex packages and the downloaded sources, keyed on the lockfile.
+      # Restored on every run, saved from main only.
+      - name: Restore Gleam dependency cache
+        id: gleam-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/gleam
+            build/packages
+          key: gleam-${{ runner.os }}-${{ github.job }}-${{ hashFiles('manifest.toml', 'integration_test/warmup/manifest.toml') }}
+          restore-keys: gleam-${{ runner.os }}-${{ github.job }}-
+
+      - name: Download dependencies
+        run: gleam deps download
+
+      - name: Prepare integration dependency cache
+        run: cd integration_test/warmup && gleam deps download
+
+      - name: atago E2E tests (integration)
+        env:
+          PROJECT_ROOT: ${{ github.workspace }}
+        run: atago run --ci --report gha --parallel 1 ./spec/integration.atago.yaml
+
+      - name: Save Gleam dependency cache
+        if: ${{ github.ref == 'refs/heads/main' && steps.gleam-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/gleam
+            build/packages
+          key: ${{ steps.gleam-cache.outputs.cache-primary-key }}
+
   test-floor:
     # No --warnings-as-errors here: an old compiler's warnings cannot
     # always be fixed without breaking the latest lane.
@@ -151,9 +229,26 @@ jobs:
           otp-version: "27"
           gleam-version: "1.14.0"
           rebar3-version: "3"
+      - name: Restore Gleam dependency cache
+        id: gleam-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/gleam
+            build/packages
+          key: gleam-${{ runner.os }}-${{ github.job }}-${{ hashFiles('manifest.toml', 'integration_test/warmup/manifest.toml') }}
+          restore-keys: gleam-${{ runner.os }}-${{ github.job }}-
       - run: gleam deps download
       - run: gleam build
       - run: gleam test
+      - name: Save Gleam dependency cache
+        if: ${{ github.ref == 'refs/heads/main' && steps.gleam-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/gleam
+            build/packages
+          key: ${{ steps.gleam-cache.outputs.cache-primary-key }}
 
   build-javascript:
     name: Build (JavaScript)
@@ -167,6 +262,15 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
+      - name: Restore Gleam dependency cache
+        id: gleam-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/gleam
+            build/packages
+          key: gleam-${{ runner.os }}-${{ github.job }}-${{ hashFiles('manifest.toml', 'integration_test/warmup/manifest.toml') }}
+          restore-keys: gleam-${{ runner.os }}-${{ github.job }}-
       - run: gleam deps download
       - run: gleam build --target javascript
       # Run the cross-target runtime laws on Node so JavaScript-target
@@ -178,3 +282,11 @@ jobs:
       # rationale.
       - name: Runtime tests (JavaScript)
         run: gleam run -m sqlode_js_test --target javascript
+      - name: Save Gleam dependency cache
+        if: ${{ github.ref == 'refs/heads/main' && steps.gleam-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/gleam
+            build/packages
+          key: ${{ steps.gleam-cache.outputs.cache-primary-key }}

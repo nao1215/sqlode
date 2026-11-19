@@ -9,6 +9,7 @@ workflows:
         - 'erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124'
         - 'nao1215/setup-himorime@cae68ae0fcf303571b53dde1a73582fbc596857a'
     '.github/workflows/ci.yml':
+        - 'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9'
         - 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'
         - 'actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1'
         - 'erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124'
@@ -81,6 +82,11 @@ dependencies:
     'actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb':
         ref: 'v5.0.1'
         commit: 'sha1-9255dc7a253b0ccc959486e2bca901246202afeb'
+        owner_id: 44036562
+        repo_id: 215566462
+    'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9':
+        ref: 'v6.1.0'
+        commit: 'sha1-55cc8345863c7cc4c66a329aec7e433d2d1c52a9'
         owner_id: 44036562
         repo_id: 215566462
     'actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8':
