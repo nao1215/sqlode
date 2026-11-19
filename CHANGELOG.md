@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Removed
+
+- The `sqlode/cli` module is no longer part of the documented API on HexDocs. It builds the command-line parser of the `sqlode` executable and was not meant to be imported; Hex lists no package that depends on sqlode. `sqlode/runtime`, which generated code imports, is unchanged.
+
 ### Fixed
 
 - A table named only inside a subquery no longer makes an unqualified column of the outer query ambiguous. `SELECT id, (SELECT COUNT(*) FROM posts WHERE posts.author_id = authors.id) AS post_count FROM authors` and `SELECT name FROM authors WHERE id > $1 AND EXISTS (SELECT 1 FROM posts WHERE ...)` stopped `generate` with `column "id" is ambiguous` (SQD4008) because `posts` also has an `id`. The outer `id` now resolves to `authors.id`. Joined tables that share a column name are still ambiguous.
