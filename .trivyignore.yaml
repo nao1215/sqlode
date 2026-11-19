@@ -1,0 +1,9 @@
+misconfigurations:
+  - id: DS-0002
+    paths:
+      - Dockerfile
+    statement: The image runs sqlode once against a bind-mounted project (`-v "$PWD:/work"`) and writes the generated files there. A fixed non-root user in the image could not write to the caller's directory; callers who want the files owned by their own user pass `--user "$(id -u):$(id -g)"`.
+  - id: DS-0026
+    paths:
+      - Dockerfile
+    statement: The image is a one-shot CLI that exits after each command; it runs no long-lived service to health-check.
