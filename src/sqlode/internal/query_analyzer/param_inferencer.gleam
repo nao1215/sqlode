@@ -641,16 +641,18 @@ fn walk_optional_expr_iq(expr: Option(query_ir.Expr)) -> List(InMatch) {
 /// main body after `strip_leading_with`.
 fn walk_expr_iq(expr: query_ir.Expr) -> List(InMatch) {
   case expr {
-    // `col IN (<single placeholder>)` — emit the match. Multi-element
-    // lists and subquery sources fall through to the recursive branch.
+    // `col IN ($1, $2, 'x')` — every placeholder element takes the
+    // column's type. Other elements, and lists without a placeholder,
+    // are walked like any expression.
     query_ir.InExpr(expr: subject, source: query_ir.InList(values), ..) ->
-      case in_list_match(subject, values) {
-        Some(m) -> [InMatch(match: m, binding: SameAsColumn)]
-        None ->
+      case in_list_matches(subject, values) {
+        [] ->
           list.append(
             walk_expr_iq(subject),
             list.flat_map(values, walk_expr_iq),
           )
+        matches ->
+          list.map(matches, fn(m) { InMatch(match: m, binding: SameAsColumn) })
       }
     query_ir.InExpr(expr: subject, source:, ..) ->
       list.append(walk_expr_iq(subject), walk_in_source_iq(source))
@@ -718,22 +720,24 @@ fn walk_in_source_iq(source: query_ir.InSource) -> List(InMatch) {
   }
 }
 
-/// `col IN ($1)` with exactly one placeholder on the RHS. Anything
-/// else (empty list, multiple elements, non-placeholder elements)
-/// returns `None` so the caller descends into the sub-expressions
-/// instead of emitting a bogus single-param binding. `Cast(Param, _)`
-/// on the placeholder is transparently unwrapped.
-fn in_list_match(
+/// `col IN (v1, v2, ...)`: one match per placeholder element, in source
+/// order, when the subject is a column. A placeholder can only stand for
+/// a value comparable with the column, so each one takes its type.
+/// `Cast(Param, _)` on an element is transparently unwrapped. Elements
+/// that are not placeholders are skipped.
+fn in_list_matches(
   subject: query_ir.Expr,
   values: List(query_ir.Expr),
-) -> Option(token_utils.EqualityMatch) {
-  case values {
-    [only] ->
-      case column_of(subject), param_of(only) {
-        Some(#(table, name)), Some(raw) -> Some(build_match(table, name, raw))
-        _, _ -> None
-      }
-    _ -> None
+) -> List(token_utils.EqualityMatch) {
+  case column_of(subject) {
+    Some(#(table, name)) ->
+      list.filter_map(values, fn(value) {
+        case param_of(value) {
+          Some(raw) -> Ok(build_match(table, name, raw))
+          None -> Error(Nil)
+        }
+      })
+    None -> []
   }
 }
 

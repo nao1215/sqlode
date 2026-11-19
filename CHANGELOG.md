@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - A table named only inside a subquery no longer makes an unqualified column of the outer query ambiguous. `SELECT id, (SELECT COUNT(*) FROM posts WHERE posts.author_id = authors.id) AS post_count FROM authors` and `SELECT name FROM authors WHERE id > $1 AND EXISTS (SELECT 1 FROM posts WHERE ...)` stopped `generate` with `column "id" is ambiguous` (SQD4008) because `posts` also has an `id`. The outer `id` now resolves to `authors.id`. Joined tables that share a column name are still ambiguous.
+- A literal `IN` list with more than one placeholder, `WHERE id IN (?, ?, ?)` or `WHERE id NOT IN ($1, $2)`, stopped `generate` with `could not infer type for parameter $1` unless every placeholder was cast. Each placeholder of the list now takes the column's type, as a single `IN ($1)` already did.
 
 ## [0.34.0] - 2026-09-29
 
