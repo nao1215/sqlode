@@ -35,6 +35,13 @@ jobs:
   bench:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # setup-himorime (v0.2.0 and later) comments regressions, budget
+    # violations and errors on same-repository pull requests from its post
+    # step, and fails the job when the token cannot comment. Fork pull
+    # requests never post.
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
