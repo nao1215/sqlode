@@ -2,8 +2,12 @@
 Command: init
 
 Scaffold a sqlode.yaml plus starter db/schema.sql and db/query.sql.
-Examples:   sqlode init   sqlode init --output=./config/sqlode.yaml   sqlode
-init --engine=sqlite --runtime=native   sqlode init --engine=mysql
+
+Examples:
+sqlode init
+sqlode init --output=./config/sqlode.yaml
+sqlode init --engine=sqlite --runtime=native
+sqlode init --engine=mysql
 
 USAGE:
     sqlode init [ ARGS ] [ --engine=<STRING> --output=<STRING>
@@ -23,10 +27,14 @@ FLAGS:
 Command: generate
 
 Parse SQL schema and queries, emit Gleam code.
+
 Without --config, generate auto-discovers sqlode.yaml, sqlode.yml, sqlc.yaml,
 sqlc.yml, or sqlc.json in the current directory and fails if more than one
 candidate exists.
-Examples:   sqlode generate   sqlode generate --config=./custom.yaml
+
+Examples:
+sqlode generate
+sqlode generate --config=./custom.yaml
 
 USAGE:
     sqlode generate [ ARGS ] [ --config=<STRING> ]
@@ -41,13 +49,18 @@ FLAGS:
 Command: verify
 
 Run static verification on the project without writing files.
+
 Loads the config, parses every schema and query the generator would use, and
 runs the full analyser pass. Any query-analysis error, schema warning under
 strict_views, or policy violation (for example `query_parameter_limit`) is
 collected into a single report.
+
 The command exits non-zero when at least one finding is reported — suitable for
 CI gates before the generation step runs.
-Examples:   sqlode verify   sqlode verify --config=./custom.yaml
+
+Examples:
+sqlode verify
+sqlode verify --config=./custom.yaml
 
 USAGE:
     sqlode verify [ ARGS ] [ --config=<STRING> ]
