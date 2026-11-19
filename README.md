@@ -136,7 +136,7 @@ docker run --rm -v "$PWD:/work" ghcr.io/nao1215/sqlode:latest init --engine=sqli
 docker run --rm -v "$PWD:/work" ghcr.io/nao1215/sqlode:latest generate
 ```
 
-The container's working directory is `/work`, so mounting your project there lets `init` / `generate` / `verify` write into the host. Swap `:latest` for a version tag (`:0.34.0`) to pin a release. The `:latest` tag appears once the docker workflow has run on `main`; before that, `docker build -t sqlode .` at the repo root produces the same image.
+The container's working directory is `/work`, so mounting your project there lets `init` / `generate` / `verify` write into the host. Swap `:latest` for a version tag (`:0.35.0`) to pin a release. The `:latest` tag appears once the docker workflow has run on `main`; before that, `docker build -t sqlode .` at the repo root produces the same image.
 
 #### E. mise (recommended for Gleam projects)
 
@@ -151,7 +151,7 @@ This installs the escript and manages versions alongside your Gleam/Erlang toolc
 
 ```toml
 [tools]
-sqlode = "0.34.0"
+sqlode = "0.35.0"
 ```
 
 mise handles `PATH` automatically — no manual exports needed.
@@ -168,10 +168,10 @@ cosign verify-blob --bundle SHA256SUMS.sigstore.json \
   SHA256SUMS
 gh attestation verify sqlode --repo nao1215/sqlode
 slsa-verifier verify-artifact --provenance-path multiple.intoto.jsonl \
-  --source-uri github.com/nao1215/sqlode --source-tag v0.34.0 sqlode
+  --source-uri github.com/nao1215/sqlode --source-tag v0.35.0 sqlode
 ```
 
-The Docker image is signed by digest: `cosign verify ghcr.io/nao1215/sqlode:0.34.0 --certificate-identity-regexp '^https://github.com/nao1215/sqlode/' --certificate-oidc-issuer https://token.actions.githubusercontent.com`.
+The Docker image is signed by digest: `cosign verify ghcr.io/nao1215/sqlode:0.35.0 --certificate-identity-regexp '^https://github.com/nao1215/sqlode/' --certificate-oidc-issuer https://token.actions.githubusercontent.com`.
 
 ### Initialize config
 

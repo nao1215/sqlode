@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-11-19
+
 ### Removed
 
 - The `sqlode/cli` module is no longer part of the documented API on HexDocs. It builds the command-line parser of the `sqlode` executable and was not meant to be imported; Hex lists no package that depends on sqlode. `sqlode/runtime`, which generated code imports, is unchanged.
