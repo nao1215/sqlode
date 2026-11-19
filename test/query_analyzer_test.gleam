@@ -2669,6 +2669,103 @@ pub fn ambiguous_unqualified_param_column_is_rejected_test() {
   list.contains(tables, "teams") |> should.be_true()
 }
 
+// A table named only inside a subquery is not in scope for the outer
+// select list or the outer WHERE, so an unqualified column of the outer
+// table is not ambiguous with a column of the same name in the subquery.
+
+fn authors_posts_catalog() -> model.Catalog {
+  let schema =
+    "CREATE TABLE authors (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+CREATE TABLE posts (id INTEGER PRIMARY KEY, author_id INTEGER NOT NULL, title TEXT NOT NULL);"
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files_with_engine(
+      [#("schema.sql", schema)],
+      model.SQLite,
+    )
+  catalog
+}
+
+fn analyze_sqlite(
+  sql: String,
+) -> Result(List(model.AnalyzedQuery), context.AnalysisError) {
+  let naming_ctx = naming.new()
+  let assert Ok(queries) =
+    query_parser.parse_file("query.sql", model.SQLite, naming_ctx, sql)
+  query_analyzer.analyze_queries(
+    model.SQLite,
+    authors_posts_catalog(),
+    naming_ctx,
+    queries,
+  )
+}
+
+fn result_column_names(query: model.AnalyzedQuery) -> List(String) {
+  list.filter_map(query.result_columns, fn(item) {
+    case item {
+      model.ScalarResult(column) -> Ok(column.name)
+      model.EmbeddedResult(_) -> Error(Nil)
+    }
+  })
+}
+
+pub fn select_list_subquery_does_not_shadow_outer_column_test() {
+  let assert Ok([query]) =
+    analyze_sqlite(
+      "-- name: AuthorsWithPostCount :many
+SELECT id, (SELECT COUNT(*) FROM posts WHERE posts.author_id = authors.id) AS post_count FROM authors;",
+    )
+  result_column_names(query) |> should.equal(["id", "post_count"])
+  let assert [model.ScalarResult(id), _] = query.result_columns
+  id.source_table |> should.equal(Some("authors"))
+}
+
+pub fn select_list_subquery_before_outer_column_test() {
+  let assert Ok([query]) =
+    analyze_sqlite(
+      "-- name: PostCountFirst :many
+SELECT (SELECT COUNT(*) FROM posts) AS post_count, id FROM authors;",
+    )
+  result_column_names(query) |> should.equal(["post_count", "id"])
+}
+
+pub fn outer_where_param_with_select_list_subquery_test() {
+  let assert Ok([query]) =
+    analyze_sqlite(
+      "-- name: AuthorWithPostCount :one
+SELECT id, (SELECT COUNT(*) FROM posts) AS post_count FROM authors WHERE id = ?;",
+    )
+  let assert [param] = query.params
+  param.scalar_type |> should.equal(model.IntType)
+}
+
+pub fn outer_where_param_with_where_subquery_test() {
+  let assert Ok([query]) =
+    analyze_sqlite(
+      "-- name: AuthorsWithPosts :many
+SELECT name FROM authors WHERE id > ? AND EXISTS (SELECT 1 FROM posts WHERE posts.author_id = authors.id);",
+    )
+  let assert [param] = query.params
+  param.scalar_type |> should.equal(model.IntType)
+}
+
+pub fn subquery_only_column_resolves_against_the_subquery_test() {
+  let assert Ok([query]) =
+    analyze_sqlite(
+      "-- name: AuthorsByPostTitle :many
+SELECT name FROM authors WHERE id IN (SELECT author_id FROM posts WHERE title = ?);",
+    )
+  let assert [param] = query.params
+  param.scalar_type |> should.equal(model.StringType)
+}
+
+pub fn joined_tables_with_the_same_column_stay_ambiguous_test() {
+  let assert Error(context.AmbiguousColumnName(column_name: "id", ..)) =
+    analyze_sqlite(
+      "-- name: Joined :many
+SELECT id FROM authors JOIN posts ON posts.author_id = authors.id;",
+    )
+}
+
 // --- IR-based equality walker tests (Issue #406) ---
 //
 // These queries exercise the `find_equality_matches_in_stmt` walker

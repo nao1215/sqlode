@@ -149,7 +149,7 @@ pub fn infer_equality_params(
         engine,
         catalog,
         query_name,
-        all_tables,
+        table_scope(main_tokens),
         list.map(matches, InMatch(match: _, binding: SameAsColumn)),
         1,
         dict.new(),
@@ -781,11 +781,58 @@ fn unwrap_single_tuple(expr: query_ir.Expr) -> query_ir.Expr {
 /// be found, and an unqualified column not present in any visible
 /// table, simply skip inference for that placeholder — the outer
 /// analyzer still has type-cast / macro hooks to satisfy the param.
+/// The tables a placeholder's column can come from. `top` are the
+/// tables of the statement itself; `all` adds the tables named inside
+/// its subqueries, whose predicates are scanned with the same matches.
+type TableScope {
+  TableScope(top: List(String), all: List(String))
+}
+
+fn table_scope(main_tokens: List(lexer.Token)) -> TableScope {
+  TableScope(
+    top: token_utils.extract_top_level_table_names(main_tokens),
+    all: token_utils.extract_table_names(main_tokens),
+  )
+}
+
+/// Resolve an unqualified column. A column of the statement's own
+/// tables wins over a subquery table with the same column, so
+/// `WHERE id = ? AND EXISTS (SELECT 1 FROM posts ...)` binds `id` to the
+/// outer table instead of failing as ambiguous. When a subquery table
+/// has the column with a different type, the placeholder may belong to
+/// either scope, so it stays ambiguous. A column only a subquery table
+/// has resolves against that table.
+fn lookup_unqualified(
+  catalog: model.Catalog,
+  scope: TableScope,
+  column_name: String,
+) -> Result(option.Option(#(String, model.Column)), List(String)) {
+  case context.find_column_in_tables(catalog, scope.top, column_name) {
+    Ok(Some(#(table, column))) -> {
+      let conflicting =
+        scope.all
+        |> list.filter(fn(other) { !list.contains(scope.top, other) })
+        |> list.filter(fn(other) {
+          case context.find_column(catalog, other, column_name) {
+            Some(c) -> c.scalar_type != column.scalar_type
+            None -> False
+          }
+        })
+      case conflicting {
+        [] -> Ok(Some(#(table, column)))
+        _ -> Error([table, ..conflicting])
+      }
+    }
+    Ok(None) -> context.find_column_in_tables(catalog, scope.all, column_name)
+    Error(matching) -> Error(matching)
+  }
+}
+
 fn scan_token_matches(
   engine: model.Engine,
   catalog: model.Catalog,
   query_name: String,
-  all_tables: List(String),
+  scope: TableScope,
   matches: List(InMatch),
   occurrence: Int,
   seen: dict.Dict(String, Int),
@@ -803,7 +850,7 @@ fn scan_token_matches(
             engine,
             catalog,
             query_name,
-            all_tables,
+            scope,
             rest,
             next_occurrence,
             updated_seen,
@@ -816,12 +863,7 @@ fn scan_token_matches(
                 context.find_column(catalog, table, match.column_name)
                 |> option.map(fn(col) { #(table, col) }),
               )
-            None ->
-              context.find_column_in_tables(
-                catalog,
-                all_tables,
-                match.column_name,
-              )
+            None -> lookup_unqualified(catalog, scope, match.column_name)
           }
           case lookup {
             Error(matching_tables) ->
@@ -855,7 +897,7 @@ fn scan_token_matches(
                 engine,
                 catalog,
                 query_name,
-                all_tables,
+                scope,
                 rest,
                 next_occurrence,
                 updated_seen,
@@ -872,7 +914,7 @@ fn scan_token_matches(
                 engine,
                 catalog,
                 query_name,
-                all_tables,
+                scope,
                 rest,
                 next_occurrence,
                 updated_seen,
@@ -929,7 +971,7 @@ pub fn infer_in_params(
         engine,
         catalog,
         query_name,
-        all_tables,
+        table_scope(main_tokens),
         matches,
         1,
         dict.new(),

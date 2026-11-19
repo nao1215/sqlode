@@ -7,11 +7,24 @@ import sqlode/internal/query_ir
 
 /// Extract all table names referenced in a token list (FROM, INTO, UPDATE, JOIN).
 pub fn extract_table_names(tokens: List(lexer.Token)) -> List(String) {
-  table_names_loop(tokens, [])
+  table_names_loop(False, tokens, [])
+  |> list.unique
+}
+
+/// The tables of the statement itself: FROM, JOIN, INTO and UPDATE
+/// targets outside any parentheses, plus the aliases of derived tables.
+/// Tables named only inside a scalar, `IN` or `EXISTS` subquery are not
+/// in scope for the outer select list and predicates, so they are left
+/// out (`extract_table_names` keeps them).
+pub fn extract_top_level_table_names(
+  tokens: List(lexer.Token),
+) -> List(String) {
+  table_names_loop(True, tokens, [])
   |> list.unique
 }
 
 fn table_names_loop(
+  top_level: Bool,
   tokens: List(lexer.Token),
   acc: List(String),
 ) -> List(String) {
@@ -24,8 +37,9 @@ fn table_names_loop(
     [lexer.Keyword("from"), lexer.LParen, ..rest] -> {
       let remaining = skip_parens(rest, 1)
       case read_subquery_alias(remaining) {
-        #(Some(n), after_alias) -> table_names_loop(after_alias, [n, ..acc])
-        #(None, _) -> table_names_loop(remaining, acc)
+        #(Some(n), after_alias) ->
+          table_names_loop(top_level, after_alias, [n, ..acc])
+        #(None, _) -> table_names_loop(top_level, remaining, acc)
       }
     }
     [lexer.Keyword(kw), ..rest]
@@ -33,8 +47,8 @@ fn table_names_loop(
     -> {
       let #(name, remaining) = read_table_name(rest)
       case name {
-        Some(n) -> table_names_loop(remaining, [n, ..acc])
-        None -> table_names_loop(rest, acc)
+        Some(n) -> table_names_loop(top_level, remaining, [n, ..acc])
+        None -> table_names_loop(top_level, rest, acc)
       }
     }
     // JOIN LATERAL (subquery) AS alias(...) — consume LATERAL before
@@ -42,33 +56,38 @@ fn table_names_loop(
     [lexer.Keyword("join"), lexer.Keyword("lateral"), lexer.LParen, ..rest] -> {
       let remaining = skip_parens(rest, 1)
       case read_subquery_alias(remaining) {
-        #(Some(n), after_alias) -> table_names_loop(after_alias, [n, ..acc])
-        #(None, _) -> table_names_loop(remaining, acc)
+        #(Some(n), after_alias) ->
+          table_names_loop(top_level, after_alias, [n, ..acc])
+        #(None, _) -> table_names_loop(top_level, remaining, acc)
       }
     }
     [lexer.Keyword("join"), lexer.LParen, ..rest] -> {
       let remaining = skip_parens(rest, 1)
       case read_subquery_alias(remaining) {
-        #(Some(n), after_alias) -> table_names_loop(after_alias, [n, ..acc])
-        #(None, _) -> table_names_loop(remaining, acc)
+        #(Some(n), after_alias) ->
+          table_names_loop(top_level, after_alias, [n, ..acc])
+        #(None, _) -> table_names_loop(top_level, remaining, acc)
       }
     }
     // PostgreSQL comma-LATERAL: FROM t1, LATERAL (subquery) AS alias
     [lexer.Keyword("lateral"), lexer.LParen, ..rest] -> {
       let remaining = skip_parens(rest, 1)
       case read_subquery_alias(remaining) {
-        #(Some(n), after_alias) -> table_names_loop(after_alias, [n, ..acc])
-        #(None, _) -> table_names_loop(remaining, acc)
+        #(Some(n), after_alias) ->
+          table_names_loop(top_level, after_alias, [n, ..acc])
+        #(None, _) -> table_names_loop(top_level, remaining, acc)
       }
     }
     [lexer.Keyword("join"), ..rest] -> {
       let #(name, remaining) = read_table_name(rest)
       case name {
-        Some(n) -> table_names_loop(remaining, [n, ..acc])
-        None -> table_names_loop(rest, acc)
+        Some(n) -> table_names_loop(top_level, remaining, [n, ..acc])
+        None -> table_names_loop(top_level, rest, acc)
       }
     }
-    [_, ..rest] -> table_names_loop(rest, acc)
+    [lexer.LParen, ..rest] if top_level ->
+      table_names_loop(top_level, skip_parens(rest, 1), acc)
+    [_, ..rest] -> table_names_loop(top_level, rest, acc)
   }
 }
 

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A table named only inside a subquery no longer makes an unqualified column of the outer query ambiguous. `SELECT id, (SELECT COUNT(*) FROM posts WHERE posts.author_id = authors.id) AS post_count FROM authors` and `SELECT name FROM authors WHERE id > $1 AND EXISTS (SELECT 1 FROM posts WHERE ...)` stopped `generate` with `column "id" is ambiguous` (SQD4008) because `posts` also has an `id`. The outer `id` now resolves to `authors.id`. Joined tables that share a column name are still ambiguous.
+
 ## [0.34.0] - 2026-09-29
 
 ### Added
