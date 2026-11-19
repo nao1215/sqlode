@@ -330,7 +330,7 @@ fn infer_columns_from_tokens_scoped(
         main_tokens,
       ))
       let main_tokens2 = tok_strip_compound(main_tokens)
-      let table_names = token_utils.extract_table_names(main_tokens2)
+      let table_names = token_utils.extract_top_level_table_names(main_tokens2)
       let nullable_tables =
         tok_extract_nullable_tables(main_tokens2, table_names)
 
