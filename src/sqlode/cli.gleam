@@ -98,15 +98,15 @@ fn generate_command() -> glint.Command(Nil) {
     )
 
     glint.command_help(
-      "Parse SQL schema and queries, emit Gleam code.
-
-Without --config, generate auto-discovers sqlode.yaml, sqlode.yml,
+      command_help_text(
+        [
+          "Parse SQL schema and queries, emit Gleam code.",
+          "Without --config, generate auto-discovers sqlode.yaml, sqlode.yml,
 sqlc.yaml, sqlc.yml, or sqlc.json in the current directory and fails
-if more than one candidate exists.
-
-Examples:
-  sqlode generate
-  sqlode generate --config=./custom.yaml",
+if more than one candidate exists.",
+        ],
+        ["sqlode generate", "sqlode generate --config=./custom.yaml"],
+      ),
       fn() {
         glint.command(fn(_named_args, _args, flags) {
           let flag_value = config_path(flags) |> result.unwrap("")
@@ -140,13 +140,15 @@ fn init_command() -> glint.Command(Nil) {
     )
 
     glint.command_help(
-      "Scaffold a sqlode.yaml plus starter db/schema.sql and db/query.sql.
-
-Examples:
-  sqlode init
-  sqlode init --output=./config/sqlode.yaml
-  sqlode init --engine=sqlite --runtime=native
-  sqlode init --engine=mysql",
+      command_help_text(
+        ["Scaffold a sqlode.yaml plus starter db/schema.sql and db/query.sql."],
+        [
+          "sqlode init",
+          "sqlode init --output=./config/sqlode.yaml",
+          "sqlode init --engine=sqlite --runtime=native",
+          "sqlode init --engine=mysql",
+        ],
+      ),
       fn() {
         glint.command(fn(_named_args, _args, flags) {
           let path = output_path(flags) |> result.unwrap("./sqlode.yaml")
@@ -170,19 +172,18 @@ fn verify_command() -> glint.Command(Nil) {
     )
 
     glint.command_help(
-      "Run static verification on the project without writing files.
-
-Loads the config, parses every schema and query the generator would
+      command_help_text(
+        [
+          "Run static verification on the project without writing files.",
+          "Loads the config, parses every schema and query the generator would
 use, and runs the full analyser pass. Any query-analysis error,
 schema warning under strict_views, or policy violation (for example
-`query_parameter_limit`) is collected into a single report.
-
-The command exits non-zero when at least one finding is reported —
-suitable for CI gates before the generation step runs.
-
-Examples:
-  sqlode verify
-  sqlode verify --config=./custom.yaml",
+`query_parameter_limit`) is collected into a single report.",
+          "The command exits non-zero when at least one finding is reported —
+suitable for CI gates before the generation step runs.",
+        ],
+        ["sqlode verify", "sqlode verify --config=./custom.yaml"],
+      ),
       fn() {
         glint.command(fn(_named_args, _args, flags) {
           let flag_value = config_path(flags) |> result.unwrap("")
@@ -216,6 +217,23 @@ fn run_verify(flag_value: String) -> Nil {
       }
     }
   }
+}
+
+/// Help text of a subcommand: paragraphs, then one example per line.
+///
+/// glint rewraps help text: a single line break becomes a space, and a
+/// run of n line breaks becomes a line break followed by n - 2 blank
+/// lines. Writing the examples one per line in the source therefore
+/// printed them as one run-on line (`Examples:   sqlode init   sqlode
+/// init --output=...`). Paragraphs are joined with three line breaks
+/// (one blank line between them) and examples with two (one per line).
+fn command_help_text(
+  paragraphs: List(String),
+  examples: List(String),
+) -> String {
+  string.join(paragraphs, "\n\n\n")
+  <> "\n\n\nExamples:\n\n"
+  <> string.join(examples, "\n\n")
 }
 
 fn version_command() -> glint.Command(Nil) {
