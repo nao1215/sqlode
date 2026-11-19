@@ -91,6 +91,11 @@ jobs:
       - name: Unit tests
         run: gleam test
 
+      # sqlode's analysis of the SQLite fixtures against SQLite itself
+      # (Python's sqlite3 on the runner). See doc/testing.md.
+      - name: Differential test against SQLite
+        run: python3 scripts/differential_sqlite.py
+
       - name: Prepare integration dependency cache
         run: cd integration_test/warmup && gleam deps download
 

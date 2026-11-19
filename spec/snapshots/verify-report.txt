@@ -1,0 +1,4 @@
+Verifying config: <workdir>/report/sqlode.yaml
+[<workdir>/report/src/db] SQD4002: Query "GetMissingColumn": column "nickname" not found in table "authors"
+[<workdir>/report/src/db] SQD4001: Query "ListFromMissingTable": table "books" not found in schema
+[<workdir>/report/src/db] SQD4003: Query "Untyped": could not infer type for parameter ?1. Use CAST(? AS INTEGER) to specify the type
