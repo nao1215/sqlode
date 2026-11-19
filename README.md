@@ -993,6 +993,18 @@ instead of `expand_slice_placeholders` — the panicking variant is
 correct for codegen-driven flows but the `_checked` variant is the
 right tool when the input comes from runtime sources.
 
+## Testing
+
+| Technique | Bug class caught here |
+|---|---|
+| Examples and unit tests | [Wrong parsing, inference and rendering per stage](doc/testing.md#examples-and-unit-tests) |
+| Generated properties | [Encoders and naming helpers that break on unusual input](doc/testing.md#generated-properties) |
+| Metamorphic relations | [Inference that depends on whitespace, comments, keyword case or query order](doc/testing.md#metamorphic-relations) |
+| Snapshots | [Unreviewed changes to the generated code](doc/testing.md#snapshots) |
+| End-to-end tests | [Wrong exit codes and output of the shipped escript](doc/testing.md#end-to-end-tests) |
+| Real databases | [Generated code that does not compile or does not match what the database returns](doc/testing.md#real-databases) |
+| Paired CI benchmarks | [Slower startup, generate and verify](doc/testing.md#paired-ci-benchmarks) |
+
 ## License
 
 [MIT](./LICENSE)
