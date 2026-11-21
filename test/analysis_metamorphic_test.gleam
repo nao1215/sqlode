@@ -33,6 +33,18 @@ type Case {
   Case(engine: model.Engine, schema: String, queries: String)
 }
 
+/// A case read and analysed once. The property tests rewrite `text` many
+/// times per run, so the schema, the original file and its analysis are
+/// computed up front rather than for every sample.
+type Fixture {
+  Fixture(
+    case_: Case,
+    catalog: model.Catalog,
+    text: String,
+    expected: List(Analysis),
+  )
+}
+
 const cases = [
   Case(model.PostgreSQL, "schema.sql", "query.sql"),
   Case(model.PostgreSQL, "postgresql_schema.sql", "postgresql_crud_query.sql"),
@@ -70,13 +82,12 @@ type Analysis {
 /// parameters and result columns. The SQL text itself is left out, since
 /// the rewrites change it on purpose. A file that no longer parses or
 /// analyses is `Error(Nil)`.
-fn analysis(c: Case, query_text: String) -> Result(List(Analysis), Nil) {
+fn analysis(
+  c: Case,
+  catalog: model.Catalog,
+  query_text: String,
+) -> Result(List(Analysis), Nil) {
   let naming_ctx = naming.new()
-  let assert Ok(schema_text) = simplifile.read("test/fixtures/" <> c.schema)
-    as "the fixture schema is readable"
-  let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files_with_engine([#(c.schema, schema_text)], c.engine)
-    as "the fixture schema parses"
   case query_parser.parse_file(c.queries, c.engine, naming_ctx, query_text) {
     Error(_) -> Error(Nil)
     Ok(parsed) ->
@@ -100,10 +111,22 @@ fn analysis(c: Case, query_text: String) -> Result(List(Analysis), Nil) {
   }
 }
 
-fn original(c: Case) -> String {
-  let assert Ok(text) = simplifile.read("test/fixtures/" <> c.queries)
-    as "the fixture queries are readable"
-  text
+fn fixtures() -> List(Fixture) {
+  list.map(cases, fn(c) {
+    let assert Ok(schema_text) = simplifile.read("test/fixtures/" <> c.schema)
+      as "the fixture schema is readable"
+    let assert Ok(#(catalog, _)) =
+      schema_parser.parse_files_with_engine(
+        [#(c.schema, schema_text)],
+        c.engine,
+      )
+      as "the fixture schema parses"
+    let assert Ok(text) = simplifile.read("test/fixtures/" <> c.queries)
+      as "the fixture queries are readable"
+    let assert Ok(expected) = analysis(c, catalog, text)
+      as "every fixture pair analyses"
+    Fixture(case_: c, catalog:, text:, expected:)
+  })
 }
 
 fn engine_name(engine: model.Engine) -> String {
@@ -114,11 +137,10 @@ fn engine_name(engine: model.Engine) -> String {
   }
 }
 
-fn assert_same(c: Case, rewritten: String, relation: String) -> Bool {
-  let assert Ok(expected) = analysis(c, original(c))
-    as "every fixture pair analyses"
-  case analysis(c, rewritten) {
-    Ok(got) if got == expected -> True
+fn assert_same(f: Fixture, rewritten: String, relation: String) -> Bool {
+  let c = f.case_
+  case analysis(c, f.catalog, rewritten) {
+    Ok(got) if got == f.expected -> True
     Ok(_) ->
       panic as {
         relation
@@ -301,22 +323,19 @@ fn ensure_newline(block: String) -> String {
 // ---------- tests ----------
 
 pub fn fixtures_analyse_test() -> Nil {
-  list.each(cases, fn(c) {
-    let assert Ok(_) = analysis(c, original(c)) as "every fixture pair analyses"
-    Nil
-  })
+  assert list.length(fixtures()) == list.length(cases)
 }
 
 pub fn keyword_case_does_not_change_analysis_test() -> Nil {
-  list.each(cases, fn(c) {
+  list.each(fixtures(), fn(f) {
     assert assert_same(
-      c,
-      flip_keyword_case(original(c), True),
+      f,
+      flip_keyword_case(f.text, True),
       "upper-casing the keywords",
     )
     assert assert_same(
-      c,
-      flip_keyword_case(original(c), False),
+      f,
+      flip_keyword_case(f.text, False),
       "lower-casing the keywords",
     )
   })
@@ -324,20 +343,21 @@ pub fn keyword_case_does_not_change_analysis_test() -> Nil {
 
 pub fn whitespace_does_not_change_analysis_test() -> Nil {
   let separator = generator.element_of([" ", "  ", "\t", "\n", " \n  ", "\n\t"])
+  let fixtures = fixtures()
   metamon.forall(
     generator.list_of(separator, range.constant(1, 6)),
     fn(choices) {
-      list.all(cases, fn(c) {
-        assert_same(c, respace(original(c), choices), "changing whitespace")
+      list.all(fixtures, fn(f) {
+        assert_same(f, respace(f.text, choices), "changing whitespace")
       })
     },
   )
 }
 
 pub fn trailing_comment_does_not_change_analysis_test() -> Nil {
-  list.each(cases, fn(c) {
+  list.each(fixtures(), fn(f) {
     let rewritten =
-      original(c)
+      f.text
       |> string.split("\n")
       |> list.map(fn(line) {
         let trimmed = string.trim(line)
@@ -352,21 +372,22 @@ pub fn trailing_comment_does_not_change_analysis_test() -> Nil {
         }
       })
       |> string.join("\n")
-    assert assert_same(c, rewritten, "adding end-of-line comments")
+    assert assert_same(f, rewritten, "adding end-of-line comments")
   })
 }
 
 pub fn query_order_does_not_change_analysis_test() -> Nil {
+  let fixtures = fixtures()
   metamon.forall(generator.int(range.constant(0, 1000)), fn(seed) {
-    list.all(cases, fn(c) {
-      let #(head, queries) = blocks(original(c))
+    list.all(fixtures, fn(f) {
+      let #(head, queries) = blocks(f.text)
       let shuffled =
         queries
         |> list.map(ensure_newline)
         |> list.index_map(fn(block, i) { #({ i * 7919 + seed } % 1009, block) })
         |> list.sort(fn(a, b) { int.compare(a.0, b.0) })
         |> list.map(fn(pair) { pair.1 })
-      assert_same(c, head <> string.concat(shuffled), "reordering the queries")
+      assert_same(f, head <> string.concat(shuffled), "reordering the queries")
     })
   })
 }

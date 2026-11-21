@@ -1,10 +1,11 @@
 name: nightly-property
 
 # The property tests (metamon) run 100 times their usual count every night,
-# the Gleam counterpart of the nightly fuzzing the Go repositories run: ten
-# passes of the suite, each with METAMON_RUNS_MULTIPLIER=10. A single pass
-# at 100x would hit eunit's 5-second limit per test; ten passes stay under
-# it, and each draws a new random seed, so together they cover as many
+# the Gleam counterpart of the nightly fuzzing the Go repositories run: twenty
+# passes of the suite, each with METAMON_RUNS_MULTIPLIER=5. A single pass at
+# 100x would hit the per-test time limit; at 10x the slowest metamorphic test
+# already came within a few seconds of it, so the passes are kept short and
+# more numerous. Each draws a new random seed, so together they cover as many
 # inputs. Pull requests keep the normal count so they stay fast. A failure
 # report prints its seed, so the case can be reproduced with
 # metamon.with_seed and kept as a regression test.
@@ -19,7 +20,7 @@ permissions:
 
 jobs:
   property:
-    name: property tests x10, ten passes
+    name: property tests x5, twenty passes
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -36,12 +37,12 @@ jobs:
       - name: Download dependencies
         run: gleam deps download
 
-      - name: Property tests, ten passes at 10 times the runs
+      - name: Property tests, twenty passes at 5 times the runs
         env:
-          METAMON_RUNS_MULTIPLIER: "10"
+          METAMON_RUNS_MULTIPLIER: "5"
         run: |
           set -e
-          for pass in 1 2 3 4 5 6 7 8 9 10; do
+          for pass in $(seq 1 20); do
             echo "::group::pass $pass"
             gleam test
             echo "::endgroup::"
