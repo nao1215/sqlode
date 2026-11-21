@@ -55,4 +55,4 @@ Most survivors are in helpers whose two branches give the same result on every f
 
 ## Nightly runs
 
-`.github/workflows/nightly-property.yml` runs the whole suite ten times with `METAMON_RUNS_MULTIPLIER=10`, each pass with a new seed. A failure report prints its seed, so the case can be replayed with `metamon.with_seed` and kept as a regression test.
+`.github/workflows/nightly-property.yml` runs the whole suite twenty times with `METAMON_RUNS_MULTIPLIER=5`, each pass with a new seed. A failure report prints its seed, so the case can be replayed with `metamon.with_seed` and kept as a regression test.
