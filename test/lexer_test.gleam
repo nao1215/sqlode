@@ -820,3 +820,43 @@ pub fn mysql_hash_comment_ends_at_crlf_test() {
   lexer.tokenize("SELECT a # note\r\nFROM t", model.MySQL)
   |> should.equal([Keyword("select"), Ident("a"), Keyword("from"), Ident("t")])
 }
+
+// Only letters and marks outside ASCII join an identifier. Unicode
+// spaces and a byte order mark separate tokens, and punctuation such
+// as a fullwidth comma does not stick to the word before it.
+pub fn unicode_spaces_and_bom_are_whitespace_test() {
+  lexer.tokenize(
+    "\u{FEFF}SELECT\u{00A0}a,\u{3000}b\u{2003}FROM t",
+    model.PostgreSQL,
+  )
+  |> should.equal([
+    Keyword("select"),
+    Ident("a"),
+    Comma,
+    Ident("b"),
+    Keyword("from"),
+    Ident("t"),
+  ])
+}
+
+pub fn non_ascii_punctuation_does_not_join_identifiers_test() {
+  lexer.tokenize("SELECT 名前，年齢 FROM t", model.PostgreSQL)
+  |> should.equal([
+    Keyword("select"),
+    Ident("名前"),
+    Operator("，"),
+    Ident("年齢"),
+    Keyword("from"),
+    Ident("t"),
+  ])
+  lexer.tokenize("SELECT café, x«y»", model.PostgreSQL)
+  |> should.equal([
+    Keyword("select"),
+    Ident("café"),
+    Comma,
+    Ident("x"),
+    Operator("«"),
+    Ident("y"),
+    Operator("»"),
+  ])
+}

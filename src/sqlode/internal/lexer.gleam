@@ -279,8 +279,9 @@ fn do_tokenize(
 
         // Numbers
         _ ->
-          case char_utils.is_digit(g) {
-            True ->
+          case char_utils.is_unicode_space(g), char_utils.is_digit(g) {
+            True, _ -> do_tokenize(rest, engine, acc)
+            False, True ->
               case g, rest {
                 // 0x/0X hex literal (MySQL, SQLite). Treat as a single
                 // numeric token so downstream sees one NumberLit, not
@@ -297,7 +298,7 @@ fn do_tokenize(
                   do_tokenize(remaining, engine, [NumberLit(num), ..acc])
                 }
               }
-            False ->
+            False, False ->
               case char_utils.is_alpha_or_underscore(g) {
                 True ->
                   case detect_string_literal_prefix(g, rest) {
