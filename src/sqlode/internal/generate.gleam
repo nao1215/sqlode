@@ -50,6 +50,7 @@ pub type GenerateError {
   VendorRuntimeNotFound
   UnsupportedArrayForEngine(query_name: String, engine: String)
   SliceInsideQuantifier(query_name: String)
+  EnumValueRejected(type_mapping.EnumValueError)
 }
 
 pub fn run(config_path: String) -> Result(List(String), GenerateError) {
@@ -130,6 +131,10 @@ fn load_and_prepare_catalog(
     block.engine,
     block.gleam.strict_views,
   ))
+  use Nil <- result.try(
+    type_mapping.validate_enum_values(raw_catalog.enums)
+    |> result.map_error(EnumValueRejected),
+  )
   Ok(apply_type_overrides(raw_catalog, block.overrides.type_overrides))
 }
 
@@ -995,5 +1000,6 @@ pub fn error_to_string(error: GenerateError) -> String {
       query_validation.error_to_string(query_validation.SliceInsideQuantifier(
         query_name:,
       ))
+    EnumValueRejected(inner) -> type_mapping.enum_value_error_to_string(inner)
   }
 }

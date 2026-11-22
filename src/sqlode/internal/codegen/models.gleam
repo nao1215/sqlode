@@ -140,7 +140,10 @@ fn render_enum_type(enum_def: model.EnumDef) -> String {
   let to_string_cases =
     builder.lines(
       list.map(enum_def.values, fn(v) {
-        type_mapping.enum_value_name(v) <> " -> \"" <> v <> "\""
+        type_mapping.enum_value_name(v)
+        <> " -> \""
+        <> common.escape_string(v)
+        <> "\""
       }),
     )
     |> builder.indent(by: 4)
@@ -148,7 +151,11 @@ fn render_enum_type(enum_def: model.EnumDef) -> String {
   let from_string_cases =
     builder.lines(
       list.map(enum_def.values, fn(v) {
-        "\"" <> v <> "\" -> Ok(" <> type_mapping.enum_value_name(v) <> ")"
+        "\""
+        <> common.escape_string(v)
+        <> "\" -> Ok("
+        <> type_mapping.enum_value_name(v)
+        <> ")"
       }),
     )
     |> builder.indent(by: 4)
@@ -176,7 +183,9 @@ fn render_enum_type(enum_def: model.EnumDef) -> String {
     builder.line("  case value {"),
     from_string_cases,
     builder.line(
-      "    _ -> Error(\"Unknown " <> enum_def.name <> " value: \" <> value)",
+      "    _ -> Error(\"Unknown "
+      <> common.escape_string(enum_def.name)
+      <> " value: \" <> value)",
     ),
     builder.line("  }"),
     builder.line("}"),
@@ -212,7 +221,10 @@ fn render_set_type(enum_def: model.EnumDef) -> String {
   let to_string_cases =
     builder.lines(
       list.map(enum_def.values, fn(v) {
-        type_mapping.enum_value_name(v) <> " -> \"" <> v <> "\""
+        type_mapping.enum_value_name(v)
+        <> " -> \""
+        <> common.escape_string(v)
+        <> "\""
       }),
     )
     |> builder.indent(by: 4)
@@ -220,7 +232,11 @@ fn render_set_type(enum_def: model.EnumDef) -> String {
   let from_string_cases =
     builder.lines(
       list.map(enum_def.values, fn(v) {
-        "\"" <> v <> "\" -> Ok(" <> type_mapping.enum_value_name(v) <> ")"
+        "\""
+        <> common.escape_string(v)
+        <> "\" -> Ok("
+        <> type_mapping.enum_value_name(v)
+        <> ")"
       }),
     )
     |> builder.indent(by: 4)
@@ -252,7 +268,9 @@ fn render_set_type(enum_def: model.EnumDef) -> String {
     builder.line("  case value {"),
     from_string_cases,
     builder.line(
-      "    _ -> Error(\"Unknown " <> enum_def.name <> " value: \" <> value)",
+      "    _ -> Error(\"Unknown "
+      <> common.escape_string(enum_def.name)
+      <> " value: \" <> value)",
     ),
     builder.line("  }"),
     builder.line("}"),

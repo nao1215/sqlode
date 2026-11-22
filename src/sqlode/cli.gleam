@@ -275,15 +275,19 @@ fn run_generate(flag_value: String) -> Nil {
 
 /// Run `gleam format` on the just-written files so the generated
 /// records and decoder chains break across lines instead of running
-/// past the project's line-width ruler. Treated as best-effort: the
-/// files have already been written and are syntactically correct, so
-/// a missing `gleam` binary or a non-zero formatter exit is reported
-/// as a warning and the command still exits 0. (#543)
+/// past the project's line-width ruler. A missing `gleam` binary is
+/// only a warning: the files are written and still compile. A
+/// formatter failure means the generated code does not parse, so the
+/// command exits 1 instead of reporting success. (#543)
 fn format_generated_files(written: List(String)) -> Nil {
   case formatter.format_files(written) {
     Ok(Nil) -> io.println("  Formatted generated code")
-    Error(error) ->
+    Error(formatter.GleamNotFound as error) ->
       io.println_error("  Warning: " <> formatter.error_to_string(error))
+    Error(formatter.FormatFailed(..) as error) -> {
+      io.println_error("Error: " <> formatter.error_to_string(error))
+      halt(1)
+    }
   }
 }
 

@@ -2629,3 +2629,77 @@ pub fn disambiguate_param_names_preserves_param_order_test() {
   let assert [renamed] = generate.disambiguate_param_names([q])
   field_names(renamed) |> should.equal(["a", "b", "a_2", "b_2"])
 }
+
+// --- Enum values that are not plain words ---
+
+const enum_dir = "test_output/generate_enum_test"
+
+fn enum_block(enum_sql: String) -> model.SqlBlock {
+  let _delete_result = simplifile.delete(enum_dir)
+  let assert Ok(Nil) = simplifile.create_directory_all(enum_dir)
+  let assert Ok(Nil) =
+    simplifile.write(
+      enum_dir <> "/schema.sql",
+      enum_sql
+        <> "\nCREATE TABLE tasks (id integer NOT NULL, state task_state NOT NULL);",
+    )
+  let assert Ok(Nil) =
+    simplifile.write(
+      enum_dir <> "/query.sql",
+      "-- name: GetTask :one\nSELECT id, state FROM tasks WHERE id = $1;",
+    )
+  model.SqlBlock(
+    ..base_block(model.empty_overrides()),
+    schema: [enum_dir <> "/schema.sql"],
+    queries: [enum_dir <> "/query.sql"],
+  )
+}
+
+fn generate_error(block: model.SqlBlock) -> String {
+  let assert Error(error) =
+    generate.generate_config(model.Config(version: 2, sql: [block]))
+  generate.error_to_string(error)
+}
+
+pub fn enum_values_with_separators_become_pascal_case_test() {
+  cleanup()
+  run_generate(enum_block(
+    "CREATE TYPE task_state AS ENUM ('in-progress', 'on hold', 'v1.2', 'DONE');",
+  ))
+  let models = read_generated("models.gleam")
+  string.contains(models, "  InProgress\n  OnHold\n  V12\n  Done\n")
+  |> should.be_true
+  string.contains(models, "InProgress -> \"in-progress\"") |> should.be_true
+  string.contains(models, "\"on hold\" -> Ok(OnHold)") |> should.be_true
+  cleanup()
+}
+
+pub fn enum_value_with_quote_is_rejected_test() {
+  enum_block("CREATE TYPE task_state AS ENUM ('say \"hi\"', 'ok2');")
+  |> generate_error
+  |> should.equal(
+    "SQD2006: value \"say \"hi\"\" of enum task_state cannot become a Gleam constructor (it would be \"Say\"hi\"\"). Use letters, digits, '_', '-', '.', '/' or spaces, starting with a letter",
+  )
+}
+
+pub fn enum_value_starting_with_digit_is_rejected_test() {
+  enum_block("CREATE TYPE task_state AS ENUM ('1st', 'second');")
+  |> generate_error
+  |> string.starts_with("SQD2006: value \"1st\" of enum task_state")
+  |> should.be_true
+}
+
+pub fn enum_value_named_like_a_prelude_constructor_is_rejected_test() {
+  enum_block("CREATE TYPE task_state AS ENUM ('ok', 'failed');")
+  |> generate_error
+  |> string.starts_with("SQD2006: value \"ok\" of enum task_state")
+  |> should.be_true
+}
+
+pub fn enum_values_colliding_after_conversion_are_rejected_test() {
+  enum_block("CREATE TYPE task_state AS ENUM ('in_progress', 'in-progress');")
+  |> generate_error
+  |> should.equal(
+    "SQD2006: values \"in_progress\" and \"in-progress\" of enum task_state both become the Gleam constructor InProgress",
+  )
+}
