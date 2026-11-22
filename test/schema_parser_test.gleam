@@ -1067,3 +1067,27 @@ pub fn mysql_create_table_strips_auto_increment_and_charset_noise_test() {
     list.find(table.columns, fn(c) { c.name == "title" })
   title_col.scalar_type |> should.equal(model.StringType)
 }
+
+// `type` is not a lexer keyword, so it keeps the spelling of the
+// source. Every spelling must be recognised, not only type/TYPE/Type.
+pub fn alter_column_type_keyword_in_mixed_case_test() {
+  let sql =
+    "CREATE TABLE users (id INTEGER PRIMARY KEY, score INTEGER NOT NULL);
+ALTER TABLE users ALTER COLUMN score tYpE TEXT;"
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert [table] = catalog.tables
+  let assert [_, score] = table.columns
+  score.scalar_type |> should.equal(model.StringType)
+}
+
+pub fn create_type_keyword_in_mixed_case_test() {
+  let sql =
+    "create tYpe mood AS ENUM ('happy', 'sad');
+CREATE TABLE t (id integer NOT NULL, m mood);"
+  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert [mood] = catalog.enums
+  mood.values |> should.equal(["happy", "sad"])
+  let assert [table] = catalog.tables
+  let assert [_, m] = table.columns
+  m.scalar_type |> should.equal(model.EnumType("mood"))
+}

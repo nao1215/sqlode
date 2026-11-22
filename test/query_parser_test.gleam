@@ -1418,3 +1418,21 @@ pub fn mysql_backtick_identifier_doubles_inner_backtick_test() {
   let query = parse_single(model.MySQL, "SELECT `we``ird` FROM t WHERE id = ?;")
   query.sql |> should.equal("select `we``ird` from t where id = ?;")
 }
+
+pub fn macro_name_in_any_letter_case_is_expanded_test() {
+  list.each(["SQLODE.ARG(id)", "sQlode.Arg(id)", "Sqlode.NARG(id)"], fn(arg) {
+    let query =
+      parse_single(
+        model.PostgreSQL,
+        "SELECT id FROM t WHERE id = " <> arg <> ";",
+      )
+    query.param_count |> should.equal(1)
+    string.contains(string.lowercase(query.sql), "sqlode.") |> should.be_false
+  })
+  let query =
+    parse_single(
+      model.PostgreSQL,
+      "SELECT id FROM t WHERE id IN (SQLODE.SLICE(ids));",
+    )
+  query.macros |> should.equal([model.MacroSlice(index: 1, name: "ids")])
+}

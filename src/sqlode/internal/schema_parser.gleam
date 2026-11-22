@@ -1,3 +1,4 @@
+import gleam/bool
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
@@ -208,9 +209,7 @@ fn is_create_enum_tokens(tokens: List(lexer.Token)) -> Bool {
       lexer.Keyword("as"),
       lexer.Keyword("enum"),
       ..
-    ]
-      if t == "type" || t == "TYPE" || t == "Type"
-    -> True
+    ] -> string.lowercase(t) == "type"
     _ -> False
   }
 }
@@ -227,9 +226,8 @@ fn parse_create_enum_from_tokens(
       lexer.Keyword("as"),
       lexer.Keyword("enum"),
       ..rest
-    ]
-      if t == "type" || t == "TYPE" || t == "Type"
-    -> {
+    ] -> {
+      use <- bool.guard(string.lowercase(t) != "type", Error(Nil))
       let name = case name_token {
         lexer.Ident(n) -> string.lowercase(n)
         lexer.QuotedIdent(n) -> string.lowercase(n)
@@ -1002,8 +1000,11 @@ fn extract_alter_type_tokens(tokens: List(lexer.Token)) -> List(lexer.Token) {
     [] -> []
     // `type` arrives as `Ident(_)` (case-preserving) because the
     // lexer no longer reserves it as a keyword (#479).
-    [lexer.Ident(t), ..rest] if t == "type" || t == "TYPE" || t == "Type" ->
-      take_until_using(rest, [])
+    [lexer.Ident(t), ..rest] ->
+      case string.lowercase(t) {
+        "type" -> take_until_using(rest, [])
+        _ -> extract_alter_type_tokens(rest)
+      }
     [_, ..rest] -> extract_alter_type_tokens(rest)
   }
 }

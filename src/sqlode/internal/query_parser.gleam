@@ -201,8 +201,7 @@ fn finalize_pending(
             expand_at_name_tokens(engine, tokens, 1)
 
           // Phase 3: Expand sqlode.arg/narg/slice(...) macros in token list
-          let #(tokens, expanded_macros) =
-            expand_macro_tokens(engine, tokens, next_idx)
+          let #(tokens, expanded_macros) = expand_macro_tokens(tokens, next_idx)
 
           let macros = list.append(at_macros, expanded_macros)
 
@@ -723,7 +722,7 @@ fn expand_at_loop(
           let name = string.drop_start(p, 1)
           case engine, dict.get(seen, name) {
             model.SQLite, Ok(existing_idx) -> {
-              let placeholder = engine_placeholder(engine, existing_idx)
+              let placeholder = runtime.param_marker(existing_idx)
               expand_at_loop(
                 engine,
                 rest,
@@ -734,7 +733,7 @@ fn expand_at_loop(
               )
             }
             _, _ -> {
-              let placeholder = engine_placeholder(engine, idx)
+              let placeholder = runtime.param_marker(idx)
               let new_seen = case engine {
                 model.SQLite -> dict.insert(seen, name, idx)
                 _ -> seen
@@ -773,15 +772,13 @@ fn expand_at_loop(
 /// by walking the token list and replacing the token span with a Placeholder.
 /// Pattern: Ident("sqlode") Dot Ident("arg"|"narg"|"slice") LParen ...arg... RParen
 fn expand_macro_tokens(
-  engine: model.Engine,
   tokens: List(lexer.Token),
   start_idx: Int,
 ) -> #(List(lexer.Token), List(model.Macro)) {
-  expand_macro_loop(engine, tokens, start_idx, [], [])
+  expand_macro_loop(tokens, start_idx, [], [])
 }
 
 fn expand_macro_loop(
-  engine: model.Engine,
   tokens: List(lexer.Token),
   idx: Int,
   token_acc: List(lexer.Token),
@@ -790,34 +787,57 @@ fn expand_macro_loop(
   case tokens {
     [] -> #(list.reverse(token_acc), list.reverse(macro_acc))
 
-    // Match: sqlode.arg|narg|slice(...)
-    [lexer.Ident(mod), lexer.Dot, lexer.Ident(kind), lexer.LParen, ..rest]
-      if { mod == "sqlode" || mod == "Sqlode" || mod == "SQLODE" }
-      && { kind == "arg" || kind == "narg" || kind == "slice" }
-    -> {
-      // Collect tokens inside parens to extract the argument name
-      let #(arg_tokens, remaining) = collect_macro_arg_tokens(rest, 1, [])
-      let name = extract_arg_name(arg_tokens)
-      let placeholder = case kind {
-        "slice" -> engine_slice_placeholder(engine, idx)
-        _ -> engine_placeholder(engine, idx)
+    // Match: sqlode.arg|narg|slice(...), in any letter case
+    [
+      lexer.Ident(module_name) as module_token,
+      lexer.Dot,
+      lexer.Ident(kind),
+      lexer.LParen,
+      ..rest
+    ] ->
+      case macro_kind(module_name, kind) {
+        Error(Nil) ->
+          expand_macro_loop(
+            list.drop(tokens, 1),
+            idx,
+            [module_token, ..token_acc],
+            macro_acc,
+          )
+        Ok(kind) -> {
+          // Collect tokens inside parens to extract the argument name
+          let #(arg_tokens, remaining) = collect_macro_arg_tokens(rest, 1, [])
+          let name = extract_arg_name(arg_tokens)
+          let placeholder = case kind {
+            "slice" -> runtime.slice_marker(idx)
+            _ -> runtime.param_marker(idx)
+          }
+          let macro_entry = case kind {
+            "narg" -> model.MacroNarg(index: idx, name:)
+            "slice" -> model.MacroSlice(index: idx, name:)
+            _ -> model.MacroArg(index: idx, name:)
+          }
+          expand_macro_loop(
+            remaining,
+            idx + 1,
+            [lexer.Placeholder(placeholder), ..token_acc],
+            [macro_entry, ..macro_acc],
+          )
+        }
       }
-      let macro_entry = case kind {
-        "narg" -> model.MacroNarg(index: idx, name:)
-        "slice" -> model.MacroSlice(index: idx, name:)
-        _ -> model.MacroArg(index: idx, name:)
-      }
-      expand_macro_loop(
-        engine,
-        remaining,
-        idx + 1,
-        [lexer.Placeholder(placeholder), ..token_acc],
-        [macro_entry, ..macro_acc],
-      )
-    }
 
     [token, ..rest] ->
-      expand_macro_loop(engine, rest, idx, [token, ..token_acc], macro_acc)
+      expand_macro_loop(rest, idx, [token, ..token_acc], macro_acc)
+  }
+}
+
+/// The lowercased macro name when `module_name.kind` is a sqlode macro.
+fn macro_kind(module_name: String, kind: String) -> Result(String, Nil) {
+  case string.lowercase(module_name), string.lowercase(kind) {
+    "sqlode", "arg" as kind
+    | "sqlode", "narg" as kind
+    | "sqlode", "slice" as kind
+    -> Ok(kind)
+    _, _ -> Error(Nil)
   }
 }
 
@@ -865,17 +885,4 @@ fn extract_arg_name(tokens: List(lexer.Token)) -> String {
       })
       |> string.join("")
   }
-}
-
-fn engine_placeholder(_engine: model.Engine, index: Int) -> String {
-  // Emit an engine-agnostic marker for every parameter position. The
-  // runtime walks these markers and substitutes the engine-specific
-  // placeholder (e.g. `$3`, `?3`, `?`) at prepare-time, which fixes
-  // both MySQL's bare-`?` expansion and placeholder-like text inside
-  // string literals or comments being rewritten by string.replace.
-  runtime.param_marker(index)
-}
-
-fn engine_slice_placeholder(_engine: model.Engine, index: Int) -> String {
-  runtime.slice_marker(index)
 }
