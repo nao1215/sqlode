@@ -33,6 +33,9 @@ pub type ParseError {
     name: String,
     indices: List(Int),
   )
+  /// `sqlc.arg(...)` and the other sqlc macros are not expanded; the
+  /// query has to use the `sqlode.` spelling.
+  SqlcMacro(path: String, line: Int, name: String, macro_name: String)
 }
 
 type PendingQuery {
@@ -206,8 +209,13 @@ fn finalize_pending(
           let macros = list.append(at_macros, expanded_macros)
 
           // Phase 4: Validate remaining raw placeholders match the engine
-          case validate_placeholder_syntax(engine, tokens) {
-            Error(token) ->
+          case
+            find_sqlc_macro(tokens),
+            validate_placeholder_syntax(engine, tokens)
+          {
+            Ok(macro_name), _ ->
+              Error(SqlcMacro(path:, line: start_line, name:, macro_name:))
+            Error(Nil), Error(token) ->
               Error(InvalidPlaceholder(
                 path:,
                 line: start_line,
@@ -215,7 +223,7 @@ fn finalize_pending(
                 engine:,
                 token:,
               ))
-            Ok(Nil) ->
+            Error(Nil), Ok(Nil) ->
               case validate_upsert_tails(engine, tokens) {
                 Error(tail) ->
                   Error(WrongEngineUpsert(
@@ -481,6 +489,7 @@ fn error_code(error: ParseError) -> String {
     InvalidPlaceholder(..) -> "SQD3004"
     WrongEngineUpsert(..) -> "SQD3005"
     SparseNumberedPlaceholders(..) -> "SQD3006"
+    SqlcMacro(..) -> "SQD3009"
   }
 }
 
@@ -532,6 +541,17 @@ fn error_message(error: ParseError) -> String {
       <> ": sparse SQLite numbered placeholders "
       <> format_indices(indices)
       <> "; numbered placeholders must form a contiguous set starting from ?1 (e.g. ?1, ?2, ?3)"
+    SqlcMacro(path:, line:, name:, macro_name:) ->
+      path
+      <> ":"
+      <> int.to_string(line)
+      <> ": query "
+      <> name
+      <> ": `sqlc."
+      <> macro_name
+      <> "(...)` is not supported; write `sqlode."
+      <> macro_name
+      <> "(...)` instead"
   }
 }
 
@@ -827,6 +847,31 @@ fn expand_macro_loop(
 
     [token, ..rest] ->
       expand_macro_loop(rest, idx, [token, ..token_acc], macro_acc)
+  }
+}
+
+/// The macro name of the first `sqlc.arg/narg/slice/embed(...)` left in
+/// the query. sqlode only expands the `sqlode.` spelling, and a sqlc
+/// macro left in place would reach the database as a function call.
+fn find_sqlc_macro(tokens: List(lexer.Token)) -> Result(String, Nil) {
+  case tokens {
+    [] -> Error(Nil)
+    [
+      lexer.Ident(module_name),
+      lexer.Dot,
+      lexer.Ident(kind),
+      lexer.LParen,
+      ..rest
+    ] ->
+      case string.lowercase(module_name), string.lowercase(kind) {
+        "sqlc", "arg" as kind
+        | "sqlc", "narg" as kind
+        | "sqlc", "slice" as kind
+        | "sqlc", "embed" as kind
+        -> Ok(kind)
+        _, _ -> find_sqlc_macro(rest)
+      }
+    [_, ..rest] -> find_sqlc_macro(rest)
   }
 }
 

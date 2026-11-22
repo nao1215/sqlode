@@ -1436,3 +1436,44 @@ pub fn macro_name_in_any_letter_case_is_expanded_test() {
     )
   query.macros |> should.equal([model.MacroSlice(index: 1, name: "ids")])
 }
+
+// sqlc macros used to pass through into the generated SQL with no
+// parameters, so the query failed only when it reached the database.
+pub fn sqlc_macros_are_rejected_test() {
+  list.each(
+    [
+      #("sqlc.arg(id)", "arg"),
+      #("SQLC.NARG(id)", "narg"),
+      #("sqlc.slice(ids)", "slice"),
+    ],
+    fn(case_) {
+      let #(macro_call, macro_name) = case_
+      let assert Error(error) =
+        query_parser.parse_file(
+          "q.sql",
+          model.PostgreSQL,
+          naming.new(),
+          "-- name: GetT :one\nSELECT id FROM t WHERE id = "
+            <> macro_call
+            <> ";",
+        )
+      query_parser.error_to_string(error)
+      |> should.equal(
+        "SQD3009: q.sql:1: query GetT: `sqlc."
+        <> macro_name
+        <> "(...)` is not supported; write `sqlode."
+        <> macro_name
+        <> "(...)` instead",
+      )
+    },
+  )
+}
+
+pub fn sqlc_macro_inside_a_string_is_left_alone_test() {
+  let query =
+    parse_single(
+      model.PostgreSQL,
+      "SELECT id FROM t WHERE note = 'sqlc.arg(x)' AND id = $1;",
+    )
+  query.param_count |> should.equal(1)
+}
