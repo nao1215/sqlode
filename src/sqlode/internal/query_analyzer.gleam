@@ -28,9 +28,9 @@ fn analyze_query(
   ctx: context.AnalyzerContext,
   engine: model.Engine,
   catalog: model.Catalog,
-  tq: query_ir.TokenizedQuery,
+  tokenized: query_ir.TokenizedQuery,
 ) -> Result(model.AnalyzedQuery, context.AnalysisError) {
-  let query_ir.TokenizedQuery(base: query, tokens: tokens) = tq
+  let query_ir.TokenizedQuery(base: query, tokens: tokens) = tokenized
   let statement = token_utils.structure_tokens(tokens)
   // Surface virtual tables the outer query references — CTEs, VALUES
   // in FROM, and derived-table subqueries — so both result-column and
@@ -66,8 +66,6 @@ fn analyze_query(
     occurrences,
   ))
   use result_columns <- result.try(column_inferencer.infer_result_columns(
-    ctx,
-    engine,
     query,
     tokens,
     statement,
@@ -221,7 +219,7 @@ fn build_params(
     |> list.append(in_params)
 
   use cast_dict <- result.try(
-    param_inferencer.extract_type_casts(ctx, engine, numbered)
+    param_inferencer.extract_type_casts(engine, numbered)
     |> result.map_error(fn(err) {
       let #(index, cast_type) = err
       context.UnrecognizedCastType(

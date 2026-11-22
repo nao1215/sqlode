@@ -7,7 +7,7 @@ import sqlode/internal/lexer
 import sqlode/internal/model
 import sqlode/internal/naming
 import sqlode/internal/query_analyzer/context.{
-  type AnalysisError, type AnalyzerContext, AmbiguousColumnName,
+  type AnalysisError, AmbiguousColumnName,
 }
 import sqlode/internal/query_analyzer/placeholder
 import sqlode/internal/query_analyzer/token_utils
@@ -857,7 +857,6 @@ pub fn infer_in_params(
 }
 
 pub fn extract_type_casts(
-  _ctx: AnalyzerContext,
   engine: model.Engine,
   tokens: List(lexer.Token),
 ) -> Result(dict.Dict(Int, model.ScalarType), #(Int, String)) {

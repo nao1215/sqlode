@@ -48,6 +48,26 @@ type PendingQuery {
   )
 }
 
+/// What stays the same while the lines of one file are read.
+type FileContext {
+  FileContext(
+    naming_ctx: naming.NamingContext,
+    path: String,
+    engine: model.Engine,
+  )
+}
+
+/// What changes from one line to the next.
+type LineState {
+  LineState(
+    pending: Option(PendingQuery),
+    parsed_rev: List(query_ir.TokenizedQuery),
+    /// The previous line was `-- sqlode:skip`, so the next annotation
+    /// and its body are dropped.
+    skip_next: Bool,
+  )
+}
+
 pub fn parse_file(
   path: String,
   engine: model.Engine,
@@ -55,130 +75,71 @@ pub fn parse_file(
   content: String,
 ) -> Result(List(query_ir.TokenizedQuery), ParseError) {
   parse_lines(
-    naming_ctx,
+    FileContext(naming_ctx:, path:, engine:),
     string.split(content, "\n"),
-    path,
-    engine,
     1,
-    None,
-    [],
-    False,
+    LineState(pending: None, parsed_rev: [], skip_next: False),
   )
   |> result.map(list.reverse)
 }
 
 fn parse_lines(
-  naming_ctx: naming.NamingContext,
+  file: FileContext,
   lines: List(String),
-  path: String,
-  engine: model.Engine,
   line_number: Int,
-  pending: Option(PendingQuery),
-  parsed_rev: List(query_ir.TokenizedQuery),
-  skip_next: Bool,
+  state: LineState,
 ) -> Result(List(query_ir.TokenizedQuery), ParseError) {
   case lines {
-    [] -> finalize_pending(naming_ctx, pending, path, engine, parsed_rev)
-    [line, ..rest] -> {
-      let trimmed = string.trim(line)
-
-      case is_skip_annotation(trimmed) {
-        True -> {
-          use parsed_rev <- result.try(finalize_pending(
-            naming_ctx,
-            pending,
-            path,
-            engine,
-            parsed_rev,
-          ))
-          parse_lines(
-            naming_ctx,
-            rest,
-            path,
-            engine,
-            line_number + 1,
-            None,
-            parsed_rev,
-            True,
-          )
-        }
-        False ->
-          case parse_annotation(naming_ctx, trimmed, path, line_number) {
-            Ok(Some(next_pending)) -> {
-              use parsed_rev <- result.try(finalize_pending(
-                naming_ctx,
-                pending,
-                path,
-                engine,
-                parsed_rev,
-              ))
-
-              case skip_next {
-                True ->
-                  parse_lines(
-                    naming_ctx,
-                    rest,
-                    path,
-                    engine,
-                    line_number + 1,
-                    None,
-                    parsed_rev,
-                    False,
-                  )
-                False ->
-                  parse_lines(
-                    naming_ctx,
-                    rest,
-                    path,
-                    engine,
-                    line_number + 1,
-                    Some(next_pending),
-                    parsed_rev,
-                    False,
-                  )
-              }
-            }
-            Ok(None) -> {
-              let pending = case pending {
-                Some(PendingQuery(
-                  name:,
-                  function_name:,
-                  command:,
-                  start_line:,
-                  body_rev:,
-                )) ->
-                  Some(
-                    PendingQuery(
-                      name:,
-                      function_name:,
-                      command:,
-                      start_line:,
-                      body_rev: [line, ..body_rev],
-                    ),
-                  )
-                None -> None
-              }
-
-              parse_lines(
-                naming_ctx,
-                rest,
-                path,
-                engine,
-                line_number + 1,
-                pending,
-                parsed_rev,
-                skip_next,
-              )
-            }
-            Error(error) -> Error(error)
-          }
+    [] ->
+      finalize_pending(state.pending, file.path, file.engine, state.parsed_rev)
+    [line, ..rest] ->
+      case parse_line(file, line, line_number, state) {
+        Ok(state) -> parse_lines(file, rest, line_number + 1, state)
+        Error(error) -> Error(error)
       }
+  }
+}
+
+fn parse_line(
+  file: FileContext,
+  line: String,
+  line_number: Int,
+  state: LineState,
+) -> Result(LineState, ParseError) {
+  let trimmed = string.trim(line)
+  let finish_pending = fn() {
+    finalize_pending(state.pending, file.path, file.engine, state.parsed_rev)
+  }
+  case is_skip_annotation(trimmed) {
+    True -> {
+      use parsed_rev <- result.try(finish_pending())
+      Ok(LineState(pending: None, parsed_rev:, skip_next: True))
     }
+    False ->
+      case parse_annotation(file.naming_ctx, trimmed, file.path, line_number) {
+        Ok(Some(next_pending)) -> {
+          use parsed_rev <- result.try(finish_pending())
+          let pending = case state.skip_next {
+            True -> None
+            False -> Some(next_pending)
+          }
+          Ok(LineState(pending:, parsed_rev:, skip_next: False))
+        }
+        Ok(None) ->
+          Ok(
+            LineState(
+              ..state,
+              pending: option.map(state.pending, fn(pending) {
+                PendingQuery(..pending, body_rev: [line, ..pending.body_rev])
+              }),
+            ),
+          )
+        Error(error) -> Error(error)
+      }
   }
 }
 
 fn finalize_pending(
-  _naming_ctx: naming.NamingContext,
   pending: Option(PendingQuery),
   path: String,
   engine: model.Engine,
@@ -440,12 +401,7 @@ fn count_parameters_from_tokens(
     model.PostgreSQL ->
       raw
       |> list.filter_map(fn(p) { string.replace(p, "$", "") |> int.parse })
-      |> list.fold(0, fn(max_idx, v) {
-        case v > max_idx {
-          True -> v
-          False -> max_idx
-        }
-      })
+      |> list.fold(0, int.max)
     model.MySQL -> list.length(raw)
     model.SQLite -> {
       let #(anon, named) = list.partition(raw, fn(p) { p == "?" })
@@ -462,13 +418,9 @@ fn is_marker_placeholder(p: String) -> Bool {
 }
 
 fn extract_marker_index(p: String) -> Result(Int, Nil) {
-  let body = case string.starts_with(p, "__sqlode_param_") {
-    True -> string.drop_start(p, 15)
-    False ->
-      case string.starts_with(p, "__sqlode_slice_") {
-        True -> string.drop_start(p, 15)
-        False -> p
-      }
+  let body = case p {
+    "__sqlode_param_" <> body | "__sqlode_slice_" <> body -> body
+    _ -> p
   }
   let without_suffix = case string.ends_with(body, "__") {
     True -> string.drop_end(body, 2)

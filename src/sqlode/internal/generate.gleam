@@ -1,4 +1,5 @@
 import filepath
+import gleam/bool
 import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
@@ -70,21 +71,21 @@ pub type Generation {
 pub fn run(config_path: String) -> Generation {
   case config.load(config_path) {
     Error(error) -> Generation(result: Error(ConfigError(error)), warnings: [])
-    Ok(cfg) -> {
+    Ok(config) -> {
       let config_dir = filepath.directory_name(config_path)
-      generate_config(resolve_config_paths(cfg, config_dir))
+      generate_config(resolve_config_paths(config, config_dir))
     }
   }
 }
 
-/// Resolve the paths in `cfg` against the directory of the config file,
+/// Resolve the paths in `config` against the directory of the config file,
 /// as `generate` and `verify` both read them.
 pub fn resolve_config_paths(
-  cfg: model.Config,
+  config: model.Config,
   base_dir: String,
 ) -> model.Config {
   let sql =
-    list.map(cfg.sql, fn(block) {
+    list.map(config.sql, fn(block) {
       let schema = list.map(block.schema, resolve_path(base_dir, _))
       let queries = list.map(block.queries, resolve_path(base_dir, _))
       let gleam =
@@ -94,7 +95,7 @@ pub fn resolve_config_paths(
         )
       model.SqlBlock(..block, schema:, queries:, gleam:)
     })
-  model.Config(..cfg, sql:)
+  model.Config(..config, sql:)
 }
 
 fn resolve_path(base_dir: String, path: String) -> String {
@@ -108,8 +109,8 @@ fn resolve_path(base_dir: String, path: String) -> String {
   }
 }
 
-pub fn generate_config(cfg: model.Config) -> Generation {
-  let #(files, warnings) = generate_blocks(naming.new(), cfg.sql, [], [])
+pub fn generate_config(config: model.Config) -> Generation {
+  let #(files, warnings) = generate_blocks(naming.new(), config.sql, [], [])
   let result =
     result.try(files, fn(files) {
       writer.write_all(files) |> result.map_error(WriteError)
@@ -612,8 +613,8 @@ fn find_column_override(
   column_name: String,
   overrides: List(model.TypeOverride),
 ) -> Result(#(String, option.Option(model.CodecHooks)), Nil) {
-  list.find_map(overrides, fn(ovr) {
-    case ovr {
+  list.find_map(overrides, fn(override) {
+    case override {
       model.ColumnOverride(table:, column:, gleam_type:, codec:) ->
         case
           string.lowercase(table) == string.lowercase(table_name)
@@ -634,8 +635,8 @@ fn find_db_type_override(
 ) -> Result(#(String, option.Option(model.CodecHooks)), Nil) {
   let type_name = type_mapping.scalar_type_to_db_name(scalar_type)
 
-  list.find_map(overrides, fn(ovr) {
-    case ovr {
+  list.find_map(overrides, fn(override) {
+    case override {
       model.DbTypeOverride(db_type:, gleam_type:, nullable:, codec:) ->
         case string.lowercase(db_type) == type_name {
           True ->
@@ -896,7 +897,7 @@ fn try_match_query_to_table(
   emit_exact_table_names: Bool,
 ) -> Result(#(String, String), Nil) {
   // Only result-returning commands can match a table
-  use <- guard_result(model.is_result_command(query.base.command))
+  use <- bool.guard(!model.is_result_command(query.base.command), Error(Nil))
 
   // Queries with embedded columns never match a single table
   let has_embed =
@@ -906,7 +907,7 @@ fn try_match_query_to_table(
         model.ScalarResult(..) -> False
       }
     })
-  use <- guard_result(!has_embed)
+  use <- bool.guard(has_embed, Error(Nil))
 
   // Extract the source table from the first result column
   use table_name <- result.try(case query.result_columns {
@@ -926,26 +927,19 @@ fn try_match_query_to_table(
         model.EmbeddedResult(..) -> False
       }
     })
-  use <- guard_result(all_same_table)
+  use <- bool.guard(!all_same_table, Error(Nil))
 
   // The table must exist and columns must match exactly
   use table <- result.try(find_table(catalog, table_name))
-  use <- guard_result(columns_match(query.result_columns, table.columns))
+  use <- bool.guard(
+    !columns_match(query.result_columns, table.columns),
+    Error(Nil),
+  )
 
   Ok(#(
     query.base.function_name,
     naming.table_type_name(naming_ctx, table_name, emit_exact_table_names),
   ))
-}
-
-fn guard_result(
-  condition: Bool,
-  next: fn() -> Result(a, Nil),
-) -> Result(a, Nil) {
-  case condition {
-    True -> next()
-    False -> Error(Nil)
-  }
 }
 
 fn find_table(

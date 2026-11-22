@@ -5,7 +5,7 @@ import gleam/string
 import sqlode/internal/lexer
 import sqlode/internal/model
 import sqlode/internal/query_analyzer/context.{
-  type AnalysisError, type AnalyzerContext, AmbiguousColumnName, ColumnNotFound,
+  type AnalysisError, AmbiguousColumnName, ColumnNotFound,
   CompoundColumnCountMismatch, TableNotFound, UnsupportedExpression,
 }
 import sqlode/internal/query_analyzer/expr_parser
@@ -23,8 +23,6 @@ type ExtractedColumn {
 }
 
 pub fn infer_result_columns(
-  _ctx: AnalyzerContext,
-  _engine: model.Engine,
   query: model.ParsedQuery,
   tokens: List(lexer.Token),
   statement: query_ir.SqlStatement,
@@ -71,7 +69,7 @@ fn infer_columns_from_ir(
                     catalog,
                   ))
                   let nullable_tables =
-                    tok_extract_nullable_tables(tokens, ir_tables)
+                    extract_nullable_tables(tokens, ir_tables)
                   let select_columns =
                     ir_select_items_to_extracted(items, ir_tables)
                   case select_columns {
@@ -289,7 +287,7 @@ fn infer_columns_from_tokens_scoped(
     tokens,
     catalog,
   ))
-  case tok_extract_returning_columns(tokens) {
+  case extract_returning_columns(tokens) {
     Some(returning_cols) -> {
       // RETURNING resolves against the DML target (INSERT/UPDATE/
       // DELETE target table) — never against other tables that
@@ -302,7 +300,7 @@ fn infer_columns_from_tokens_scoped(
         Some(target) -> [target]
         None -> token_utils.extract_table_names(tokens)
       }
-      let nullable_tables = tok_extract_nullable_tables(tokens, scope_tables)
+      let nullable_tables = extract_nullable_tables(tokens, scope_tables)
       case effective_tables(scope_tables, outer_tables) {
         [] -> Ok([])
         [primary, ..] as tables ->
@@ -322,10 +320,9 @@ fn infer_columns_from_tokens_scoped(
         query_name,
         main_tokens,
       ))
-      let main_tokens2 = tok_strip_compound(main_tokens)
+      let main_tokens2 = strip_compound(main_tokens)
       let table_names = token_utils.extract_top_level_table_names(main_tokens2)
-      let nullable_tables =
-        tok_extract_nullable_tables(main_tokens2, table_names)
+      let nullable_tables = extract_nullable_tables(main_tokens2, table_names)
 
       case effective_tables(table_names, outer_tables) {
         // No FROM clause — try to infer columns directly from the
@@ -336,7 +333,7 @@ fn infer_columns_from_tokens_scoped(
         // type pair downstream.
         [] -> infer_table_less_columns(query_name, main_tokens2, augmented)
         [primary, ..] as tables -> {
-          let select_columns = tok_extract_select_columns(main_tokens2)
+          let select_columns = extract_select_columns(main_tokens2)
           resolve_select_columns(
             query_name,
             select_columns,
@@ -362,7 +359,7 @@ fn infer_table_less_columns(
   tokens: List(lexer.Token),
   catalog: model.Catalog,
 ) -> Result(List(model.ResultItem), AnalysisError) {
-  let select_columns = tok_extract_select_columns(tokens)
+  let select_columns = extract_select_columns(tokens)
   case select_columns {
     [] -> Ok([])
     _ ->
@@ -458,7 +455,7 @@ fn effective_tables(
 /// resulting virtual tables. Each `name AS (body)` (or
 /// `name(c1, c2) AS (body)`) becomes a Table whose columns come from
 /// running infer_columns_from_tokens on the body. RECURSIVE CTEs use
-/// the anchor (first) branch via the existing tok_strip_compound, so
+/// the anchor (first) branch via the existing strip_compound, so
 /// recursive self-references are not analysed.
 pub fn extract_cte_tables(
   query_name: String,
@@ -503,18 +500,7 @@ fn parse_cte_defs(
             body,
             augmented,
           ))
-          let body_columns =
-            list.filter_map(cols, fn(item) {
-              case item {
-                model.ScalarResult(rc) ->
-                  Ok(model.Column(
-                    name: rc.name,
-                    scalar_type: rc.scalar_type,
-                    nullable: rc.nullable,
-                  ))
-                _ -> Error(Nil)
-              }
-            })
+          let body_columns = list.filter_map(cols, scalar_result_column)
           let columns =
             apply_explicit_column_names(body_columns, explicit_names)
           let table =
@@ -833,18 +819,7 @@ fn handle_derived(
         body,
         catalog,
       ))
-      let body_columns =
-        list.filter_map(cols, fn(item) {
-          case item {
-            model.ScalarResult(rc) ->
-              Ok(model.Column(
-                name: rc.name,
-                scalar_type: rc.scalar_type,
-                nullable: rc.nullable,
-              ))
-            _ -> Error(Nil)
-          }
-        })
+      let body_columns = list.filter_map(cols, scalar_result_column)
       let columns = apply_explicit_column_names(body_columns, explicit_names)
       let table = model.Table(name: alias, columns: columns)
       find_derived_tables(query_name, remaining, catalog, [table, ..acc])
@@ -1132,21 +1107,21 @@ fn collect_aliased_tables(stmt: query_ir.Stmt) -> List(#(String, String)) {
 }
 
 /// Extract RETURNING columns from tokens using token-based analysis.
-fn tok_extract_returning_columns(
+fn extract_returning_columns(
   tokens: List(lexer.Token),
 ) -> Option(List(ExtractedColumn)) {
-  case tok_find_returning_tokens(tokens) {
+  case find_returning_tokens(tokens) {
     Some(col_tokens) ->
       Some(
         token_utils.split_on_commas(col_tokens)
-        |> list.map(tok_parse_column_item),
+        |> list.map(parse_column_item),
       )
     None -> None
   }
 }
 
 /// Find tokens after the RETURNING keyword until end of statement.
-fn tok_find_returning_tokens(
+fn find_returning_tokens(
   tokens: List(lexer.Token),
 ) -> Option(List(lexer.Token)) {
   case tokens {
@@ -1164,7 +1139,7 @@ fn tok_find_returning_tokens(
         _ -> Some(filtered)
       }
     }
-    [_, ..rest] -> tok_find_returning_tokens(rest)
+    [_, ..rest] -> find_returning_tokens(rest)
   }
 }
 
@@ -1448,20 +1423,20 @@ fn infer_expression_type_token_path(
     // --- Type conversion (SQL reserved syntax) ---
     [lexer.Keyword("cast"), lexer.LParen, ..rest] -> {
       let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
-      case tok_find_as_type(inner_tokens) {
+      case find_as_type(inner_tokens) {
         Some(type_name) ->
           case model.parse_sql_type(type_name) {
             Ok(scalar_type) -> Ok(#(scalar_type, True))
             Error(_) ->
               Error(UnsupportedExpression(
                 query_name:,
-                expression: tok_tokens_to_text(tokens),
+                expression: tokens_to_text(tokens),
               ))
           }
         None ->
           Error(UnsupportedExpression(
             query_name:,
-            expression: tok_tokens_to_text(tokens),
+            expression: tokens_to_text(tokens),
           ))
       }
     }
@@ -1490,7 +1465,7 @@ fn infer_expression_type_token_path(
         _ ->
           Error(UnsupportedExpression(
             query_name:,
-            expression: tok_tokens_to_text(tokens),
+            expression: tokens_to_text(tokens),
           ))
       }
     }
@@ -1514,7 +1489,7 @@ fn infer_expression_type_token_path(
         type_inference.FnAvg -> Ok(#(model.FloatType, True))
         type_inference.FnAggregateInner -> {
           let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
-          let first_arg = tok_first_comma_group(inner_tokens)
+          let first_arg = first_comma_group(inner_tokens)
           case
             resolve_column_type_from_tokens(first_arg, catalog, table_names)
           {
@@ -1526,7 +1501,7 @@ fn infer_expression_type_token_path(
         type_inference.FnWindowFloat -> Ok(#(model.FloatType, False))
         type_inference.FnWindowFirstArg -> {
           let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
-          let first_arg = tok_first_comma_group(inner_tokens)
+          let first_arg = first_comma_group(inner_tokens)
           case
             resolve_column_type_from_tokens(first_arg, catalog, table_names)
           {
@@ -1543,7 +1518,7 @@ fn infer_expression_type_token_path(
         }
         type_inference.FnCoalesce -> {
           let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
-          let first_arg = tok_first_comma_group(inner_tokens)
+          let first_arg = first_comma_group(inner_tokens)
           case
             resolve_column_type_from_tokens(first_arg, catalog, table_names)
           {
@@ -1560,7 +1535,7 @@ fn infer_expression_type_token_path(
         }
         type_inference.FnGreatestLeast -> {
           let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
-          let first_arg = tok_first_comma_group(inner_tokens)
+          let first_arg = first_comma_group(inner_tokens)
           case
             resolve_column_type_from_tokens(first_arg, catalog, table_names)
           {
@@ -1579,7 +1554,7 @@ fn infer_expression_type_token_path(
         type_inference.FnLength -> Ok(#(model.IntType, False))
         type_inference.FnMath -> {
           let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
-          let first_arg = tok_first_comma_group(inner_tokens)
+          let first_arg = first_comma_group(inner_tokens)
           case
             resolve_column_type_from_tokens(first_arg, catalog, table_names)
           {
@@ -1591,7 +1566,7 @@ fn infer_expression_type_token_path(
           Ok(#(type_inference.datetime_return_type(lowered), False))
         type_inference.FnNullif -> {
           let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
-          let first_arg = tok_first_comma_group(inner_tokens)
+          let first_arg = first_comma_group(inner_tokens)
           case
             resolve_column_type_from_tokens(first_arg, catalog, table_names)
           {
@@ -1620,7 +1595,7 @@ fn infer_expression_type_token_path(
         False ->
           Error(UnsupportedExpression(
             query_name:,
-            expression: tok_tokens_to_text(tokens),
+            expression: tokens_to_text(tokens),
           ))
       }
     }
@@ -1640,7 +1615,7 @@ fn infer_expression_type_token_path(
     [lexer.Keyword("null")] ->
       Error(UnsupportedExpression(
         query_name:,
-        expression: tok_tokens_to_text(tokens),
+        expression: tokens_to_text(tokens),
       ))
 
     // --- Scan-based inference for compound expressions ---
@@ -1696,7 +1671,7 @@ fn infer_by_scanning(
     PatNone ->
       Error(UnsupportedExpression(
         query_name:,
-        expression: tok_tokens_to_text(tokens),
+        expression: tokens_to_text(tokens),
       ))
   }
 }
@@ -1721,12 +1696,12 @@ fn infer_arithmetic_from_tokens(
     Ok(None) ->
       Error(UnsupportedExpression(
         query_name:,
-        expression: tok_tokens_to_text(tokens),
+        expression: tokens_to_text(tokens),
       ))
     Error(Nil) ->
       Error(UnsupportedExpression(
         query_name:,
-        expression: tok_tokens_to_text(tokens),
+        expression: tokens_to_text(tokens),
       ))
   }
 }
@@ -1980,7 +1955,7 @@ fn classify_top_level_token(token: lexer.Token) -> TopLevelPattern {
 // ============================================================
 
 /// Get the first comma-separated group of tokens (top-level only).
-fn tok_first_comma_group(tokens: List(lexer.Token)) -> List(lexer.Token) {
+fn first_comma_group(tokens: List(lexer.Token)) -> List(lexer.Token) {
   case token_utils.split_on_commas(tokens) {
     [first, ..] -> first
     [] -> []
@@ -1988,7 +1963,7 @@ fn tok_first_comma_group(tokens: List(lexer.Token)) -> List(lexer.Token) {
 }
 
 /// Find the type name after AS in CAST tokens (e.g., [expr, AS, type_name]).
-fn tok_find_as_type(tokens: List(lexer.Token)) -> Option(String) {
+fn find_as_type(tokens: List(lexer.Token)) -> Option(String) {
   case tokens {
     [] -> None
     [lexer.Keyword("as"), ..rest] -> {
@@ -2007,7 +1982,7 @@ fn tok_find_as_type(tokens: List(lexer.Token)) -> Option(String) {
         _ -> Some(string.lowercase(type_text))
       }
     }
-    [_, ..rest] -> tok_find_as_type(rest)
+    [_, ..rest] -> find_as_type(rest)
   }
 }
 
@@ -2028,7 +2003,7 @@ fn infer_case_type_from_tokens(
     [] ->
       Error(UnsupportedExpression(
         query_name:,
-        expression: tok_tokens_to_text(tokens),
+        expression: tokens_to_text(tokens),
       ))
     _ -> {
       let branch_tokens = case else_branch {
@@ -2051,12 +2026,12 @@ fn infer_case_type_from_tokens(
         Ok(None) ->
           Error(UnsupportedExpression(
             query_name:,
-            expression: tok_tokens_to_text(tokens),
+            expression: tokens_to_text(tokens),
           ))
         Error(Nil) ->
           Error(UnsupportedExpression(
             query_name:,
-            expression: tok_tokens_to_text(tokens),
+            expression: tokens_to_text(tokens),
           ))
       }
     }
@@ -2249,11 +2224,11 @@ fn resolve_column_type_from_tokens(
 // ============================================================
 
 /// Strip compound operators (UNION, INTERSECT, EXCEPT) at depth 0.
-fn tok_strip_compound(tokens: List(lexer.Token)) -> List(lexer.Token) {
-  tok_strip_compound_loop(tokens, 0, [])
+fn strip_compound(tokens: List(lexer.Token)) -> List(lexer.Token) {
+  strip_compound_loop(tokens, 0, [])
 }
 
-fn tok_strip_compound_loop(
+fn strip_compound_loop(
   tokens: List(lexer.Token),
   depth: Int,
   acc: List(lexer.Token),
@@ -2261,21 +2236,20 @@ fn tok_strip_compound_loop(
   case tokens {
     [] -> list.reverse(acc)
     [lexer.LParen, ..rest] ->
-      tok_strip_compound_loop(rest, depth + 1, [lexer.LParen, ..acc])
+      strip_compound_loop(rest, depth + 1, [lexer.LParen, ..acc])
     [lexer.RParen, ..rest] ->
-      tok_strip_compound_loop(rest, depth - 1, [lexer.RParen, ..acc])
+      strip_compound_loop(rest, depth - 1, [lexer.RParen, ..acc])
     [lexer.Keyword(kw), ..] if depth == 0 -> {
       case kw == "union" || kw == "intersect" || kw == "except" {
         True -> list.reverse(acc)
         False ->
           case tokens {
-            [token, ..rest] ->
-              tok_strip_compound_loop(rest, depth, [token, ..acc])
+            [token, ..rest] -> strip_compound_loop(rest, depth, [token, ..acc])
             _ -> list.reverse(acc)
           }
       }
     }
-    [token, ..rest] -> tok_strip_compound_loop(rest, depth, [token, ..acc])
+    [token, ..rest] -> strip_compound_loop(rest, depth, [token, ..acc])
   }
 }
 
@@ -2284,7 +2258,7 @@ fn validate_compound_column_counts(
   query_name: String,
   tokens: List(lexer.Token),
 ) -> Result(Nil, AnalysisError) {
-  let branches = tok_split_compound_branches(tokens)
+  let branches = split_compound_branches(tokens)
   case branches {
     [] | [_] -> Ok(Nil)
     [first, ..rest] -> {
@@ -2306,20 +2280,20 @@ fn validate_compound_column_counts(
 }
 
 fn count_branch_columns(branch: List(lexer.Token)) -> Int {
-  case tok_find_select_to_from(branch) {
+  case find_select_to_from(branch) {
     Some(col_tokens) -> list.length(token_utils.split_on_commas(col_tokens))
     None -> 0
   }
 }
 
 /// Split tokens on top-level compound operators (UNION, INTERSECT, EXCEPT).
-fn tok_split_compound_branches(
+fn split_compound_branches(
   tokens: List(lexer.Token),
 ) -> List(List(lexer.Token)) {
-  tok_split_compound_branches_loop(tokens, 0, [], [])
+  split_compound_branches_loop(tokens, 0, [], [])
 }
 
-fn tok_split_compound_branches_loop(
+fn split_compound_branches_loop(
   tokens: List(lexer.Token),
   depth: Int,
   current: List(lexer.Token),
@@ -2332,14 +2306,14 @@ fn tok_split_compound_branches_loop(
         _ -> list.reverse([list.reverse(current), ..acc])
       }
     [lexer.LParen, ..rest] ->
-      tok_split_compound_branches_loop(
+      split_compound_branches_loop(
         rest,
         depth + 1,
         [lexer.LParen, ..current],
         acc,
       )
     [lexer.RParen, ..rest] ->
-      tok_split_compound_branches_loop(
+      split_compound_branches_loop(
         rest,
         depth - 1,
         [lexer.RParen, ..current],
@@ -2353,10 +2327,10 @@ fn tok_split_compound_branches_loop(
             _ -> rest
           }
           let branch = list.reverse(current)
-          tok_split_compound_branches_loop(rest2, 0, [], [branch, ..acc])
+          split_compound_branches_loop(rest2, 0, [], [branch, ..acc])
         }
         False ->
-          tok_split_compound_branches_loop(
+          split_compound_branches_loop(
             rest,
             depth,
             [lexer.Keyword(kw), ..current],
@@ -2364,12 +2338,12 @@ fn tok_split_compound_branches_loop(
           )
       }
     [token, ..rest] ->
-      tok_split_compound_branches_loop(rest, depth, [token, ..current], acc)
+      split_compound_branches_loop(rest, depth, [token, ..current], acc)
   }
 }
 
 /// Extract nullable tables from LEFT/RIGHT/FULL JOIN keywords.
-fn tok_extract_nullable_tables(
+fn extract_nullable_tables(
   tokens: List(lexer.Token),
   all_table_names: List(String),
 ) -> List(String) {
@@ -2377,15 +2351,14 @@ fn tok_extract_nullable_tables(
     [p, ..] -> Some(p)
     [] -> None
   }
-  let #(nullable_joined, primary_nullable) =
-    tok_nullable_loop(tokens, [], False)
+  let #(nullable_joined, primary_nullable) = nullable_loop(tokens, [], False)
   case primary_nullable, primary {
     True, Some(name) -> [name, ..nullable_joined]
     _, _ -> nullable_joined
   }
 }
 
-fn tok_nullable_loop(
+fn nullable_loop(
   tokens: List(lexer.Token),
   acc: List(String),
   primary_nullable: Bool,
@@ -2396,7 +2369,7 @@ fn tok_nullable_loop(
     // Also handles `LEFT [OUTER] JOIN LATERAL (subquery) AS alias`
     // so the alias from a LATERAL subquery is marked nullable too.
     [lexer.Keyword("left"), ..rest] -> {
-      let rest2 = tok_skip_keyword(rest, "outer")
+      let rest2 = skip_keyword(rest, "outer")
       case rest2 {
         [
           lexer.Keyword("join"),
@@ -2407,50 +2380,46 @@ fn tok_nullable_loop(
           let remaining = token_utils.skip_parens(after_lp, 1)
           case token_utils.read_subquery_alias(remaining) {
             #(Some(n), after_alias) ->
-              tok_nullable_loop(after_alias, [n, ..acc], primary_nullable)
-            #(None, after) -> tok_nullable_loop(after, acc, primary_nullable)
+              nullable_loop(after_alias, [n, ..acc], primary_nullable)
+            #(None, after) -> nullable_loop(after, acc, primary_nullable)
           }
         }
         [lexer.Keyword("join"), lexer.LParen, ..after_lp] -> {
           let remaining = token_utils.skip_parens(after_lp, 1)
           case token_utils.read_subquery_alias(remaining) {
             #(Some(n), after_alias) ->
-              tok_nullable_loop(after_alias, [n, ..acc], primary_nullable)
-            #(None, after) -> tok_nullable_loop(after, acc, primary_nullable)
+              nullable_loop(after_alias, [n, ..acc], primary_nullable)
+            #(None, after) -> nullable_loop(after, acc, primary_nullable)
           }
         }
         [lexer.Keyword("join"), ..after_join] -> {
           let #(names, remaining) = read_joined_table(after_join)
-          tok_nullable_loop(
-            remaining,
-            list.append(names, acc),
-            primary_nullable,
-          )
+          nullable_loop(remaining, list.append(names, acc), primary_nullable)
         }
-        _ -> tok_nullable_loop(rest, acc, primary_nullable)
+        _ -> nullable_loop(rest, acc, primary_nullable)
       }
     }
     // FULL [OUTER] JOIN table → both sides nullable
     [lexer.Keyword("full"), ..rest] -> {
-      let rest2 = tok_skip_keyword(rest, "outer")
+      let rest2 = skip_keyword(rest, "outer")
       case rest2 {
         [lexer.Keyword("join"), ..after_join] -> {
           let #(names, remaining) = read_joined_table(after_join)
-          tok_nullable_loop(remaining, list.append(names, acc), True)
+          nullable_loop(remaining, list.append(names, acc), True)
         }
-        _ -> tok_nullable_loop(rest, acc, primary_nullable)
+        _ -> nullable_loop(rest, acc, primary_nullable)
       }
     }
     // RIGHT [OUTER] JOIN → primary becomes nullable
     [lexer.Keyword("right"), ..rest] -> {
-      let rest2 = tok_skip_keyword(rest, "outer")
+      let rest2 = skip_keyword(rest, "outer")
       case rest2 {
         [lexer.Keyword("join"), ..after_join] ->
-          tok_nullable_loop(after_join, acc, True)
-        _ -> tok_nullable_loop(rest, acc, primary_nullable)
+          nullable_loop(after_join, acc, True)
+        _ -> nullable_loop(rest, acc, primary_nullable)
       }
     }
-    [_, ..rest] -> tok_nullable_loop(rest, acc, primary_nullable)
+    [_, ..rest] -> nullable_loop(rest, acc, primary_nullable)
   }
 }
 
@@ -2471,10 +2440,7 @@ fn read_joined_table(
   }
 }
 
-fn tok_skip_keyword(
-  tokens: List(lexer.Token),
-  kw: String,
-) -> List(lexer.Token) {
+fn skip_keyword(tokens: List(lexer.Token), kw: String) -> List(lexer.Token) {
   case tokens {
     [lexer.Keyword(k), ..rest] if k == kw -> rest
     _ -> tokens
@@ -2482,21 +2448,17 @@ fn tok_skip_keyword(
 }
 
 /// Extract SELECT columns from tokens → List(ExtractedColumn).
-fn tok_extract_select_columns(
-  tokens: List(lexer.Token),
-) -> List(ExtractedColumn) {
-  case tok_find_select_to_from(tokens) {
+fn extract_select_columns(tokens: List(lexer.Token)) -> List(ExtractedColumn) {
+  case find_select_to_from(tokens) {
     Some(col_tokens) ->
       token_utils.split_on_commas(col_tokens)
-      |> list.map(tok_parse_column_item)
+      |> list.map(parse_column_item)
     None -> []
   }
 }
 
 /// Find tokens between SELECT and top-level FROM.
-fn tok_find_select_to_from(
-  tokens: List(lexer.Token),
-) -> Option(List(lexer.Token)) {
+fn find_select_to_from(tokens: List(lexer.Token)) -> Option(List(lexer.Token)) {
   case tokens {
     [] -> None
     [lexer.Keyword("select"), ..rest] -> {
@@ -2512,14 +2474,14 @@ fn tok_find_select_to_from(
         [lexer.Keyword("all"), ..r] -> r
         _ -> rest
       }
-      tok_collect_until_from(rest2, 0, [])
+      collect_until_from(rest2, 0, [])
     }
-    [_, ..rest] -> tok_find_select_to_from(rest)
+    [_, ..rest] -> find_select_to_from(rest)
   }
 }
 
 /// Collect tokens until top-level FROM (depth 0).
-fn tok_collect_until_from(
+fn collect_until_from(
   tokens: List(lexer.Token),
   depth: Int,
   acc: List(lexer.Token),
@@ -2536,15 +2498,15 @@ fn tok_collect_until_from(
         _ -> Some(list.reverse(acc))
       }
     [lexer.LParen, ..rest] ->
-      tok_collect_until_from(rest, depth + 1, [lexer.LParen, ..acc])
+      collect_until_from(rest, depth + 1, [lexer.LParen, ..acc])
     [lexer.RParen, ..rest] ->
-      tok_collect_until_from(rest, depth - 1, [lexer.RParen, ..acc])
-    [token, ..rest] -> tok_collect_until_from(rest, depth, [token, ..acc])
+      collect_until_from(rest, depth - 1, [lexer.RParen, ..acc])
+    [token, ..rest] -> collect_until_from(rest, depth, [token, ..acc])
   }
 }
 
 /// Parse a column item from tokens into ExtractedColumn.
-fn tok_parse_column_item(tokens: List(lexer.Token)) -> ExtractedColumn {
+fn parse_column_item(tokens: List(lexer.Token)) -> ExtractedColumn {
   // Check for sqlode.embed(table) pattern: Ident("sqlode") Dot Ident("embed") LParen ...
   case tokens {
     [lexer.Ident(name), lexer.Dot, lexer.Ident(fn_name), lexer.LParen, ..] -> {
@@ -2554,7 +2516,7 @@ fn tok_parse_column_item(tokens: List(lexer.Token)) -> ExtractedColumn {
       {
         True -> {
           // Reconstruct as "sqlode.embed(table_name)" without extra spaces
-          let text = tok_reconstruct_macro_call(tokens)
+          let text = reconstruct_macro_call(tokens)
           ExtractedColumn(
             name: text,
             source_table: None,
@@ -2562,15 +2524,15 @@ fn tok_parse_column_item(tokens: List(lexer.Token)) -> ExtractedColumn {
             expression_tokens: None,
           )
         }
-        False -> tok_parse_regular_column(tokens)
+        False -> parse_regular_column(tokens)
       }
     }
-    _ -> tok_parse_regular_column(tokens)
+    _ -> parse_regular_column(tokens)
   }
 }
 
 /// Reconstruct sqlode.embed(table) call without extra spaces.
-fn tok_reconstruct_macro_call(tokens: List(lexer.Token)) -> String {
+fn reconstruct_macro_call(tokens: List(lexer.Token)) -> String {
   tokens
   |> list.map(fn(t) {
     case t {
@@ -2586,12 +2548,12 @@ fn tok_reconstruct_macro_call(tokens: List(lexer.Token)) -> String {
 }
 
 /// Parse a non-embed column item.
-fn tok_parse_regular_column(tokens: List(lexer.Token)) -> ExtractedColumn {
+fn parse_regular_column(tokens: List(lexer.Token)) -> ExtractedColumn {
   // Find last top-level AS
-  case tok_split_on_last_as(tokens) {
+  case split_on_last_as(tokens) {
     Some(#(expr_tokens, alias_tokens)) -> {
-      let alias_name = tok_tokens_to_text(alias_tokens)
-      let expr_text = tok_tokens_to_text(expr_tokens)
+      let alias_name = tokens_to_text(alias_tokens)
+      let expr_text = tokens_to_text(expr_tokens)
       let table = case expr_tokens {
         [lexer.Ident(t), lexer.Dot, lexer.Ident(_)] -> Some(string.lowercase(t))
         _ -> None
@@ -2645,7 +2607,7 @@ fn tok_parse_regular_column(tokens: List(lexer.Token)) -> ExtractedColumn {
             expression_tokens: None,
           )
         _ -> {
-          let text = tok_tokens_to_text(tokens)
+          let text = tokens_to_text(tokens)
           ExtractedColumn(
             name: text,
             source_table: None,
@@ -2658,17 +2620,17 @@ fn tok_parse_regular_column(tokens: List(lexer.Token)) -> ExtractedColumn {
 }
 
 /// Find last top-level AS in token list, split into (before, after).
-fn tok_split_on_last_as(
+fn split_on_last_as(
   tokens: List(lexer.Token),
 ) -> Option(#(List(lexer.Token), List(lexer.Token))) {
-  let last_idx = tok_find_last_as_idx(tokens, 0, None, 0)
+  let last_idx = find_last_as_idx(tokens, 0, None, 0)
   case last_idx {
     None -> None
     Some(pos) -> Some(#(list.take(tokens, pos), list.drop(tokens, pos + 1)))
   }
 }
 
-fn tok_find_last_as_idx(
+fn find_last_as_idx(
   tokens: List(lexer.Token),
   depth: Int,
   last: Option(Int),
@@ -2676,17 +2638,15 @@ fn tok_find_last_as_idx(
 ) -> Option(Int) {
   case tokens {
     [] -> last
-    [lexer.LParen, ..rest] ->
-      tok_find_last_as_idx(rest, depth + 1, last, idx + 1)
-    [lexer.RParen, ..rest] ->
-      tok_find_last_as_idx(rest, depth - 1, last, idx + 1)
+    [lexer.LParen, ..rest] -> find_last_as_idx(rest, depth + 1, last, idx + 1)
+    [lexer.RParen, ..rest] -> find_last_as_idx(rest, depth - 1, last, idx + 1)
     [lexer.Keyword("as"), ..rest] if depth == 0 ->
-      tok_find_last_as_idx(rest, depth, Some(idx), idx + 1)
-    [_, ..rest] -> tok_find_last_as_idx(rest, depth, last, idx + 1)
+      find_last_as_idx(rest, depth, Some(idx), idx + 1)
+    [_, ..rest] -> find_last_as_idx(rest, depth, last, idx + 1)
   }
 }
 
-fn tok_tokens_to_text(tokens: List(lexer.Token)) -> String {
+fn tokens_to_text(tokens: List(lexer.Token)) -> String {
   lexer.tokens_to_string(
     tokens,
     lexer.TokenRenderOptions(
@@ -2695,4 +2655,18 @@ fn tok_tokens_to_text(tokens: List(lexer.Token)) -> String {
       engine: None,
     ),
   )
+}
+
+/// The column a scalar result item stands for. An embedded result has
+/// no single column, so a derived table or CTE drops it.
+fn scalar_result_column(item: model.ResultItem) -> Result(model.Column, Nil) {
+  case item {
+    model.ScalarResult(rc) ->
+      Ok(model.Column(
+        name: rc.name,
+        scalar_type: rc.scalar_type,
+        nullable: rc.nullable,
+      ))
+    model.EmbeddedResult(..) -> Error(Nil)
+  }
 }

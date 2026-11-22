@@ -46,22 +46,22 @@ pub type VerifyError {
 /// only unrecoverable errors (missing config, YAML syntax errors)
 /// surface as `Error`.
 pub fn run(config_path: String) -> Result(Report, VerifyError) {
-  use cfg <- result.try(
+  use config <- result.try(
     config.load(config_path)
     |> result.map_error(ConfigError),
   )
   let base_dir = filepath.directory_name(config_path)
-  let resolved = generate.resolve_config_paths(cfg, base_dir)
+  let resolved = generate.resolve_config_paths(config, base_dir)
   Ok(verify_config(resolved))
 }
 
 /// Verify an already-loaded and path-resolved `model.Config`. Broken
 /// out so tests can build a config value directly and assert against
 /// the findings list without touching the filesystem.
-pub fn verify_config(cfg: model.Config) -> Report {
+pub fn verify_config(config: model.Config) -> Report {
   let naming_ctx = naming.new()
   let #(findings, warnings) =
-    cfg.sql
+    config.sql
     |> list.map(verify_block(naming_ctx, _))
     |> list.unzip
   Report(
