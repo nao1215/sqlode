@@ -37,7 +37,8 @@ sql:
 |---|---|
 | INT, INTEGER, SMALLINT, BIGINT, SERIAL, BIGSERIAL | `Int` |
 | FLOAT, DOUBLE, REAL, NUMERIC, DECIMAL, MONEY | `Float` |
-| BOOLEAN, BOOL | `Bool` |
+| BOOLEAN, BOOL, MySQL TINYINT(1) | `Bool` |
+| MySQL DECIMAL, NUMERIC | `String`, so no digits are lost |
 | TEXT, VARCHAR, CHAR, and other text-like types | `String` |
 | BYTEA, BLOB, BINARY | `BitArray` |
 | TIMESTAMP, DATETIME, DATE, TIME, TIMETZ, INTERVAL, UUID, JSON, JSONB | `String` |
@@ -47,7 +48,7 @@ sql:
 
 A column without `NOT NULL` becomes `Option(T)`.
 
-`type_mapping: "rich"` turns the date, time, UUID and JSON types into `String` aliases such as `SqlUuid`, which document a signature without a compiler check. `strong` makes them wrapper types such as `SqlUuid(String)` with a `sql_uuid_to_string` function, so a UUID and a `String` cannot be mixed up.
+`type_mapping: "rich"` turns the date, time, UUID and JSON types, and MySQL decimals, into `String` aliases such as `SqlUuid`, which document a signature without a compiler check. `strong` makes them wrapper types such as `SqlUuid(String)` with a `sql_uuid_to_string` function, so a UUID and a `String` cannot be mixed up.
 
 ## Overrides and renames
 
