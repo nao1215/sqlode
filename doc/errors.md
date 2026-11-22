@@ -94,6 +94,10 @@ A MySQL schema contains a DDL statement sqlode does not understand. sqlode stops
 
 `strict_views: true` is set and a view column could not be resolved from its source tables. The message lists the columns. Fix the view, or turn `strict_views` off to keep the warning without failing.
 
+## SQD2006
+
+An enum or MySQL `SET` value does not turn into a Gleam constructor: after splitting on `_`, `-`, `.`, `/` and spaces it must start with a letter and hold only ASCII letters and digits, must not become `Ok`, `Error`, `True`, `False` or `Nil`, and two values of one enum must not become the same name. Rename the value in the schema.
+
 ## SQD3001
 
 A `queries` path could not be read: it does not exist, is not readable, or is a directory without `.sql` files. Paths in the config are relative to the config file.
