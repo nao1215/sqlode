@@ -130,6 +130,10 @@ Two queries have the same name. Every `-- name:` in a `sql` block must be unique
 
 Different query names turn into the same Gleam identifier (`GetUser` and `get_user`). Rename one of them.
 
+## SQD3009
+
+A query uses a sqlc macro (`sqlc.arg`, `sqlc.narg`, `sqlc.slice` or `sqlc.embed`). sqlode only expands its own spelling, so write `sqlode.arg(name)`, `sqlode.narg(name)`, `sqlode.slice(name)` or `sqlode.embed(table)` instead.
+
 ## SQD4001
 
 A query reads a table the schema does not define. Check the spelling, and that the file with its `CREATE TABLE` is listed under `schema`.
