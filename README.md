@@ -26,7 +26,21 @@ gleam add sqlode sqlight
 gleam run -m sqlode -- init --engine=sqlite --runtime=native
 ```
 
-`init` writes `sqlode.yaml`, `db/schema.sql` and `db/query.sql`. Put your schema and queries in the two SQL files:
+`init` writes `db/schema.sql`, `db/query.sql` and this `sqlode.yaml`:
+
+```yaml
+version: "2"
+sql:
+  - schema: "db/schema.sql"
+    queries: "db/query.sql"
+    engine: "sqlite"
+    gen:
+      gleam:
+        out: "src/db"
+        runtime: "native"
+```
+
+Put your schema and queries in the two SQL files:
 
 ```sql
 -- db/schema.sql

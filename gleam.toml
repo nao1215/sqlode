@@ -11,6 +11,21 @@ links = [
   { title = "Changelog", href = "https://github.com/nao1215/sqlode/blob/main/CHANGELOG.md" },
 ]
 
+[[documentation.pages]]
+title = "Configuration"
+path = "configuration.html"
+source = "./doc/configuration.md"
+
+[[documentation.pages]]
+title = "Capabilities"
+path = "capabilities.html"
+source = "./doc/capabilities.md"
+
+[[documentation.pages]]
+title = "Errors"
+path = "errors.html"
+source = "./doc/errors.md"
+
 [dependencies]
 gleam_stdlib = ">= 0.44.0 and < 2.0.0"
 argv = ">= 1.0.0 and < 2.0.0"
