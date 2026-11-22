@@ -9,7 +9,6 @@ import sqlode/internal/naming
 import sqlode/internal/query_analyzer/context.{
   type AnalysisError, type AnalyzerContext, AmbiguousColumnName,
 }
-import sqlode/internal/query_analyzer/expr_parser
 import sqlode/internal/query_analyzer/placeholder
 import sqlode/internal/query_analyzer/token_utils
 import sqlode/internal/query_ir
@@ -105,10 +104,10 @@ fn map_insert_columns(
 }
 
 pub fn infer_equality_params(
-  _ctx: AnalyzerContext,
   engine: model.Engine,
   query_name: String,
   tokens: List(lexer.Token),
+  stmt: query_ir.Stmt,
   catalog: model.Catalog,
 ) -> Result(List(#(Int, model.Column)), AnalysisError) {
   // Only FROM/JOIN tables of the outermost statement are in scope for
@@ -140,7 +139,7 @@ pub fn infer_equality_params(
       // scalar / IN) and transparently unwraps `Cast(Param)`, matching
       // the source-order behaviour of
       // `token_utils.find_equality_patterns`.
-      let matches = case expr_parser.parse_stmt(tokens, engine) {
+      let matches = case stmt {
         query_ir.UnstructuredStmt(..) | query_ir.InsertStmt(..) ->
           token_utils.find_equality_patterns(main_tokens)
         stmt -> find_equality_matches_in_stmt(stmt)
@@ -813,10 +812,10 @@ fn scan_token_matches(
 }
 
 pub fn infer_in_params(
-  _ctx: AnalyzerContext,
   engine: model.Engine,
   query_name: String,
   tokens: List(lexer.Token),
+  stmt: query_ir.Stmt,
   catalog: model.Catalog,
 ) -> Result(List(#(Int, model.Column)), AnalysisError) {
   let main_tokens = token_utils.strip_leading_with(tokens)
@@ -838,7 +837,7 @@ pub fn infer_in_params(
       // The IR walker itself descends into nested subqueries and
       // transparently unwraps `Cast(Param)` on the placeholder side so
       // `col IN ($1::int)` and `col = ANY($1::int[])` still resolve.
-      let matches = case expr_parser.parse_stmt(tokens, engine) {
+      let matches = case stmt {
         query_ir.UnstructuredStmt(..) | query_ir.InsertStmt(..) ->
           list.append(
             token_utils.find_in_patterns(main_tokens)
