@@ -89,7 +89,8 @@ fn do_tokenize(
     [g, ..rest] ->
       case g {
         // Whitespace — skip
-        " " | "\t" | "\n" | "\r" -> do_tokenize(rest, engine, acc)
+        // On Erlang "\r\n" is one grapheme, so it is listed apart.
+        " " | "\t" | "\n" | "\r" | "\r\n" -> do_tokenize(rest, engine, acc)
 
         // Line comment: --
         "-" ->
@@ -331,7 +332,7 @@ fn do_tokenize(
 fn skip_line_comment(input: List(String)) -> List(String) {
   case input {
     [] -> []
-    ["\n", ..rest] -> rest
+    ["\n", ..rest] | ["\r\n", ..rest] -> rest
     [_, ..rest] -> skip_line_comment(rest)
   }
 }

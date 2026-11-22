@@ -1159,3 +1159,11 @@ CREATE VIEW v AS SELECT , id,, name FROM t;",
   list.map(t.columns, fn(c) { c.name }) |> should.equal(["id", "name"])
   list.map(v.columns, fn(c) { c.name }) |> should.equal(["id", "name"])
 }
+
+pub fn crlf_schema_parses_like_lf_test() {
+  let lf =
+    "-- users\nCREATE TABLE users (\n  id integer NOT NULL, -- key\n  name text\n);\n"
+  let crlf = string.replace(lf, "\n", "\r\n")
+  schema_parser.parse_files([#("s.sql", crlf)], model.PostgreSQL)
+  |> should.equal(schema_parser.parse_files([#("s.sql", lf)], model.PostgreSQL))
+}

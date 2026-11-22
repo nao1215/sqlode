@@ -76,7 +76,8 @@ pub fn parse_file(
 ) -> Result(List(query_ir.TokenizedQuery), ParseError) {
   parse_lines(
     FileContext(naming_ctx:, path:, engine:),
-    string.split(content, "\n"),
+    // A CRLF file reads like an LF one; the line numbers stay the same.
+    content |> string.replace("\r\n", "\n") |> string.split("\n"),
     1,
     LineState(pending: None, parsed_rev: [], skip_next: False),
   )

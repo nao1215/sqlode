@@ -1493,3 +1493,11 @@ pub fn slice_inside_any_is_found_after_a_mysql_backslash_quote_test() {
   query_validation.validate_slice_placement(model.MySQL, [analyzed])
   |> should.equal(Error(query_validation.SliceInsideQuantifier("GetT")))
 }
+
+pub fn crlf_query_file_parses_like_lf_test() {
+  let lf =
+    "-- name: GetT :one\nSELECT id\nFROM t -- c\nWHERE id = $1;\n\n-- name: ListT :many\nSELECT id FROM t;\n"
+  let crlf = string.replace(lf, "\n", "\r\n")
+  parse_file("q.sql", model.PostgreSQL, naming.new(), crlf)
+  |> should.equal(parse_file("q.sql", model.PostgreSQL, naming.new(), lf))
+}

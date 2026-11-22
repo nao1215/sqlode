@@ -804,3 +804,19 @@ pub fn non_ascii_identifiers_are_one_token_test() {
     Ident("t"),
   ])
 }
+
+// On Erlang `string.to_graphemes` keeps "\r\n" as one grapheme, so a
+// CRLF file used to lex its line endings as operators, and a line
+// comment ending in CRLF swallowed the rest of the input.
+pub fn crlf_line_endings_are_whitespace_test() {
+  lexer.tokenize("SELECT a\r\nFROM t -- note\r\nWHERE x", model.PostgreSQL)
+  |> should.equal(lexer.tokenize(
+    "SELECT a\nFROM t -- note\nWHERE x",
+    model.PostgreSQL,
+  ))
+}
+
+pub fn mysql_hash_comment_ends_at_crlf_test() {
+  lexer.tokenize("SELECT a # note\r\nFROM t", model.MySQL)
+  |> should.equal([Keyword("select"), Ident("a"), Keyword("from"), Ident("t")])
+}
