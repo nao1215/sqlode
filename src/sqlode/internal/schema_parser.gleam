@@ -340,15 +340,14 @@ fn resolve_view_columns(
   select_tokens: List(lexer.Token),
   tables: List(model.Table),
 ) -> #(List(model.Column), List(SchemaWarning)) {
-  let view_cols = extract_view_columns(select_tokens)
-  list.fold(view_cols, #([], []), fn(acc, view_col) {
-    let #(columns, warnings) = acc
-    let normalized = naming.normalize_identifier(view_col.name)
-    case resolve_single_view_column(normalized, view_col.expr_tokens, tables) {
-      Ok(col) -> #(list.append(columns, [col]), warnings)
-      Error(warning) -> #(columns, list.append(warnings, [warning]))
-    }
-  })
+  let #(columns, warnings) =
+    extract_view_columns(select_tokens)
+    |> list.map(fn(view_col) {
+      let normalized = naming.normalize_identifier(view_col.name)
+      resolve_single_view_column(normalized, view_col.expr_tokens, tables)
+    })
+    |> result.partition
+  #(list.reverse(columns), list.reverse(warnings))
 }
 
 fn resolve_single_view_column(
