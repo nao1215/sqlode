@@ -87,15 +87,18 @@ const config_candidates = [
   "sqlode.yaml", "sqlode.yml", "sqlc.yaml", "sqlc.yml", "sqlc.json",
 ]
 
+/// `--config`, shared by generate and verify.
+fn config_flag() -> glint.Flag(String) {
+  glint.string_flag("config")
+  |> glint.flag_default("")
+  |> glint.flag_help(
+    "Path to config file. Default: auto-discover sqlode.yaml, sqlode.yml, sqlc.yaml, sqlc.yml, or sqlc.json in the current directory.",
+  )
+}
+
 fn generate_command() -> glint.Command(Nil) {
   {
-    use config_path <- glint.flag(
-      glint.string_flag("config")
-      |> glint.flag_default("")
-      |> glint.flag_help(
-        "Path to config file. Default: auto-discover sqlode.yaml, sqlode.yml, sqlc.yaml, sqlc.yml, or sqlc.json in the current directory.",
-      ),
-    )
+    use config_path <- glint.flag(config_flag())
 
     glint.command_help(
       command_help_text(
@@ -163,13 +166,7 @@ fn init_command() -> glint.Command(Nil) {
 
 fn verify_command() -> glint.Command(Nil) {
   {
-    use config_path <- glint.flag(
-      glint.string_flag("config")
-      |> glint.flag_default("")
-      |> glint.flag_help(
-        "Path to config file. Default: auto-discover sqlode.yaml, sqlode.yml, sqlc.yaml, sqlc.yml, or sqlc.json in the current directory.",
-      ),
-    )
+    use config_path <- glint.flag(config_flag())
 
     glint.command_help(
       command_help_text(
@@ -508,9 +505,9 @@ WHERE id = " <> get_placeholder <> ";\n" <> "\n" <> "-- name: ListAuthors :many\
 /// Exit the process with the given status code. Output already written to
 /// stdout and stderr is flushed before the runtime stops.
 @external(erlang, "sqlode_ffi", "halt")
-fn halt(code: Int) -> Nil
+pub fn halt(code: Int) -> Nil
 
 @target(javascript)
-fn halt(_code: Int) -> Nil {
+pub fn halt(_code: Int) -> Nil {
   Nil
 }
