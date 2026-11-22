@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Removed
+
+- `sqlode/runtime` keeps only what generated code and a custom adapter use: `prepare`, `nullable`, and the types `RawQuery`, `QueryInfo`, `QueryCommand`, `Value` and `PlaceholderStyle`. The value helpers `null`, `string`, `int`, `float`, `bool`, `bytes` and `array` are gone; use the `Value` constructors, which are functions too. The `raw_query*` builders are gone; build `RawQuery(...)` directly. `ExpandError`, `MarkerError`, `expand_slice_placeholders`, `expand_slice_placeholders_checked`, `param_marker_checked` and `slice_marker_checked` are gone, and `param_marker`, `slice_marker` and `render_placeholder` are internal. `QueryCommand` lost `BatchOne`, `BatchMany`, `BatchExec` and `CopyFrom`, which no generated query could have. Regenerate your code with this version; hand-written code that called the helpers changes like this:
+
+```gleam
+// before
+runtime.nullable(p.bio, runtime.string)
+runtime.int(p.id)
+
+// after
+runtime.nullable(p.bio, runtime.String)
+runtime.Int(p.id)
+```
+
+### Fixed
+
+- String prefixes (`X''`, `E''`, `U&''`, `B''`, `N''`) and doubled quotes inside quoted identifiers reach the generated SQL unchanged. A SQLite `X'DEADBEEF'` used to become the text `'DEADBEEF'`.
+- Schema and query files with CRLF line endings read the same as LF. Unicode spaces and a leading BOM are whitespace.
+- A `CREATE TABLE` column list ends at its closing parenthesis, so `PARTITION BY HASH (a, b)` and MySQL partition clauses no longer add columns.
+- Backslash escapes in MySQL strings and PostgreSQL `E''` strings are part of the string, so `'it\'s' AND id = ?` keeps its parameter. The `sqlode.slice` check reads the SQL with the block's engine for the same reason.
+- Enum values with `-`, spaces or quotes produce valid constructors and string literals. A value that still cannot become a Gleam constructor stops generation with SQD2006.
+- `generate` exits 1 when `gleam format` reports a syntax error in the generated files.
+- Macro names and the `TYPE` keyword match in any letter case.
+- `sqlc.arg` and the other `sqlc.*` macros stop generation with SQD3009 instead of passing through as SQL with no parameters.
+- Non-ASCII identifiers are read as one word. A name that cannot become a Gleam name stops generation with SQD5005.
+- An `out` path that would put `..` in the import path stops with SQD5002 instead of generating an invalid import.
+- `verify` reports SQD2006 and SQD5005 as `generate` does, and prints each warning once.
+
+### Changed
+
+- The guides now live on HexDocs: configuration, capabilities and errors. The tutorial, the sqlc migration notes and the custom adapter pages were folded into the README and the `sqlode/runtime` docs.
+
 ## [0.35.0] - 2026-11-19
 
 ### Removed
