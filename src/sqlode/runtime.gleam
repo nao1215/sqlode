@@ -426,7 +426,11 @@ pub fn expand_slice_placeholders(
   })
 }
 
-fn render_placeholder(style: PlaceholderStyle, index: Int) -> String {
+/// The placeholder for parameter `index` in `style`. sqlode's code
+/// generator uses it too, so the SQL shown in `QueryInfo` matches what
+/// `prepare` sends.
+@internal
+pub fn render_placeholder(style: PlaceholderStyle, index: Int) -> String {
   case style {
     DollarNumbered -> "$" <> int.to_string(index)
     QuestionNumbered -> "?" <> int.to_string(index)

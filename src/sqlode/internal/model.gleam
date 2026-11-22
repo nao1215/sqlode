@@ -177,6 +177,24 @@ pub type Config {
   Config(version: Int, sql: List(SqlBlock))
 }
 
+/// The placeholder style the generated code passes to the runtime.
+pub fn placeholder_style(engine: Engine) -> runtime.PlaceholderStyle {
+  case engine {
+    PostgreSQL -> runtime.DollarNumbered
+    MySQL -> runtime.QuestionPositional
+    SQLite -> runtime.QuestionNumbered
+  }
+}
+
+/// The constructor name of a placeholder style in generated code.
+pub fn placeholder_style_name(style: runtime.PlaceholderStyle) -> String {
+  case style {
+    runtime.DollarNumbered -> "DollarNumbered"
+    runtime.QuestionNumbered -> "QuestionNumbered"
+    runtime.QuestionPositional -> "QuestionPositional"
+  }
+}
+
 /// Every query annotation, in the order the docs and errors list them.
 pub fn query_commands() -> List(runtime.QueryCommand) {
   [

@@ -57,13 +57,11 @@ pub fn supported_macros() -> List(String) {
 }
 
 /// Placeholder styles emitted for the three engines sqlode targets.
-/// The pair matches the mapping in `codegen/queries.gleam`.
+/// Derived from `model.placeholder_style`, which the generator uses.
 pub fn supported_placeholder_styles() -> List(#(model.Engine, String)) {
-  [
-    #(model.PostgreSQL, "DollarNumbered"),
-    #(model.MySQL, "QuestionPositional"),
-    #(model.SQLite, "QuestionNumbered"),
-  ]
+  list.map([model.PostgreSQL, model.MySQL, model.SQLite], fn(engine) {
+    #(engine, model.placeholder_style_name(model.placeholder_style(engine)))
+  })
 }
 
 /// Per-engine runtime support matrix. Each entry pairs an engine with

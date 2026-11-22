@@ -170,11 +170,7 @@ pub fn render(
 }
 
 fn engine_placeholder_style_expr(engine: model.Engine) -> String {
-  case engine {
-    model.PostgreSQL -> "runtime.DollarNumbered"
-    model.MySQL -> "runtime.QuestionPositional"
-    model.SQLite -> "runtime.QuestionNumbered"
-  }
+  "runtime." <> model.placeholder_style_name(model.placeholder_style(engine))
 }
 
 fn render_query_function(
@@ -421,11 +417,8 @@ fn resolve_static_placeholders(
   int.range(from: 1, to: param_count + 1, with: sql, run: fn(current_sql, idx) {
     let param = runtime.param_marker(idx)
     let slice = runtime.slice_marker(idx)
-    let placeholder = case engine {
-      model.PostgreSQL -> "$" <> int.to_string(idx)
-      model.SQLite -> "?" <> int.to_string(idx)
-      model.MySQL -> "?"
-    }
+    let placeholder =
+      runtime.render_placeholder(model.placeholder_style(engine), idx)
     current_sql
     |> string.replace(param, placeholder)
     |> string.replace(slice, placeholder)
