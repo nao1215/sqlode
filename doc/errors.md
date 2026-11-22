@@ -197,3 +197,7 @@ A generated file or its directory could not be written. The message names the pa
 ## SQD5004
 
 `vendor_runtime: true` is set, but the `sqlode/runtime` source to copy was not found. Add sqlode as a dependency (`gleam add sqlode`) so its source is under `build/packages`, or turn `vendor_runtime` off.
+
+## SQD5005
+
+A table, column or parameter name does not turn into a Gleam name, usually because it is written in a script without Latin letters (`名前`). Generated types, fields and labels use ASCII letters, digits and `_`. Rename it in the schema, or give the result column an ASCII alias with `AS` in the query.
