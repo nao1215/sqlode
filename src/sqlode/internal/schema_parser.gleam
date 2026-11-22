@@ -1027,46 +1027,27 @@ fn apply_ddl_action(
       ))
     AlterDropColumn(table_name:, column_name:) ->
       Ok(#(
-        list.map(tables, fn(t) {
-          case string.lowercase(t.name) == string.lowercase(table_name) {
-            True ->
-              model.Table(
-                ..t,
-                columns: list.filter(t.columns, fn(c) {
-                  string.lowercase(c.name) != string.lowercase(column_name)
-                }),
-              )
-            False -> t
-          }
+        rewrite_table(tables, table_name, fn(t) {
+          model.Table(
+            ..t,
+            columns: list.filter(t.columns, fn(c) {
+              string.lowercase(c.name) != string.lowercase(column_name)
+            }),
+          )
         }),
         enums,
       ))
     AlterRenameTable(old_name:, new_name:) ->
       Ok(#(
-        list.map(tables, fn(t) {
-          case string.lowercase(t.name) == string.lowercase(old_name) {
-            True -> model.Table(..t, name: string.lowercase(new_name))
-            False -> t
-          }
+        rewrite_table(tables, old_name, fn(t) {
+          model.Table(..t, name: string.lowercase(new_name))
         }),
         enums,
       ))
     AlterRenameColumn(table_name:, old_name:, new_name:) ->
       Ok(#(
-        list.map(tables, fn(t) {
-          case string.lowercase(t.name) == string.lowercase(table_name) {
-            True ->
-              model.Table(
-                ..t,
-                columns: list.map(t.columns, fn(c) {
-                  case string.lowercase(c.name) == string.lowercase(old_name) {
-                    True -> model.Column(..c, name: string.lowercase(new_name))
-                    False -> c
-                  }
-                }),
-              )
-            False -> t
-          }
+        rewrite_column(tables, table_name, old_name, fn(c) {
+          model.Column(..c, name: string.lowercase(new_name))
         }),
         enums,
       ))
@@ -1134,43 +1115,15 @@ fn apply_ddl_action(
     }
     AlterColumnSetNotNull(table_name:, column_name:) ->
       Ok(#(
-        list.map(tables, fn(t) {
-          case string.lowercase(t.name) == string.lowercase(table_name) {
-            True ->
-              model.Table(
-                ..t,
-                columns: list.map(t.columns, fn(c) {
-                  case
-                    string.lowercase(c.name) == string.lowercase(column_name)
-                  {
-                    True -> model.Column(..c, nullable: False)
-                    False -> c
-                  }
-                }),
-              )
-            False -> t
-          }
+        rewrite_column(tables, table_name, column_name, fn(c) {
+          model.Column(..c, nullable: False)
         }),
         enums,
       ))
     AlterColumnDropNotNull(table_name:, column_name:) ->
       Ok(#(
-        list.map(tables, fn(t) {
-          case string.lowercase(t.name) == string.lowercase(table_name) {
-            True ->
-              model.Table(
-                ..t,
-                columns: list.map(t.columns, fn(c) {
-                  case
-                    string.lowercase(c.name) == string.lowercase(column_name)
-                  {
-                    True -> model.Column(..c, nullable: True)
-                    False -> c
-                  }
-                }),
-              )
-            False -> t
-          }
+        rewrite_column(tables, table_name, column_name, fn(c) {
+          model.Column(..c, nullable: True)
         }),
         enums,
       ))
@@ -1210,26 +1163,37 @@ fn token_keyword_text(token: lexer.Token) -> String {
 /// leaving all other columns and tables untouched. Used by every ALTER
 /// path that rewrites a single column in place so the per-action code
 /// does not repeat the table/column-walking boilerplate.
+/// Apply `update` to the table named `table_name` (case-insensitive).
+fn rewrite_table(
+  tables: List(model.Table),
+  table_name: String,
+  update: fn(model.Table) -> model.Table,
+) -> List(model.Table) {
+  list.map(tables, fn(t) {
+    case string.lowercase(t.name) == string.lowercase(table_name) {
+      True -> update(t)
+      False -> t
+    }
+  })
+}
+
+/// Apply `update` to one column of one table (both case-insensitive).
 fn rewrite_column(
   tables: List(model.Table),
   table_name: String,
   column_name: String,
   update: fn(model.Column) -> model.Column,
 ) -> List(model.Table) {
-  list.map(tables, fn(t) {
-    case string.lowercase(t.name) == string.lowercase(table_name) {
-      True ->
-        model.Table(
-          ..t,
-          columns: list.map(t.columns, fn(c) {
-            case string.lowercase(c.name) == string.lowercase(column_name) {
-              True -> update(c)
-              False -> c
-            }
-          }),
-        )
-      False -> t
-    }
+  rewrite_table(tables, table_name, fn(t) {
+    model.Table(
+      ..t,
+      columns: list.map(t.columns, fn(c) {
+        case string.lowercase(c.name) == string.lowercase(column_name) {
+          True -> update(c)
+          False -> c
+        }
+      }),
+    )
   })
 }
 
