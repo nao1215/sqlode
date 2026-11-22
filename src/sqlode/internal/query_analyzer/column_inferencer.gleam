@@ -429,15 +429,15 @@ fn augment_with_subquery_tables(
   catalog: model.Catalog,
 ) -> Result(model.Catalog, AnalysisError) {
   let values = extract_values_tables(tokens)
-  let with_values = augment_catalog_with(catalog, values)
+  let with_values = context.with_virtual_tables(catalog, values)
   use derived <- result.try(extract_derived_tables(
     query_name,
     tokens,
     with_values,
   ))
-  let with_derived = augment_catalog_with(with_values, derived)
+  let with_derived = context.with_virtual_tables(with_values, derived)
   let aliases = extract_table_aliases(tokens, with_derived)
-  Ok(augment_catalog_with(with_derived, aliases))
+  Ok(context.with_virtual_tables(with_derived, aliases))
 }
 
 /// Pick the scope the resolver should use: the inner FROM tables if any,
@@ -497,7 +497,7 @@ fn parse_cte_defs(
         [lexer.Keyword("as"), lexer.LParen, ..after_as_lp] -> {
           let #(body, after_body) =
             token_utils.collect_paren_contents(after_as_lp)
-          let augmented = augment_catalog_with(catalog, acc)
+          let augmented = context.with_virtual_tables(catalog, acc)
           use cols <- result.try(infer_columns_from_tokens(
             query_name,
             body,
@@ -573,20 +573,6 @@ fn rename_columns(
       ),
       ..rename_columns(rest_cols, rest_names)
     ]
-  }
-}
-
-fn augment_catalog_with(
-  catalog: model.Catalog,
-  vtables: List(model.Table),
-) -> model.Catalog {
-  case vtables {
-    [] -> catalog
-    _ ->
-      model.Catalog(
-        tables: list.append(catalog.tables, vtables),
-        enums: catalog.enums,
-      )
   }
 }
 

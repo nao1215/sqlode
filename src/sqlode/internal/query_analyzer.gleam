@@ -56,13 +56,13 @@ fn analyze_query(
         catalog,
       )
   })
-  let with_ctes = merge_virtual_tables(catalog, cte_tables)
+  let with_ctes = context.with_virtual_tables(catalog, cte_tables)
   let values_tables = case stmt {
     query_ir.UnstructuredStmt(..) ->
       column_inferencer.extract_values_tables(tokens)
     _ -> column_inferencer.extract_values_tables_from_stmt(stmt)
   }
-  let with_values = merge_virtual_tables(with_ctes, values_tables)
+  let with_values = context.with_virtual_tables(with_ctes, values_tables)
   use derived_tables <- result.try(case stmt {
     query_ir.UnstructuredStmt(..) ->
       column_inferencer.extract_derived_tables(query.name, tokens, with_values)
@@ -74,7 +74,7 @@ fn analyze_query(
         with_values,
       )
   })
-  let with_derived = merge_virtual_tables(with_values, derived_tables)
+  let with_derived = context.with_virtual_tables(with_values, derived_tables)
   // Register `FROM table AS alias` / `JOIN table AS alias` aliases so
   // qualified refs like `p.user_id` in a query that writes
   // `FROM posts AS p` resolve to `posts`. This is the single hook
@@ -85,7 +85,7 @@ fn analyze_query(
       column_inferencer.extract_table_aliases(tokens, with_derived)
     _ -> column_inferencer.extract_table_aliases_from_stmt(stmt, with_derived)
   }
-  let augmented = merge_virtual_tables(with_derived, alias_tables)
+  let augmented = context.with_virtual_tables(with_derived, alias_tables)
 
   let occurrences = placeholder.extract(ctx, engine, tokens)
   use params <- result.try(build_params(
@@ -135,20 +135,6 @@ fn rewrite_embed_sql(
         )
       model.ParsedQuery(..query, sql: rewritten_sql)
     }
-  }
-}
-
-fn merge_virtual_tables(
-  catalog: model.Catalog,
-  vtables: List(model.Table),
-) -> model.Catalog {
-  case vtables {
-    [] -> catalog
-    _ ->
-      model.Catalog(
-        tables: list.append(catalog.tables, vtables),
-        enums: catalog.enums,
-      )
   }
 }
 
