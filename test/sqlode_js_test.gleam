@@ -47,6 +47,10 @@ pub fn main() {
   runtime_test.param_marker_round_trips_for_index_one_test()
   runtime_test.slice_marker_round_trips_for_index_one_test()
   runtime_test.nullable_encodes_some_and_none_test()
+  runtime_test.prepare_panics_on_slice_index_outside_param_count_test()
+  runtime_test.prepare_panics_on_negative_slice_length_test()
+  runtime_test.prepare_panics_on_negative_param_count_test()
+  runtime_test.prepare_accepts_zero_param_count_test()
 
-  io.println("All 15 runtime tests passed on the JavaScript target.")
+  io.println("All 19 runtime tests passed on the JavaScript target.")
 }

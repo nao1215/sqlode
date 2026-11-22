@@ -181,6 +181,28 @@ pub fn nullable_encodes_some_and_none_test() {
   runtime.nullable(None, runtime.String) |> should.equal(runtime.Null)
 }
 
+pub fn prepare_panics_on_slice_index_outside_param_count_test() {
+  rescue(fn() { expand("x", [#(2, 1)], 1, runtime.DollarNumbered) })
+  |> should.equal(Error(Nil))
+  rescue(fn() { expand("x", [#(0, 1)], 1, runtime.DollarNumbered) })
+  |> should.equal(Error(Nil))
+}
+
+pub fn prepare_panics_on_negative_slice_length_test() {
+  rescue(fn() { expand("x", [#(1, -1)], 1, runtime.DollarNumbered) })
+  |> should.equal(Error(Nil))
+}
+
+pub fn prepare_panics_on_negative_param_count_test() {
+  rescue(fn() { expand("x", [], -1, runtime.DollarNumbered) })
+  |> should.equal(Error(Nil))
+}
+
+pub fn prepare_accepts_zero_param_count_test() {
+  rescue(fn() { expand("SELECT 1", [], 0, runtime.DollarNumbered) })
+  |> should.equal(Ok(Nil))
+}
+
 fn expand(
   sql: String,
   slices: List(#(Int, Int)),
@@ -199,3 +221,7 @@ fn expand(
     )
   runtime.prepare(query, Nil).0
 }
+
+@external(erlang, "runtime_test_ffi", "rescue")
+@external(javascript, "./runtime_test_ffi.mjs", "rescue")
+fn rescue(f: fn() -> a) -> Result(Nil, Nil)

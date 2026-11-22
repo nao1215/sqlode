@@ -147,8 +147,9 @@ pub type RawQuery(p) {
 ///
 /// ## Panics
 ///
-/// Panics when `slice_info` returns an index outside `1..param_count` or a
-/// negative length. Generated code never does.
+/// Panics when `param_count` is negative, or when `slice_info` returns an
+/// index outside `1..param_count` or a negative length. Generated code
+/// never does.
 ///
 pub fn prepare(query: RawQuery(p), params: p) -> #(String, List(Value)) {
   let values = query.encode(params)
@@ -213,9 +214,9 @@ fn expand_slice_placeholders(
         False -> dict.insert(lengths, slice.0, slice.1)
       }
     })
-  let replacements = case total_params < 1 {
-    True -> dict.new()
-    False -> {
+  let replacements = case total_params {
+    0 -> dict.new()
+    _ -> {
       let #(_, replacements) =
         int.range(
           from: 1,
@@ -263,9 +264,19 @@ fn expand_slice_placeholders(
   replace_markers(sql, replacements)
 }
 
-// A wrong slice would leave a marker in the SQL or drop a placeholder, and
-// the database would then report a syntax error far from the cause.
+// A negative count or a wrong slice would leave a marker in the SQL or drop a
+// placeholder, and the database would then report a syntax error far from
+// the cause.
 fn check_slices(slices: List(#(Int, Int)), total_params: Int) -> Nil {
+  case total_params < 0 {
+    True ->
+      panic as {
+        "sqlode/runtime.prepare: param_count must be >= 0 (got "
+        <> int.to_string(total_params)
+        <> ")"
+      }
+    False -> Nil
+  }
   list.each(slices, fn(slice) {
     let #(index, length) = slice
     case length < 0, index < 1 || index > total_params {
