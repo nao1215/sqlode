@@ -2759,3 +2759,15 @@ pub fn non_ascii_result_column_is_rejected_test() {
   )
   |> should.be_true
 }
+
+// A `..` the path resolution cannot fold away (the config sits in a
+// relative directory) used to reach the generated imports as
+// `import fixtures/../../db/params`, which does not parse.
+pub fn out_path_with_parent_segment_is_rejected_test() {
+  generate.validate_out_path("fixtures/../../test_output/db")
+  |> should.equal(
+    Error(generate.InvalidOutPath("fixtures/../../test_output/db")),
+  )
+  generate.validate_out_path("src/db") |> should.equal(Ok(Nil))
+  generate.validate_out_path("/abs/project/src/db") |> should.equal(Ok(Nil))
+}

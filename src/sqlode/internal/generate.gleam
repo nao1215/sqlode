@@ -801,10 +801,15 @@ fn find_column_rename(
   })
 }
 
+/// The generated modules import each other by `out`'s module path, so
+/// it must not be absolute or relative, and must not keep a `..`
+/// segment that the path resolution could not fold away.
 pub fn validate_out_path(out: String) -> Result(Nil, GenerateError) {
   let module_path = common.out_to_module_path(out)
   case
-    string.starts_with(module_path, "/") || string.starts_with(module_path, ".")
+    string.starts_with(module_path, "/")
+    || string.starts_with(module_path, ".")
+    || list.contains(string.split(module_path, "/"), "..")
   {
     True -> Error(InvalidOutPath(path: out))
     False -> Ok(Nil)
