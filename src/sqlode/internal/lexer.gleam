@@ -599,7 +599,7 @@ fn is_sql_keyword(word: String) -> Bool {
       // SELECT contexts. The DDL paths that legitimately need to
       // recognise it (`CREATE TYPE`, `DROP TYPE`,
       // `ALTER COLUMN ... TYPE`, `ALTER COLUMN ... SET DATA TYPE`)
-      // pattern-match on `Ident("type")` instead. (#479)
+      // pattern-match on `Ident("type")` instead.
       "index"
     | "alter"
     | "add"
@@ -691,7 +691,7 @@ fn is_sql_keyword(word: String) -> Bool {
     | "array"
     | "of"
     | "collate"
-    | // Issue #513: SQLite / MySQL conflict-resolution keywords
+    | // SQLite / MySQL conflict-resolution keywords
       // (`INSERT OR IGNORE`, `INSERT OR ABORT`, `INSERT OR FAIL`,
       // MySQL's bare `INSERT IGNORE`). Without these the surrounding
       // `INSERT` / `OR` / `INTO` lowercase via the `Keyword` token

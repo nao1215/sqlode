@@ -1,3 +1,8 @@
+//// The sqlode command-line tool. Run `gleam run -m sqlode -- --help`.
+////
+//// Code that `sqlode generate` writes imports `sqlode/runtime`.
+////
+
 import argv
 import gleam/io
 import gleam/list
@@ -5,6 +10,7 @@ import gleam/string
 import glint
 import sqlode/cli
 
+/// Runs the command line tool.
 pub fn main() -> Nil {
   // glint.run prints both error diagnostics and explicitly-requested
   // help text via stdout. POSIX/CLIG convention is the opposite —
@@ -22,7 +28,7 @@ pub fn main() -> Nil {
   // `command not found` diagnostic into a class-specific message
   // (`unrecognized option '--xyz'`, `missing subcommand`, etc.) so
   // the user sees the actual failure mode instead of a misleading
-  // `127`-style "binary not found" reading. (#465, #466)
+  // `127`-style "binary not found" reading.
   let args = join_flag_values(argv.load().arguments)
   case glint.execute(cli.app(), args) {
     Error(message) -> {
@@ -54,7 +60,7 @@ fn join_flag_values(args: List(String)) -> List(String) {
 /// Replace glint's generic `command not found` snag with a
 /// class-specific diagnostic that names the actual failure mode.
 /// Pure so the test suite can pin every branch without spawning
-/// the binary. (#466)
+/// the binary.
 @internal
 pub fn rewrite_error(args: List(String), original: String) -> String {
   case string.contains(original, "command not found") {

@@ -289,12 +289,15 @@ fn render_adapter_function(
     False -> ""
   }
 
-  let #(return_type, body) = case query.base.command {
-    runtime.One | runtime.BatchOne ->
+  // nolint: assert_ok_pattern -- generate rejects unsupported annotations first
+  let assert Ok(command) = model.generated_command(query.base.command)
+    as "generate rejects unsupported annotations before codegen"
+  let #(return_type, body) = case command {
+    runtime.One ->
       render_row_body(ctx, query, "Option", config.render_one_result())
-    runtime.Many | runtime.BatchMany ->
+    runtime.Many ->
       render_row_body(ctx, query, "List", config.render_many_result())
-    runtime.Exec | runtime.ExecResult | runtime.BatchExec | runtime.CopyFrom -> #(
+    runtime.Exec | runtime.ExecResult -> #(
       "Nil",
       list.append(
         config.render_query_call("decode.success(Nil)", query.params),
@@ -654,13 +657,13 @@ fn render_first_or_default(
 /// Emit a `gleam/option` import line tailored to what the generated
 /// adapter actually references. The `Option` type is needed
 /// whenever any param / result column is nullable or whenever any
-/// query is `One` / `BatchOne` (the wrapper returns
+/// query is `One` (the wrapper returns
 /// `Option(Row)`); the `None` / `Some` constructors are only
-/// referenced by the `One` / `BatchOne` row-list match
+/// referenced by the `One` row-list match
 /// (`[row, ..] -> Some(row)` / `[] -> None`). Pulling unused
 /// constructors into the import trips `gleam build`'s unused-import
 /// warnings under `warnings_as_errors`, which downstream users
-/// cannot fix because the file is `// DO NOT EDIT`. (#463)
+/// cannot fix because the file is `// DO NOT EDIT`.
 fn adapter_option_import(queries: List(model.AnalyzedQuery)) -> List(String) {
   let needs_type = adapter_needs_option_type(queries)
   let needs_constructors = adapter_needs_option_constructors(queries)
@@ -702,5 +705,5 @@ fn adapter_needs_option_constructors(
 }
 
 fn adapter_query_uses_option_constructors(query: model.AnalyzedQuery) -> Bool {
-  query.base.command == runtime.One || query.base.command == runtime.BatchOne
+  model.generated_command(query.base.command) == Ok(runtime.One)
 }

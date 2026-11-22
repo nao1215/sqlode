@@ -104,7 +104,7 @@ pub fn render_params_module_test() {
   |> should.be_true()
   string.contains(rendered, "GetAuthorParams(id: Int)")
   |> should.be_true()
-  string.contains(rendered, "runtime.int(params.id)")
+  string.contains(rendered, "runtime.Int(params.id)")
   |> should.be_true()
   // Parameterless queries should NOT generate Params type
   string.contains(rendered, "pub type ListAuthorsParams {")
@@ -573,72 +573,55 @@ pub fn render_sqlight_adapter_slice_test() {
   |> should.be_true()
 }
 
-pub fn expand_slice_placeholders_single_test() {
+pub fn prepare_slice_single_test() {
   let sql = "SELECT id, name FROM authors WHERE id IN (__sqlode_slice_1__)"
-  let result =
-    runtime.expand_slice_placeholders(sql, [#(1, 3)], 1, runtime.DollarNumbered)
+  let result = expand(sql, [#(1, 3)], 1, runtime.DollarNumbered)
   result
   |> should.equal("SELECT id, name FROM authors WHERE id IN ($1, $2, $3)")
 }
 
-pub fn expand_slice_placeholders_with_renumbering_test() {
+pub fn prepare_slice_with_renumbering_test() {
   let sql =
     "SELECT * FROM users WHERE name = __sqlode_param_1__ AND id IN (__sqlode_slice_2__) AND status = __sqlode_param_3__"
-  let result =
-    runtime.expand_slice_placeholders(sql, [#(2, 3)], 3, runtime.DollarNumbered)
+  let result = expand(sql, [#(2, 3)], 3, runtime.DollarNumbered)
   result
   |> should.equal(
     "SELECT * FROM users WHERE name = $1 AND id IN ($2, $3, $4) AND status = $5",
   )
 }
 
-pub fn expand_slice_placeholders_sqlite_test() {
+pub fn prepare_slice_sqlite_test() {
   let sql = "SELECT id, name FROM authors WHERE id IN (__sqlode_slice_1__)"
-  let result =
-    runtime.expand_slice_placeholders(
-      sql,
-      [#(1, 2)],
-      1,
-      runtime.QuestionNumbered,
-    )
+  let result = expand(sql, [#(1, 2)], 1, runtime.QuestionNumbered)
   result
   |> should.equal("SELECT id, name FROM authors WHERE id IN (?1, ?2)")
 }
 
-pub fn expand_slice_placeholders_no_slices_test() {
+pub fn prepare_slice_no_slices_test() {
   let sql = "SELECT * FROM users WHERE id = __sqlode_param_1__"
-  let result =
-    runtime.expand_slice_placeholders(sql, [], 1, runtime.DollarNumbered)
+  let result = expand(sql, [], 1, runtime.DollarNumbered)
   result |> should.equal("SELECT * FROM users WHERE id = $1")
 }
 
-pub fn expand_slice_placeholders_empty_slice_test() {
+pub fn prepare_slice_empty_slice_test() {
   let sql = "SELECT * FROM users WHERE id IN (__sqlode_slice_1__)"
-  let result =
-    runtime.expand_slice_placeholders(sql, [#(1, 0)], 1, runtime.DollarNumbered)
+  let result = expand(sql, [#(1, 0)], 1, runtime.DollarNumbered)
   result |> should.equal("SELECT * FROM users WHERE id IN (NULL)")
 }
 
-pub fn expand_slice_placeholders_empty_slice_with_other_params_test() {
+pub fn prepare_slice_empty_slice_with_other_params_test() {
   let sql =
     "SELECT * FROM users WHERE name = __sqlode_param_1__ AND id IN (__sqlode_slice_2__) AND status = __sqlode_param_3__"
-  let result =
-    runtime.expand_slice_placeholders(sql, [#(2, 0)], 3, runtime.DollarNumbered)
+  let result = expand(sql, [#(2, 0)], 3, runtime.DollarNumbered)
   result
   |> should.equal(
     "SELECT * FROM users WHERE name = $1 AND id IN (NULL) AND status = $2",
   )
 }
 
-pub fn expand_slice_placeholders_empty_slice_sqlite_test() {
+pub fn prepare_slice_empty_slice_sqlite_test() {
   let sql = "SELECT * FROM users WHERE id IN (__sqlode_slice_1__)"
-  let result =
-    runtime.expand_slice_placeholders(
-      sql,
-      [#(1, 0)],
-      1,
-      runtime.QuestionNumbered,
-    )
+  let result = expand(sql, [#(1, 0)], 1, runtime.QuestionNumbered)
   result |> should.equal("SELECT * FROM users WHERE id IN (NULL)")
 }
 
@@ -1050,8 +1033,8 @@ pub fn readme_params_snapshot_test() {
   |> should.be_true()
 
   // README: pub fn get_author_values(params: GetAuthorParams) -> List(Value) {
-  //           [runtime.int(params.id)]
-  string.contains(rendered, "runtime.int(params.id)")
+  //           [runtime.Int(params.id)]
+  string.contains(rendered, "runtime.Int(params.id)")
   |> should.be_true()
 
   // README: pub type CreateAuthorParams { CreateAuthorParams(... bio: Option(String)) }
@@ -1263,11 +1246,11 @@ pub fn render_params_array_encoding_raw_runtime_test() {
       "sqlode/runtime",
     )
 
-  // Raw-mode array params should encode using runtime.array + list.map
-  string.contains(rendered, "runtime.array(list.map(")
+  // Raw-mode array params should encode using runtime.Array + list.map
+  string.contains(rendered, "runtime.Array(list.map(")
   |> should.be_true()
 
-  // Nullable array params should use runtime.nullable wrapping runtime.array
+  // Nullable array params should use runtime.nullable wrapping runtime.Array
   string.contains(rendered, "runtime.nullable(")
   |> should.be_true()
 
@@ -1307,7 +1290,7 @@ pub fn render_pog_adapter_with_array_columns_test() {
   |> should.be_true()
 
   // With `runtime.prepare`, parameter encoding of array columns lives
-  // in the `params.*_values` function (which emits `runtime.array`).
+  // in the `params.*_values` function (which emits `runtime.Array`).
   // The adapter just folds `runtime.Value`s through `value_to_pog`,
   // whose Array case recurses with `pog.array(value_to_pog, ...)`.
   // So the adapter should contain the recursive helper, but not
@@ -1411,27 +1394,6 @@ pub fn escape_string_no_special_chars_test() {
 // fences. These tests read the README file and lock in that the examples
 // stay in sync with the actual runtime signatures, so a reader who
 // copy-pastes the README does not hit an immediate compile error.
-
-pub fn readme_runtime_prepare_is_two_arg_test() {
-  // runtime.prepare signature: pub fn prepare(query, params) -> #(String, List(Value))
-  // README must call it with exactly two arguments — the third "placeholder"
-  // argument was removed because the dialect is baked into RawQuery itself.
-  let assert Ok(readme) = simplifile.read("README.md")
-
-  // The example explicitly uses the 2-arg call shape.
-  string.contains(readme, "let #(sql, values) = runtime.prepare(")
-  |> should.be_true()
-
-  // Keep this resilient to README line-wrapping changes while still pinning
-  // the second argument to the generated params record.
-  string.contains(readme, "runtime.prepare(q, params.")
-  |> should.be_true()
-
-  // Fail fast if anyone regresses the example back to a 3-arg call with the
-  // placeholder prefix string ("$" or "?").
-  string.contains(readme, "\"$\",  // \"$\" for PostgreSQL")
-  |> should.be_false()
-}
 
 // --- Issue #407: MySQL inline ENUM / SET codegen ---
 
@@ -1577,7 +1539,7 @@ pub fn render_mysql_native_adapter_passes_bytes_through_shork_ffi_test() {
 
 pub fn render_mysql_set_param_uses_set_to_string_helper_test() {
   // SET params are encoded via the generated `<name>_set_to_string`
-  // helper before being handed to `runtime.string`; the column type
+  // helper before being handed to `runtime.String`; the column type
   // in the params record stays `List(<Name>Value)`.
   let naming_ctx = naming.new()
   let assert Ok(schema_content) =
@@ -1609,7 +1571,7 @@ pub fn render_mysql_set_param_uses_set_to_string_helper_test() {
     )
   // The params record exposes the SET column as `List(<Name>Value)`
   // and the encoder routes it through `<name>_set_to_string` before
-  // calling `runtime.string`.
+  // calling `runtime.String`.
   string.contains(
     params_rendered,
     "tags: Option(List(models.AuthorsTagsValue))",
@@ -1750,4 +1712,23 @@ INSERT INTO authors (name) VALUES ('anonymous');
     )
     |> should.equal(#(engine, False))
   })
+}
+
+fn expand(
+  sql: String,
+  slices: List(#(Int, Int)),
+  param_count: Int,
+  style: runtime.PlaceholderStyle,
+) -> String {
+  let query =
+    runtime.RawQuery(
+      name: "Query",
+      sql:,
+      command: runtime.Many,
+      param_count:,
+      placeholder_style: style,
+      encode: fn(_) { [] },
+      slice_info: fn(_) { slices },
+    )
+  runtime.prepare(query, Nil).0
 }

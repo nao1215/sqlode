@@ -35,7 +35,7 @@ pub type AnalysisError {
 /// PostgreSQL, `?1` / `CAST(? AS INTEGER)` for SQLite, `?1` /
 /// `CAST(? AS SIGNED)` for MySQL — so the suggested fix in the
 /// error message is something the user can paste into their query
-/// without further translation. (#473)
+/// without further translation.
 pub fn analysis_error_to_string(
   error: AnalysisError,
   engine: model.Engine,

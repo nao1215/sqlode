@@ -59,7 +59,7 @@ fn map_insert_columns(
       //     The placeholder still consumes a position in the SQL
       //     parameter list, so without this match the placeholder
       //     index would silently drift for every parameter that
-      //     follows. (#477)
+      //     follows.
       let value_placeholder = case value_tokens {
         [lexer.Placeholder(p)] -> Some(p)
         [
@@ -160,7 +160,7 @@ pub fn infer_equality_params(
 }
 
 // ============================================================
-// IR-based equality walker (Issue #406)
+// IR-based equality walker
 // ============================================================
 
 /// Walk a parsed `Stmt` in source order and emit an `EqualityMatch`
@@ -486,7 +486,7 @@ fn normalize_table_qualifier(table: Option(String)) -> Option(String) {
 }
 
 // ============================================================
-// IR-based IN / quantified walker (Issue #406)
+// IR-based IN / quantified walker
 // ============================================================
 
 /// A placeholder bound to a column: by a comparison, by
@@ -747,7 +747,7 @@ fn scan_token_matches(
                 matching_tables: matching_tables,
               ))
             Ok(Some(#(_table, column))) ->
-              // Issue #512: a placeholder bound by `col <op> ?`
+              // A placeholder bound by `col <op> ?`
               // (equality, comparison, LIKE/ILIKE) or by `col IN (?)`
               // can never meaningfully be `NULL` on the wire.
               //
@@ -951,7 +951,7 @@ fn cast_type_to_scalar(type_name: String) -> Result(model.ScalarType, Nil) {
 }
 
 // ============================================================
-// LIMIT / OFFSET integer context (Issue #491)
+// LIMIT / OFFSET integer context
 // ============================================================
 
 /// Extract placeholder type hints from SQL contexts that the spec
@@ -961,7 +961,7 @@ fn cast_type_to_scalar(type_name: String) -> Result(model.ScalarType, Nil) {
 /// Used as a complement to `extract_type_casts` so callers can write
 /// `LIMIT sqlode.arg(lim)` / `OFFSET sqlode.arg(off)` without an
 /// explicit cast on engines like SQLite that cannot infer the type
-/// from a bare `?` (Issue #491).
+/// from a bare `?`.
 ///
 /// Implementation note: this works at the token level rather than the
 /// IR, because the IR's `Param.index` is `0` for SQLite anonymous `?`

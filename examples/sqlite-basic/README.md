@@ -3,8 +3,7 @@
 A minimal runnable sqlode example that targets SQLite with the
 native `sqlight` adapter.
 
-The full walkthrough lives in
-[`doc/tutorials/getting-started-sqlite.md`](../../doc/tutorials/getting-started-sqlite.md).
+The [README Quickstart](../../README.md#quickstart) walks through the same setup.
 
 ## Layout
 

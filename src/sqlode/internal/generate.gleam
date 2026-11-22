@@ -684,7 +684,7 @@ fn gleam_type_to_scalar(
       let #(module, type_name) = parse_module_qualified_type(gleam_type)
       // Suppress the transparent-alias warning when the user supplied
       // explicit codec hooks — that's the documented escape hatch for
-      // opaque domain types (issue #529). Without hooks, keep the
+      // opaque domain types. Without hooks, keep the
       // existing warning so users aren't surprised when the generated
       // code calls primitive encoders directly on a wrapped value.
       let warning = case codec {
@@ -724,7 +724,7 @@ fn parse_module_qualified_type(
 /// generated record / function head compiles. Single occurrences are
 /// untouched, so existing queries that reference each column once
 /// keep their names. Public so the test suite can pin the rule
-/// without going through the full generate pipeline. (#472)
+/// without going through the full generate pipeline.
 @internal
 pub fn disambiguate_param_names(
   queries: List(model.AnalyzedQuery),

@@ -86,8 +86,8 @@ pub fn validate_unsupported_annotations(
   }
   case list.find_map(queries, unsupported) {
     Ok(#(q, alternative)) -> {
-      let command = model.query_command_annotation(q.base.command)
-      let alternative = model.query_command_annotation(alternative)
+      let command = model.annotation_text(q.base.command)
+      let alternative = model.annotation_text(model.Command(alternative))
       Error(UnsupportedAnnotation(
         query_name: q.base.name,
         command: command,
@@ -176,7 +176,11 @@ fn slice_inside_quantifier(tokens: List(lexer.Token)) -> Bool {
 pub fn validate_native_annotations(
   queries: List(model.AnalyzedQuery),
 ) -> Result(Nil, ValidationError) {
-  case list.find(queries, fn(q) { q.base.command == runtime.ExecResult }) {
+  case
+    list.find(queries, fn(q) {
+      q.base.command == model.Command(runtime.ExecResult)
+    })
+  {
     Ok(q) ->
       Error(UnsupportedAnnotation(
         query_name: q.base.name,

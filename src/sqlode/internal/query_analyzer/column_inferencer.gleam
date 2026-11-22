@@ -293,7 +293,7 @@ fn infer_columns_from_tokens_scoped(
       // DELETE target table) — never against other tables that
       // happen to appear in the same statement (CTE inputs, INSERT..
       // SELECT source tables, alias virtual tables). Without this
-      // restriction, fixture 4 in Issue #393 sees `id` reported as
+      // restriction, a query with a CTE over `posts` sees `id` reported as
       // ambiguous across `posts`, `audit_log` and `changed_posts`.
       let dml_target = detect_dml_target(tokens)
       let scope_tables = case dml_target {
@@ -328,7 +328,7 @@ fn infer_columns_from_tokens_scoped(
         // No FROM clause — try to infer columns directly from the
         // SELECT-list expressions (scalar function calls, literals,
         // etc.). This covers `SELECT last_insert_rowid() AS id;`-style
-        // queries (Issue #492) that were previously dropped to an
+        // queries that were previously dropped to an
         // empty `Ok([])` and produced a broken adapter / missing row
         // type pair downstream.
         [] -> infer_table_less_columns(query_name, main_tokens2, augmented)
@@ -860,7 +860,7 @@ fn parse_derived_alias(
 }
 
 // ============================================================
-// IR-driven virtual-table scope (Issue #406)
+// IR-driven virtual-table scope
 //
 // These four `*_from_stmt` helpers drive table / alias / derived-
 // table / CTE scope from the expression-aware IR produced by
@@ -868,9 +868,8 @@ fn parse_derived_alias(
 // stream. `query_analyzer.analyze_query` dispatches to them when
 // the parser returns a structured `Stmt`; it falls back to the
 // token-based extractors above when the parser hits an IR gap
-// (`UnstructuredStmt`), mirroring the defensive pattern PRs #412
-// and #413 used for equality / IN / quantified parameter
-// inference.
+// (`UnstructuredStmt`), as equality / IN / quantified parameter
+// inference does.
 //
 // For CTE bodies and derived-table subquery bodies, the IR
 // extractors delegate to the existing token-based body inference
@@ -1390,8 +1389,7 @@ fn infer_expression_type_any_path(
   table_names: List(String),
   query_name: String,
 ) -> Result(#(model.ScalarType, Bool), AnalysisError) {
-  // Engine threading through column inference is tracked by Issue #406;
-  // passing PostgreSQL here is a temporary default and only affects
+  // Column inference does not know the engine yet; passing PostgreSQL here is a temporary default and only affects
   // engine-specific subquery LIMIT parsing, which is not reached today.
   let ir_expr = expr_parser.parse_expr(tokens, model.PostgreSQL)
   case ir_expr {
@@ -1481,7 +1479,7 @@ fn infer_expression_type_token_path(
     [lexer.Keyword("replace"), lexer.LParen, ..] ->
       Ok(#(model.StringType, False))
 
-    // --- SQL function calls (now Ident tokens after #319) ---
+    // --- SQL function calls (Ident tokens) ---
     [lexer.Ident(fn_name), lexer.LParen, ..rest] -> {
       let lowered = string.lowercase(fn_name)
       case type_inference.classify_function(lowered) {
@@ -2220,7 +2218,7 @@ fn resolve_column_type_from_tokens(
 }
 
 // ============================================================
-// Token-based extraction (Phase 3 of #203)
+// Token-based extraction
 // ============================================================
 
 /// Strip compound operators (UNION, INTERSECT, EXCEPT) at depth 0.

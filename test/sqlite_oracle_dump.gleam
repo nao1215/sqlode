@@ -19,6 +19,7 @@ import argv
 import gleam/int
 import gleam/io
 import gleam/list
+import gleam/result
 import gleam/string
 import simplifile
 import sqlode/internal/model
@@ -83,12 +84,21 @@ fn has_slice(macros: List(model.Macro)) -> Bool {
 
 fn line(query: model.AnalyzedQuery) -> String {
   let sql =
-    runtime.expand_slice_placeholders(
-      query.base.sql,
-      [],
-      query.base.param_count,
-      runtime.QuestionNumbered,
-    )
+    runtime.prepare(
+      runtime.RawQuery(
+        name: query.base.name,
+        sql: query.base.sql,
+        command: result.unwrap(
+          model.generated_command(query.base.command),
+          runtime.Exec,
+        ),
+        param_count: query.base.param_count,
+        placeholder_style: runtime.QuestionNumbered,
+        encode: fn(_) { [] },
+        slice_info: fn(_) { [] },
+      ),
+      Nil,
+    ).0
     |> string.replace("\n", " ")
     |> string.replace("\t", " ")
   let columns =

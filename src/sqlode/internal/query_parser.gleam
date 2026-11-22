@@ -42,7 +42,7 @@ type PendingQuery {
   PendingQuery(
     name: String,
     function_name: String,
-    command: runtime.QueryCommand,
+    command: model.Annotation,
     start_line: Int,
     body_rev: List(String),
   )
@@ -228,7 +228,7 @@ fn finalize_ok(
   parsed_rev: List(query_ir.TokenizedQuery),
   name name: String,
   function_name function_name: String,
-  command command: runtime.QueryCommand,
+  command command: model.Annotation,
   path path: String,
   tokens tokens: List(lexer.Token),
   macros macros: List(model.Macro),
@@ -279,7 +279,7 @@ fn parse_annotation(
             // Validate the command; an unrecognized command is still an error.
             True -> {
               use command <- result.try(
-                model.parse_query_command(command_text)
+                model.parse_annotation(command_text)
                 |> result.map_error(fn(detail) {
                   InvalidAnnotation(path:, line: line_number, detail:)
                 }),

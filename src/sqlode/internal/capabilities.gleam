@@ -16,9 +16,9 @@
 //// false impression to public users.
 
 import gleam/list
+import gleam/result
 import gleam/string
 import sqlode/internal/model
-import sqlode/runtime
 
 pub fn supported_engines() -> List(model.Engine) {
   [model.PostgreSQL, model.MySQL, model.SQLite]
@@ -35,18 +35,18 @@ pub fn supported_type_mappings() -> List(model.TypeMapping) {
 /// Query annotations that are fully supported end-to-end: parsing,
 /// analysis, and code generation all complete without the
 /// `validate_unsupported_annotations` guard rejecting them.
-pub fn fully_supported_query_commands() -> List(runtime.QueryCommand) {
-  list.filter(model.query_commands(), fn(command) {
-    model.unsupported_command_alternative(command) == Error(Nil)
+pub fn fully_supported_query_commands() -> List(model.Annotation) {
+  list.filter(model.annotations(), fn(annotation) {
+    result.is_ok(model.generated_command(annotation))
   })
 }
 
 /// Query annotations that the parser accepts for sqlc source
 /// compatibility but that generation currently refuses with an
 /// `UnsupportedAnnotation` error.
-fn planned_query_commands() -> List(runtime.QueryCommand) {
-  list.filter(model.query_commands(), fn(command) {
-    model.unsupported_command_alternative(command) != Error(Nil)
+fn planned_query_commands() -> List(model.Annotation) {
+  list.filter(model.annotations(), fn(annotation) {
+    result.is_error(model.generated_command(annotation))
   })
 }
 
@@ -170,19 +170,18 @@ pub fn manifest_markdown() -> String {
       "",
       bullet_list(
         list.map(fully_supported_query_commands(), fn(command) {
-          "- `" <> model.query_command_annotation(command) <> "`"
+          "- `" <> model.annotation_text(command) <> "`"
         }),
       ),
       "",
       "### Parsed but rejected at generation time",
       "",
-      "These annotations exist in sqlc and are still parseable in",
-      "`.sql` files, but sqlode currently refuses to emit code for",
-      "them. See `validate_unsupported_annotations` in `generate.gleam`.",
+      "sqlc has these annotations. sqlode reads them and stops generation",
+      "with an error.",
       "",
       bullet_list(
         list.map(planned_query_commands(), fn(command) {
-          "- `" <> model.query_command_annotation(command) <> "`"
+          "- `" <> model.annotation_text(command) <> "`"
         }),
       ),
       "",

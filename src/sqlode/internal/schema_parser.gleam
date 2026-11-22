@@ -11,7 +11,7 @@ import sqlode/internal/query_analyzer/token_utils
 pub type ParseError {
   InvalidCreateTable(path: String, detail: String)
   InvalidColumn(path: String, table: String, detail: String)
-  /// Issue #419: emitted when a MySQL schema file contains a DDL
+  /// Emitted when a MySQL schema file contains a DDL
   /// statement sqlode does not yet understand, instead of silently
   /// dropping it on the floor. The detail names the leading
   /// keywords of the offending statement so the user can tell at a
@@ -189,7 +189,7 @@ fn split_token_statements(
 
 /// Check if a token list represents a CREATE TYPE ... AS ENUM statement.
 /// `type` arrives as `Ident(_)` (case-preserving) because the lexer no
-/// longer treats `type` as a keyword (#479) — `type` is a common
+/// longer treats `type` as a keyword — `type` is a common
 /// column name and reserving it tripped legitimate SELECT queries.
 /// The case-insensitive guard is needed because `Ident` preserves the
 /// original spelling, unlike `Keyword` which the lexer normalises to
@@ -451,7 +451,7 @@ fn infer_view_expression_type(
     // SQL syntax keywords
     [lexer.Keyword("cast"), lexer.LParen, ..rest] -> infer_cast_type(rest)
 
-    // SQL function calls (now Ident tokens after #319)
+    // SQL function calls (Ident tokens)
     [lexer.Ident(fn_name), lexer.LParen, ..rest] -> {
       let lowered = string.lowercase(fn_name)
       case lowered {
@@ -688,7 +688,7 @@ fn parse_statement_tokens(
 type UnknownStatementKind {
   DestructiveDDL(DDLAction)
   SilentlyIgnored
-  /// Issue #419: surfaced when a MySQL schema file contains a DDL
+  /// Surfaced when a MySQL schema file contains a DDL
   /// shape sqlode does not yet model. The detail is a short summary
   /// (the leading keywords) used directly in the user-facing error.
   UnsupportedMysql(detail: String)
@@ -764,7 +764,7 @@ fn classify_unknown_statement(
 
     _ ->
       case engine {
-        // Issue #419: MySQL schema files that contain DDL we do not
+        // MySQL schema files that contain DDL we do not
         // (yet) understand now surface an actionable error instead
         // of being silently dropped on the floor. PostgreSQL /
         // SQLite keep the legacy permissive behaviour — extending
@@ -969,7 +969,7 @@ fn extract_alter_type_tokens(tokens: List(lexer.Token)) -> List(lexer.Token) {
   case tokens {
     [] -> []
     // `type` arrives as `Ident(_)` (case-preserving) because the
-    // lexer no longer reserves it as a keyword (#479).
+    // lexer no longer reserves it as a keyword.
     [lexer.Ident(t), ..rest] ->
       case string.lowercase(t) {
         "type" -> take_until_using(rest, [])
@@ -1496,7 +1496,7 @@ type InlineEnumDetection {
 /// The name synthesis rule is `<lowercased_table>_<column>`, which
 /// lets two tables carry columns with overlapping value sets without
 /// colliding. For SET the column resolves to `StringType` (the
-/// documented fallback per Issue #407) but the values are still
+/// documented fallback) but the values are still
 /// preserved in the catalog for future native SET support.
 fn detect_mysql_inline_enum_set(
   type_toks: List(lexer.Token),

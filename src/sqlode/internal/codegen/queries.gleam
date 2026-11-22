@@ -39,7 +39,7 @@ pub fn render(
   // constructs the params record inline and returns the pair that
   // Gleam database drivers consume directly — collapsing the
   // three-step "descriptor + params constructor + runtime.prepare"
-  // composition into a single call at the use site (Issue #394).
+  // composition into a single call at the use site.
   let prepare_functions =
     queries
     |> list.map(render_prepare_function(naming_ctx, _, gleam.type_mapping))
@@ -180,6 +180,9 @@ fn render_query_function(
 ) -> String {
   let has_params = !list.is_empty(query.params)
 
+  // nolint: assert_ok_pattern -- generate rejects unsupported annotations first
+  let assert Ok(command) = model.generated_command(query.base.command)
+    as "generate rejects unsupported annotations before codegen"
   let comment = case emit_sql_as_comment {
     True -> ["// SQL: " <> query.base.sql]
     False -> []
@@ -228,9 +231,7 @@ fn render_query_function(
         "  runtime.RawQuery(",
         "    name: \"" <> common.escape_string(query.base.name) <> "\",",
         "    sql: \"" <> common.escape_string(query.base.sql) <> "\",",
-        "    command: runtime."
-          <> model.query_command_to_string(query.base.command)
-          <> ",",
+        "    command: runtime." <> model.query_command_to_string(command) <> ",",
         "    param_count: " <> int.to_string(query.base.param_count) <> ",",
         "    placeholder_style: " <> style_expr <> ",",
         encode_line,
@@ -271,7 +272,7 @@ fn render_prepare_function(
     params -> {
       // Emit same-name labels (`id id: Int`) so the call site can use
       // `prepare_create_session(project: "p", note: "n", ...)` while
-      // remaining callable positionally for legacy callers (#554).
+      // remaining callable positionally for legacy callers.
       let arg_list =
         params
         |> list.map(fn(p) {
@@ -325,17 +326,8 @@ fn param_arg_type(
 }
 
 fn has_result_columns(query: model.AnalyzedQuery) -> Bool {
-  case query.base.command {
-    runtime.One | runtime.Many -> !list.is_empty(query.result_columns)
-    runtime.Exec
-    | runtime.ExecResult
-    | runtime.ExecRows
-    | runtime.ExecLastId
-    | runtime.BatchOne
-    | runtime.BatchMany
-    | runtime.BatchExec
-    | runtime.CopyFrom -> False
-  }
+  model.is_result_command(query.base.command)
+  && !list.is_empty(query.result_columns)
 }
 
 fn render_decoder_function(
@@ -392,12 +384,15 @@ fn render_query_info_literal(
   engine: model.Engine,
 ) -> String {
   let sql = resolve_static_placeholders(query.sql, query.param_count, engine)
+  // nolint: assert_ok_pattern -- generate rejects unsupported annotations first
+  let assert Ok(command) = model.generated_command(query.command)
+    as "generate rejects unsupported annotations before codegen"
   "runtime.QueryInfo(name: \""
   <> common.escape_string(query.name)
   <> "\", sql: \""
   <> common.escape_string(sql)
   <> "\", command: runtime."
-  <> model.query_command_to_string(query.command)
+  <> model.query_command_to_string(command)
   <> ", param_count: "
   <> int.to_string(query.param_count)
   <> ")"

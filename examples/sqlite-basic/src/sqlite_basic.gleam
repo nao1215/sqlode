@@ -8,8 +8,8 @@
 //// With those modules in place, `gleam test` runs the end-to-end flow from
 //// `test/sqlite_basic_test.gleam`.
 ////
-//// See `doc/tutorials/getting-started-sqlite.md` in the sqlode repository
-//// for the full walkthrough.
+//// See the sqlode README for the full walkthrough:
+//// https://github.com/nao1215/sqlode#quickstart
 
 import gleam/io
 

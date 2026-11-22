@@ -46,57 +46,59 @@ pub fn parse_runtime_invalid_test() {
   model.parse_runtime("fast") |> should.be_error()
 }
 
-// parse_query_command tests
+// parse_annotation tests
 
-pub fn parse_query_command_one_test() {
-  model.parse_query_command(":one") |> should.equal(Ok(runtime.One))
+pub fn parse_annotation_one_test() {
+  model.parse_annotation(":one") |> should.equal(Ok(model.Command(runtime.One)))
 }
 
-pub fn parse_query_command_many_test() {
-  model.parse_query_command(":many") |> should.equal(Ok(runtime.Many))
+pub fn parse_annotation_many_test() {
+  model.parse_annotation(":many")
+  |> should.equal(Ok(model.Command(runtime.Many)))
 }
 
-pub fn parse_query_command_exec_test() {
-  model.parse_query_command(":exec") |> should.equal(Ok(runtime.Exec))
+pub fn parse_annotation_exec_test() {
+  model.parse_annotation(":exec")
+  |> should.equal(Ok(model.Command(runtime.Exec)))
 }
 
-pub fn parse_query_command_execresult_test() {
-  model.parse_query_command(":execresult")
-  |> should.equal(Ok(runtime.ExecResult))
+pub fn parse_annotation_execresult_test() {
+  model.parse_annotation(":execresult")
+  |> should.equal(Ok(model.Command(runtime.ExecResult)))
 }
 
-pub fn parse_query_command_execrows_test() {
-  model.parse_query_command(":execrows")
-  |> should.equal(Ok(runtime.ExecRows))
+pub fn parse_annotation_execrows_test() {
+  model.parse_annotation(":execrows")
+  |> should.equal(Ok(model.Command(runtime.ExecRows)))
 }
 
-pub fn parse_query_command_execlastid_test() {
-  model.parse_query_command(":execlastid")
-  |> should.equal(Ok(runtime.ExecLastId))
+pub fn parse_annotation_execlastid_test() {
+  model.parse_annotation(":execlastid")
+  |> should.equal(Ok(model.Command(runtime.ExecLastId)))
 }
 
-pub fn parse_query_command_batchone_test() {
-  model.parse_query_command(":batchone")
-  |> should.equal(Ok(runtime.BatchOne))
+pub fn parse_annotation_batchone_test() {
+  model.parse_annotation(":batchone")
+  |> should.equal(Ok(model.BatchOne))
 }
 
-pub fn parse_query_command_batchmany_test() {
-  model.parse_query_command(":batchmany")
-  |> should.equal(Ok(runtime.BatchMany))
+pub fn parse_annotation_batchmany_test() {
+  model.parse_annotation(":batchmany")
+  |> should.equal(Ok(model.BatchMany))
 }
 
-pub fn parse_query_command_batchexec_test() {
-  model.parse_query_command(":batchexec")
-  |> should.equal(Ok(runtime.BatchExec))
+pub fn parse_annotation_batchexec_test() {
+  model.parse_annotation(":batchexec")
+  |> should.equal(Ok(model.BatchExec))
 }
 
-pub fn parse_query_command_copyfrom_test() {
-  model.parse_query_command(":copyfrom")
-  |> should.equal(Ok(runtime.CopyFrom))
+pub fn parse_annotation_copyfrom_test() {
+  model.parse_annotation(":copyfrom")
+  |> should.equal(Ok(model.CopyFrom))
 }
 
-pub fn parse_query_command_invalid_test() {
-  model.parse_query_command(":select") |> should.be_error()
+pub fn parse_annotation_invalid_test() {
+  model.parse_annotation(":select") |> should.be_error()
 }
 
 // engine_to_string tests
@@ -190,7 +192,7 @@ pub fn custom_type_delegates_to_underlying_test() {
   let custom =
     model.CustomType("UserId", option.None, model.IntType, option.None)
   type_mapping.scalar_type_to_runtime_function(custom)
-  |> should.equal("runtime.int")
+  |> should.equal("runtime.Int")
   type_mapping.scalar_type_to_db_name(custom) |> should.equal("int")
   type_mapping.scalar_type_to_decoder(model.PostgreSQL, custom)
   |> should.equal("decode.int")
@@ -200,17 +202,17 @@ pub fn custom_type_delegates_to_underlying_test() {
 
 pub fn scalar_type_to_runtime_function_test() {
   type_mapping.scalar_type_to_runtime_function(model.IntType)
-  |> should.equal("runtime.int")
+  |> should.equal("runtime.Int")
   type_mapping.scalar_type_to_runtime_function(model.FloatType)
-  |> should.equal("runtime.float")
+  |> should.equal("runtime.Float")
   type_mapping.scalar_type_to_runtime_function(model.BoolType)
-  |> should.equal("runtime.bool")
+  |> should.equal("runtime.Bool")
   type_mapping.scalar_type_to_runtime_function(model.StringType)
-  |> should.equal("runtime.string")
+  |> should.equal("runtime.String")
   type_mapping.scalar_type_to_runtime_function(model.BytesType)
-  |> should.equal("runtime.bytes")
+  |> should.equal("runtime.Bytes")
   type_mapping.scalar_type_to_runtime_function(model.EnumType("status"))
-  |> should.equal("runtime.string")
+  |> should.equal("runtime.String")
 }
 
 // parse_type_mapping tests
@@ -628,4 +630,15 @@ pub fn type_mapping_set_renders_as_list_of_value_test() {
     model.StringMapping,
   )
   |> should.equal("List(ItemsTagsValue)")
+}
+
+pub fn generated_command_rejects_unsupported_annotations_test() {
+  model.generated_command(model.Command(runtime.Many))
+  |> should.equal(Ok(runtime.Many))
+  model.generated_command(model.BatchOne) |> should.equal(Error(Nil))
+  model.generated_command(model.CopyFrom) |> should.equal(Error(Nil))
+  model.unsupported_command_alternative(model.BatchExec)
+  |> should.equal(Ok(runtime.Exec))
+  model.unsupported_command_alternative(model.Command(runtime.One))
+  |> should.equal(Error(Nil))
 }

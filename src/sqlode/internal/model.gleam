@@ -195,81 +195,97 @@ pub fn placeholder_style_name(style: runtime.PlaceholderStyle) -> String {
   }
 }
 
+/// The `:command` written after `-- name: Query`. The batch and copy
+/// forms come from sqlc: the parser reads them so generation can stop
+/// with an error that names the annotation to use instead.
+pub type Annotation {
+  Command(runtime.QueryCommand)
+  BatchOne
+  BatchMany
+  BatchExec
+  CopyFrom
+}
+
 /// Every query annotation, in the order the docs and errors list them.
-pub fn query_commands() -> List(runtime.QueryCommand) {
+pub fn annotations() -> List(Annotation) {
   [
-    runtime.One,
-    runtime.Many,
-    runtime.Exec,
-    runtime.ExecResult,
-    runtime.ExecRows,
-    runtime.ExecLastId,
-    runtime.BatchOne,
-    runtime.BatchMany,
-    runtime.BatchExec,
-    runtime.CopyFrom,
+    Command(runtime.One),
+    Command(runtime.Many),
+    Command(runtime.Exec),
+    Command(runtime.ExecResult),
+    Command(runtime.ExecRows),
+    Command(runtime.ExecLastId),
+    BatchOne,
+    BatchMany,
+    BatchExec,
+    CopyFrom,
   ]
 }
 
 /// The annotation as written after `-- name: Query`.
-pub fn query_command_annotation(command: runtime.QueryCommand) -> String {
-  case command {
-    runtime.One -> ":one"
-    runtime.Many -> ":many"
-    runtime.Exec -> ":exec"
-    runtime.ExecResult -> ":execresult"
-    runtime.ExecRows -> ":execrows"
-    runtime.ExecLastId -> ":execlastid"
-    runtime.BatchOne -> ":batchone"
-    runtime.BatchMany -> ":batchmany"
-    runtime.BatchExec -> ":batchexec"
-    runtime.CopyFrom -> ":copyfrom"
+pub fn annotation_text(annotation: Annotation) -> String {
+  case annotation {
+    Command(runtime.One) -> ":one"
+    Command(runtime.Many) -> ":many"
+    Command(runtime.Exec) -> ":exec"
+    Command(runtime.ExecResult) -> ":execresult"
+    Command(runtime.ExecRows) -> ":execrows"
+    Command(runtime.ExecLastId) -> ":execlastid"
+    BatchOne -> ":batchone"
+    BatchMany -> ":batchmany"
+    BatchExec -> ":batchexec"
+    CopyFrom -> ":copyfrom"
+  }
+}
+
+/// The command generated code uses, or `Error(Nil)` for an annotation
+/// that generation does not support.
+pub fn generated_command(
+  annotation: Annotation,
+) -> Result(runtime.QueryCommand, Nil) {
+  case annotation {
+    Command(command) -> Ok(command)
+    BatchOne | BatchMany | BatchExec | CopyFrom -> Error(Nil)
+  }
+}
+
+/// The supported command to suggest in place of an unsupported
+/// annotation, or `Error(Nil)` when the annotation is supported.
+pub fn unsupported_command_alternative(
+  annotation: Annotation,
+) -> Result(runtime.QueryCommand, Nil) {
+  case annotation {
+    Command(_) -> Error(Nil)
+    BatchOne -> Ok(runtime.One)
+    BatchMany -> Ok(runtime.Many)
+    BatchExec | CopyFrom -> Ok(runtime.Exec)
   }
 }
 
 /// Whether the query returns rows.
-pub fn is_result_command(command: runtime.QueryCommand) -> Bool {
-  case command {
-    runtime.One | runtime.Many | runtime.BatchOne | runtime.BatchMany -> True
-    runtime.Exec
-    | runtime.ExecResult
-    | runtime.ExecRows
-    | runtime.ExecLastId
-    | runtime.BatchExec
-    | runtime.CopyFrom -> False
+pub fn is_result_command(annotation: Annotation) -> Bool {
+  case annotation {
+    Command(runtime.One) | Command(runtime.Many) | BatchOne | BatchMany -> True
+    Command(runtime.Exec)
+    | Command(runtime.ExecResult)
+    | Command(runtime.ExecRows)
+    | Command(runtime.ExecLastId)
+    | BatchExec
+    | CopyFrom -> False
   }
 }
 
-/// The annotation to use instead when generation does not support
-/// `command` yet: the parser accepts these for sqlc compatibility.
-pub fn unsupported_command_alternative(
-  command: runtime.QueryCommand,
-) -> Result(runtime.QueryCommand, Nil) {
-  case command {
-    runtime.BatchOne -> Ok(runtime.One)
-    runtime.BatchMany -> Ok(runtime.Many)
-    runtime.BatchExec | runtime.CopyFrom -> Ok(runtime.Exec)
-    runtime.One
-    | runtime.Many
-    | runtime.Exec
-    | runtime.ExecResult
-    | runtime.ExecRows
-    | runtime.ExecLastId -> Error(Nil)
-  }
-}
-
-pub fn parse_query_command(
-  value: String,
-) -> Result(runtime.QueryCommand, String) {
-  list.find(query_commands(), fn(command) {
-    query_command_annotation(command) == value
+pub fn parse_annotation(value: String) -> Result(Annotation, String) {
+  list.find(annotations(), fn(annotation) {
+    annotation_text(annotation) == value
   })
   |> result.replace_error(
     "must be one of: "
-    <> string.join(list.map(query_commands(), query_command_annotation), ", "),
+    <> string.join(list.map(annotations(), annotation_text), ", "),
   )
 }
 
+/// The `runtime.QueryCommand` variant name generated code refers to.
 pub fn query_command_to_string(command: runtime.QueryCommand) -> String {
   case command {
     runtime.One -> "One"
@@ -278,10 +294,6 @@ pub fn query_command_to_string(command: runtime.QueryCommand) -> String {
     runtime.ExecResult -> "ExecResult"
     runtime.ExecRows -> "ExecRows"
     runtime.ExecLastId -> "ExecLastId"
-    runtime.BatchOne -> "BatchOne"
-    runtime.BatchMany -> "BatchMany"
-    runtime.BatchExec -> "BatchExec"
-    runtime.CopyFrom -> "CopyFrom"
   }
 }
 
@@ -295,7 +307,7 @@ pub type ParsedQuery {
   ParsedQuery(
     name: String,
     function_name: String,
-    command: runtime.QueryCommand,
+    command: Annotation,
     sql: String,
     source_path: String,
     param_count: Int,
@@ -331,8 +343,8 @@ pub type ScalarType {
     module: option.Option(String),
     underlying: ScalarType,
     /// `Some` when the override that produced this `CustomType`
-    /// declared explicit `encode` / `decode` codec hooks (issue #529
-    /// — opaque domain types). When `Some`, `codegen/params.gleam`
+    /// declared explicit `encode` / `decode` codec hooks, as an opaque
+    /// domain type needs. When `Some`, `codegen/params.gleam`
     /// pipes the user value through `encode` before the underlying
     /// runtime encoder, and `codegen/adapter.gleam` composes the
     /// decoder under `decode.map(_, decode)`. When `None`, codegen

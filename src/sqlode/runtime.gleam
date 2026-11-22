@@ -1,195 +1,156 @@
+//// Values and query descriptors used by code that `sqlode generate` writes.
+////
+//// Generated modules import this module. Each query becomes a `RawQuery`
+//// whose SQL holds sqlode's own parameter markers. `prepare` turns a query
+//// and its parameters into SQL for the target database and the list of
+//// values to bind, so a custom adapter only has to hand both to its driver.
+////
+//// ```gleam
+//// let #(sql, values) = runtime.prepare(queries.get_author(), params)
+//// // sql: "SELECT id, name FROM authors WHERE id = $1"
+//// // values: [runtime.Int(1)]
+//// ```
+////
+
 import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
-import gleam/option
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 
+/// The `-- name: X :command` annotation of a query, which decides what the
+/// generated function returns.
+///
 pub type QueryCommand {
+  /// `:one`: at most one row.
   One
+  /// `:many`: a list of rows.
   Many
+  /// `:exec`: no rows.
   Exec
+  /// `:execresult`: the driver's result value.
   ExecResult
+  /// `:execrows`: the number of affected rows.
   ExecRows
+  /// `:execlastid`: the id of the last inserted row.
   ExecLastId
-  BatchOne
-  BatchMany
-  BatchExec
-  CopyFrom
 }
 
+/// A parameter value handed to the database driver.
+///
+/// Each variant is also a function, so an encoder can be passed where a
+/// `fn(a) -> Value` is expected, as in `list.map(ids, runtime.Int)`.
+///
 pub type Value {
+  /// SQL `NULL`.
   Null
+  /// A text value.
   String(String)
+  /// An integer.
   Int(Int)
+  /// A floating point number.
   Float(Float)
+  /// A boolean.
   Bool(Bool)
+  /// Binary data, such as a `BYTEA` or `BLOB` value.
   Bytes(BitArray)
+  /// A PostgreSQL array.
   Array(List(Value))
 }
 
-/// Lightweight metadata for a query, used by the generated `all()` function
-/// to list every query in a module without carrying encoder closures.
+/// The name, SQL and shape of a query, without its parameter encoder.
+/// Generated modules list every query as a `QueryInfo` in `all()`.
+///
 pub type QueryInfo {
-  QueryInfo(name: String, sql: String, command: QueryCommand, param_count: Int)
+  QueryInfo(
+    /// The name from `-- name:`.
+    name: String,
+    /// The SQL with placeholders rendered for the target database.
+    sql: String,
+    /// The query's annotation.
+    command: QueryCommand,
+    /// The number of parameters before any slice is expanded.
+    param_count: Int,
+  )
 }
 
-/// Placeholder style used by the target database driver.
-///
-/// SQLite accepts both `?1`-style and bare-`?`-style placeholders, so
-/// the engine column below marks both rows ✓ for sqlite. Pick the
-/// variant whose syntax matches the query strings your codegen — or
-/// hand-rolled SQL — actually emits.
+/// The placeholder syntax of the target database driver.
 ///
 /// | Variant              | Syntax        | PostgreSQL | MySQL | SQLite |
 /// | -------------------- | ------------- | ---------- | ----- | ------ |
 /// | `DollarNumbered`     | `$1`, `$2`, … | ✓          | —     | —      |
 /// | `QuestionNumbered`   | `?1`, `?2`, … | —          | —     | ✓      |
 /// | `QuestionPositional` | bare `?`      | —          | ✓     | ✓      |
+///
 pub type PlaceholderStyle {
-  /// PostgreSQL: `$1`, `$2`, … Indices are 1-based and explicit.
+  /// `$1`, `$2`, …, used by PostgreSQL.
   DollarNumbered
-  /// SQLite numbered form: `?1`, `?2`, … Indices are 1-based and
-  /// explicit. PostgreSQL and MySQL do not accept this syntax.
+  /// `?1`, `?2`, …, used by SQLite.
   QuestionNumbered
-  /// Bare `?` matched by position. Used by both MySQL and SQLite.
-  /// PostgreSQL does not accept this syntax.
+  /// A bare `?` per value, matched by position. Used by MySQL and SQLite.
   QuestionPositional
 }
 
-/// A typed raw query descriptor that bundles SQL metadata with its parameter
-/// encoder.  The type parameter `p` represents the parameter type for this
-/// query, which ties the query to its expected parameters at the type level.
+/// A query as `sqlode generate` emits it. The type parameter `p` is the
+/// parameter type the query takes.
 ///
-/// `placeholder_style` records the dialect the generator emitted the SQL
-/// for, so callers of `prepare` do not need to know or repeat the engine
-/// choice: they pass the query and parameters and get back a final SQL
-/// string already rendered for the target driver.
 pub type RawQuery(p) {
   RawQuery(
+    /// The name from `-- name:`.
     name: String,
+    /// The SQL with sqlode's parameter markers in place of placeholders.
     sql: String,
+    /// The query's annotation.
     command: QueryCommand,
+    /// The number of parameter markers in `sql`.
     param_count: Int,
+    /// The placeholder syntax `prepare` renders the markers in.
     placeholder_style: PlaceholderStyle,
+    /// Turns the parameters into the values to bind, in placeholder order.
     encode: fn(p) -> List(Value),
+    /// Returns `#(index, length)` for each `sqlode.slice` parameter: its
+    /// 1-based parameter index and how many values the list holds.
     slice_info: fn(p) -> List(#(Int, Int)),
   )
 }
 
-/// Construct a `RawQuery` directly. Behaviour is identical to
-/// invoking the `RawQuery(...)` constructor; the named helper exists
-/// so the intent ("this is a hand-rolled `RawQuery`, not codegen
-/// output") is obvious at the call site and discoverable via the
-/// docs.
+/// Encodes the parameters and renders the SQL in the query's placeholder
+/// style. Pass the returned SQL and values to the database driver.
 ///
-/// Use this helper when:
+/// A `sqlode.slice` parameter becomes one placeholder per list element,
+/// and an empty list becomes `NULL`, so `IN (...)` matches no rows.
 ///
-/// - using `sqlode/runtime` as a library, bypassing `sqlode generate`
-///   codegen for hand-rolled queries that live next to your handler
-///   code;
-/// - writing a custom adapter (in-memory test database, SQLite WASM
-///   shim, query-log middleware, ...) that needs to exercise
-///   `prepare(query, params)` against a hand-rolled `RawQuery`
-///   without running the codegen pipeline; or
-/// - writing property / regression tests for the runtime surface
-///   (`prepare`, `expand_slice_placeholders`) without regenerating
-///   fixtures every time.
+/// ## Examples
 ///
-/// Production callers who run codegen should keep using the
-/// `RawQuery` values `sqlode generate` produces from declarative SQL
-/// fixtures — they pin the SQL string and parameter shape next to the
-/// schema, which this helper does not.
-pub fn raw_query(
-  name name: String,
-  sql sql: String,
-  command command: QueryCommand,
-  param_count param_count: Int,
-  placeholder_style placeholder_style: PlaceholderStyle,
-  encode encode: fn(p) -> List(Value),
-  slice_info slice_info: fn(p) -> List(#(Int, Int)),
-) -> RawQuery(p) {
-  RawQuery(
-    name: name,
-    sql: sql,
-    command: command,
-    param_count: param_count,
-    placeholder_style: placeholder_style,
-    encode: encode,
-    slice_info: slice_info,
-  )
-}
-
-/// Thin wrapper around `raw_query/7` for hand-rolled queries that do
-/// not use slice-expanded `IN ($1)` placeholders. Forwards every
-/// labelled argument to `raw_query` and supplies
-/// `slice_info: fn(_) { [] }` so ad-hoc callers do not have to repeat
-/// the always-empty lambda at every call site.
+/// ```gleam
+/// let query =
+///   runtime.RawQuery(
+///     name: "ListBooks",
+///     sql: "SELECT id FROM books WHERE author_id = __sqlode_param_1__"
+///       <> " AND id IN (__sqlode_slice_2__)",
+///     command: runtime.Many,
+///     param_count: 2,
+///     placeholder_style: runtime.DollarNumbered,
+///     encode: fn(p: #(Int, List(Int))) {
+///       [runtime.Int(p.0), ..list.map(p.1, runtime.Int)]
+///     },
+///     slice_info: fn(p: #(Int, List(Int))) { [#(2, list.length(p.1))] },
+///   )
 ///
-/// Reach for `raw_query_simple` when:
+/// assert runtime.prepare(query, #(7, [1, 2]))
+///   == #(
+///     "SELECT id FROM books WHERE author_id = $1 AND id IN ($2, $3)",
+///     [runtime.Int(7), runtime.Int(1), runtime.Int(2)],
+///   )
+/// ```
 ///
-/// - writing a hand-rolled `INSERT` / `UPDATE` / `DELETE` or a fixed-
-///   shape `SELECT` whose SQL has zero slice markers; or
-/// - prototyping a query against `sqlode/runtime` as a library, before
-///   moving the SQL into a declarative fixture and regenerating
-///   through `sqlode generate`.
+/// ## Panics
 ///
-/// Keep using `raw_query/7` when the SQL contains slice-expanded
-/// `IN ($N)` placeholders — those queries need the real `slice_info`
-/// callback to expand at `prepare/2` time. `sqlode generate` codegen
-/// continues to emit `raw_query/7` (or the bare `RawQuery(...)`
-/// constructor) so this wrapper only affects ad-hoc callers.
-pub fn raw_query_simple(
-  name name: String,
-  sql sql: String,
-  command command: QueryCommand,
-  param_count param_count: Int,
-  placeholder_style placeholder_style: PlaceholderStyle,
-  encode encode: fn(p) -> List(Value),
-) -> RawQuery(p) {
-  raw_query(
-    name: name,
-    sql: sql,
-    command: command,
-    param_count: param_count,
-    placeholder_style: placeholder_style,
-    encode: encode,
-    slice_info: fn(_) { [] },
-  )
-}
-
-/// Deprecated alias for `raw_query/7`. The `_for_test` suffix
-/// discouraged library-mode callers from using the only sanctioned
-/// non-constructor path even though library use is exactly what the
-/// helper was built for. `raw_query/7` carries the same behaviour
-/// without the suffix.
-@deprecated("Use `runtime.raw_query` instead. The `_for_test` suffix discouraged library-mode callers even though library use is exactly what the helper was built for.")
-pub fn raw_query_for_test(
-  name name: String,
-  sql sql: String,
-  command command: QueryCommand,
-  param_count param_count: Int,
-  placeholder_style placeholder_style: PlaceholderStyle,
-  encode encode: fn(p) -> List(Value),
-  slice_info slice_info: fn(p) -> List(#(Int, Int)),
-) -> RawQuery(p) {
-  raw_query(
-    name: name,
-    sql: sql,
-    command: command,
-    param_count: param_count,
-    placeholder_style: placeholder_style,
-    encode: encode,
-    slice_info: slice_info,
-  )
-}
-
-/// Prepare a raw query for execution by encoding parameters and expanding
-/// the engine-agnostic placeholder markers that the generator emits. The
-/// target placeholder dialect is read from `query.placeholder_style`, so
-/// callers no longer need to pass a separate style argument.
-/// Returns the final SQL string and the flattened parameter values, ready
-/// to be passed to a database driver.
+/// Panics when `param_count` is negative, or when `slice_info` returns an
+/// index outside `1..param_count` or a negative length. Generated code
+/// never does.
+///
 pub fn prepare(query: RawQuery(p), params: p) -> #(String, List(Value)) {
   let values = query.encode(params)
   let slices = query.slice_info(params)
@@ -203,185 +164,49 @@ pub fn prepare(query: RawQuery(p), params: p) -> #(String, List(Value)) {
   #(sql, values)
 }
 
-pub fn null() -> Value {
-  Null
-}
-
-pub fn string(value: String) -> Value {
-  String(value)
-}
-
-pub fn int(value: Int) -> Value {
-  Int(value)
-}
-
-pub fn float(value: Float) -> Value {
-  Float(value)
-}
-
-pub fn bool(value: Bool) -> Value {
-  Bool(value)
-}
-
-pub fn bytes(value: BitArray) -> Value {
-  Bytes(value)
-}
-
-pub fn array(values: List(Value)) -> Value {
-  Array(values)
-}
-
-pub fn nullable(value: option.Option(a), encode: fn(a) -> Value) -> Value {
+/// Encodes `Some(x)` with `encode` and `None` as `Null`.
+///
+/// ## Examples
+///
+/// ```gleam
+/// assert runtime.nullable(Some("Ann"), runtime.String) == runtime.String("Ann")
+/// ```
+///
+/// ```gleam
+/// assert runtime.nullable(None, runtime.String) == runtime.Null
+/// ```
+///
+pub fn nullable(value: Option(a), encode: fn(a) -> Value) -> Value {
   case value {
-    option.Some(v) -> encode(v)
-    option.None -> Null
+    Some(v) -> encode(v)
+    None -> Null
   }
 }
 
-/// Marker prefix emitted by the generator for a regular `sqlode.arg` /
-/// `sqlode.narg` / `@name` parameter at the given **1-based** index.
-/// Rendered into the final placeholder at runtime by
-/// `expand_slice_placeholders`.
-///
-/// Panics with
-/// `"sqlode.runtime.param_marker: index must be >= 1 (1-based) (got <n>)"`
-/// when `index < 1`. The runtime expand step is keyed by 1-based positions,
-/// so a `0` or negative index would either round-trip to a syntactically
-/// broken SQL string or silently match an unrelated marker — both
-/// constitute SQL-shape bugs. Use `param_marker_checked/1` instead when
-/// the caller wants to surface the precondition as a `Result` (for
-/// example, in a custom adapter that accepts user-supplied indices).
+/// The marker the generator writes for parameter `index`, which starts at 1.
+@internal
 pub fn param_marker(index: Int) -> String {
-  case index < 1 {
-    True ->
-      panic as {
-        "sqlode.runtime.param_marker: index must be >= 1 (1-based) (got "
-        <> int.to_string(index)
-        <> ")"
-      }
-    False -> "__sqlode_param_" <> int.to_string(index) <> "__"
-  }
+  marker_prefix <> "param_" <> int.to_string(index) <> "__"
 }
 
-/// Marker prefix emitted by the generator for a `sqlode.slice` parameter at
-/// the given **1-based** index. Rendered into the expanded placeholder list
-/// at runtime by `expand_slice_placeholders`.
-///
-/// Panics with
-/// `"sqlode.runtime.slice_marker: index must be >= 1 (1-based) (got <n>)"`
-/// when `index < 1`. Same reasoning as `param_marker/1`. Use
-/// `slice_marker_checked/1` instead when the caller wants to surface the
-/// precondition as a `Result`.
+/// The marker the generator writes for slice parameter `index`, which
+/// starts at 1.
+@internal
 pub fn slice_marker(index: Int) -> String {
-  case index < 1 {
-    True ->
-      panic as {
-        "sqlode.runtime.slice_marker: index must be >= 1 (1-based) (got "
-        <> int.to_string(index)
-        <> ")"
-      }
-    False -> "__sqlode_slice_" <> int.to_string(index) <> "__"
-  }
+  marker_prefix <> "slice_" <> int.to_string(index) <> "__"
 }
 
-/// Why `param_marker_checked` / `slice_marker_checked` rejected its input.
-///
-/// - `MarkerIndexNonPositive` — the supplied `index` is `<= 0`. Marker
-///   indices are 1-based; values below `1` would either fail to round-trip
-///   through `expand_slice_placeholders` (leaving the literal marker in
-///   the SQL → runtime SQL syntax error) or silently match an unrelated
-///   marker (silent SQL-shape bug). Same precondition as the panicking
-///   `param_marker/1` / `slice_marker/1` constructors.
-pub type MarkerError {
-  MarkerIndexNonPositive(index: Int)
-}
-
-/// Like `param_marker/1`, but returns the precondition failure as a
-/// `Result` instead of panicking. Use this when `index` comes from a
-/// custom adapter or hand-rolled `RawQuery` and the caller wants to
-/// surface bookkeeping mistakes without crashing the process. Same
-/// reasoning as `expand_slice_placeholders_checked` (#546).
-///
-/// On success the returned string is identical to `param_marker(index)`.
-pub fn param_marker_checked(index: Int) -> Result(String, MarkerError) {
-  case index < 1 {
-    True -> Error(MarkerIndexNonPositive(index: index))
-    False -> Ok("__sqlode_param_" <> int.to_string(index) <> "__")
-  }
-}
-
-/// Like `slice_marker/1`, but returns the precondition failure as a
-/// `Result` instead of panicking. Same shape and reasoning as
-/// `param_marker_checked/1`.
-pub fn slice_marker_checked(index: Int) -> Result(String, MarkerError) {
-  case index < 1 {
-    True -> Error(MarkerIndexNonPositive(index: index))
-    False -> Ok("__sqlode_slice_" <> int.to_string(index) <> "__")
-  }
-}
-
-/// Render a parameter marker into the final engine-specific placeholder.
-///
-/// The generator emits `__sqlode_param_N__` / `__sqlode_slice_N__` in the SQL
-/// template regardless of the target engine. At runtime this function
-/// replaces each marker with the correct placeholder string (for example
-/// `$3` for PostgreSQL, `?3` for SQLite, `?` for MySQL) and expands slice
-/// markers to a comma-separated list sized by the caller-provided
-/// `slices`. Non-slice markers are renumbered sequentially across the
-/// whole SQL text so that slices that precede them shift their index.
-///
-/// Using markers instead of rewriting `prefix<>index` directly means
-/// placeholder-like text inside string literals or comments is never
-/// touched, and MySQL (which uses bare `?` rather than `?N`) works
-/// without special-casing the placeholder format.
-pub fn expand_slice_placeholders(
+// Replaces each marker with its placeholder. A slice marker becomes one
+// placeholder per element (or `NULL` for an empty list), and the plain
+// markers after it are renumbered to follow.
+fn expand_slice_placeholders(
   sql: String,
   slices: List(#(Int, Int)),
   total_params: Int,
   style: PlaceholderStyle,
 ) -> String {
-  case validate_slices_for_panic(slices, total_params) {
-    Ok(_) -> Nil
-    Error(SliceLengthNegative(index, length)) ->
-      panic as {
-        "sqlode.expand_slice_placeholders: slice length must be >= 0 (got index="
-        <> int.to_string(index)
-        <> ", length="
-        <> int.to_string(length)
-        <> ")"
-      }
-    Error(SliceIndexOutOfRange(index, total)) ->
-      panic as {
-        "sqlode.expand_slice_placeholders: slice index must be in 1.."
-        <> int.to_string(total)
-        <> " (got index="
-        <> int.to_string(index)
-        <> ", total_params="
-        <> int.to_string(total)
-        <> ")"
-      }
-    Error(TotalParamsNegative(total)) ->
-      panic as {
-        "sqlode.expand_slice_placeholders: total_params must be >= 0 (got "
-        <> int.to_string(total)
-        <> "). Use expand_slice_placeholders_checked for a Result-returning variant. (#565)"
-      }
-    // The four `_checked`-only variants (`EmptySlice`,
-    // `SliceStartNonPositive`, `SliceStartAfterParams`,
-    // `SliceLengthExceedsParams`) are produced exclusively by
-    // `validate_slices`, which `expand_slice_placeholders_checked`
-    // calls. The panicking path uses `validate_slices_for_panic`,
-    // whose return shape preserves the pre-#585 panic contract
-    // (length=0 collapses to NULL, not an error). These arms are
-    // therefore unreachable here but listed to keep the `case`
-    // total — the compiler enforces exhaustiveness even on
-    // values that the validator never returns on this path.
-    Error(EmptySlice(_))
-    | Error(SliceStartNonPositive(_))
-    | Error(SliceStartAfterParams(_, _))
-    | Error(SliceLengthExceedsParams(_, _, _)) -> Nil
-  }
-  // The first entry for an index wins, as `list.find` did.
+  check_slices(slices, total_params)
+  // The first entry for an index wins.
   let slice_lengths =
     list.fold(slices, dict.new(), fn(lengths, slice) {
       case dict.has_key(lengths, slice.0) {
@@ -389,51 +214,96 @@ pub fn expand_slice_placeholders(
         False -> dict.insert(lengths, slice.0, slice.1)
       }
     })
-  let #(_, replacements) =
-    int.range(
-      from: 1,
-      to: total_params + 1,
-      with: #(1, dict.new()),
-      run: fn(acc, orig_idx) {
-        let #(next_new_idx, replacements) = acc
-        case dict.get(slice_lengths, orig_idx) {
-          Ok(0) -> #(
-            next_new_idx,
-            dict.insert(replacements, slice_marker(orig_idx), "NULL"),
-          )
-          Ok(len) -> {
-            let expanded =
-              int.range(
-                from: next_new_idx,
-                to: next_new_idx + len,
-                with: [],
-                run: fn(items, i) { [render_placeholder(style, i), ..items] },
+  let replacements = case total_params {
+    0 -> dict.new()
+    _ -> {
+      let #(_, replacements) =
+        int.range(
+          from: 1,
+          to: total_params + 1,
+          with: #(1, dict.new()),
+          run: fn(acc, orig_idx) {
+            let #(next_new_idx, replacements) = acc
+            case dict.get(slice_lengths, orig_idx) {
+              Ok(0) -> #(
+                next_new_idx,
+                dict.insert(replacements, slice_marker(orig_idx), "NULL"),
               )
-              |> list.reverse
-              |> string.join(", ")
-            #(
-              next_new_idx + len,
-              dict.insert(replacements, slice_marker(orig_idx), expanded),
-            )
-          }
-          Error(Nil) -> #(
-            next_new_idx + 1,
-            dict.insert(
-              replacements,
-              param_marker(orig_idx),
-              render_placeholder(style, next_new_idx),
-            ),
-          )
-        }
-      },
-    )
+              Ok(len) -> {
+                let expanded =
+                  int.range(
+                    from: next_new_idx,
+                    to: next_new_idx + len,
+                    with: [],
+                    run: fn(items, i) {
+                      [render_placeholder(style, i), ..items]
+                    },
+                  )
+                  |> list.reverse
+                  |> string.join(", ")
+                #(
+                  next_new_idx + len,
+                  dict.insert(replacements, slice_marker(orig_idx), expanded),
+                )
+              }
+              Error(Nil) -> #(
+                next_new_idx + 1,
+                dict.insert(
+                  replacements,
+                  param_marker(orig_idx),
+                  render_placeholder(style, next_new_idx),
+                ),
+              )
+            }
+          },
+        )
+      replacements
+    }
+  }
 
   replace_markers(sql, replacements)
 }
 
-/// Replace every marker in `sql` that has an entry in `replacements`,
-/// in one pass over the string. A marker without an entry, or text
-/// that only starts like one, is left as it is.
+// A negative count or a wrong slice would leave a marker in the SQL or drop a
+// placeholder, and the database would then report a syntax error far from
+// the cause.
+fn check_slices(slices: List(#(Int, Int)), total_params: Int) -> Nil {
+  case total_params < 0 {
+    True ->
+      panic as {
+        "sqlode/runtime.prepare: param_count must be >= 0 (got "
+        <> int.to_string(total_params)
+        <> ")"
+      }
+    False -> Nil
+  }
+  list.each(slices, fn(slice) {
+    let #(index, length) = slice
+    case length < 0, index < 1 || index > total_params {
+      True, _ ->
+        panic as {
+          "sqlode/runtime.prepare: slice length must be >= 0 (got index="
+          <> int.to_string(index)
+          <> ", length="
+          <> int.to_string(length)
+          <> ")"
+        }
+      False, True ->
+        panic as {
+          "sqlode/runtime.prepare: slice index must be in 1.."
+          <> int.to_string(total_params)
+          <> " (got index="
+          <> int.to_string(index)
+          <> ")"
+        }
+      False, False -> Nil
+    }
+  })
+}
+
+// Replace every marker in `sql` that has an entry in `replacements`,
+// in one pass over the string. A marker without an entry, or text
+// that only starts like one, is left as it is.
 fn replace_markers(sql: String, replacements: Dict(String, String)) -> String {
   case string.split(sql, marker_prefix) {
     [] -> sql
@@ -455,9 +325,9 @@ fn replace_markers(sql: String, replacements: Dict(String, String)) -> String {
 
 const marker_prefix = "__sqlode_"
 
-/// Read `param_N__` or `slice_N__` at the start of `part`, the text
-/// after a `__sqlode_` prefix, and return the whole marker and the
-/// text after it.
+// Reads `param_N__` or `slice_N__` at the start of `part`, the text
+// after a `__sqlode_` prefix, and returns the whole marker and the
+// text after it.
 fn split_marker(part: String) -> Result(#(String, String), Nil) {
   let kind_and_rest = case part {
     "param_" <> rest -> Ok(#("param_", rest))
@@ -473,185 +343,13 @@ fn split_marker(part: String) -> Result(#(String, String), Nil) {
   }
 }
 
-/// The placeholder for parameter `index` in `style`. sqlode's code
-/// generator uses it too, so the SQL shown in `QueryInfo` matches what
-/// `prepare` sends.
+/// The placeholder for parameter `index` in `style`. The generator uses it
+/// so the SQL in `QueryInfo` matches what `prepare` sends.
 @internal
 pub fn render_placeholder(style: PlaceholderStyle, index: Int) -> String {
   case style {
     DollarNumbered -> "$" <> int.to_string(index)
     QuestionNumbered -> "?" <> int.to_string(index)
     QuestionPositional -> "?"
-  }
-}
-
-/// Why `expand_slice_placeholders_checked` rejected its input.
-///
-/// All `start` / `at_placeholder` values use the same **1-based**
-/// indexing convention as the marker constructors: `start = 1` refers
-/// to the first parameter slot, and the valid window for a `slices`
-/// entry `#(start, length)` is `start >= 1` and
-/// `start + length - 1 <= total_params`.
-///
-/// - `SliceLengthNegative` covers a `slices` entry whose `length` is
-///   negative. Lengths must be `>= 0`; a length of `0` is reported
-///   separately via `EmptySlice` (post-#585) so callers can branch on
-///   the empty case without conflating it with "negative".
-/// - `EmptySlice` covers a `slices` entry whose `length` is exactly
-///   `0`. Before #585 this either silently collapsed to `IN (NULL)` or
-///   surfaced as a misleading `SliceIndexOutOfRange(0, 0)` when paired
-///   with `total_params = 0`; the dedicated variant lets callers
-///   detect "the caller-supplied list was empty" without parsing the
-///   `total_params` field. `at_placeholder` is the 1-based slice index
-///   the empty entry was registered against.
-/// - `SliceStartNonPositive` covers a `slices` entry whose 1-based
-///   `start` is `< 1`. The marker constructors reject index 0 since
-///   #551, and the expand loop is keyed on `orig_idx >= 1`; a
-///   non-positive start can never bind to a real slot. (#585)
-/// - `SliceStartAfterParams` covers a `slices` entry whose `start`
-///   is greater than `total_params`. There is no parameter slot at
-///   that position for the loop to expand against. (#585)
-/// - `SliceLengthExceedsParams` covers a `slices` entry whose
-///   `start + length - 1` exceeds `total_params`. The slice would
-///   spill past the last parameter slot. (#585)
-/// - `SliceIndexOutOfRange` is the legacy umbrella variant kept for
-///   pre-#585 source compatibility. The validator no longer returns
-///   it; new code should pattern-match the four refined variants
-///   above. It remains a public member of `ExpandError` so existing
-///   `case` arms that still spell `SliceIndexOutOfRange(_, _)`
-///   continue to compile.
-/// - `TotalParamsNegative` covers a `total_params` that is below 0.
-///   Parameter counts cannot be negative; without this check the
-///   `int.range` loop in `expand_slice_placeholders` would call
-///   `param_marker(0)`, which panics post-#551. (#565)
-pub type ExpandError {
-  SliceLengthNegative(index: Int, length: Int)
-  SliceIndexOutOfRange(index: Int, total_params: Int)
-  TotalParamsNegative(total_params: Int)
-  EmptySlice(at_placeholder: Int)
-  SliceStartNonPositive(start: Int)
-  SliceStartAfterParams(start: Int, total: Int)
-  SliceLengthExceedsParams(start: Int, length: Int, total: Int)
-}
-
-/// Like `expand_slice_placeholders`, but returns the validation
-/// failure as a `Result` instead of panicking. Use this when `slices`
-/// or `total_params` come from a custom adapter / hand-rolled
-/// `RawQuery` and the caller wants to surface bookkeeping mistakes
-/// without crashing the process.
-///
-/// Validation rules follow a 1-based indexing convention: each
-/// `slices` entry `#(start, length)` is valid iff `start >= 1` and
-/// `start + length - 1 <= total_params`. A `length` of `0` is rejected
-/// as `EmptySlice` (post-#585); see the `ExpandError` doc-comment for
-/// the full failure taxonomy.
-///
-/// On success the returned string is identical to
-/// `expand_slice_placeholders(sql, slices, total_params, style)`.
-pub fn expand_slice_placeholders_checked(
-  sql: String,
-  slices: List(#(Int, Int)),
-  total_params: Int,
-  style: PlaceholderStyle,
-) -> Result(String, ExpandError) {
-  case total_params < 0 {
-    True -> Error(TotalParamsNegative(total_params: total_params))
-    False ->
-      case validate_slices(slices, total_params) {
-        Error(e) -> Error(e)
-        Ok(_) -> Ok(expand_slice_placeholders(sql, slices, total_params, style))
-      }
-  }
-}
-
-/// Strict validator used by `expand_slice_placeholders_checked`.
-///
-/// Produces one of the four post-#585 refined variants (`EmptySlice`,
-/// `SliceStartNonPositive`, `SliceStartAfterParams`,
-/// `SliceLengthExceedsParams`) in addition to the pre-existing
-/// `SliceLengthNegative` and `TotalParamsNegative`. The legacy
-/// `SliceIndexOutOfRange` variant is never produced here — it stays
-/// in the type purely for source compatibility.
-fn validate_slices(
-  slices: List(#(Int, Int)),
-  total_params: Int,
-) -> Result(Nil, ExpandError) {
-  case total_params < 0 {
-    True -> Error(TotalParamsNegative(total_params: total_params))
-    False -> validate_slice_entries(slices, total_params)
-  }
-}
-
-fn validate_slice_entries(
-  slices: List(#(Int, Int)),
-  total_params: Int,
-) -> Result(Nil, ExpandError) {
-  case slices {
-    [] -> Ok(Nil)
-    [#(idx, len), ..rest] ->
-      case len < 0 {
-        True -> Error(SliceLengthNegative(index: idx, length: len))
-        False ->
-          case len == 0 {
-            True -> Error(EmptySlice(at_placeholder: idx))
-            False ->
-              case idx < 1 {
-                True -> Error(SliceStartNonPositive(start: idx))
-                False ->
-                  case idx > total_params {
-                    True ->
-                      Error(SliceStartAfterParams(
-                        start: idx,
-                        total: total_params,
-                      ))
-                    False ->
-                      case idx + len - 1 > total_params {
-                        True ->
-                          Error(SliceLengthExceedsParams(
-                            start: idx,
-                            length: len,
-                            total: total_params,
-                          ))
-                        False -> validate_slice_entries(rest, total_params)
-                      }
-                  }
-              }
-          }
-      }
-  }
-}
-
-/// Lenient validator used by the panicking
-/// `expand_slice_placeholders`. Preserves the pre-#585 panic shape:
-/// `length = 0` is accepted (the expand loop collapses the slice to
-/// `IN (NULL)`), and any other invalid start/length combination is
-/// folded into the umbrella `SliceIndexOutOfRange` variant the panic
-/// message expects.
-fn validate_slices_for_panic(
-  slices: List(#(Int, Int)),
-  total_params: Int,
-) -> Result(Nil, ExpandError) {
-  case total_params < 0 {
-    True -> Error(TotalParamsNegative(total_params: total_params))
-    False -> validate_slice_entries_for_panic(slices, total_params)
-  }
-}
-
-fn validate_slice_entries_for_panic(
-  slices: List(#(Int, Int)),
-  total_params: Int,
-) -> Result(Nil, ExpandError) {
-  case slices {
-    [] -> Ok(Nil)
-    [#(idx, len), ..rest] ->
-      case len < 0 {
-        True -> Error(SliceLengthNegative(index: idx, length: len))
-        False ->
-          case idx < 1 || idx > total_params {
-            True ->
-              Error(SliceIndexOutOfRange(index: idx, total_params: total_params))
-            False -> validate_slice_entries_for_panic(rest, total_params)
-          }
-      }
   }
 }

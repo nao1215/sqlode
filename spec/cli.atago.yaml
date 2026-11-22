@@ -255,7 +255,7 @@ scenarios:
             path: generate-basic/src/db/params.gleam
             contains:
               - "GetAuthorParams(id: Int)"
-              - runtime.int(params.id)
+              - runtime.Int(params.id)
       - assert:
           file:
             path: generate-basic/src/db/queries.gleam

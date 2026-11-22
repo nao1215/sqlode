@@ -254,7 +254,7 @@ pub fn exec_result_command_test() {
     )
 
   let assert [query] = analyzed
-  query.base.command |> should.equal(runtime.ExecResult)
+  query.base.command |> should.equal(model.Command(runtime.ExecResult))
   query.result_columns |> should.equal([])
   query.base.param_count |> should.equal(1)
 }
@@ -275,7 +275,7 @@ pub fn exec_rows_command_test() {
     )
 
   let assert [query] = analyzed
-  query.base.command |> should.equal(runtime.ExecRows)
+  query.base.command |> should.equal(model.Command(runtime.ExecRows))
   query.result_columns |> should.equal([])
 }
 
@@ -290,7 +290,7 @@ pub fn exec_last_id_command_test() {
     query_analyzer.analyze_queries(model.MySQL, catalog, naming_ctx, queries)
 
   let assert [query] = analyzed
-  query.base.command |> should.equal(runtime.ExecLastId)
+  query.base.command |> should.equal(model.Command(runtime.ExecLastId))
   query.result_columns |> should.equal([])
 }
 
