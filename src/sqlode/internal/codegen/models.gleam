@@ -331,7 +331,7 @@ fn collect_rich_scalar_types(
   // a write-only query (`:exec`) whose table is pruned away by
   // `omit_unused_models` would reference `SqlUuid` / `SqlTimestamp`
   // in `params.gleam` / `queries.gleam` without the wrapper types
-  // being emitted from `models.gleam` — the core of Issue #446.
+  // being emitted from `models.gleam`.
   let param_types =
     queries
     |> list.flat_map(fn(query) {
@@ -379,7 +379,7 @@ fn needs_option_import_for_tables(catalog: model.Catalog) -> Bool {
 fn has_custom_types_in_results(queries: List(model.AnalyzedQuery)) -> Bool {
   // The transparent-alias warning only fires for custom types WITHOUT
   // codec hooks. A `CustomType(..., codec: Some(_))` is the documented
-  // opt-in escape hatch for opaque domain types (issue #529); it does
+  // opt-in escape hatch for opaque domain types; it does
   // not need the alias warning because the generated code routes the
   // value through the user's encode/decode pair.
   list.any(queries, fn(query) {

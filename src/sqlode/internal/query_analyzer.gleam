@@ -37,13 +37,13 @@ fn analyze_query(
   // parameter inference see them. Nested subqueries rediscover their
   // own VALUES / derived tables inside infer_columns_from_tokens_scoped.
   //
-  // Issue #406: drive the virtual-table classification from the
+  // Drive the virtual-table classification from the
   // expression-aware IR (`query_ir.Stmt`) instead of rescanning the
   // raw token stream. The parsed `Stmt` is the single source of
   // truth for WHICH virtual tables exist; when the parser produces
   // `UnstructuredStmt` (an IR gap), we fall back to the token-based
-  // extractors. This mirrors the dispatch pattern PRs #412 and #413
-  // established for equality / IN / quantified parameter inference.
+  // extractors, the same dispatch as equality / IN / quantified
+  // parameter inference.
   let stmt = expr_parser.parse_stmt(tokens, engine)
   use augmented <- result.try(case stmt {
     query_ir.UnstructuredStmt(..) ->
@@ -180,7 +180,7 @@ fn build_params(
   catalog: model.Catalog,
   occurrences: List(placeholder.PlaceholderOccurrence),
 ) -> Result(List(model.QueryParam), context.AnalysisError) {
-  // Issue #557: pre-flight check — every table the query references
+  // Pre-flight check — every table the query references
   // must exist in the schema catalog. Without this, a query that
   // names a table not in `schema.sql` falls through every inferencer
   // (column lookup returns `None`, the param is silently skipped) and
@@ -229,7 +229,7 @@ fn build_params(
       )
     }),
   )
-  // Issue #491: LIMIT/OFFSET placeholders are integer by SQL spec, even
+  // LIMIT/OFFSET placeholders are integer by SQL spec, even
   // without an explicit cast. Merge their inferred types into the cast
   // dict so a `?` in `LIMIT ?` / `OFFSET ?` resolves to `IntType`. Any
   // user-written `CAST(? AS <type>)` still wins because `extract_type_casts`
@@ -308,7 +308,7 @@ fn build_params(
   })
 }
 
-/// Issue #557: pre-flight check that every table the query references
+/// Pre-flight check that every table the query references
 /// is in the schema catalog. Run before parameter inference so the
 /// user sees a `TableNotFound` diagnostic naming the missing table,
 /// not a downstream `ParameterTypeNotInferred` that points at a CAST

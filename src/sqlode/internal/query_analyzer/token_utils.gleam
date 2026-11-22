@@ -184,7 +184,7 @@ pub fn skip_parens(tokens: List(lexer.Token), depth: Int) -> List(lexer.Token) {
 }
 
 // ============================================================
-// Shared token utilities for token-first parsing (#342)
+// Shared token utilities for token-first parsing
 // ============================================================
 
 /// Extract all placeholder token strings from a token list.
@@ -294,7 +294,7 @@ fn find_insert_loop(tokens: List(lexer.Token)) -> Option(InsertParts) {
 /// actions per <https://www.sqlite.org/lang_insert.html> are
 /// REPLACE, ROLLBACK, ABORT, FAIL, IGNORE — REPLACE and ROLLBACK
 /// are reserved keywords, the other three lex as `Ident` tokens
-/// (case-preserving). (#478)
+/// (case-preserving).
 pub fn strip_insert_or_action(tokens: List(lexer.Token)) -> List(lexer.Token) {
   case tokens {
     [lexer.Keyword("or"), action, ..rest] ->
@@ -524,8 +524,7 @@ pub fn find_in_patterns(tokens: List(lexer.Token)) -> List(EqualityMatch) {
 
 /// Find all `column op ANY|ALL|SOME (placeholder)` patterns. This
 /// complements `find_in_patterns` for the PostgreSQL-style quantified
-/// comparison syntax `t.id = ANY(sqlode.slice(team_ids))` used by
-/// fixture 2 in Issue #393.
+/// comparison syntax `t.id = ANY(sqlode.slice(team_ids))`.
 pub fn find_quantified_patterns(
   tokens: List(lexer.Token),
 ) -> List(EqualityMatch) {

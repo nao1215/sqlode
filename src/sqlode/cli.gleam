@@ -15,11 +15,8 @@ pub fn app() -> glint.Glint(Nil) {
   // Help-text source: glint's auto-generated USAGE / SUBCOMMANDS /
   // FLAGS layout for top-level `--help`, and each command's own
   // `glint.command_help(...)` block for per-subcommand `--help`.
-  // Previously a manually-authored `global_help` block was layered
-  // on top of the auto-generated one, so `--help` printed the same
-  // information twice in two different layouts. Per #467 we keep the
-  // auto-generated path as the single source of truth so the two
-  // layouts cannot drift.
+  // A hand-written help block on top of it would print the same
+  // information twice in two layouts that can drift apart.
   let base =
     glint.new()
     |> glint.with_name("sqlode")
@@ -49,7 +46,7 @@ fn should_emit_color() -> Bool {
 /// terminal AND `NO_COLOR` is not set (or is set to the empty
 /// string). Public so the test suite can exercise the policy
 /// without touching the Erlang FFI. See <https://no-color.org/>
-/// and CLIG ("colorize when stdout is a TTY only"). (#464)
+/// and CLIG ("colorize when stdout is a TTY only").
 @internal
 pub fn decide_color_emission(
   is_terminal: Bool,
@@ -284,7 +281,7 @@ fn run_generate(flag_value: String) -> Nil {
 /// past the project's line-width ruler. A missing `gleam` binary is
 /// only a warning: the files are written and still compile. A
 /// formatter failure means the generated code does not parse, so the
-/// command exits 1 instead of reporting success. (#543)
+/// command exits 1 instead of reporting success.
 fn format_generated_files(written: List(String)) -> Nil {
   case formatter.format_files(written) {
     Ok(Nil) -> io.println("  Formatted generated code")
@@ -353,7 +350,7 @@ fn run_init(path: String, engine: String, runtime: String) -> Nil {
             Ok(Nil) ->
               case simplifile.write(path, template) {
                 Ok(_) -> {
-                  // Issue #558: indent matches `create_stub_files`'s
+                  // Indent matches `create_stub_files`'s
                   // "  Created ..." lines so the three creation lines
                   // align in the user's terminal.
                   io.println("  Created " <> path)
@@ -454,7 +451,7 @@ fn create_stub_files(base_dir: String, engine: String) -> Nil {
 }
 
 fn starter_schema(engine: String) -> String {
-  // Issue #558: every column NOT NULL in the schema must either accept
+  // Every column NOT NULL in the schema must either accept
   // a value from the stub query (`name`, `bio`) or supply a DEFAULT —
   // otherwise `sqlode init` produces stubs whose first `gleam run`
   // hits a NOT NULL constraint violation. `created_at` is filled in by

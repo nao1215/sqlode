@@ -25,10 +25,9 @@ pub fn new() -> NamingContext {
   //   2. `[A-Z]?[a-z]+[0-9]*` — a lower-cased word with an
   //      optional leading capital and an OPTIONAL trailing digit
   //      run (sha256 → sha256, getV2 → getV2's "v2" piece). The
-  //      trailing-digit attachment is the #480 fix: previously
-  //      "sha256" split into ["sha", "256"] and surfaced as
-  //      `sha_256` in generated identifiers, which read like a
-  //      division. The standard convention treats `sha256` /
+  //      trailing-digit attachment keeps "sha256" from splitting
+  //      into ["sha", "256"] and surfacing as `sha_256` in
+  //      generated identifiers, which reads like a division. The standard convention treats `sha256` /
   //      `utf8` / `base64` / `md5` etc. as a single word, which
   //      is what users almost always want.
   //   3. `[A-Z]+[0-9]*` — an ALLCAPS word with the same optional
@@ -189,7 +188,7 @@ pub fn singularize(word: String) -> String {
     "feet" -> apply_case(word, "foot")
     // Uncountable / already singular
     //
-    // Issue #514: Latin-style plurals (`media`, `data`, `criteria`, …)
+    // Latin-style plurals (`media`, `data`, `criteria`, …)
     // are mass nouns or already-singular in modern English usage. The
     // formally correct singulars (`Medium`, `Datum`, `Criterion`)
     // surprise every Gleam user picking these as table names. Treat

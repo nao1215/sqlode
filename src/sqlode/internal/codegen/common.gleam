@@ -374,7 +374,7 @@ pub fn render_row_decoder_body(
 /// The decoder of one column before `decode.optional`. Enums and sets
 /// decode to the generated type, a custom type with codec hooks maps
 /// the primitive through its `decode` hook, and under strong mapping a
-/// rich type is wrapped in its `models` constructor (#445, #529).
+/// rich type is wrapped in its `models` constructor.
 fn render_base_decoder(
   scalar_type: model.ScalarType,
   primitive: fn(model.ScalarType) -> String,
