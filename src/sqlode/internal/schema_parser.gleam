@@ -399,7 +399,7 @@ fn split_at_from(
 }
 
 fn extract_view_columns(tokens: List(lexer.Token)) -> List(ViewColumn) {
-  let groups = tok_split_select_columns(tokens, 0, [], [])
+  let groups = token_utils.split_on_commas(tokens)
   list.filter_map(groups, fn(col_tokens) {
     // Check for AS alias (last two tokens: Keyword("as"), Ident/QuotedIdent)
     let reversed = list.reverse(col_tokens)
@@ -530,29 +530,6 @@ fn infer_cast_type(
         Error(_) -> None
       }
     [_, ..rest] -> infer_cast_type(rest)
-  }
-}
-
-fn tok_split_select_columns(
-  tokens: List(lexer.Token),
-  depth: Int,
-  current: List(lexer.Token),
-  acc: List(List(lexer.Token)),
-) -> List(List(lexer.Token)) {
-  case tokens {
-    [] ->
-      case current {
-        [] -> list.reverse(acc)
-        _ -> list.reverse([list.reverse(current), ..acc])
-      }
-    [lexer.Comma, ..rest] if depth == 0 ->
-      tok_split_select_columns(rest, 0, [], [list.reverse(current), ..acc])
-    [lexer.LParen, ..rest] ->
-      tok_split_select_columns(rest, depth + 1, [lexer.LParen, ..current], acc)
-    [lexer.RParen, ..rest] ->
-      tok_split_select_columns(rest, depth - 1, [lexer.RParen, ..current], acc)
-    [token, ..rest] ->
-      tok_split_select_columns(rest, depth, [token, ..current], acc)
   }
 }
 
@@ -1410,7 +1387,7 @@ fn parse_columns_tokens(
   enums: List(model.EnumDef),
   engine: model.Engine,
 ) -> Result(#(List(model.Column), List(model.EnumDef)), ParseError) {
-  split_tokens_by_comma(tokens)
+  token_utils.split_on_commas(tokens)
   |> list.try_fold(#([], []), fn(acc, col_tokens) {
     let #(columns, collected_enums) = acc
     // Each column sees all enums known so far (including ones synthesized
@@ -1433,47 +1410,6 @@ fn parse_columns_tokens(
     }
   })
   |> result.map(fn(pair) { #(list.reverse(pair.0), pair.1) })
-}
-
-/// Split a token list by top-level commas (depth-0 only).
-fn split_tokens_by_comma(tokens: List(lexer.Token)) -> List(List(lexer.Token)) {
-  split_tokens_by_comma_loop(tokens, 0, [], [])
-}
-
-fn split_tokens_by_comma_loop(
-  tokens: List(lexer.Token),
-  depth: Int,
-  current: List(lexer.Token),
-  acc: List(List(lexer.Token)),
-) -> List(List(lexer.Token)) {
-  case tokens {
-    [] ->
-      case current {
-        [] -> list.reverse(acc)
-        _ -> list.reverse([list.reverse(current), ..acc])
-      }
-    [lexer.LParen, ..rest] ->
-      split_tokens_by_comma_loop(
-        rest,
-        depth + 1,
-        [lexer.LParen, ..current],
-        acc,
-      )
-    [lexer.RParen, ..rest] ->
-      split_tokens_by_comma_loop(
-        rest,
-        case depth > 0 {
-          True -> depth - 1
-          False -> 0
-        },
-        [lexer.RParen, ..current],
-        acc,
-      )
-    [lexer.Comma, ..rest] if depth == 0 ->
-      split_tokens_by_comma_loop(rest, depth, [], [list.reverse(current), ..acc])
-    [tok, ..rest] ->
-      split_tokens_by_comma_loop(rest, depth, [tok, ..current], acc)
-  }
 }
 
 fn parse_named_column(

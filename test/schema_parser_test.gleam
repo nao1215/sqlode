@@ -1140,3 +1140,22 @@ CREATE TABLE t (id integer NOT NULL, m mood);"
   let assert [_, m] = table.columns
   m.scalar_type |> should.equal(model.EnumType("mood"))
 }
+
+// A stray comma in a column list or a view's select list leaves an
+// empty group, which is skipped rather than parsed as a column.
+pub fn empty_comma_groups_are_skipped_test() {
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files(
+      [
+        #(
+          "s.sql",
+          "CREATE TABLE t (, id integer NOT NULL,, name text);
+CREATE VIEW v AS SELECT , id,, name FROM t;",
+        ),
+      ],
+      model.PostgreSQL,
+    )
+  let assert [t, v] = catalog.tables
+  list.map(t.columns, fn(c) { c.name }) |> should.equal(["id", "name"])
+  list.map(v.columns, fn(c) { c.name }) |> should.equal(["id", "name"])
+}
