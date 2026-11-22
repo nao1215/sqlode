@@ -2,13 +2,13 @@ import gleam/list
 import gleam/option
 import gleam/result
 import gleam/string
-import sqlode/internal/char_utils
 import sqlode/internal/model.{
   type Engine, type ScalarType, type TypeMapping, ArrayType, BoolType, BytesType,
   CustomType, DateTimeType, DateType, DecimalType, EnumType, FloatType, IntType,
   JsonType, MySQL, PostgreSQL, RichMapping, SQLite, SetType, StringType,
   StrongMapping, TimeType, UuidType,
 }
+import sqlode/internal/naming
 
 // --- ScalarType property table ---
 // All leaf type properties are defined once here. Adding a new leaf type
@@ -310,17 +310,8 @@ pub fn enum_value_error_to_string(error: EnumValueError) -> String {
 /// rejected too: the generated `from_string` returns `Ok(..)`, which a
 /// local `Ok` variant would shadow.
 fn is_constructor_name(name: String) -> Bool {
-  case string.to_graphemes(name) {
-    [first, ..rest] ->
-      char_utils.is_uppercase_letter(first)
-      && list.all(rest, fn(g) {
-        char_utils.is_uppercase_letter(g)
-        || char_utils.is_lowercase_letter(g)
-        || char_utils.is_digit(g)
-      })
-      && !list.contains(["Ok", "Error", "True", "False", "Nil"], name)
-    [] -> False
-  }
+  naming.is_type_name(name)
+  && !list.contains(["Ok", "Error", "True", "False", "Nil"], name)
 }
 
 pub fn enum_to_string_fn(name: String) -> String {

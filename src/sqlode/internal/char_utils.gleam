@@ -7,12 +7,17 @@ pub fn is_digit(g: String) -> Bool {
   }
 }
 
+/// ASCII letters and every non-ASCII character. SQL engines accept
+/// letters from any script in unquoted identifiers (`naïve`, `名前`),
+/// so the lexer reads them as part of a word instead of splitting the
+/// word into fragments. A grapheme made of several code points (a
+/// letter with a combining mark) counts when its first one does.
 fn is_alpha(g: String) -> Bool {
   let cp = case string.to_utf_codepoints(g) {
-    [cp] -> string.utf_codepoint_to_int(cp)
-    _ -> 0
+    [cp, ..] -> string.utf_codepoint_to_int(cp)
+    [] -> 0
   }
-  { cp >= 65 && cp <= 90 } || { cp >= 97 && cp <= 122 }
+  { cp >= 65 && cp <= 90 } || { cp >= 97 && cp <= 122 } || cp >= 128
 }
 
 pub fn is_uppercase_letter(g: String) -> Bool {

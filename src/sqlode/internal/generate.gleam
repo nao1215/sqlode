@@ -51,6 +51,9 @@ pub type GenerateError {
   UnsupportedArrayForEngine(query_name: String, engine: String)
   SliceInsideQuantifier(query_name: String)
   EnumValueRejected(type_mapping.EnumValueError)
+  /// A table, column or parameter name does not turn into a Gleam
+  /// name, typically because it is written in a non-Latin script.
+  UnnamableIdentifier(kind: String, name: String, gleam_name: String)
 }
 
 pub fn run(config_path: String) -> Result(List(String), GenerateError) {
@@ -156,6 +159,12 @@ fn load_and_analyze_queries(
       ))
     }),
   )
+  use Nil <- result.try(validate_gleam_names(
+    naming_ctx,
+    catalog,
+    analyzed,
+    block.gleam.emit_exact_table_names,
+  ))
   use Nil <- result.try(validate_unsupported_annotations(analyzed))
   use Nil <- result.try(validate_array_engine_support(block.engine, analyzed))
   use Nil <- result.try(
@@ -791,6 +800,56 @@ pub fn validate_out_path(out: String) -> Result(Nil, GenerateError) {
   }
 }
 
+/// Every table, column and parameter becomes a Gleam type, field or
+/// label. Stop with a clear error when one would not be a valid Gleam
+/// name instead of writing code that does not compile.
+fn validate_gleam_names(
+  naming_ctx: naming.NamingContext,
+  catalog: model.Catalog,
+  analyzed: List(model.AnalyzedQuery),
+  emit_exact_table_names: Bool,
+) -> Result(Nil, GenerateError) {
+  let check = fn(kind, name, gleam_name, valid) {
+    case valid {
+      True -> Ok(Nil)
+      False -> Error(UnnamableIdentifier(kind:, name:, gleam_name:))
+    }
+  }
+  let label = fn(kind, name) {
+    let gleam_name = naming.to_snake_case(naming_ctx, name)
+    check(kind, name, gleam_name, naming.is_label(gleam_name))
+  }
+  use Nil <- result.try(
+    list.try_each(catalog.tables, fn(table) {
+      let type_name =
+        naming.table_type_name(naming_ctx, table.name, emit_exact_table_names)
+      use Nil <- result.try(check(
+        "table",
+        table.name,
+        type_name,
+        naming.is_type_name(type_name),
+      ))
+      list.try_each(table.columns, fn(column) {
+        label("column of table " <> table.name, column.name)
+      })
+    }),
+  )
+  list.try_each(analyzed, fn(query) {
+    let kind = "column of query " <> query.base.name
+    use Nil <- result.try(
+      list.try_each(query.params, fn(param) {
+        label("parameter of query " <> query.base.name, param.field_name)
+      }),
+    )
+    list.try_each(query.result_columns, fn(item) {
+      case item {
+        model.ScalarResult(column) -> label(kind, column.name)
+        model.EmbeddedResult(embedded) -> label(kind, embedded.name)
+      }
+    })
+  })
+}
+
 fn validate_unsupported_annotations(
   queries: List(model.AnalyzedQuery),
 ) -> Result(Nil, GenerateError) {
@@ -1001,5 +1060,13 @@ pub fn error_to_string(error: GenerateError) -> String {
         query_name:,
       ))
     EnumValueRejected(inner) -> type_mapping.enum_value_error_to_string(inner)
+    UnnamableIdentifier(kind:, name:, gleam_name:) ->
+      "SQD5005: "
+      <> kind
+      <> " \""
+      <> name
+      <> "\" cannot become a Gleam name (it would be \""
+      <> gleam_name
+      <> "\"). Gleam names use ASCII letters, digits and '_'; rename it, or give the column an ASCII alias with AS in the query"
   }
 }

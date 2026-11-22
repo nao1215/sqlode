@@ -790,3 +790,17 @@ pub fn postgresql_escape_string_backslash_quote_test() {
     Placeholder("$1"),
   ])
 }
+
+// Letters outside ASCII are part of an identifier, not operator
+// fragments that split the word.
+pub fn non_ascii_identifiers_are_one_token_test() {
+  lexer.tokenize("SELECT naïve, 名前 FROM t", model.PostgreSQL)
+  |> should.equal([
+    Keyword("select"),
+    Ident("naïve"),
+    Comma,
+    Ident("名前"),
+    Keyword("from"),
+    Ident("t"),
+  ])
+}

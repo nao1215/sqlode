@@ -2703,3 +2703,40 @@ pub fn enum_values_colliding_after_conversion_are_rejected_test() {
     "SQD2006: values \"in_progress\" and \"in-progress\" of enum task_state both become the Gleam constructor InProgress",
   )
 }
+
+// --- Names that cannot become Gleam names ---
+
+fn names_block(schema_sql: String, query_sql: String) -> model.SqlBlock {
+  let _delete_result = simplifile.delete(enum_dir)
+  let assert Ok(Nil) = simplifile.create_directory_all(enum_dir)
+  let assert Ok(Nil) = simplifile.write(enum_dir <> "/schema.sql", schema_sql)
+  let assert Ok(Nil) = simplifile.write(enum_dir <> "/query.sql", query_sql)
+  model.SqlBlock(
+    ..base_block(model.empty_overrides()),
+    schema: [enum_dir <> "/schema.sql"],
+    queries: [enum_dir <> "/query.sql"],
+  )
+}
+
+pub fn non_ascii_column_name_is_rejected_test() {
+  names_block(
+    "CREATE TABLE users (id integer NOT NULL, 名前 text NOT NULL);",
+    "-- name: GetUser :one\nSELECT id FROM users WHERE id = $1;",
+  )
+  |> generate_error
+  |> should.equal(
+    "SQD5005: column of table users \"名前\" cannot become a Gleam name (it would be \"名前\"). Gleam names use ASCII letters, digits and '_'; rename it, or give the column an ASCII alias with AS in the query",
+  )
+}
+
+pub fn non_ascii_result_column_is_rejected_test() {
+  names_block(
+    "CREATE TABLE users (id integer NOT NULL, name text NOT NULL);",
+    "-- name: GetUser :one\nSELECT name AS 名前 FROM users WHERE id = $1;",
+  )
+  |> generate_error
+  |> string.starts_with(
+    "SQD5005: column of query GetUser \"名前\" cannot become a Gleam name",
+  )
+  |> should.be_true
+}

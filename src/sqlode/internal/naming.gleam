@@ -2,6 +2,7 @@ import gleam/list
 import gleam/regexp
 import gleam/result
 import gleam/string
+import sqlode/internal/char_utils
 
 pub type NamingContext {
   NamingContext(
@@ -52,6 +53,34 @@ pub fn to_pascal_case(ctx: NamingContext, input: String) -> String {
   |> split_words(ctx)
   |> list.map(capitalize)
   |> string.join("")
+}
+
+/// A Gleam field or label: a lowercase ASCII letter, then lowercase
+/// letters, digits and underscores.
+pub fn is_label(name: String) -> Bool {
+  case string.to_graphemes(name) {
+    [first, ..rest] ->
+      char_utils.is_lowercase_letter(first)
+      && list.all(rest, fn(g) {
+        char_utils.is_lowercase_letter(g) || char_utils.is_digit(g) || g == "_"
+      })
+    [] -> False
+  }
+}
+
+/// A Gleam type name: an uppercase ASCII letter, then ASCII letters
+/// and digits.
+pub fn is_type_name(name: String) -> Bool {
+  case string.to_graphemes(name) {
+    [first, ..rest] ->
+      char_utils.is_uppercase_letter(first)
+      && list.all(rest, fn(g) {
+        char_utils.is_uppercase_letter(g)
+        || char_utils.is_lowercase_letter(g)
+        || char_utils.is_digit(g)
+      })
+    [] -> False
+  }
 }
 
 pub fn to_snake_case(ctx: NamingContext, input: String) -> String {
