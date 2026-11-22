@@ -46,7 +46,7 @@ const schema_path = "test/fixtures/complex_sql_schema.sql"
 fn catalog() -> model.Catalog {
   let assert Ok(content) = simplifile.read(schema_path)
   let assert Ok(#(cat, _)) =
-    schema_parser.parse_files([#(schema_path, content)])
+    schema_parser.parse_files([#(schema_path, content)], model.PostgreSQL)
   cat
 }
 

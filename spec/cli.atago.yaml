@@ -269,6 +269,38 @@ scenarios:
               - "pub type GetAuthorRow {"
               - "pub type ListAuthorsRow {"
 
+  # `gleam format` failing on the written files means the generated
+  # code does not parse, so generate must not report success. A stub
+  # `gleam` on PATH stands in for the formatter rejecting the files.
+  - name: generate exits 1 when gleam format rejects the generated files
+    steps:
+      - run:
+          command: |
+            rm -rf "${workdir}/format-fails"
+            mkdir -p "${workdir}/format-fails/bin"
+            cp test/fixtures/schema.sql "${workdir}/format-fails/schema.sql"
+            cp test/fixtures/query.sql "${workdir}/format-fails/query.sql"
+            printf '#!/bin/sh\necho "error: Syntax error" >&2\nexit 1\n' > "${workdir}/format-fails/bin/gleam"
+            chmod +x "${workdir}/format-fails/bin/gleam"
+      - fixture:
+          file: format-fails/sqlode.yaml
+          content: |
+            version: "2"
+            sql:
+              - schema: "schema.sql"
+                queries: "query.sql"
+                engine: "postgresql"
+                gen:
+                  gleam:
+                    out: "src/db"
+                    runtime: "raw"
+      - run:
+          command: PATH="${workdir}/format-fails/bin:$PATH" ./spec/support/sqlode.sh generate --config="${workdir}/format-fails/sqlode.yaml"
+      - assert:
+          exit_code: 1
+          stderr:
+            contains: "Error: gleam format failed with exit code 1: error: Syntax error"
+
   - name: generate autodiscovery fails with a helpful message when no config exists
     steps:
       - run:

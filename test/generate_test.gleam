@@ -6,6 +6,7 @@ import simplifile
 import sqlode/internal/config
 import sqlode/internal/generate
 import sqlode/internal/model
+import sqlode/internal/query_validation
 import sqlode/runtime
 
 const test_out = "test_output/generate_test"
@@ -38,7 +39,7 @@ fn base_block(overrides: model.Overrides) -> model.SqlBlock {
 
 fn run_generate(block: model.SqlBlock) -> List(String) {
   let cfg = model.Config(version: 2, sql: [block])
-  let assert Ok(files) = generate.generate_config(cfg)
+  let assert Ok(files) = generate.generate_config(cfg).result
   files
 }
 
@@ -1091,7 +1092,7 @@ pub fn join_rename_only_renames_matching_table_column_test() {
     ])
 
   let cfg = model.Config(version: 2, sql: [block])
-  let assert Ok(_) = generate.generate_config(cfg)
+  let assert Ok(_) = generate.generate_config(cfg).result
 
   let assert Ok(models) = simplifile.read(join_rename_out <> "/models.gleam")
 
@@ -1113,7 +1114,7 @@ pub fn join_rename_does_not_rename_wrong_table_column_test() {
     ])
 
   let cfg = model.Config(version: 2, sql: [block])
-  let assert Ok(_) = generate.generate_config(cfg)
+  let assert Ok(_) = generate.generate_config(cfg).result
 
   let assert Ok(models) = simplifile.read(join_rename_out <> "/models.gleam")
 
@@ -1360,7 +1361,7 @@ pub fn all_commands_generate_queries_test() {
   cleanup_commands()
   let block = all_commands_block(model.SQLite, model.Raw)
   let cfg = model.Config(version: 2, sql: [block])
-  let assert Ok(_) = generate.generate_config(cfg)
+  let assert Ok(_) = generate.generate_config(cfg).result
 
   let queries = read_commands_file("queries.gleam")
 
@@ -1386,7 +1387,7 @@ pub fn all_commands_generate_params_test() {
   cleanup_commands()
   let block = all_commands_block(model.SQLite, model.Raw)
   let cfg = model.Config(version: 2, sql: [block])
-  let assert Ok(_) = generate.generate_config(cfg)
+  let assert Ok(_) = generate.generate_config(cfg).result
 
   let params = read_commands_file("params.gleam")
 
@@ -1407,7 +1408,7 @@ pub fn all_commands_generate_models_test() {
   cleanup_commands()
   let block = all_commands_block(model.SQLite, model.Raw)
   let cfg = model.Config(version: 2, sql: [block])
-  let assert Ok(_) = generate.generate_config(cfg)
+  let assert Ok(_) = generate.generate_config(cfg).result
 
   let models = read_commands_file("models.gleam")
 
@@ -1427,7 +1428,7 @@ pub fn all_commands_sqlight_adapter_test() {
   cleanup_commands()
   let block = all_commands_block(model.SQLite, model.Native)
   let cfg = model.Config(version: 2, sql: [block])
-  let assert Ok(_) = generate.generate_config(cfg)
+  let assert Ok(_) = generate.generate_config(cfg).result
 
   let adapter = read_commands_file("sqlight_adapter.gleam")
 
@@ -1454,7 +1455,7 @@ pub fn all_commands_sqlight_adapter_test() {
 // --- Error path tests ---
 
 pub fn run_with_missing_config_test() {
-  let result = generate.run("nonexistent_config.yaml")
+  let result = generate.run("nonexistent_config.yaml").result
   case result {
     Error(generate.ConfigError(_)) -> Nil
     _ -> should.fail()
@@ -1482,7 +1483,7 @@ pub fn run_with_missing_schema_file_test() {
       overrides: model.empty_overrides(),
     )
   let cfg = model.Config(version: 2, sql: [block])
-  let result = generate.generate_config(cfg)
+  let result = generate.generate_config(cfg).result
   case result {
     Error(generate.SchemaReadError(..)) -> Nil
     _ -> should.fail()
@@ -1510,7 +1511,7 @@ pub fn run_with_missing_query_file_test() {
       overrides: model.empty_overrides(),
     )
   let cfg = model.Config(version: 2, sql: [block])
-  let result = generate.generate_config(cfg)
+  let result = generate.generate_config(cfg).result
   case result {
     Error(generate.QueryReadError(..)) -> Nil
     _ -> should.fail()
@@ -1539,7 +1540,7 @@ pub fn run_with_no_queries_in_file_test() {
       overrides: model.empty_overrides(),
     )
   let cfg = model.Config(version: 2, sql: [block])
-  let result = generate.generate_config(cfg)
+  let result = generate.generate_config(cfg).result
   case result {
     Error(generate.NoQueriesGenerated(..)) -> Nil
     _ -> should.fail()
@@ -1568,9 +1569,10 @@ pub fn execresult_rejected_on_native_runtime_test() {
       overrides: model.empty_overrides(),
     )
   let cfg = model.Config(version: 2, sql: [block])
-  let result = generate.generate_config(cfg)
+  let result = generate.generate_config(cfg).result
   case result {
-    Error(generate.UnsupportedAnnotation(..)) -> Nil
+    Error(generate.ValidationFailed(query_validation.UnsupportedAnnotation(..))) ->
+      Nil
     _ -> should.fail()
   }
 }
@@ -1599,8 +1601,11 @@ pub fn execresult_rejected_on_mysql_native_runtime_test() {
       overrides: model.empty_overrides(),
     )
   let cfg = model.Config(version: 2, sql: [block])
-  case generate.generate_config(cfg) {
-    Error(generate.UnsupportedAnnotation(command: ":execresult", ..)) -> Nil
+  case generate.generate_config(cfg).result {
+    Error(generate.ValidationFailed(query_validation.UnsupportedAnnotation(
+      command: ":execresult",
+      ..,
+    ))) -> Nil
     _ -> should.fail()
   }
 }
@@ -1630,7 +1635,7 @@ pub fn execresult_allowed_on_mysql_raw_runtime_test() {
     )
   let _delete_result = simplifile.delete("test_output/mysql_execresult_raw")
   let cfg = model.Config(version: 2, sql: [block])
-  let assert Ok(_) = generate.generate_config(cfg)
+  let assert Ok(_) = generate.generate_config(cfg).result
 }
 
 pub fn execresult_allowed_on_raw_runtime_test() {
@@ -1654,7 +1659,7 @@ pub fn execresult_allowed_on_raw_runtime_test() {
       overrides: model.empty_overrides(),
     )
   let cfg = model.Config(version: 2, sql: [block])
-  let assert Ok(_) = generate.generate_config(cfg)
+  let assert Ok(_) = generate.generate_config(cfg).result
   let _delete_result = simplifile.delete("test_output/execresult_raw")
   Nil
 }
@@ -1685,9 +1690,12 @@ fn unsupported_annotation_block(query_file: String) -> model.SqlBlock {
 pub fn batchone_rejected_test() {
   let block = unsupported_annotation_block("test/fixtures/batchone_query.sql")
   let cfg = model.Config(version: 2, sql: [block])
-  let result = generate.generate_config(cfg)
+  let result = generate.generate_config(cfg).result
   case result {
-    Error(generate.UnsupportedAnnotation(command: ":batchone", ..)) -> Nil
+    Error(generate.ValidationFailed(query_validation.UnsupportedAnnotation(
+      command: ":batchone",
+      ..,
+    ))) -> Nil
     _ -> should.fail()
   }
 }
@@ -1695,9 +1703,12 @@ pub fn batchone_rejected_test() {
 pub fn batchmany_rejected_test() {
   let block = unsupported_annotation_block("test/fixtures/batchmany_query.sql")
   let cfg = model.Config(version: 2, sql: [block])
-  let result = generate.generate_config(cfg)
+  let result = generate.generate_config(cfg).result
   case result {
-    Error(generate.UnsupportedAnnotation(command: ":batchmany", ..)) -> Nil
+    Error(generate.ValidationFailed(query_validation.UnsupportedAnnotation(
+      command: ":batchmany",
+      ..,
+    ))) -> Nil
     _ -> should.fail()
   }
 }
@@ -1705,9 +1716,12 @@ pub fn batchmany_rejected_test() {
 pub fn batchexec_rejected_test() {
   let block = unsupported_annotation_block("test/fixtures/batchexec_query.sql")
   let cfg = model.Config(version: 2, sql: [block])
-  let result = generate.generate_config(cfg)
+  let result = generate.generate_config(cfg).result
   case result {
-    Error(generate.UnsupportedAnnotation(command: ":batchexec", ..)) -> Nil
+    Error(generate.ValidationFailed(query_validation.UnsupportedAnnotation(
+      command: ":batchexec",
+      ..,
+    ))) -> Nil
     _ -> should.fail()
   }
 }
@@ -1715,9 +1729,12 @@ pub fn batchexec_rejected_test() {
 pub fn copyfrom_rejected_test() {
   let block = unsupported_annotation_block("test/fixtures/copyfrom_query.sql")
   let cfg = model.Config(version: 2, sql: [block])
-  let result = generate.generate_config(cfg)
+  let result = generate.generate_config(cfg).result
   case result {
-    Error(generate.UnsupportedAnnotation(command: ":copyfrom", ..)) -> Nil
+    Error(generate.ValidationFailed(query_validation.UnsupportedAnnotation(
+      command: ":copyfrom",
+      ..,
+    ))) -> Nil
     _ -> should.fail()
   }
 }
@@ -1755,7 +1772,7 @@ fn cleanup_compound() {
 pub fn union_all_infers_columns_from_first_select_test() {
   cleanup_compound()
   let cfg = model.Config(version: 2, sql: [compound_block()])
-  let assert Ok(_) = generate.generate_config(cfg)
+  let assert Ok(_) = generate.generate_config(cfg).result
 
   let assert Ok(models) = simplifile.read(compound_out <> "/models.gleam")
 
@@ -1771,7 +1788,7 @@ pub fn union_all_infers_columns_from_first_select_test() {
 pub fn union_infers_columns_test() {
   cleanup_compound()
   let cfg = model.Config(version: 2, sql: [compound_block()])
-  let assert Ok(_) = generate.generate_config(cfg)
+  let assert Ok(_) = generate.generate_config(cfg).result
 
   let assert Ok(models) = simplifile.read(compound_out <> "/models.gleam")
 
@@ -1784,7 +1801,7 @@ pub fn union_infers_columns_test() {
 pub fn intersect_infers_columns_test() {
   cleanup_compound()
   let cfg = model.Config(version: 2, sql: [compound_block()])
-  let assert Ok(_) = generate.generate_config(cfg)
+  let assert Ok(_) = generate.generate_config(cfg).result
 
   let assert Ok(models) = simplifile.read(compound_out <> "/models.gleam")
 
@@ -1796,7 +1813,7 @@ pub fn intersect_infers_columns_test() {
 pub fn except_infers_columns_test() {
   cleanup_compound()
   let cfg = model.Config(version: 2, sql: [compound_block()])
-  let assert Ok(_) = generate.generate_config(cfg)
+  let assert Ok(_) = generate.generate_config(cfg).result
 
   let assert Ok(models) = simplifile.read(compound_out <> "/models.gleam")
 
@@ -1838,7 +1855,7 @@ fn cleanup_view() {
 pub fn view_select_columns_inferred_test() {
   cleanup_view()
   let cfg = model.Config(version: 2, sql: [view_block()])
-  let assert Ok(_) = generate.generate_config(cfg)
+  let assert Ok(_) = generate.generate_config(cfg).result
 
   let assert Ok(models) = simplifile.read(view_out <> "/models.gleam")
 
@@ -1853,7 +1870,7 @@ pub fn view_select_columns_inferred_test() {
 pub fn view_select_star_inferred_test() {
   cleanup_view()
   let cfg = model.Config(version: 2, sql: [view_block()])
-  let assert Ok(_) = generate.generate_config(cfg)
+  let assert Ok(_) = generate.generate_config(cfg).result
 
   let assert Ok(models) = simplifile.read(view_out <> "/models.gleam")
 
@@ -1876,7 +1893,7 @@ fn cleanup_resolve() {
 pub fn run_resolves_paths_relative_to_config_dir_test() {
   cleanup_resolve()
   let assert Ok(files) =
-    generate.run("test/fixtures/subdir/sqlode_relative.yaml")
+    generate.run("test/fixtures/subdir/sqlode_relative.yaml").result
 
   // schema and queries are resolved relative to config dir (test/fixtures/subdir/)
   // so ../schema.sql and ../query.sql resolve to test/fixtures/schema.sql etc.
@@ -1909,7 +1926,7 @@ pub fn invalid_out_path_rejected_test() {
       overrides: model.empty_overrides(),
     )
   let cfg = model.Config(version: 2, sql: [block])
-  let result = generate.generate_config(cfg)
+  let result = generate.generate_config(cfg).result
   result |> should.be_error()
 }
 
@@ -1945,7 +1962,7 @@ pub fn accept_directory_for_schema_and_queries_test() {
     )
 
   let cfg = model.Config(version: 2, sql: [block])
-  let assert Ok(files) = generate.generate_config(cfg)
+  let assert Ok(files) = generate.generate_config(cfg).result
 
   list.length(files) |> should.equal(3)
 
@@ -1978,7 +1995,7 @@ pub fn mixed_file_and_directory_inputs_test() {
     )
 
   let cfg = model.Config(version: 2, sql: [block])
-  let assert Ok(files) = generate.generate_config(cfg)
+  let assert Ok(files) = generate.generate_config(cfg).result
 
   list.length(files) |> should.equal(3)
 
@@ -2007,7 +2024,7 @@ pub fn reject_empty_schema_directory_test() {
     )
 
   let cfg = model.Config(version: 2, sql: [block])
-  let assert Error(error) = generate.generate_config(cfg)
+  let assert Error(error) = generate.generate_config(cfg).result
 
   generate.error_to_string(error)
   |> string.contains("no .sql files")
@@ -2036,7 +2053,7 @@ pub fn reject_empty_query_directory_test() {
     )
 
   let cfg = model.Config(version: 2, sql: [block])
-  let assert Error(error) = generate.generate_config(cfg)
+  let assert Error(error) = generate.generate_config(cfg).result
 
   generate.error_to_string(error)
   |> string.contains("no .sql files")
@@ -2067,7 +2084,7 @@ pub fn reject_duplicate_query_names_test() {
     )
 
   let cfg = model.Config(version: 2, sql: [block])
-  let assert Error(error) = generate.generate_config(cfg)
+  let assert Error(error) = generate.generate_config(cfg).result
 
   generate.error_to_string(error)
   |> string.contains("duplicate query name \"GetAuthor\"")
@@ -2102,7 +2119,7 @@ pub fn reject_normalized_name_collision_across_cases_test() {
     )
 
   let cfg = model.Config(version: 2, sql: [block])
-  let assert Error(error) = generate.generate_config(cfg)
+  let assert Error(error) = generate.generate_config(cfg).result
 
   let message = generate.error_to_string(error)
   string.contains(message, "normalize to the generated identifier")
@@ -2350,16 +2367,17 @@ fn strict_views_block(strict_views: Bool) -> model.SqlBlock {
 pub fn strict_views_true_rejects_unresolvable_view_test() {
   cleanup()
   let cfg = model.Config(version: 2, sql: [strict_views_block(True)])
-  case generate.generate_config(cfg) {
-    Error(generate.SchemaParseError(detail)) -> {
+  case generate.generate_config(cfg).result {
+    Error(generate.StrictViewsFailed(..) as error) -> {
+      let detail = generate.error_to_string(error)
       string.contains(detail, "strict_views") |> should.be_true
       string.contains(detail, "unknown_column") |> should.be_true
     }
     Error(other) -> {
       // Any other error means the strict_views gate did not fire first.
-      panic as { "expected SchemaParseError, got " <> string.inspect(other) }
+      panic as { "expected StrictViewsFailed, got " <> string.inspect(other) }
     }
-    Ok(_) -> panic as "expected SchemaParseError when strict_views is True"
+    Ok(_) -> panic as "expected StrictViewsFailed when strict_views is True"
   }
   cleanup()
 }
@@ -2370,7 +2388,7 @@ pub fn strict_views_false_preserves_legacy_silent_drop_test() {
   // and generation proceeds. generate_config must succeed for the
   // resolvable parts of the schema.
   let cfg = model.Config(version: 2, sql: [strict_views_block(False)])
-  let assert Ok(_) = generate.generate_config(cfg)
+  let assert Ok(_) = generate.generate_config(cfg).result
   cleanup()
 }
 
@@ -2433,13 +2451,14 @@ sql:
   // default even though the YAML does not mention strict_views.
   block.gleam.strict_views |> should.equal(True)
 
-  case generate.generate_config(cfg) {
-    Error(generate.SchemaParseError(detail)) -> {
+  case generate.generate_config(cfg).result {
+    Error(generate.StrictViewsFailed(..) as error) -> {
+      let detail = generate.error_to_string(error)
       string.contains(detail, "broken_col") |> should.be_true
     }
     Error(other) ->
       panic as {
-        "expected SchemaParseError for partial view, got "
+        "expected StrictViewsFailed for partial view, got "
         <> string.inspect(other)
       }
     Ok(_) ->
@@ -2456,7 +2475,7 @@ pub fn strict_views_false_still_accepts_partial_view_test() {
   // for migrating legacy schemas that produce resolution warnings.
   cleanup_partial_view()
   let cfg = model.Config(version: 2, sql: [partial_view_block(False)])
-  let assert Ok(_) = generate.generate_config(cfg)
+  let assert Ok(_) = generate.generate_config(cfg).result
   cleanup_partial_view()
 }
 
@@ -2486,7 +2505,7 @@ pub fn vendor_runtime_fails_when_source_not_found_test() {
   // vendor_runtime=true should succeed because runtime.gleam is findable
   // in the dev checkout at src/sqlode/runtime.gleam
   let cfg = model.Config(version: 2, sql: [block])
-  let assert Ok(_) = generate.generate_config(cfg)
+  let assert Ok(_) = generate.generate_config(cfg).result
   // Verify runtime.gleam was actually generated
   let assert Ok(_) = simplifile.read(test_out <> "/runtime.gleam")
   cleanup()
@@ -2516,7 +2535,7 @@ pub fn sqlite_array_param_rejected_test() {
       overrides: model.empty_overrides(),
     )
   let cfg = model.Config(version: 2, sql: [block])
-  let _result = generate.generate_config(cfg)
+  let _result = generate.generate_config(cfg).result
   cleanup()
 }
 
@@ -2628,4 +2647,159 @@ pub fn disambiguate_param_names_preserves_param_order_test() {
     ])
   let assert [renamed] = generate.disambiguate_param_names([q])
   field_names(renamed) |> should.equal(["a", "b", "a_2", "b_2"])
+}
+
+// --- Enum values that are not plain words ---
+
+const enum_dir = "test_output/generate_enum_test"
+
+fn enum_block(enum_sql: String) -> model.SqlBlock {
+  let _delete_result = simplifile.delete(enum_dir)
+  let assert Ok(Nil) = simplifile.create_directory_all(enum_dir)
+  let assert Ok(Nil) =
+    simplifile.write(
+      enum_dir <> "/schema.sql",
+      enum_sql
+        <> "\nCREATE TABLE tasks (id integer NOT NULL, state task_state NOT NULL);",
+    )
+  let assert Ok(Nil) =
+    simplifile.write(
+      enum_dir <> "/query.sql",
+      "-- name: GetTask :one\nSELECT id, state FROM tasks WHERE id = $1;",
+    )
+  model.SqlBlock(
+    ..base_block(model.empty_overrides()),
+    schema: [enum_dir <> "/schema.sql"],
+    queries: [enum_dir <> "/query.sql"],
+  )
+}
+
+fn generate_error(block: model.SqlBlock) -> String {
+  let assert Error(error) =
+    generate.generate_config(model.Config(version: 2, sql: [block])).result
+  generate.error_to_string(error)
+}
+
+pub fn enum_values_with_separators_become_pascal_case_test() {
+  cleanup()
+  run_generate(enum_block(
+    "CREATE TYPE task_state AS ENUM ('in-progress', 'on hold', 'v1.2', 'DONE');",
+  ))
+  let models = read_generated("models.gleam")
+  string.contains(models, "  InProgress\n  OnHold\n  V12\n  Done\n")
+  |> should.be_true
+  string.contains(models, "InProgress -> \"in-progress\"") |> should.be_true
+  string.contains(models, "\"on hold\" -> Ok(OnHold)") |> should.be_true
+  cleanup()
+}
+
+pub fn enum_value_with_quote_is_rejected_test() {
+  enum_block("CREATE TYPE task_state AS ENUM ('say \"hi\"', 'ok2');")
+  |> generate_error
+  |> should.equal(
+    "SQD2006: value \"say \"hi\"\" of enum task_state cannot become a Gleam constructor (it would be \"Say\"hi\"\"). Use letters, digits, '_', '-', '.', '/' or spaces, starting with a letter",
+  )
+}
+
+pub fn enum_value_starting_with_digit_is_rejected_test() {
+  enum_block("CREATE TYPE task_state AS ENUM ('1st', 'second');")
+  |> generate_error
+  |> string.starts_with("SQD2006: value \"1st\" of enum task_state")
+  |> should.be_true
+}
+
+pub fn enum_value_named_like_a_prelude_constructor_is_rejected_test() {
+  enum_block("CREATE TYPE task_state AS ENUM ('ok', 'failed');")
+  |> generate_error
+  |> string.starts_with("SQD2006: value \"ok\" of enum task_state")
+  |> should.be_true
+}
+
+pub fn enum_values_colliding_after_conversion_are_rejected_test() {
+  enum_block("CREATE TYPE task_state AS ENUM ('in_progress', 'in-progress');")
+  |> generate_error
+  |> should.equal(
+    "SQD2006: values \"in_progress\" and \"in-progress\" of enum task_state both become the Gleam constructor InProgress",
+  )
+}
+
+// --- Names that cannot become Gleam names ---
+
+fn names_block(schema_sql: String, query_sql: String) -> model.SqlBlock {
+  let _delete_result = simplifile.delete(enum_dir)
+  let assert Ok(Nil) = simplifile.create_directory_all(enum_dir)
+  let assert Ok(Nil) = simplifile.write(enum_dir <> "/schema.sql", schema_sql)
+  let assert Ok(Nil) = simplifile.write(enum_dir <> "/query.sql", query_sql)
+  model.SqlBlock(
+    ..base_block(model.empty_overrides()),
+    schema: [enum_dir <> "/schema.sql"],
+    queries: [enum_dir <> "/query.sql"],
+  )
+}
+
+pub fn non_ascii_column_name_is_rejected_test() {
+  names_block(
+    "CREATE TABLE users (id integer NOT NULL, 名前 text NOT NULL);",
+    "-- name: GetUser :one\nSELECT id FROM users WHERE id = $1;",
+  )
+  |> generate_error
+  |> should.equal(
+    "SQD5005: column of table users \"名前\" cannot become a Gleam name (it would be \"名前\"). Gleam names use ASCII letters, digits and '_'; rename the column in the schema",
+  )
+}
+
+pub fn non_ascii_result_column_is_rejected_test() {
+  names_block(
+    "CREATE TABLE users (id integer NOT NULL, name text NOT NULL);",
+    "-- name: GetUser :one\nSELECT name AS 名前 FROM users WHERE id = $1;",
+  )
+  |> generate_error
+  |> should.equal(
+    "SQD5005: column of query GetUser \"名前\" cannot become a Gleam name (it would be \"名前\"). Gleam names use ASCII letters, digits and '_'; give the column an ASCII alias with AS in the query, or rename it with overrides.renames",
+  )
+}
+
+// overrides.renames is applied before the names are checked, so a
+// rename to a valid name clears SQD5005.
+pub fn renamed_result_column_passes_the_name_check_test() {
+  let block =
+    names_block(
+      "CREATE TABLE users (id integer NOT NULL, name text NOT NULL);",
+      "-- name: GetUser :one\nSELECT users.name AS 名前 FROM users WHERE id = $1;",
+    )
+  let block =
+    model.SqlBlock(
+      ..block,
+      overrides: model.Overrides(type_overrides: [], column_renames: [
+        model.ColumnRename(table: "users", column: "名前", rename_to: "jp_name"),
+      ]),
+    )
+  let assert Ok(_) =
+    generate.generate_config(model.Config(version: 2, sql: [block])).result
+  string.contains(read_generated("models.gleam"), "GetUserRow(jp_name: String)")
+  |> should.be_true
+  cleanup()
+}
+
+pub fn non_ascii_macro_parameter_is_rejected_test() {
+  names_block(
+    "CREATE TABLE users (id integer NOT NULL, name text NOT NULL);",
+    "-- name: GetUser :one\nSELECT id FROM users WHERE id = sqlode.arg(番号);",
+  )
+  |> generate_error
+  |> should.equal(
+    "SQD5005: parameter of query GetUser \"番号\" cannot become a Gleam name (it would be \"番号\"). Gleam names use ASCII letters, digits and '_'; rename the parameter in the query",
+  )
+}
+
+// A `..` the path resolution cannot fold away (the config sits in a
+// relative directory) used to reach the generated imports as
+// `import fixtures/../../db/params`, which does not parse.
+pub fn out_path_with_parent_segment_is_rejected_test() {
+  generate.validate_out_path("fixtures/../../test_output/db")
+  |> should.equal(
+    Error(generate.InvalidOutPath("fixtures/../../test_output/db")),
+  )
+  generate.validate_out_path("src/db") |> should.equal(Ok(Nil))
+  generate.validate_out_path("/abs/project/src/db") |> should.equal(Ok(Nil))
 }

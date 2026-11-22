@@ -219,3 +219,15 @@ pub fn find_column_in_tables(
     _ -> Error(list.map(matches, fn(m) { m.0 }))
   }
 }
+
+/// The catalog with the query's virtual tables (CTEs, VALUES lists,
+/// derived tables, aliases) added after the schema's own tables.
+pub fn with_virtual_tables(
+  catalog: model.Catalog,
+  tables: List(model.Table),
+) -> model.Catalog {
+  case tables {
+    [] -> catalog
+    _ -> model.Catalog(..catalog, tables: list.append(catalog.tables, tables))
+  }
+}

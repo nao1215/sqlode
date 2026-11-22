@@ -87,15 +87,18 @@ const config_candidates = [
   "sqlode.yaml", "sqlode.yml", "sqlc.yaml", "sqlc.yml", "sqlc.json",
 ]
 
+/// `--config`, shared by generate and verify.
+fn config_flag() -> glint.Flag(String) {
+  glint.string_flag("config")
+  |> glint.flag_default("")
+  |> glint.flag_help(
+    "Path to config file. Default: auto-discover sqlode.yaml, sqlode.yml, sqlc.yaml, sqlc.yml, or sqlc.json in the current directory.",
+  )
+}
+
 fn generate_command() -> glint.Command(Nil) {
   {
-    use config_path <- glint.flag(
-      glint.string_flag("config")
-      |> glint.flag_default("")
-      |> glint.flag_help(
-        "Path to config file. Default: auto-discover sqlode.yaml, sqlode.yml, sqlc.yaml, sqlc.yml, or sqlc.json in the current directory.",
-      ),
-    )
+    use config_path <- glint.flag(config_flag())
 
     glint.command_help(
       command_help_text(
@@ -163,13 +166,7 @@ fn init_command() -> glint.Command(Nil) {
 
 fn verify_command() -> glint.Command(Nil) {
   {
-    use config_path <- glint.flag(
-      glint.string_flag("config")
-      |> glint.flag_default("")
-      |> glint.flag_help(
-        "Path to config file. Default: auto-discover sqlode.yaml, sqlode.yml, sqlc.yaml, sqlc.yml, or sqlc.json in the current directory.",
-      ),
-    )
+    use config_path <- glint.flag(config_flag())
 
     glint.command_help(
       command_help_text(
@@ -208,6 +205,7 @@ fn run_verify(flag_value: String) -> Nil {
           halt(1)
         }
         Ok(report) -> {
+          print_warnings(report.warnings)
           io.println(verify.report_to_string(report))
           case report.findings {
             [] -> Nil
@@ -217,6 +215,12 @@ fn run_verify(flag_value: String) -> Nil {
       }
     }
   }
+}
+
+fn print_warnings(warnings: List(generate.Warning)) -> Nil {
+  list.each(warnings, fn(warning) {
+    io.println_error(generate.warning_to_string(warning))
+  })
 }
 
 /// Help text of a subcommand: paragraphs, then one example per line.
@@ -253,7 +257,9 @@ fn run_generate(flag_value: String) -> Nil {
     Ok(config_path) -> {
       io.println("Loading config from: " <> config_path)
 
-      case generate.run(config_path) {
+      let generation = generate.run(config_path)
+      print_warnings(generation.warnings)
+      case generation.result {
         Ok(written) -> {
           io.println("")
           io.println(
@@ -275,15 +281,19 @@ fn run_generate(flag_value: String) -> Nil {
 
 /// Run `gleam format` on the just-written files so the generated
 /// records and decoder chains break across lines instead of running
-/// past the project's line-width ruler. Treated as best-effort: the
-/// files have already been written and are syntactically correct, so
-/// a missing `gleam` binary or a non-zero formatter exit is reported
-/// as a warning and the command still exits 0. (#543)
+/// past the project's line-width ruler. A missing `gleam` binary is
+/// only a warning: the files are written and still compile. A
+/// formatter failure means the generated code does not parse, so the
+/// command exits 1 instead of reporting success. (#543)
 fn format_generated_files(written: List(String)) -> Nil {
   case formatter.format_files(written) {
     Ok(Nil) -> io.println("  Formatted generated code")
-    Error(error) ->
+    Error(formatter.GleamNotFound as error) ->
       io.println_error("  Warning: " <> formatter.error_to_string(error))
+    Error(formatter.FormatFailed(..) as error) -> {
+      io.println_error("Error: " <> formatter.error_to_string(error))
+      halt(1)
+    }
   }
 }
 
@@ -495,9 +505,9 @@ WHERE id = " <> get_placeholder <> ";\n" <> "\n" <> "-- name: ListAuthors :many\
 /// Exit the process with the given status code. Output already written to
 /// stdout and stderr is flushed before the runtime stops.
 @external(erlang, "sqlode_ffi", "halt")
-fn halt(code: Int) -> Nil
+pub fn halt(code: Int) -> Nil
 
 @target(javascript)
-fn halt(_code: Int) -> Nil {
+pub fn halt(_code: Int) -> Nil {
   Nil
 }

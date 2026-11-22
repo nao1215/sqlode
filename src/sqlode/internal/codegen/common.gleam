@@ -1,9 +1,11 @@
+import gleam/int
 import gleam/list
 import gleam/option
 import gleam/result
 import gleam/string
 import sqlode/internal/codegen/builder
 import sqlode/internal/model
+import sqlode/internal/naming
 import sqlode/internal/type_mapping
 
 pub fn has_slices(params: List(model.QueryParam)) -> Bool {
@@ -20,7 +22,7 @@ pub fn queries_have_slices(queries: List(model.AnalyzedQuery)) -> Bool {
 /// wire string. `fallback` is the decoder to use for every other
 /// scalar type (adapter-specific in the caller — e.g. pog's
 /// `decode.bool` vs sqlight's int-to-bool adapter).
-pub fn render_enum_or_set_decoder(
+fn render_enum_or_set_decoder(
   scalar_type: model.ScalarType,
   fallback: fn(model.ScalarType) -> String,
 ) -> String {
@@ -279,5 +281,129 @@ pub fn qualified_hook_call(
         Error(Nil) -> fn_name
       }
     option.None -> fn_name
+  }
+}
+
+/// The body of a row decoder: one `use <field> <- decode.field(i, ..)`
+/// line per column, in column order, a `let` building each embedded
+/// table record, and the labelled fields to pass to the row
+/// constructor. `primitive` is the engine's decoder for a scalar type
+/// and `indent` the indentation of the generated lines.
+pub fn render_row_decoder_body(
+  naming_ctx: naming.NamingContext,
+  columns: List(model.ResultItem),
+  primitive: fn(model.ScalarType) -> String,
+  type_mapping: model.TypeMapping,
+  emit_exact_table_names: Bool,
+  indent: String,
+) -> #(List(String), String) {
+  let field_line = fn(name, index, scalar_type, nullable) {
+    let decoder = render_base_decoder(scalar_type, primitive, type_mapping)
+    indent
+    <> "use "
+    <> naming.to_snake_case(naming_ctx, name)
+    <> " <- decode.field("
+    <> int.to_string(index)
+    <> ", "
+    <> case nullable {
+      True -> "decode.optional(" <> decoder <> ")"
+      False -> decoder
+    }
+    <> ")"
+  }
+  let labels = fn(names) {
+    names
+    |> list.map(fn(name) { naming.to_snake_case(naming_ctx, name) <> ":" })
+    |> string.join(", ")
+  }
+  let #(_, lines) =
+    list.fold(columns, #(0, []), fn(acc, column) {
+      let #(index, lines) = acc
+      case column {
+        model.ScalarResult(model.ResultColumn(
+          name:,
+          scalar_type:,
+          nullable:,
+          ..,
+        )) -> #(index + 1, [
+          field_line(name, index, scalar_type, nullable),
+          ..lines
+        ])
+        model.EmbeddedResult(model.EmbeddedColumn(name:, table_name:, columns:)) -> {
+          let lines =
+            list.index_fold(columns, lines, fn(lines, column, offset) {
+              [
+                field_line(
+                  column.name,
+                  index + offset,
+                  column.scalar_type,
+                  column.nullable,
+                ),
+                ..lines
+              ]
+            })
+          let record =
+            indent
+            <> "let "
+            <> naming.to_snake_case(naming_ctx, name)
+            <> " = models."
+            <> naming.table_type_name(
+              naming_ctx,
+              table_name,
+              emit_exact_table_names,
+            )
+            <> "("
+            <> labels(list.map(columns, fn(c) { c.name }))
+            <> ")"
+          #(index + list.length(columns), [record, ..lines])
+        }
+      }
+    })
+  let fields =
+    columns
+    |> list.map(fn(column) {
+      case column {
+        model.ScalarResult(model.ResultColumn(name:, ..)) -> name
+        model.EmbeddedResult(model.EmbeddedColumn(name:, ..)) -> name
+      }
+    })
+    |> labels
+  #(list.reverse(lines), fields)
+}
+
+/// The decoder of one column before `decode.optional`. Enums and sets
+/// decode to the generated type, a custom type with codec hooks maps
+/// the primitive through its `decode` hook, and under strong mapping a
+/// rich type is wrapped in its `models` constructor (#445, #529).
+fn render_base_decoder(
+  scalar_type: model.ScalarType,
+  primitive: fn(model.ScalarType) -> String,
+  type_mapping: model.TypeMapping,
+) -> String {
+  case scalar_type {
+    model.EnumType(_) | model.SetType(_) ->
+      render_enum_or_set_decoder(scalar_type, primitive)
+    model.CustomType(module:, codec: option.Some(hooks), ..) ->
+      "decode.map("
+      <> primitive(scalar_type)
+      <> ", "
+      <> qualified_hook_call(module, hooks.decode)
+      <> ")"
+    _ ->
+      case
+        type_mapping == model.StrongMapping
+        && type_mapping.is_rich_type(scalar_type)
+      {
+        True ->
+          "decode.map("
+          <> primitive(scalar_type)
+          <> ", models."
+          <> type_mapping.scalar_type_to_gleam_type(
+            scalar_type,
+            model.StrongMapping,
+          )
+          <> ")"
+        False -> primitive(scalar_type)
+      }
   }
 }

@@ -270,7 +270,10 @@ pub fn render_sqlight_adapter_test() {
 
   let assert Ok(schema_content) = simplifile.read("test/fixtures/schema.sql")
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("test/fixtures/schema.sql", schema_content)])
+    schema_parser.parse_files(
+      [#("test/fixtures/schema.sql", schema_content)],
+      model.PostgreSQL,
+    )
   let assert Ok(content) = simplifile.read("test/fixtures/query.sql")
   let assert Ok(queries) =
     query_parser.parse_file(
@@ -320,7 +323,7 @@ pub fn render_sqlight_adapter_one_function_column_test() {
 
   // No tables are needed; the column source is a scalar function.
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("schema.sql", "")])
+    schema_parser.parse_files([#("schema.sql", "")], model.PostgreSQL)
 
   let query_sql =
     "-- name: GetLastInsertId :one\nSELECT last_insert_rowid() AS id;\n"
@@ -361,9 +364,12 @@ pub fn render_sqlight_adapter_one_function_column_test() {
 pub fn analyze_sqlite_limit_offset_params_pin_int_type_test() {
   let naming_ctx = naming.new()
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([
-      #("schema.sql", "CREATE TABLE pages (id INTEGER, slug TEXT);"),
-    ])
+    schema_parser.parse_files(
+      [
+        #("schema.sql", "CREATE TABLE pages (id INTEGER, slug TEXT);"),
+      ],
+      model.PostgreSQL,
+    )
   let query_sql =
     "-- name: ListPages :many\nSELECT slug FROM pages ORDER BY id DESC LIMIT sqlode.arg(lim) OFFSET sqlode.arg(off);\n"
   let assert Ok(queries) =
@@ -393,9 +399,12 @@ pub fn analyze_sqlite_limit_offset_params_pin_int_type_test() {
 pub fn analyze_sqlite_limit_offset_with_cast_still_works_test() {
   let naming_ctx = naming.new()
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([
-      #("schema.sql", "CREATE TABLE pages (id INTEGER, slug TEXT);"),
-    ])
+    schema_parser.parse_files(
+      [
+        #("schema.sql", "CREATE TABLE pages (id INTEGER, slug TEXT);"),
+      ],
+      model.PostgreSQL,
+    )
   let query_sql =
     "-- name: ListPages :many\nSELECT slug FROM pages LIMIT CAST(sqlode.arg(lim) AS INTEGER) OFFSET CAST(sqlode.arg(off) AS INTEGER);\n"
   let assert Ok(queries) =
@@ -725,7 +734,10 @@ fn analyzed_slice_queries(engine: model.Engine) -> List(model.AnalyzedQuery) {
   let naming_ctx = naming.new()
   let assert Ok(schema_content) = simplifile.read("test/fixtures/schema.sql")
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("test/fixtures/schema.sql", schema_content)])
+    schema_parser.parse_files(
+      [#("test/fixtures/schema.sql", schema_content)],
+      model.PostgreSQL,
+    )
   let sql =
     "-- name: GetByIds :many\nSELECT id, name FROM authors WHERE id IN (sqlode.slice(ids));"
   let assert Ok(queries) =
@@ -780,7 +792,10 @@ fn test_block_native() -> model.SqlBlock {
 fn test_catalog() -> model.Catalog {
   let assert Ok(schema_content) = simplifile.read("test/fixtures/schema.sql")
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("test/fixtures/schema.sql", schema_content)])
+    schema_parser.parse_files(
+      [#("test/fixtures/schema.sql", schema_content)],
+      model.PostgreSQL,
+    )
   catalog
 }
 
@@ -888,9 +903,12 @@ fn enum_test_catalog() -> model.Catalog {
   let assert Ok(schema_content) =
     simplifile.read("test/fixtures/enum_schema.sql")
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([
-      #("test/fixtures/enum_schema.sql", schema_content),
-    ])
+    schema_parser.parse_files(
+      [
+        #("test/fixtures/enum_schema.sql", schema_content),
+      ],
+      model.PostgreSQL,
+    )
   catalog
 }
 
@@ -1130,9 +1148,12 @@ fn readme_test_catalog() -> model.Catalog {
   let assert Ok(schema_content) =
     simplifile.read("test/fixtures/readme_schema.sql")
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([
-      #("test/fixtures/readme_schema.sql", schema_content),
-    ])
+    schema_parser.parse_files(
+      [
+        #("test/fixtures/readme_schema.sql", schema_content),
+      ],
+      model.PostgreSQL,
+    )
   catalog
 }
 
@@ -1301,9 +1322,12 @@ fn array_test_catalog() -> model.Catalog {
   let assert Ok(schema_content) =
     simplifile.read("test/fixtures/array_schema.sql")
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([
-      #("test/fixtures/array_schema.sql", schema_content),
-    ])
+    schema_parser.parse_files(
+      [
+        #("test/fixtures/array_schema.sql", schema_content),
+      ],
+      model.PostgreSQL,
+    )
   catalog
 }
 
@@ -1419,10 +1443,7 @@ fn mysql_enum_set_catalog() -> model.Catalog {
   tags SET('red', 'green', 'blue')
 );"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files_with_engine(
-      [#("items.sql", content)],
-      model.MySQL,
-    )
+    schema_parser.parse_files([#("items.sql", content)], model.MySQL)
   catalog
 }
 
@@ -1562,7 +1583,7 @@ pub fn render_mysql_set_param_uses_set_to_string_helper_test() {
   let assert Ok(schema_content) =
     simplifile.read("test/fixtures/mysql_real_schema.sql")
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files_with_engine(
+    schema_parser.parse_files(
       [#("test/fixtures/mysql_real_schema.sql", schema_content)],
       model.MySQL,
     )
@@ -1603,7 +1624,7 @@ pub fn render_mysql_set_decoder_uses_set_from_string_helper_test() {
   let assert Ok(schema_content) =
     simplifile.read("test/fixtures/mysql_real_schema.sql")
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files_with_engine(
+    schema_parser.parse_files(
       [#("test/fixtures/mysql_real_schema.sql", schema_content)],
       model.MySQL,
     )
@@ -1634,7 +1655,7 @@ pub fn render_mysql_set_decoder_uses_set_from_string_helper_test() {
 fn mysql_native_catalog() -> model.Catalog {
   let assert Ok(content) = simplifile.read("test/fixtures/mysql_schema.sql")
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files_with_engine(
+    schema_parser.parse_files(
       [#("test/fixtures/mysql_schema.sql", content)],
       model.MySQL,
     )

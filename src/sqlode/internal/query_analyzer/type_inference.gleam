@@ -20,6 +20,7 @@ import sqlode/internal/model
 import sqlode/internal/query_analyzer/context.{
   type AnalysisError, UnsupportedExpression,
 }
+import sqlode/internal/query_analyzer/token_utils
 import sqlode/internal/query_ir
 
 /// Inferred type and nullability for an expression.
@@ -230,18 +231,6 @@ fn infer_binary(
 ) -> Result(InferredType, AnalysisError) {
   case op {
     "and" | "or" -> ok(model.BoolType, False)
-    "="
-    | "<>"
-    | "!="
-    | "<"
-    | ">"
-    | "<="
-    | ">="
-    | "@>"
-    | "<@"
-    | "?|"
-    | "?&"
-    | "&&" -> ok(model.BoolType, False)
     "||" -> {
       // String concatenation. Treat as non-nullable for compatibility
       // with the existing analyzer behaviour — `||` short-circuits at
@@ -265,10 +254,14 @@ fn infer_binary(
     "->" | "#>" -> ok(model.JsonType, True)
     "->>" | "#>>" -> ok(model.StringType, True)
     _ ->
-      Error(UnsupportedExpression(
-        query_name: scope.query_name,
-        expression: "binary operator " <> op,
-      ))
+      case token_utils.is_boolean_operator(op) {
+        True -> ok(model.BoolType, False)
+        False ->
+          Error(UnsupportedExpression(
+            query_name: scope.query_name,
+            expression: "binary operator " <> op,
+          ))
+      }
   }
 }
 
@@ -424,43 +417,67 @@ fn infer_function_body(
   args: List(query_ir.FuncArg),
   window: Bool,
 ) -> Result(InferredType, AnalysisError) {
-  case name {
-    "count" | "last_insert_rowid" -> ok(model.IntType, False)
-    "sum" | "min" | "max" -> infer_aggregate_from_first(scope, args, True)
-    "avg" -> ok(model.FloatType, True)
-    "row_number" | "rank" | "dense_rank" | "ntile" -> ok(model.IntType, False)
-    "percent_rank" | "cume_dist" -> ok(model.FloatType, False)
+  case name, classify_function(name) {
+    "interval", _ -> ok(model.TimeType, False)
+    _, FnCount -> ok(model.IntType, False)
+    _, FnAggregateInner | _, FnGreatestLeast ->
+      infer_aggregate_from_first(scope, args, True)
+    _, FnAvg -> ok(model.FloatType, True)
+    _, FnWindowInt -> ok(model.IntType, False)
+    _, FnWindowFloat -> ok(model.FloatType, False)
+    _, FnWindowFirstArg -> infer_window_first(scope, args)
+    _, FnCoalesce -> infer_coalesce(scope, args)
+    _, FnNullif -> infer_first_arg(scope, args, True)
+    _, FnMath -> infer_math_first_arg(scope, args)
+    _, FnLength -> ok(model.IntType, False)
+    _, FnString -> ok(model.StringType, False)
+    _, FnDatetime -> ok(datetime_return_type(name), False)
+    _, FnUnknown ->
+      case window {
+        True -> ok(model.IntType, False)
+        False ->
+          Error(UnsupportedExpression(
+            query_name: scope.query_name,
+            expression: "unknown function " <> name,
+          ))
+      }
+  }
+}
+
+// ============================================================
+// Function classification
+// ============================================================
+
+/// What a function returns, by name, for the analysers that infer
+/// result types.
+pub type FunctionClass {
+  FnCount
+  FnAggregateInner
+  FnAvg
+  FnWindowInt
+  FnWindowFloat
+  FnWindowFirstArg
+  FnCoalesce
+  FnGreatestLeast
+  FnString
+  FnLength
+  FnMath
+  FnDatetime
+  FnNullif
+  FnUnknown
+}
+
+pub fn classify_function(lowered_name: String) -> FunctionClass {
+  case lowered_name {
+    "count" | "last_insert_rowid" -> FnCount
+    "sum" | "min" | "max" -> FnAggregateInner
+    "avg" -> FnAvg
+    "row_number" | "rank" | "dense_rank" | "ntile" -> FnWindowInt
+    "percent_rank" | "cume_dist" -> FnWindowFloat
     "lag" | "lead" | "first_value" | "last_value" | "nth_value" ->
-      infer_window_first(scope, args)
-    "coalesce" -> infer_coalesce(scope, args)
-    "greatest" | "least" -> infer_aggregate_from_first(scope, args, True)
-    "nullif" | "ifnull" | "nvl" -> infer_first_arg(scope, args, True)
-    "abs"
-    | "round"
-    | "floor"
-    | "ceil"
-    | "ceiling"
-    | "mod"
-    | "power"
-    | "sqrt"
-    | "sign"
-    | "trunc"
-    | "log"
-    | "ln"
-    | "exp"
-    | "random"
-    | "pi"
-    | "degrees"
-    | "radians"
-    | "div" -> infer_math_first_arg(scope, args)
-    "length"
-    | "char_length"
-    | "character_length"
-    | "octet_length"
-    | "bit_length"
-    | "position"
-    | "strpos"
-    | "ascii" -> ok(model.IntType, False)
+      FnWindowFirstArg
+    "coalesce" -> FnCoalesce
+    "greatest" | "least" -> FnGreatestLeast
     "replace"
     | "lower"
     | "upper"
@@ -484,33 +501,67 @@ fn infer_function_body(
     | "quote_ident"
     | "md5"
     | "encode"
-    | "decode" -> ok(model.StringType, False)
+    | "decode" -> FnString
+    "length"
+    | "char_length"
+    | "character_length"
+    | "octet_length"
+    | "bit_length"
+    | "position"
+    | "strpos"
+    | "ascii" -> FnLength
+    "abs"
+    | "round"
+    | "floor"
+    | "ceil"
+    | "ceiling"
+    | "mod"
+    | "power"
+    | "sqrt"
+    | "sign"
+    | "trunc"
+    | "log"
+    | "ln"
+    | "exp"
+    | "random"
+    | "pi"
+    | "degrees"
+    | "radians"
+    | "div" -> FnMath
     "now"
     | "current_timestamp"
+    | "current_date"
+    | "current_time"
+    | "date"
+    | "time"
+    | "timestamp"
+    | "date_trunc"
+    | "date_part"
+    | "extract"
+    | "age"
+    | "make_date"
+    | "make_time"
+    | "make_timestamp"
+    | "to_timestamp"
+    | "to_date"
     | "clock_timestamp"
     | "statement_timestamp"
     | "timeofday"
-    | "localtimestamp" -> ok(model.DateTimeType, False)
-    "current_date" -> ok(model.DateType, False)
-    "current_time" | "localtime" -> ok(model.TimeType, False)
-    "make_date" | "to_date" -> ok(model.DateType, False)
-    "make_time" -> ok(model.TimeType, False)
-    "make_timestamp" | "to_timestamp" -> ok(model.DateTimeType, False)
-    "date_trunc" | "age" -> ok(model.DateTimeType, False)
-    "date_part" | "extract" -> ok(model.FloatType, False)
-    "date" -> ok(model.DateType, False)
-    "time" -> ok(model.TimeType, False)
-    "timestamp" -> ok(model.DateTimeType, False)
-    "interval" -> ok(model.TimeType, False)
-    _ ->
-      case window {
-        True -> ok(model.IntType, False)
-        False ->
-          Error(UnsupportedExpression(
-            query_name: scope.query_name,
-            expression: "unknown function " <> name,
-          ))
-      }
+    | "localtime"
+    | "localtimestamp" -> FnDatetime
+    "nullif" | "ifnull" | "nvl" -> FnNullif
+    _ -> FnUnknown
+  }
+}
+
+/// The type a function of class `FnDatetime` returns.
+pub fn datetime_return_type(lowered: String) -> model.ScalarType {
+  case lowered {
+    "current_date" | "date" | "make_date" | "to_date" -> model.DateType
+    "current_time" | "time" | "make_time" | "localtime" -> model.TimeType
+    "date_part" | "extract" -> model.FloatType
+    "to_char" -> model.StringType
+    _ -> model.DateTimeType
   }
 }
 
@@ -653,7 +704,7 @@ fn render_token(token: lexer.Token) -> String {
     lexer.Keyword(k) -> k
     lexer.Ident(n) -> n
     lexer.QuotedIdent(n) -> "\"" <> n <> "\""
-    lexer.StringLit(s) -> "'" <> s <> "'"
+    lexer.StringLit(value: s, ..) -> "'" <> s <> "'"
     lexer.NumberLit(n) -> n
     lexer.Placeholder(p) -> p
     lexer.Operator(o) -> o

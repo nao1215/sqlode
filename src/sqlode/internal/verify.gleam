@@ -14,23 +14,18 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
-import simplifile
 import sqlode/internal/config
 import sqlode/internal/generate
 import sqlode/internal/model
 import sqlode/internal/naming
 import sqlode/internal/query_analyzer
 import sqlode/internal/query_ir
-import sqlode/internal/query_parser
-import sqlode/internal/query_validation
-import sqlode/internal/schema_parser
-import sqlode/internal/sql_paths
 
 /// Outcome of a single verification pass. A report with an empty
 /// `findings` list means every block in the config parsed, analysed
 /// and satisfied the configured static policies.
 pub type Report {
-  Report(findings: List(Finding))
+  Report(findings: List(Finding), warnings: List(generate.Warning))
 }
 
 /// One concrete problem the verifier found. `block_out` names the
@@ -51,207 +46,106 @@ pub type VerifyError {
 /// only unrecoverable errors (missing config, YAML syntax errors)
 /// surface as `Error`.
 pub fn run(config_path: String) -> Result(Report, VerifyError) {
-  use cfg <- result.try(
+  use config <- result.try(
     config.load(config_path)
     |> result.map_error(ConfigError),
   )
   let base_dir = filepath.directory_name(config_path)
-  let resolved = generate.resolve_config_paths(cfg, base_dir)
+  let resolved = generate.resolve_config_paths(config, base_dir)
   Ok(verify_config(resolved))
 }
 
 /// Verify an already-loaded and path-resolved `model.Config`. Broken
 /// out so tests can build a config value directly and assert against
 /// the findings list without touching the filesystem.
-pub fn verify_config(cfg: model.Config) -> Report {
+pub fn verify_config(config: model.Config) -> Report {
   let naming_ctx = naming.new()
-  let findings =
-    list.flat_map(cfg.sql, fn(block) { verify_block(naming_ctx, block) })
-  Report(findings: findings)
+  let #(findings, warnings) =
+    config.sql
+    |> list.map(verify_block(naming_ctx, _))
+    |> list.unzip
+  Report(
+    findings: list.flatten(findings),
+    warnings: warnings |> list.flatten |> list.unique,
+  )
 }
 
+/// Runs the same loading, analysis and checks as `generate` through
+/// the functions it exports, so both commands reach the same verdict.
+/// Unlike `generate`, every query is analysed on its own (the analyser
+/// keeps no state between queries), so one broken query does not hide
+/// the next.
 fn verify_block(
   naming_ctx: naming.NamingContext,
   block: model.SqlBlock,
-) -> List(Finding) {
+) -> #(List(Finding), List(generate.Warning)) {
   let out = block.gleam.out
-  use <- guard_out_path(out)
-  case load_catalog(block) {
-    Error(detail) -> [Finding(block_out: out, detail: detail)]
-    Ok(catalog) ->
-      case load_and_analyze(naming_ctx, block, catalog) {
-        Error(details) ->
-          list.map(details, fn(detail) { Finding(block_out: out, detail:) })
-        Ok(analyzed) ->
-          case analyzed {
-            [] -> [
+  let finding = fn(error) {
+    Finding(block_out: out, detail: generate.error_to_string(error))
+  }
+  let loaded =
+    generate.validate_out_path(out)
+    |> result.try(fn(_) { generate.load_catalog(block) })
+  case loaded {
+    Error(error) -> #([finding(error)], [])
+    Ok(#(catalog, warnings)) -> {
+      // verify reports only the custom type warnings; the schema
+      // warnings are what `strict_views` turns into findings.
+      let warnings =
+        list.filter(warnings, fn(warning) {
+          case warning {
+            generate.CustomTypeAlias(..) -> True
+            generate.SchemaWarning(..) -> False
+          }
+        })
+      let findings = case generate.load_queries(naming_ctx, block) {
+        Error(error) -> [finding(error)]
+        Ok(queries) -> {
+          let checked =
+            analyze_each(naming_ctx, block, catalog, queries)
+            |> result.try(fn(analyzed) {
+              generate.check_analyzed(naming_ctx, block, catalog, analyzed)
+              |> result.map_error(list.wrap)
+            })
+          case checked {
+            Error(errors) -> list.map(errors, finding)
+            Ok([]) -> [
               Finding(
                 block_out: out,
                 detail: "SQD5001: no queries were generated — query files are empty or contain no valid annotations",
               ),
             ]
-            _ ->
+            Ok(analyzed) ->
               enforce_query_parameter_limit(
                 out,
                 analyzed,
                 block.gleam.query_parameter_limit,
               )
           }
-      }
-  }
-}
-
-/// generate stops on an `out` that is not a Gleam module path before it
-/// reads anything, so verify reports it the same way.
-fn guard_out_path(out: String, next: fn() -> List(Finding)) -> List(Finding) {
-  case generate.validate_out_path(out) {
-    Error(error) -> [
-      Finding(block_out: out, detail: generate.error_to_string(error)),
-    ]
-    Ok(Nil) -> next()
-  }
-}
-
-// ============================================================
-// Schema / query pipeline (read-only mirror of generate.load_*)
-// ============================================================
-
-fn load_catalog(block: model.SqlBlock) -> Result(model.Catalog, String) {
-  use entries <- result.try(read_files(block.schema, generate.SchemaReadError))
-  case schema_parser.parse_files_with_engine(entries, block.engine) {
-    Ok(#(catalog, warnings)) -> {
-      let catalog =
-        generate.apply_type_overrides(catalog, block.overrides.type_overrides)
-      case block.gleam.strict_views, warnings {
-        True, [_, ..] -> {
-          let formatted =
-            warnings
-            |> list.map(schema_parser.warning_to_string)
-            |> string.join("\n  ")
-          Error(
-            "SQD2005: strict_views is enabled but the schema produced resolution warnings:\n  "
-            <> formatted,
-          )
         }
-        _, _ -> Ok(catalog)
       }
+      #(findings, warnings)
     }
-    Error(error) -> Error(schema_parser.error_to_string(error))
   }
-}
-
-/// Errors are returned as a list so that every query the analyser rejects
-/// is reported in one run, not only the first; the later checks run on
-/// fully analysed queries and stay single.
-fn load_and_analyze(
-  naming_ctx: naming.NamingContext,
-  block: model.SqlBlock,
-  catalog: model.Catalog,
-) -> Result(List(model.AnalyzedQuery), List(String)) {
-  use analyzed <- result.try(analyze_each(naming_ctx, block, catalog))
-  validate_analyzed(block, analyzed) |> result.map_error(fn(e) { [e] })
 }
 
 fn analyze_each(
   naming_ctx: naming.NamingContext,
   block: model.SqlBlock,
   catalog: model.Catalog,
-) -> Result(List(model.AnalyzedQuery), List(String)) {
-  use entries <- result.try(
-    read_files(block.queries, generate.QueryReadError)
-    |> result.map_error(fn(e) { [e] }),
-  )
-  use queries <- result.try(
-    parse_all_queries(entries, block.engine, naming_ctx)
-    |> result.map_error(fn(e) { [e] }),
-  )
-  use Nil <- result.try(
-    query_validation.validate_no_duplicate_names(queries)
-    |> result.map_error(fn(e) { [query_validation.error_to_string(e)] }),
-  )
-  // Each query is analysed on its own (the analyser keeps no state
-  // between queries), so one broken query does not hide the next.
-  let results =
-    list.map(queries, fn(query) {
+  queries: List(query_ir.TokenizedQuery),
+) -> Result(List(model.AnalyzedQuery), List(generate.GenerateError)) {
+  let #(analyzed, errors) =
+    queries
+    |> list.map(fn(query) {
       query_analyzer.analyze_queries(block.engine, catalog, naming_ctx, [query])
+      |> result.map_error(generate.QueryAnalysisFailed(_, block.engine))
     })
-  case
-    list.filter_map(results, fn(analysis) {
-      case analysis {
-        Error(error) ->
-          Ok(query_analyzer.analysis_error_to_string(error, block.engine))
-        Ok(_) -> Error(Nil)
-      }
-    })
-  {
-    [] -> Ok(list.flat_map(results, result.unwrap(_, [])))
-    errors -> Error(errors)
+    |> result.partition
+  case errors {
+    [] -> Ok(analyzed |> list.reverse |> list.flatten)
+    _ -> Error(list.reverse(errors))
   }
-}
-
-fn validate_analyzed(
-  block: model.SqlBlock,
-  analyzed: List(model.AnalyzedQuery),
-) -> Result(List(model.AnalyzedQuery), String) {
-  use Nil <- result.try(
-    query_validation.validate_unsupported_annotations(analyzed)
-    |> result.map_error(query_validation.error_to_string),
-  )
-  use Nil <- result.try(
-    query_validation.validate_array_engine_support(block.engine, analyzed)
-    |> result.map_error(query_validation.error_to_string),
-  )
-  use Nil <- result.try(
-    query_validation.validate_slice_placement(analyzed)
-    |> result.map_error(query_validation.error_to_string),
-  )
-  use Nil <- result.try(case block.gleam.runtime {
-    model.Native ->
-      query_validation.validate_native_annotations(analyzed)
-      |> result.map_error(query_validation.error_to_string)
-    model.Raw -> Ok(Nil)
-  })
-  let analyzed =
-    generate.apply_column_renames(analyzed, block.overrides.column_renames)
-  let analyzed = generate.disambiguate_param_names(analyzed)
-  Ok(analyzed)
-}
-
-fn parse_all_queries(
-  entries: List(#(String, String)),
-  engine: model.Engine,
-  naming_ctx: naming.NamingContext,
-) -> Result(List(query_ir.TokenizedQuery), String) {
-  entries
-  |> list.try_map(fn(entry) {
-    let #(path, content) = entry
-    query_parser.parse_file(path, engine, naming_ctx, content)
-    |> result.map_error(query_parser.error_to_string)
-  })
-  |> result.map(list.flatten)
-}
-
-/// `read_error` is `generate.SchemaReadError` or `generate.QueryReadError`,
-/// so a path that cannot be read is reported as `generate` reports it.
-fn read_files(
-  paths: List(String),
-  read_error: fn(String, String) -> generate.GenerateError,
-) -> Result(List(#(String, String)), String) {
-  let to_string = fn(path, detail) {
-    generate.error_to_string(read_error(path, detail))
-  }
-  use expanded <- result.try(sql_paths.expand(paths, to_string))
-  expanded
-  |> list.try_map(fn(path) {
-    case simplifile.read(path) {
-      Ok(content) -> Ok(#(path, content))
-      Error(reason) ->
-        Error(to_string(
-          path,
-          "Failed to read file: " <> simplifile.describe_error(reason),
-        ))
-    }
-  })
 }
 
 // ============================================================

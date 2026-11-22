@@ -7,6 +7,7 @@ import simplifile
 import sqlode/internal/model
 import sqlode/internal/naming
 import sqlode/internal/query_parser
+import sqlode/internal/query_validation
 import sqlode/runtime
 
 pub fn main() {
@@ -1331,4 +1332,172 @@ SELECT id FROM users;"
   q1.name |> should.equal("GetNotes")
   string.contains(q1.sql, "from notes") |> should.be_true()
   q2.name |> should.equal("GetUsers")
+}
+
+// --- Literals and quoted identifiers written back into the generated SQL ---
+
+fn parse_single(engine: model.Engine, sql: String) -> model.ParsedQuery {
+  let assert Ok([query]) =
+    parse_file("q.sql", engine, naming.new(), "-- name: GetT :one\n" <> sql)
+  query
+}
+
+pub fn hex_blob_literal_keeps_its_prefix_test() {
+  let query =
+    parse_single(
+      model.SQLite,
+      "SELECT id FROM t WHERE b = X'DEADBEEF' AND id = ?1;",
+    )
+  query.sql
+  |> should.equal("select id from t where b = X'DEADBEEF' and id = ?1;")
+  query.param_count |> should.equal(1)
+}
+
+pub fn every_string_prefix_is_written_back_test() {
+  let query =
+    parse_single(
+      model.PostgreSQL,
+      "SELECT E'a', U&'d\\0061t', B'101', N'n' FROM t WHERE id = $1;",
+    )
+  query.sql
+  |> should.equal(
+    "select E'a', U&'d\\0061t', B'101', N'n' from t where id = $1;",
+  )
+}
+
+pub fn mysql_backslash_quote_does_not_swallow_placeholder_test() {
+  let query =
+    parse_single(
+      model.MySQL,
+      "SELECT id FROM t WHERE name = 'it\\'s' AND id = ?;",
+    )
+  query.sql
+  |> should.equal("select id from t where name = 'it\\'s' and id = ?;")
+  query.param_count |> should.equal(1)
+}
+
+pub fn mysql_escaped_backslash_ends_the_string_test() {
+  let query =
+    parse_single(model.MySQL, "SELECT id FROM t WHERE p = 'C:\\\\' AND id = ?;")
+  query.sql
+  |> should.equal("select id from t where p = 'C:\\\\' and id = ?;")
+  query.param_count |> should.equal(1)
+}
+
+pub fn postgresql_escape_string_backslash_quote_test() {
+  let query =
+    parse_single(
+      model.PostgreSQL,
+      "SELECT id FROM t WHERE name = E'a\\'b' AND id = $1;",
+    )
+  query.sql
+  |> should.equal("select id from t where name = E'a\\'b' and id = $1;")
+  query.param_count |> should.equal(1)
+}
+
+// A backslash is plain text in a standard PostgreSQL string, so the
+// quote after it closes the literal.
+pub fn postgresql_standard_string_backslash_is_text_test() {
+  let query =
+    parse_single(
+      model.PostgreSQL,
+      "SELECT id FROM t WHERE p = 'C:\\' AND id = $1;",
+    )
+  query.sql
+  |> should.equal("select id from t where p = 'C:\\' and id = $1;")
+  query.param_count |> should.equal(1)
+}
+
+pub fn quoted_identifier_doubles_inner_quote_test() {
+  let query =
+    parse_single(model.PostgreSQL, "SELECT \"we\"\"ird\" FROM t WHERE id = $1;")
+  query.sql
+  |> should.equal("select \"we\"\"ird\" from t where id = $1;")
+}
+
+pub fn mysql_backtick_identifier_doubles_inner_backtick_test() {
+  let query = parse_single(model.MySQL, "SELECT `we``ird` FROM t WHERE id = ?;")
+  query.sql |> should.equal("select `we``ird` from t where id = ?;")
+}
+
+pub fn macro_name_in_any_letter_case_is_expanded_test() {
+  list.each(["SQLODE.ARG(id)", "sQlode.Arg(id)", "Sqlode.NARG(id)"], fn(arg) {
+    let query =
+      parse_single(
+        model.PostgreSQL,
+        "SELECT id FROM t WHERE id = " <> arg <> ";",
+      )
+    query.param_count |> should.equal(1)
+    string.contains(string.lowercase(query.sql), "sqlode.") |> should.be_false
+  })
+  let query =
+    parse_single(
+      model.PostgreSQL,
+      "SELECT id FROM t WHERE id IN (SQLODE.SLICE(ids));",
+    )
+  query.macros |> should.equal([model.MacroSlice(index: 1, name: "ids")])
+}
+
+// sqlc macros used to pass through into the generated SQL with no
+// parameters, so the query failed only when it reached the database.
+pub fn sqlc_macros_are_rejected_test() {
+  list.each(
+    [
+      #("sqlc.arg(id)", "arg"),
+      #("SQLC.NARG(id)", "narg"),
+      #("sqlc.slice(ids)", "slice"),
+    ],
+    fn(case_) {
+      let #(macro_call, macro_name) = case_
+      let assert Error(error) =
+        query_parser.parse_file(
+          "q.sql",
+          model.PostgreSQL,
+          naming.new(),
+          "-- name: GetT :one\nSELECT id FROM t WHERE id = "
+            <> macro_call
+            <> ";",
+        )
+      query_parser.error_to_string(error)
+      |> should.equal(
+        "SQD3009: q.sql:1: query GetT: `sqlc."
+        <> macro_name
+        <> "(...)` is not supported; write `sqlode."
+        <> macro_name
+        <> "(...)` instead",
+      )
+    },
+  )
+}
+
+pub fn sqlc_macro_inside_a_string_is_left_alone_test() {
+  let query =
+    parse_single(
+      model.PostgreSQL,
+      "SELECT id FROM t WHERE note = 'sqlc.arg(x)' AND id = $1;",
+    )
+  query.param_count |> should.equal(1)
+}
+
+// The slice-in-ANY check re-reads the generated SQL. Read with the
+// PostgreSQL rules, the MySQL `\'` ended the literal early, the rest
+// of the query became one string and the slice inside ANY was missed.
+pub fn slice_inside_any_is_found_after_a_mysql_backslash_quote_test() {
+  let query =
+    parse_single(
+      model.MySQL,
+      "SELECT id FROM t WHERE name = 'it\\'s' AND id = ANY(sqlode.slice(ids));",
+    )
+  let analyzed =
+    model.AnalyzedQuery(base: query, params: [], result_columns: [])
+  query_validation.validate_slice_placement(model.MySQL, [analyzed])
+  |> should.equal(Error(query_validation.SliceInsideQuantifier("GetT")))
+}
+
+pub fn crlf_query_file_parses_like_lf_test() {
+  let lf =
+    "-- name: GetT :one\nSELECT id\nFROM t -- c\nWHERE id = $1;\n\n-- name: ListT :many\nSELECT id FROM t;\n"
+  let crlf = string.replace(lf, "\n", "\r\n")
+  parse_file("q.sql", model.PostgreSQL, naming.new(), crlf)
+  |> should.equal(parse_file("q.sql", model.PostgreSQL, naming.new(), lf))
 }

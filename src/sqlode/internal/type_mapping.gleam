@@ -1,5 +1,6 @@
 import gleam/list
 import gleam/option
+import gleam/result
 import gleam/string
 import sqlode/internal/model.{
   type Engine, type ScalarType, type TypeMapping, ArrayType, BoolType, BytesType,
@@ -7,6 +8,7 @@ import sqlode/internal/model.{
   JsonType, MySQL, PostgreSQL, RichMapping, SQLite, SetType, StringType,
   StrongMapping, TimeType, UuidType,
 }
+import sqlode/internal/naming
 
 // --- ScalarType property table ---
 // All leaf type properties are defined once here. Adding a new leaf type
@@ -243,6 +245,75 @@ pub fn enum_value_name(value: String) -> String {
   simple_pascal_case(value)
 }
 
+/// Why an enum value cannot become a Gleam constructor.
+pub type EnumValueError {
+  /// The value does not turn into a Gleam constructor name.
+  UnnamableEnumValue(enum_name: String, value: String, variant: String)
+  /// Two values turn into the same constructor name.
+  CollidingEnumValues(
+    enum_name: String,
+    first: String,
+    second: String,
+    variant: String,
+  )
+}
+
+/// Check that every value of every enum (and MySQL SET) turns into a
+/// distinct Gleam constructor, so the generated module compiles.
+pub fn validate_enum_values(
+  enums: List(model.EnumDef),
+) -> Result(Nil, EnumValueError) {
+  list.try_each(enums, fn(enum_def) {
+    list.try_fold(enum_def.values, [], fn(seen, value) {
+      let variant = enum_value_name(value)
+      case is_constructor_name(variant), list.key_find(seen, variant) {
+        False, _ ->
+          Error(UnnamableEnumValue(enum_name: enum_def.name, value:, variant:))
+        True, Ok(first) ->
+          Error(CollidingEnumValues(
+            enum_name: enum_def.name,
+            first:,
+            second: value,
+            variant:,
+          ))
+        True, Error(Nil) -> Ok([#(variant, value), ..seen])
+      }
+    })
+    |> result.replace(Nil)
+  })
+}
+
+pub fn enum_value_error_to_string(error: EnumValueError) -> String {
+  case error {
+    UnnamableEnumValue(enum_name:, value:, variant:) ->
+      "SQD2006: value \""
+      <> value
+      <> "\" of enum "
+      <> enum_name
+      <> " cannot become a Gleam constructor (it would be \""
+      <> variant
+      <> "\"). Use letters, digits, '_', '-', '.', '/' or spaces, starting with a letter"
+    CollidingEnumValues(enum_name:, first:, second:, variant:) ->
+      "SQD2006: values \""
+      <> first
+      <> "\" and \""
+      <> second
+      <> "\" of enum "
+      <> enum_name
+      <> " both become the Gleam constructor "
+      <> variant
+  }
+}
+
+/// A Gleam constructor starts with an uppercase ASCII letter and goes
+/// on with ASCII letters and digits. The prelude constructors are
+/// rejected too: the generated `from_string` returns `Ok(..)`, which a
+/// local `Ok` variant would shadow.
+fn is_constructor_name(name: String) -> Bool {
+  naming.is_type_name(name)
+  && !list.contains(["Ok", "Error", "True", "False", "Nil"], name)
+}
+
 pub fn enum_to_string_fn(name: String) -> String {
   string.lowercase(name) <> "_to_string"
 }
@@ -278,8 +349,16 @@ pub fn set_from_string_fn(name: String) -> String {
   string.lowercase(name) <> "_set_from_string"
 }
 
+/// Split on the same separators as `naming.to_pascal_case` and
+/// capitalise each word, lowercasing the rest so that existing names
+/// such as `ACTIVE` -> `Active` stay as they were.
 fn simple_pascal_case(input: String) -> String {
   input
+  |> string.replace("-", "_")
+  |> string.replace(" ", "_")
+  |> string.replace("\t", "_")
+  |> string.replace(".", "_")
+  |> string.replace("/", "_")
   |> string.split("_")
   |> list.map(fn(word) {
     case string.pop_grapheme(word) {

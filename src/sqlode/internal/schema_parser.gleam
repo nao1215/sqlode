@@ -1,3 +1,4 @@
+import gleam/bool
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
@@ -35,12 +36,6 @@ type ViewColumn {
 }
 
 pub fn parse_files(
-  entries: List(#(String, String)),
-) -> Result(#(model.Catalog, List(SchemaWarning)), ParseError) {
-  parse_files_with_engine(entries, model.PostgreSQL)
-}
-
-pub fn parse_files_with_engine(
   entries: List(#(String, String)),
   engine: model.Engine,
 ) -> Result(#(model.Catalog, List(SchemaWarning)), ParseError) {
@@ -208,9 +203,7 @@ fn is_create_enum_tokens(tokens: List(lexer.Token)) -> Bool {
       lexer.Keyword("as"),
       lexer.Keyword("enum"),
       ..
-    ]
-      if t == "type" || t == "TYPE" || t == "Type"
-    -> True
+    ] -> string.lowercase(t) == "type"
     _ -> False
   }
 }
@@ -227,9 +220,8 @@ fn parse_create_enum_from_tokens(
       lexer.Keyword("as"),
       lexer.Keyword("enum"),
       ..rest
-    ]
-      if t == "type" || t == "TYPE" || t == "Type"
-    -> {
+    ] -> {
+      use <- bool.guard(string.lowercase(t) != "type", Error(Nil))
       let name = case name_token {
         lexer.Ident(n) -> string.lowercase(n)
         lexer.QuotedIdent(n) -> string.lowercase(n)
@@ -249,7 +241,7 @@ fn extract_enum_values(
 ) -> List(String) {
   case tokens {
     [] -> list.reverse(acc)
-    [lexer.StringLit(value), ..rest] ->
+    [lexer.StringLit(value: value, ..), ..rest] ->
       extract_enum_values(rest, [value, ..acc])
     [_, ..rest] -> extract_enum_values(rest, acc)
   }
@@ -348,15 +340,14 @@ fn resolve_view_columns(
   select_tokens: List(lexer.Token),
   tables: List(model.Table),
 ) -> #(List(model.Column), List(SchemaWarning)) {
-  let view_cols = extract_view_columns(select_tokens)
-  list.fold(view_cols, #([], []), fn(acc, view_col) {
-    let #(columns, warnings) = acc
-    let normalized = naming.normalize_identifier(view_col.name)
-    case resolve_single_view_column(normalized, view_col.expr_tokens, tables) {
-      Ok(col) -> #(list.append(columns, [col]), warnings)
-      Error(warning) -> #(columns, list.append(warnings, [warning]))
-    }
-  })
+  let #(columns, warnings) =
+    extract_view_columns(select_tokens)
+    |> list.map(fn(view_col) {
+      let normalized = naming.normalize_identifier(view_col.name)
+      resolve_single_view_column(normalized, view_col.expr_tokens, tables)
+    })
+    |> result.partition
+  #(list.reverse(columns), list.reverse(warnings))
 }
 
 fn resolve_single_view_column(
@@ -407,7 +398,7 @@ fn split_at_from(
 }
 
 fn extract_view_columns(tokens: List(lexer.Token)) -> List(ViewColumn) {
-  let groups = tok_split_select_columns(tokens, 0, [], [])
+  let groups = token_utils.split_on_commas(tokens)
   list.filter_map(groups, fn(col_tokens) {
     // Check for AS alias (last two tokens: Keyword("as"), Ident/QuotedIdent)
     let reversed = list.reverse(col_tokens)
@@ -498,7 +489,7 @@ fn infer_view_expression_type(
     }
 
     // Literals
-    [lexer.StringLit(_), ..] -> Some(#(model.StringType, False))
+    [lexer.StringLit(..), ..] -> Some(#(model.StringType, False))
     [lexer.NumberLit(n), ..] ->
       case string.contains(n, ".") {
         True -> Some(#(model.FloatType, False))
@@ -538,29 +529,6 @@ fn infer_cast_type(
         Error(_) -> None
       }
     [_, ..rest] -> infer_cast_type(rest)
-  }
-}
-
-fn tok_split_select_columns(
-  tokens: List(lexer.Token),
-  depth: Int,
-  current: List(lexer.Token),
-  acc: List(List(lexer.Token)),
-) -> List(List(lexer.Token)) {
-  case tokens {
-    [] ->
-      case current {
-        [] -> list.reverse(acc)
-        _ -> list.reverse([list.reverse(current), ..acc])
-      }
-    [lexer.Comma, ..rest] if depth == 0 ->
-      tok_split_select_columns(rest, 0, [], [list.reverse(current), ..acc])
-    [lexer.LParen, ..rest] ->
-      tok_split_select_columns(rest, depth + 1, [lexer.LParen, ..current], acc)
-    [lexer.RParen, ..rest] ->
-      tok_split_select_columns(rest, depth - 1, [lexer.RParen, ..current], acc)
-    [token, ..rest] ->
-      tok_split_select_columns(rest, depth, [token, ..current], acc)
   }
 }
 
@@ -1002,8 +970,11 @@ fn extract_alter_type_tokens(tokens: List(lexer.Token)) -> List(lexer.Token) {
     [] -> []
     // `type` arrives as `Ident(_)` (case-preserving) because the
     // lexer no longer reserves it as a keyword (#479).
-    [lexer.Ident(t), ..rest] if t == "type" || t == "TYPE" || t == "Type" ->
-      take_until_using(rest, [])
+    [lexer.Ident(t), ..rest] ->
+      case string.lowercase(t) {
+        "type" -> take_until_using(rest, [])
+        _ -> extract_alter_type_tokens(rest)
+      }
     [_, ..rest] -> extract_alter_type_tokens(rest)
   }
 }
@@ -1055,46 +1026,27 @@ fn apply_ddl_action(
       ))
     AlterDropColumn(table_name:, column_name:) ->
       Ok(#(
-        list.map(tables, fn(t) {
-          case string.lowercase(t.name) == string.lowercase(table_name) {
-            True ->
-              model.Table(
-                ..t,
-                columns: list.filter(t.columns, fn(c) {
-                  string.lowercase(c.name) != string.lowercase(column_name)
-                }),
-              )
-            False -> t
-          }
+        rewrite_table(tables, table_name, fn(t) {
+          model.Table(
+            ..t,
+            columns: list.filter(t.columns, fn(c) {
+              string.lowercase(c.name) != string.lowercase(column_name)
+            }),
+          )
         }),
         enums,
       ))
     AlterRenameTable(old_name:, new_name:) ->
       Ok(#(
-        list.map(tables, fn(t) {
-          case string.lowercase(t.name) == string.lowercase(old_name) {
-            True -> model.Table(..t, name: string.lowercase(new_name))
-            False -> t
-          }
+        rewrite_table(tables, old_name, fn(t) {
+          model.Table(..t, name: string.lowercase(new_name))
         }),
         enums,
       ))
     AlterRenameColumn(table_name:, old_name:, new_name:) ->
       Ok(#(
-        list.map(tables, fn(t) {
-          case string.lowercase(t.name) == string.lowercase(table_name) {
-            True ->
-              model.Table(
-                ..t,
-                columns: list.map(t.columns, fn(c) {
-                  case string.lowercase(c.name) == string.lowercase(old_name) {
-                    True -> model.Column(..c, name: string.lowercase(new_name))
-                    False -> c
-                  }
-                }),
-              )
-            False -> t
-          }
+        rewrite_column(tables, table_name, old_name, fn(c) {
+          model.Column(..c, name: string.lowercase(new_name))
         }),
         enums,
       ))
@@ -1162,43 +1114,15 @@ fn apply_ddl_action(
     }
     AlterColumnSetNotNull(table_name:, column_name:) ->
       Ok(#(
-        list.map(tables, fn(t) {
-          case string.lowercase(t.name) == string.lowercase(table_name) {
-            True ->
-              model.Table(
-                ..t,
-                columns: list.map(t.columns, fn(c) {
-                  case
-                    string.lowercase(c.name) == string.lowercase(column_name)
-                  {
-                    True -> model.Column(..c, nullable: False)
-                    False -> c
-                  }
-                }),
-              )
-            False -> t
-          }
+        rewrite_column(tables, table_name, column_name, fn(c) {
+          model.Column(..c, nullable: False)
         }),
         enums,
       ))
     AlterColumnDropNotNull(table_name:, column_name:) ->
       Ok(#(
-        list.map(tables, fn(t) {
-          case string.lowercase(t.name) == string.lowercase(table_name) {
-            True ->
-              model.Table(
-                ..t,
-                columns: list.map(t.columns, fn(c) {
-                  case
-                    string.lowercase(c.name) == string.lowercase(column_name)
-                  {
-                    True -> model.Column(..c, nullable: True)
-                    False -> c
-                  }
-                }),
-              )
-            False -> t
-          }
+        rewrite_column(tables, table_name, column_name, fn(c) {
+          model.Column(..c, nullable: True)
         }),
         enums,
       ))
@@ -1238,26 +1162,37 @@ fn token_keyword_text(token: lexer.Token) -> String {
 /// leaving all other columns and tables untouched. Used by every ALTER
 /// path that rewrites a single column in place so the per-action code
 /// does not repeat the table/column-walking boilerplate.
+/// Apply `update` to the table named `table_name` (case-insensitive).
+fn rewrite_table(
+  tables: List(model.Table),
+  table_name: String,
+  update: fn(model.Table) -> model.Table,
+) -> List(model.Table) {
+  list.map(tables, fn(t) {
+    case string.lowercase(t.name) == string.lowercase(table_name) {
+      True -> update(t)
+      False -> t
+    }
+  })
+}
+
+/// Apply `update` to one column of one table (both case-insensitive).
 fn rewrite_column(
   tables: List(model.Table),
   table_name: String,
   column_name: String,
   update: fn(model.Column) -> model.Column,
 ) -> List(model.Table) {
-  list.map(tables, fn(t) {
-    case string.lowercase(t.name) == string.lowercase(table_name) {
-      True ->
-        model.Table(
-          ..t,
-          columns: list.map(t.columns, fn(c) {
-            case string.lowercase(c.name) == string.lowercase(column_name) {
-              True -> update(c)
-              False -> c
-            }
-          }),
-        )
-      False -> t
-    }
+  rewrite_table(tables, table_name, fn(t) {
+    model.Table(
+      ..t,
+      columns: list.map(t.columns, fn(c) {
+        case string.lowercase(c.name) == string.lowercase(column_name) {
+          True -> update(c)
+          False -> c
+        }
+      }),
+    )
   })
 }
 
@@ -1353,8 +1288,11 @@ fn parse_create_table_tokens(
         }),
       )
 
-      // Strip trailing RParen from body
-      let body_tokens = strip_trailing_rparen(body)
+      // The column list ends at the `)` that closes the first `(`.
+      // Table options after it (`PARTITION BY HASH (a, b)`, MySQL
+      // `ENGINE=...`) have their own parentheses and commas.
+      let #(body_tokens, _table_options) =
+        token_utils.collect_paren_contents(body)
 
       use #(columns, new_enums) <- result.try(parse_columns_tokens(
         path,
@@ -1393,21 +1331,6 @@ fn find_last_ident(tokens: List(lexer.Token)) -> Result(String, Nil) {
   |> list.last
 }
 
-/// Strip trailing RParen from token list.
-fn strip_trailing_rparen(tokens: List(lexer.Token)) -> List(lexer.Token) {
-  tokens
-  |> list.reverse
-  |> drop_trailing_rparens
-  |> list.reverse
-}
-
-fn drop_trailing_rparens(rev_tokens: List(lexer.Token)) -> List(lexer.Token) {
-  case rev_tokens {
-    [lexer.RParen, ..rest] -> rest
-    _ -> rev_tokens
-  }
-}
-
 fn parse_columns_tokens(
   path: String,
   table_name: String,
@@ -1415,7 +1338,7 @@ fn parse_columns_tokens(
   enums: List(model.EnumDef),
   engine: model.Engine,
 ) -> Result(#(List(model.Column), List(model.EnumDef)), ParseError) {
-  split_tokens_by_comma(tokens)
+  token_utils.split_on_commas(tokens)
   |> list.try_fold(#([], []), fn(acc, col_tokens) {
     let #(columns, collected_enums) = acc
     // Each column sees all enums known so far (including ones synthesized
@@ -1438,47 +1361,6 @@ fn parse_columns_tokens(
     }
   })
   |> result.map(fn(pair) { #(list.reverse(pair.0), pair.1) })
-}
-
-/// Split a token list by top-level commas (depth-0 only).
-fn split_tokens_by_comma(tokens: List(lexer.Token)) -> List(List(lexer.Token)) {
-  split_tokens_by_comma_loop(tokens, 0, [], [])
-}
-
-fn split_tokens_by_comma_loop(
-  tokens: List(lexer.Token),
-  depth: Int,
-  current: List(lexer.Token),
-  acc: List(List(lexer.Token)),
-) -> List(List(lexer.Token)) {
-  case tokens {
-    [] ->
-      case current {
-        [] -> list.reverse(acc)
-        _ -> list.reverse([list.reverse(current), ..acc])
-      }
-    [lexer.LParen, ..rest] ->
-      split_tokens_by_comma_loop(
-        rest,
-        depth + 1,
-        [lexer.LParen, ..current],
-        acc,
-      )
-    [lexer.RParen, ..rest] ->
-      split_tokens_by_comma_loop(
-        rest,
-        case depth > 0 {
-          True -> depth - 1
-          False -> 0
-        },
-        [lexer.RParen, ..current],
-        acc,
-      )
-    [lexer.Comma, ..rest] if depth == 0 ->
-      split_tokens_by_comma_loop(rest, depth, [], [list.reverse(current), ..acc])
-    [tok, ..rest] ->
-      split_tokens_by_comma_loop(rest, depth, [tok, ..current], acc)
-  }
 }
 
 fn parse_named_column(

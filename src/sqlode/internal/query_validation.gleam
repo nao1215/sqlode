@@ -9,6 +9,7 @@
 
 import gleam/dict
 import gleam/list
+import gleam/result
 import gleam/string
 import sqlode/internal/lexer
 import sqlode/internal/model
@@ -79,24 +80,14 @@ fn find_duplicate_group(
 pub fn validate_unsupported_annotations(
   queries: List(model.AnalyzedQuery),
 ) -> Result(Nil, ValidationError) {
-  let unsupported = fn(command: runtime.QueryCommand) -> Bool {
-    case command {
-      runtime.BatchOne
-      | runtime.BatchMany
-      | runtime.BatchExec
-      | runtime.CopyFrom -> True
-      _ -> False
-    }
+  let unsupported = fn(query: model.AnalyzedQuery) {
+    model.unsupported_command_alternative(query.base.command)
+    |> result.map(fn(alternative) { #(query, alternative) })
   }
-  case list.find(queries, fn(q) { unsupported(q.base.command) }) {
-    Ok(q) -> {
-      let #(command, alternative) = case q.base.command {
-        runtime.BatchOne -> #(":batchone", ":one")
-        runtime.BatchMany -> #(":batchmany", ":many")
-        runtime.BatchExec -> #(":batchexec", ":exec")
-        runtime.CopyFrom -> #(":copyfrom", ":exec")
-        _ -> #("", ":exec")
-      }
+  case list.find_map(queries, unsupported) {
+    Ok(#(q, alternative)) -> {
+      let command = model.query_command_annotation(q.base.command)
+      let alternative = model.query_command_annotation(alternative)
       Error(UnsupportedAnnotation(
         query_name: q.base.name,
         command: command,
@@ -153,11 +144,12 @@ pub fn validate_array_engine_support(
 /// scalar as "requires array on right side"). The query could never
 /// run, so it is stopped before any code is written.
 pub fn validate_slice_placement(
+  engine: model.Engine,
   queries: List(model.AnalyzedQuery),
 ) -> Result(Nil, ValidationError) {
   case
     list.find(queries, fn(q) {
-      slice_inside_quantifier(lexer.tokenize(q.base.sql, model.PostgreSQL))
+      slice_inside_quantifier(lexer.tokenize(q.base.sql, engine))
     })
   {
     Ok(q) -> Error(SliceInsideQuantifier(query_name: q.base.name))

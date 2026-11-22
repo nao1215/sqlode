@@ -14,22 +14,12 @@ import sqlode/internal/query_analyzer/placeholder
 import sqlode/internal/query_analyzer/token_utils
 import sqlode/internal/query_ir
 
-pub type AnalysisError =
-  context.AnalysisError
-
-pub fn analysis_error_to_string(
-  error: AnalysisError,
-  engine: model.Engine,
-) -> String {
-  context.analysis_error_to_string(error, engine)
-}
-
 pub fn analyze_queries(
   engine: model.Engine,
   catalog: model.Catalog,
   naming_ctx: naming.NamingContext,
   queries: List(query_ir.TokenizedQuery),
-) -> Result(List(model.AnalyzedQuery), AnalysisError) {
+) -> Result(List(model.AnalyzedQuery), context.AnalysisError) {
   let ctx = context.new(naming_ctx)
   list.try_map(queries, analyze_query(ctx, engine, catalog, _))
 }
@@ -38,9 +28,9 @@ fn analyze_query(
   ctx: context.AnalyzerContext,
   engine: model.Engine,
   catalog: model.Catalog,
-  tq: query_ir.TokenizedQuery,
-) -> Result(model.AnalyzedQuery, AnalysisError) {
-  let query_ir.TokenizedQuery(base: query, tokens: tokens) = tq
+  tokenized: query_ir.TokenizedQuery,
+) -> Result(model.AnalyzedQuery, context.AnalysisError) {
+  let query_ir.TokenizedQuery(base: query, tokens: tokens) = tokenized
   let statement = token_utils.structure_tokens(tokens)
   // Surface virtual tables the outer query references — CTEs, VALUES
   // in FROM, and derived-table subqueries — so both result-column and
@@ -55,47 +45,15 @@ fn analyze_query(
   // extractors. This mirrors the dispatch pattern PRs #412 and #413
   // established for equality / IN / quantified parameter inference.
   let stmt = expr_parser.parse_stmt(tokens, engine)
-  use cte_tables <- result.try(case stmt {
+  use augmented <- result.try(case stmt {
     query_ir.UnstructuredStmt(..) ->
-      column_inferencer.extract_cte_tables(query.name, tokens, catalog)
-    _ ->
-      column_inferencer.extract_cte_tables_from_stmt(
-        query.name,
-        stmt,
-        tokens,
-        catalog,
-      )
+      add_virtual_tables_from_tokens(query.name, tokens, catalog)
+    query_ir.SelectStmt(..)
+    | query_ir.InsertStmt(..)
+    | query_ir.UpdateStmt(..)
+    | query_ir.DeleteStmt(..) ->
+      add_virtual_tables_from_stmt(query.name, stmt, tokens, catalog)
   })
-  let with_ctes = merge_virtual_tables(catalog, cte_tables)
-  let values_tables = case stmt {
-    query_ir.UnstructuredStmt(..) ->
-      column_inferencer.extract_values_tables(tokens)
-    _ -> column_inferencer.extract_values_tables_from_stmt(stmt)
-  }
-  let with_values = merge_virtual_tables(with_ctes, values_tables)
-  use derived_tables <- result.try(case stmt {
-    query_ir.UnstructuredStmt(..) ->
-      column_inferencer.extract_derived_tables(query.name, tokens, with_values)
-    _ ->
-      column_inferencer.extract_derived_tables_from_stmt(
-        query.name,
-        stmt,
-        tokens,
-        with_values,
-      )
-  })
-  let with_derived = merge_virtual_tables(with_values, derived_tables)
-  // Register `FROM table AS alias` / `JOIN table AS alias` aliases so
-  // qualified refs like `p.user_id` in a query that writes
-  // `FROM posts AS p` resolve to `posts`. This is the single hook
-  // that lets the expression-aware IR reason about aliased column
-  // references without re-implementing alias resolution everywhere.
-  let alias_tables = case stmt {
-    query_ir.UnstructuredStmt(..) ->
-      column_inferencer.extract_table_aliases(tokens, with_derived)
-    _ -> column_inferencer.extract_table_aliases_from_stmt(stmt, with_derived)
-  }
-  let augmented = merge_virtual_tables(with_derived, alias_tables)
 
   let occurrences = placeholder.extract(ctx, engine, tokens)
   use params <- result.try(build_params(
@@ -108,8 +66,6 @@ fn analyze_query(
     occurrences,
   ))
   use result_columns <- result.try(column_inferencer.infer_result_columns(
-    ctx,
-    engine,
     query,
     tokens,
     statement,
@@ -118,6 +74,73 @@ fn analyze_query(
 
   let rewritten = rewrite_embed_sql(engine, query, tokens, result_columns)
   Ok(model.AnalyzedQuery(base: rewritten, params:, result_columns:))
+}
+
+/// Add the CTEs, VALUES lists, derived tables and `FROM table AS
+/// alias` aliases of the outer query to the catalog, read from the
+/// parsed statement. Registering aliases lets qualified refs like
+/// `p.user_id` in `FROM posts AS p` resolve to `posts`.
+fn add_virtual_tables_from_stmt(
+  query_name: String,
+  stmt: query_ir.Stmt,
+  tokens: List(lexer.Token),
+  catalog: model.Catalog,
+) -> Result(model.Catalog, context.AnalysisError) {
+  use cte_tables <- result.try(column_inferencer.extract_cte_tables_from_stmt(
+    query_name,
+    stmt,
+    tokens,
+    catalog,
+  ))
+  let catalog =
+    catalog
+    |> context.with_virtual_tables(cte_tables)
+    |> context.with_virtual_tables(
+      column_inferencer.extract_values_tables_from_stmt(stmt),
+    )
+  use derived_tables <- result.try(
+    column_inferencer.extract_derived_tables_from_stmt(
+      query_name,
+      stmt,
+      tokens,
+      catalog,
+    ),
+  )
+  let catalog = context.with_virtual_tables(catalog, derived_tables)
+  Ok(context.with_virtual_tables(
+    catalog,
+    column_inferencer.extract_table_aliases_from_stmt(stmt, catalog),
+  ))
+}
+
+/// The token-based counterpart of `add_virtual_tables_from_stmt`, for
+/// statements the IR parser does not model yet.
+fn add_virtual_tables_from_tokens(
+  query_name: String,
+  tokens: List(lexer.Token),
+  catalog: model.Catalog,
+) -> Result(model.Catalog, context.AnalysisError) {
+  use cte_tables <- result.try(column_inferencer.extract_cte_tables(
+    query_name,
+    tokens,
+    catalog,
+  ))
+  let catalog =
+    catalog
+    |> context.with_virtual_tables(cte_tables)
+    |> context.with_virtual_tables(column_inferencer.extract_values_tables(
+      tokens,
+    ))
+  use derived_tables <- result.try(column_inferencer.extract_derived_tables(
+    query_name,
+    tokens,
+    catalog,
+  ))
+  let catalog = context.with_virtual_tables(catalog, derived_tables)
+  Ok(context.with_virtual_tables(
+    catalog,
+    column_inferencer.extract_table_aliases(tokens, catalog),
+  ))
 }
 
 /// Expand any `sqlode.embed(TABLE)` macro calls in the query's SQL into
@@ -148,20 +171,6 @@ fn rewrite_embed_sql(
   }
 }
 
-fn merge_virtual_tables(
-  catalog: model.Catalog,
-  vtables: List(model.Table),
-) -> model.Catalog {
-  case vtables {
-    [] -> catalog
-    _ ->
-      model.Catalog(
-        tables: list.append(catalog.tables, vtables),
-        enums: catalog.enums,
-      )
-  }
-}
-
 fn build_params(
   ctx: context.AnalyzerContext,
   engine: model.Engine,
@@ -188,18 +197,20 @@ fn build_params(
   // Every inference pass below reads the query-wide placeholder index
   // from these numbered tokens, so all of them agree with `occurrences`.
   let numbered = placeholder.number_tokens(tokens, occurrences)
+  // Both IR walkers read the same statement, so it is parsed once.
+  let numbered_stmt = expr_parser.parse_stmt(numbered, engine)
   use equality <- result.try(param_inferencer.infer_equality_params(
-    ctx,
     engine,
     query.name,
     numbered,
+    numbered_stmt,
     catalog,
   ))
   use in_params <- result.try(param_inferencer.infer_in_params(
-    ctx,
     engine,
     query.name,
     numbered,
+    numbered_stmt,
     catalog,
   ))
   let inferences =
@@ -208,7 +219,7 @@ fn build_params(
     |> list.append(in_params)
 
   use cast_dict <- result.try(
-    param_inferencer.extract_type_casts(ctx, engine, numbered)
+    param_inferencer.extract_type_casts(engine, numbered)
     |> result.map_error(fn(err) {
       let #(index, cast_type) = err
       context.UnrecognizedCastType(

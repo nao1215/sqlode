@@ -124,62 +124,14 @@ fn has_mysql_set(catalog: model.Catalog) -> Bool {
 
 fn render_enum_type(enum_def: model.EnumDef) -> String {
   let type_name = type_mapping.enum_type_name(enum_def.name)
-  let to_string_fn = type_mapping.enum_to_string_fn(enum_def.name)
-  let from_string_fn = type_mapping.enum_from_string_fn(enum_def.name)
   let default_fn = type_mapping.enum_default_fn(enum_def.name)
-
   let first_variant = case enum_def.values {
     [first, ..] -> type_mapping.enum_value_name(first)
     [] -> type_name
   }
 
-  let constructors =
-    builder.lines(list.map(enum_def.values, type_mapping.enum_value_name))
-    |> builder.indent(by: 2)
-
-  let to_string_cases =
-    builder.lines(
-      list.map(enum_def.values, fn(v) {
-        type_mapping.enum_value_name(v) <> " -> \"" <> v <> "\""
-      }),
-    )
-    |> builder.indent(by: 4)
-
-  let from_string_cases =
-    builder.lines(
-      list.map(enum_def.values, fn(v) {
-        "\"" <> v <> "\" -> Ok(" <> type_mapping.enum_value_name(v) <> ")"
-      }),
-    )
-    |> builder.indent(by: 4)
-
   builder.concat([
-    builder.line("pub type " <> type_name <> " {"),
-    constructors,
-    builder.line("}"),
-    builder.blank(),
-    builder.line(
-      "pub fn " <> to_string_fn <> "(value: " <> type_name <> ") -> String {",
-    ),
-    builder.line("  case value {"),
-    to_string_cases,
-    builder.line("  }"),
-    builder.line("}"),
-    builder.blank(),
-    builder.line(
-      "pub fn "
-      <> from_string_fn
-      <> "(value: String) -> Result("
-      <> type_name
-      <> ", String) {",
-    ),
-    builder.line("  case value {"),
-    from_string_cases,
-    builder.line(
-      "    _ -> Error(\"Unknown " <> enum_def.name <> " value: \" <> value)",
-    ),
-    builder.line("  }"),
-    builder.line("}"),
+    render_value_type(enum_def, type_name),
     builder.blank(),
     // `<name>_default()` is the first variant in declaration order.
     // Used solely as the type-inference placeholder for
@@ -191,6 +143,60 @@ fn render_enum_type(enum_def: model.EnumDef) -> String {
     builder.line("}"),
   ])
   |> builder.render
+}
+
+/// The custom type of an enum (or of one MySQL SET value) named
+/// `type_name`, with its `<name>_to_string` and `<name>_from_string`
+/// functions.
+fn render_value_type(
+  enum_def: model.EnumDef,
+  type_name: String,
+) -> builder.Block {
+  let to_string_fn = type_mapping.enum_to_string_fn(enum_def.name)
+  let from_string_fn = type_mapping.enum_from_string_fn(enum_def.name)
+  let cases = fn(render_case) {
+    builder.lines(
+      list.map(enum_def.values, fn(value) {
+        render_case(
+          type_mapping.enum_value_name(value),
+          "\"" <> common.escape_string(value) <> "\"",
+        )
+      }),
+    )
+    |> builder.indent(by: 4)
+  }
+
+  builder.concat([
+    builder.line("pub type " <> type_name <> " {"),
+    builder.lines(list.map(enum_def.values, type_mapping.enum_value_name))
+      |> builder.indent(by: 2),
+    builder.line("}"),
+    builder.blank(),
+    builder.line(
+      "pub fn " <> to_string_fn <> "(value: " <> type_name <> ") -> String {",
+    ),
+    builder.line("  case value {"),
+    cases(fn(variant, literal) { variant <> " -> " <> literal }),
+    builder.line("  }"),
+    builder.line("}"),
+    builder.blank(),
+    builder.line(
+      "pub fn "
+      <> from_string_fn
+      <> "(value: String) -> Result("
+      <> type_name
+      <> ", String) {",
+    ),
+    builder.line("  case value {"),
+    cases(fn(variant, literal) { literal <> " -> Ok(" <> variant <> ")" }),
+    builder.line(
+      "    _ -> Error(\"Unknown "
+      <> common.escape_string(enum_def.name)
+      <> " value: \" <> value)",
+    ),
+    builder.line("  }"),
+    builder.line("}"),
+  ])
 }
 
 /// Render a MySQL `SET('a','b',...)` definition as a Gleam value type
@@ -205,57 +211,8 @@ fn render_set_type(enum_def: model.EnumDef) -> String {
   let set_to_string_fn = type_mapping.set_to_string_fn(enum_def.name)
   let set_from_string_fn = type_mapping.set_from_string_fn(enum_def.name)
 
-  let constructors =
-    builder.lines(list.map(enum_def.values, type_mapping.enum_value_name))
-    |> builder.indent(by: 2)
-
-  let to_string_cases =
-    builder.lines(
-      list.map(enum_def.values, fn(v) {
-        type_mapping.enum_value_name(v) <> " -> \"" <> v <> "\""
-      }),
-    )
-    |> builder.indent(by: 4)
-
-  let from_string_cases =
-    builder.lines(
-      list.map(enum_def.values, fn(v) {
-        "\"" <> v <> "\" -> Ok(" <> type_mapping.enum_value_name(v) <> ")"
-      }),
-    )
-    |> builder.indent(by: 4)
-
   builder.concat([
-    builder.line("pub type " <> value_type <> " {"),
-    constructors,
-    builder.line("}"),
-    builder.blank(),
-    builder.line(
-      "pub fn "
-      <> value_to_string_fn
-      <> "(value: "
-      <> value_type
-      <> ") -> String {",
-    ),
-    builder.line("  case value {"),
-    to_string_cases,
-    builder.line("  }"),
-    builder.line("}"),
-    builder.blank(),
-    builder.line(
-      "pub fn "
-      <> value_from_string_fn
-      <> "(value: String) -> Result("
-      <> value_type
-      <> ", String) {",
-    ),
-    builder.line("  case value {"),
-    from_string_cases,
-    builder.line(
-      "    _ -> Error(\"Unknown " <> enum_def.name <> " value: \" <> value)",
-    ),
-    builder.line("  }"),
-    builder.line("}"),
+    render_value_type(enum_def, value_type),
     builder.blank(),
     builder.line(
       "pub fn "

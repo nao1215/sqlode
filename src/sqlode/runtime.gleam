@@ -1,6 +1,8 @@
+import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
 import gleam/option
+import gleam/result
 import gleam/string
 
 pub type QueryCommand {
@@ -379,54 +381,103 @@ pub fn expand_slice_placeholders(
     | Error(SliceStartAfterParams(_, _))
     | Error(SliceLengthExceedsParams(_, _, _)) -> Nil
   }
-  let #(_, mapping) =
+  // The first entry for an index wins, as `list.find` did.
+  let slice_lengths =
+    list.fold(slices, dict.new(), fn(lengths, slice) {
+      case dict.has_key(lengths, slice.0) {
+        True -> lengths
+        False -> dict.insert(lengths, slice.0, slice.1)
+      }
+    })
+  let #(_, replacements) =
     int.range(
       from: 1,
       to: total_params + 1,
-      with: #(1, []),
+      with: #(1, dict.new()),
       run: fn(acc, orig_idx) {
-        let #(next_new_idx, map) = acc
-        case list.find(slices, fn(s) { s.0 == orig_idx }) {
-          Ok(#(_, len)) -> {
-            let marker = slice_marker(orig_idx)
-            case len {
-              0 -> #(next_new_idx, [#(marker, "NULL"), ..map])
-              _ -> {
-                let expanded =
-                  int.range(
-                    from: next_new_idx,
-                    to: next_new_idx + len,
-                    with: [],
-                    run: fn(items, i) {
-                      [render_placeholder(style, i), ..items]
-                    },
-                  )
-                  |> list.reverse
-                  |> string.join(", ")
-                #(next_new_idx + len, [#(marker, expanded), ..map])
-              }
-            }
+        let #(next_new_idx, replacements) = acc
+        case dict.get(slice_lengths, orig_idx) {
+          Ok(0) -> #(
+            next_new_idx,
+            dict.insert(replacements, slice_marker(orig_idx), "NULL"),
+          )
+          Ok(len) -> {
+            let expanded =
+              int.range(
+                from: next_new_idx,
+                to: next_new_idx + len,
+                with: [],
+                run: fn(items, i) { [render_placeholder(style, i), ..items] },
+              )
+              |> list.reverse
+              |> string.join(", ")
+            #(
+              next_new_idx + len,
+              dict.insert(replacements, slice_marker(orig_idx), expanded),
+            )
           }
-          Error(_) -> {
-            let marker = param_marker(orig_idx)
-            #(next_new_idx + 1, [
-              #(marker, render_placeholder(style, next_new_idx)),
-              ..map
-            ])
-          }
+          Error(Nil) -> #(
+            next_new_idx + 1,
+            dict.insert(
+              replacements,
+              param_marker(orig_idx),
+              render_placeholder(style, next_new_idx),
+            ),
+          )
         }
       },
     )
 
-  mapping
-  |> list.reverse
-  |> list.fold(sql, fn(s, entry) {
-    let #(marker, replacement) = entry
-    string.replace(s, marker, replacement)
-  })
+  replace_markers(sql, replacements)
 }
 
-fn render_placeholder(style: PlaceholderStyle, index: Int) -> String {
+/// Replace every marker in `sql` that has an entry in `replacements`,
+/// in one pass over the string. A marker without an entry, or text
+/// that only starts like one, is left as it is.
+fn replace_markers(sql: String, replacements: Dict(String, String)) -> String {
+  case string.split(sql, marker_prefix) {
+    [] -> sql
+    [first, ..rest] ->
+      list.fold(rest, [first], fn(out, part) {
+        case split_marker(part) {
+          Ok(#(marker, after)) ->
+            case dict.get(replacements, marker) {
+              Ok(replacement) -> [after, replacement, ..out]
+              Error(Nil) -> [part, marker_prefix, ..out]
+            }
+          Error(Nil) -> [part, marker_prefix, ..out]
+        }
+      })
+      |> list.reverse
+      |> string.concat
+  }
+}
+
+const marker_prefix = "__sqlode_"
+
+/// Read `param_N__` or `slice_N__` at the start of `part`, the text
+/// after a `__sqlode_` prefix, and return the whole marker and the
+/// text after it.
+fn split_marker(part: String) -> Result(#(String, String), Nil) {
+  let kind_and_rest = case part {
+    "param_" <> rest -> Ok(#("param_", rest))
+    "slice_" <> rest -> Ok(#("slice_", rest))
+    _ -> Error(Nil)
+  }
+  use #(kind, rest) <- result.try(kind_and_rest)
+  use #(digits, after) <- result.try(string.split_once(rest, "__"))
+  use index <- result.try(int.parse(digits))
+  case int.to_string(index) == digits {
+    True -> Ok(#(marker_prefix <> kind <> digits <> "__", after))
+    False -> Error(Nil)
+  }
+}
+
+/// The placeholder for parameter `index` in `style`. sqlode's code
+/// generator uses it too, so the SQL shown in `QueryInfo` matches what
+/// `prepare` sends.
+@internal
+pub fn render_placeholder(style: PlaceholderStyle, index: Int) -> String {
   case style {
     DollarNumbered -> "$" <> int.to_string(index)
     QuestionNumbered -> "?" <> int.to_string(index)

@@ -71,7 +71,7 @@ integration-refresh:
 
 regen-capabilities:
   gleam build
-  gleam run -m sqlode/scripts/print_capabilities > doc/capabilities.md
+  gleam run -m print_capabilities > doc/capabilities.md
 
 all:
   gleam format --check src/ test/

@@ -1,5 +1,6 @@
 import gleam/list
 import gleam/option.{type Option}
+import gleam/result
 import gleam/string
 import sqlode/runtime
 
@@ -176,32 +177,97 @@ pub type Config {
   Config(version: Int, sql: List(SqlBlock))
 }
 
+/// The placeholder style the generated code passes to the runtime.
+pub fn placeholder_style(engine: Engine) -> runtime.PlaceholderStyle {
+  case engine {
+    PostgreSQL -> runtime.DollarNumbered
+    MySQL -> runtime.QuestionPositional
+    SQLite -> runtime.QuestionNumbered
+  }
+}
+
+/// The constructor name of a placeholder style in generated code.
+pub fn placeholder_style_name(style: runtime.PlaceholderStyle) -> String {
+  case style {
+    runtime.DollarNumbered -> "DollarNumbered"
+    runtime.QuestionNumbered -> "QuestionNumbered"
+    runtime.QuestionPositional -> "QuestionPositional"
+  }
+}
+
+/// Every query annotation, in the order the docs and errors list them.
+pub fn query_commands() -> List(runtime.QueryCommand) {
+  [
+    runtime.One,
+    runtime.Many,
+    runtime.Exec,
+    runtime.ExecResult,
+    runtime.ExecRows,
+    runtime.ExecLastId,
+    runtime.BatchOne,
+    runtime.BatchMany,
+    runtime.BatchExec,
+    runtime.CopyFrom,
+  ]
+}
+
+/// The annotation as written after `-- name: Query`.
+pub fn query_command_annotation(command: runtime.QueryCommand) -> String {
+  case command {
+    runtime.One -> ":one"
+    runtime.Many -> ":many"
+    runtime.Exec -> ":exec"
+    runtime.ExecResult -> ":execresult"
+    runtime.ExecRows -> ":execrows"
+    runtime.ExecLastId -> ":execlastid"
+    runtime.BatchOne -> ":batchone"
+    runtime.BatchMany -> ":batchmany"
+    runtime.BatchExec -> ":batchexec"
+    runtime.CopyFrom -> ":copyfrom"
+  }
+}
+
+/// Whether the query returns rows.
 pub fn is_result_command(command: runtime.QueryCommand) -> Bool {
   case command {
     runtime.One | runtime.Many | runtime.BatchOne | runtime.BatchMany -> True
-    _ -> False
+    runtime.Exec
+    | runtime.ExecResult
+    | runtime.ExecRows
+    | runtime.ExecLastId
+    | runtime.BatchExec
+    | runtime.CopyFrom -> False
+  }
+}
+
+/// The annotation to use instead when generation does not support
+/// `command` yet: the parser accepts these for sqlc compatibility.
+pub fn unsupported_command_alternative(
+  command: runtime.QueryCommand,
+) -> Result(runtime.QueryCommand, Nil) {
+  case command {
+    runtime.BatchOne -> Ok(runtime.One)
+    runtime.BatchMany -> Ok(runtime.Many)
+    runtime.BatchExec | runtime.CopyFrom -> Ok(runtime.Exec)
+    runtime.One
+    | runtime.Many
+    | runtime.Exec
+    | runtime.ExecResult
+    | runtime.ExecRows
+    | runtime.ExecLastId -> Error(Nil)
   }
 }
 
 pub fn parse_query_command(
   value: String,
 ) -> Result(runtime.QueryCommand, String) {
-  case value {
-    ":one" -> Ok(runtime.One)
-    ":many" -> Ok(runtime.Many)
-    ":exec" -> Ok(runtime.Exec)
-    ":execresult" -> Ok(runtime.ExecResult)
-    ":execrows" -> Ok(runtime.ExecRows)
-    ":execlastid" -> Ok(runtime.ExecLastId)
-    ":batchone" -> Ok(runtime.BatchOne)
-    ":batchmany" -> Ok(runtime.BatchMany)
-    ":batchexec" -> Ok(runtime.BatchExec)
-    ":copyfrom" -> Ok(runtime.CopyFrom)
-    _ ->
-      Error(
-        "must be one of: :one, :many, :exec, :execresult, :execrows, :execlastid, :batchone, :batchmany, :batchexec, :copyfrom",
-      )
-  }
+  list.find(query_commands(), fn(command) {
+    query_command_annotation(command) == value
+  })
+  |> result.replace_error(
+    "must be one of: "
+    <> string.join(list.map(query_commands(), query_command_annotation), ", "),
+  )
 }
 
 pub fn query_command_to_string(command: runtime.QueryCommand) -> String {

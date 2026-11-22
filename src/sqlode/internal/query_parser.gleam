@@ -33,6 +33,9 @@ pub type ParseError {
     name: String,
     indices: List(Int),
   )
+  /// `sqlc.arg(...)` and the other sqlc macros are not expanded; the
+  /// query has to use the `sqlode.` spelling.
+  SqlcMacro(path: String, line: Int, name: String, macro_name: String)
 }
 
 type PendingQuery {
@@ -45,6 +48,26 @@ type PendingQuery {
   )
 }
 
+/// What stays the same while the lines of one file are read.
+type FileContext {
+  FileContext(
+    naming_ctx: naming.NamingContext,
+    path: String,
+    engine: model.Engine,
+  )
+}
+
+/// What changes from one line to the next.
+type LineState {
+  LineState(
+    pending: Option(PendingQuery),
+    parsed_rev: List(query_ir.TokenizedQuery),
+    /// The previous line was `-- sqlode:skip`, so the next annotation
+    /// and its body are dropped.
+    skip_next: Bool,
+  )
+}
+
 pub fn parse_file(
   path: String,
   engine: model.Engine,
@@ -52,130 +75,72 @@ pub fn parse_file(
   content: String,
 ) -> Result(List(query_ir.TokenizedQuery), ParseError) {
   parse_lines(
-    naming_ctx,
-    string.split(content, "\n"),
-    path,
-    engine,
+    FileContext(naming_ctx:, path:, engine:),
+    // A CRLF file reads like an LF one; the line numbers stay the same.
+    content |> string.replace("\r\n", "\n") |> string.split("\n"),
     1,
-    None,
-    [],
-    False,
+    LineState(pending: None, parsed_rev: [], skip_next: False),
   )
   |> result.map(list.reverse)
 }
 
 fn parse_lines(
-  naming_ctx: naming.NamingContext,
+  file: FileContext,
   lines: List(String),
-  path: String,
-  engine: model.Engine,
   line_number: Int,
-  pending: Option(PendingQuery),
-  parsed_rev: List(query_ir.TokenizedQuery),
-  skip_next: Bool,
+  state: LineState,
 ) -> Result(List(query_ir.TokenizedQuery), ParseError) {
   case lines {
-    [] -> finalize_pending(naming_ctx, pending, path, engine, parsed_rev)
-    [line, ..rest] -> {
-      let trimmed = string.trim(line)
-
-      case is_skip_annotation(trimmed) {
-        True -> {
-          use parsed_rev <- result.try(finalize_pending(
-            naming_ctx,
-            pending,
-            path,
-            engine,
-            parsed_rev,
-          ))
-          parse_lines(
-            naming_ctx,
-            rest,
-            path,
-            engine,
-            line_number + 1,
-            None,
-            parsed_rev,
-            True,
-          )
-        }
-        False ->
-          case parse_annotation(naming_ctx, trimmed, path, line_number) {
-            Ok(Some(next_pending)) -> {
-              use parsed_rev <- result.try(finalize_pending(
-                naming_ctx,
-                pending,
-                path,
-                engine,
-                parsed_rev,
-              ))
-
-              case skip_next {
-                True ->
-                  parse_lines(
-                    naming_ctx,
-                    rest,
-                    path,
-                    engine,
-                    line_number + 1,
-                    None,
-                    parsed_rev,
-                    False,
-                  )
-                False ->
-                  parse_lines(
-                    naming_ctx,
-                    rest,
-                    path,
-                    engine,
-                    line_number + 1,
-                    Some(next_pending),
-                    parsed_rev,
-                    False,
-                  )
-              }
-            }
-            Ok(None) -> {
-              let pending = case pending {
-                Some(PendingQuery(
-                  name:,
-                  function_name:,
-                  command:,
-                  start_line:,
-                  body_rev:,
-                )) ->
-                  Some(
-                    PendingQuery(
-                      name:,
-                      function_name:,
-                      command:,
-                      start_line:,
-                      body_rev: [line, ..body_rev],
-                    ),
-                  )
-                None -> None
-              }
-
-              parse_lines(
-                naming_ctx,
-                rest,
-                path,
-                engine,
-                line_number + 1,
-                pending,
-                parsed_rev,
-                skip_next,
-              )
-            }
-            Error(error) -> Error(error)
-          }
+    [] ->
+      finalize_pending(state.pending, file.path, file.engine, state.parsed_rev)
+    [line, ..rest] ->
+      case parse_line(file, line, line_number, state) {
+        Ok(state) -> parse_lines(file, rest, line_number + 1, state)
+        Error(error) -> Error(error)
       }
+  }
+}
+
+fn parse_line(
+  file: FileContext,
+  line: String,
+  line_number: Int,
+  state: LineState,
+) -> Result(LineState, ParseError) {
+  let trimmed = string.trim(line)
+  let finish_pending = fn() {
+    finalize_pending(state.pending, file.path, file.engine, state.parsed_rev)
+  }
+  case is_skip_annotation(trimmed) {
+    True -> {
+      use parsed_rev <- result.try(finish_pending())
+      Ok(LineState(pending: None, parsed_rev:, skip_next: True))
     }
+    False ->
+      case parse_annotation(file.naming_ctx, trimmed, file.path, line_number) {
+        Ok(Some(next_pending)) -> {
+          use parsed_rev <- result.try(finish_pending())
+          let pending = case state.skip_next {
+            True -> None
+            False -> Some(next_pending)
+          }
+          Ok(LineState(pending:, parsed_rev:, skip_next: False))
+        }
+        Ok(None) ->
+          Ok(
+            LineState(
+              ..state,
+              pending: option.map(state.pending, fn(pending) {
+                PendingQuery(..pending, body_rev: [line, ..pending.body_rev])
+              }),
+            ),
+          )
+        Error(error) -> Error(error)
+      }
   }
 }
 
 fn finalize_pending(
-  _naming_ctx: naming.NamingContext,
   pending: Option(PendingQuery),
   path: String,
   engine: model.Engine,
@@ -201,14 +166,18 @@ fn finalize_pending(
             expand_at_name_tokens(engine, tokens, 1)
 
           // Phase 3: Expand sqlode.arg/narg/slice(...) macros in token list
-          let #(tokens, expanded_macros) =
-            expand_macro_tokens(engine, tokens, next_idx)
+          let #(tokens, expanded_macros) = expand_macro_tokens(tokens, next_idx)
 
           let macros = list.append(at_macros, expanded_macros)
 
           // Phase 4: Validate remaining raw placeholders match the engine
-          case validate_placeholder_syntax(engine, tokens) {
-            Error(token) ->
+          case
+            find_sqlc_macro(tokens),
+            validate_placeholder_syntax(engine, tokens)
+          {
+            Ok(macro_name), _ ->
+              Error(SqlcMacro(path:, line: start_line, name:, macro_name:))
+            Error(Nil), Error(token) ->
               Error(InvalidPlaceholder(
                 path:,
                 line: start_line,
@@ -216,7 +185,7 @@ fn finalize_pending(
                 engine:,
                 token:,
               ))
-            Ok(Nil) ->
+            Error(Nil), Ok(Nil) ->
               case validate_upsert_tails(engine, tokens) {
                 Error(tail) ->
                   Error(WrongEngineUpsert(
@@ -433,12 +402,7 @@ fn count_parameters_from_tokens(
     model.PostgreSQL ->
       raw
       |> list.filter_map(fn(p) { string.replace(p, "$", "") |> int.parse })
-      |> list.fold(0, fn(max_idx, v) {
-        case v > max_idx {
-          True -> v
-          False -> max_idx
-        }
-      })
+      |> list.fold(0, int.max)
     model.MySQL -> list.length(raw)
     model.SQLite -> {
       let #(anon, named) = list.partition(raw, fn(p) { p == "?" })
@@ -455,13 +419,9 @@ fn is_marker_placeholder(p: String) -> Bool {
 }
 
 fn extract_marker_index(p: String) -> Result(Int, Nil) {
-  let body = case string.starts_with(p, "__sqlode_param_") {
-    True -> string.drop_start(p, 15)
-    False ->
-      case string.starts_with(p, "__sqlode_slice_") {
-        True -> string.drop_start(p, 15)
-        False -> p
-      }
+  let body = case p {
+    "__sqlode_param_" <> body | "__sqlode_slice_" <> body -> body
+    _ -> p
   }
   let without_suffix = case string.ends_with(body, "__") {
     True -> string.drop_end(body, 2)
@@ -482,6 +442,7 @@ fn error_code(error: ParseError) -> String {
     InvalidPlaceholder(..) -> "SQD3004"
     WrongEngineUpsert(..) -> "SQD3005"
     SparseNumberedPlaceholders(..) -> "SQD3006"
+    SqlcMacro(..) -> "SQD3009"
   }
 }
 
@@ -533,6 +494,17 @@ fn error_message(error: ParseError) -> String {
       <> ": sparse SQLite numbered placeholders "
       <> format_indices(indices)
       <> "; numbered placeholders must form a contiguous set starting from ?1 (e.g. ?1, ?2, ?3)"
+    SqlcMacro(path:, line:, name:, macro_name:) ->
+      path
+      <> ":"
+      <> int.to_string(line)
+      <> ": query "
+      <> name
+      <> ": `sqlc."
+      <> macro_name
+      <> "(...)` is not supported; write `sqlode."
+      <> macro_name
+      <> "(...)` instead"
   }
 }
 
@@ -723,7 +695,7 @@ fn expand_at_loop(
           let name = string.drop_start(p, 1)
           case engine, dict.get(seen, name) {
             model.SQLite, Ok(existing_idx) -> {
-              let placeholder = engine_placeholder(engine, existing_idx)
+              let placeholder = runtime.param_marker(existing_idx)
               expand_at_loop(
                 engine,
                 rest,
@@ -734,7 +706,7 @@ fn expand_at_loop(
               )
             }
             _, _ -> {
-              let placeholder = engine_placeholder(engine, idx)
+              let placeholder = runtime.param_marker(idx)
               let new_seen = case engine {
                 model.SQLite -> dict.insert(seen, name, idx)
                 _ -> seen
@@ -773,15 +745,13 @@ fn expand_at_loop(
 /// by walking the token list and replacing the token span with a Placeholder.
 /// Pattern: Ident("sqlode") Dot Ident("arg"|"narg"|"slice") LParen ...arg... RParen
 fn expand_macro_tokens(
-  engine: model.Engine,
   tokens: List(lexer.Token),
   start_idx: Int,
 ) -> #(List(lexer.Token), List(model.Macro)) {
-  expand_macro_loop(engine, tokens, start_idx, [], [])
+  expand_macro_loop(tokens, start_idx, [], [])
 }
 
 fn expand_macro_loop(
-  engine: model.Engine,
   tokens: List(lexer.Token),
   idx: Int,
   token_acc: List(lexer.Token),
@@ -790,34 +760,82 @@ fn expand_macro_loop(
   case tokens {
     [] -> #(list.reverse(token_acc), list.reverse(macro_acc))
 
-    // Match: sqlode.arg|narg|slice(...)
-    [lexer.Ident(mod), lexer.Dot, lexer.Ident(kind), lexer.LParen, ..rest]
-      if { mod == "sqlode" || mod == "Sqlode" || mod == "SQLODE" }
-      && { kind == "arg" || kind == "narg" || kind == "slice" }
-    -> {
-      // Collect tokens inside parens to extract the argument name
-      let #(arg_tokens, remaining) = collect_macro_arg_tokens(rest, 1, [])
-      let name = extract_arg_name(arg_tokens)
-      let placeholder = case kind {
-        "slice" -> engine_slice_placeholder(engine, idx)
-        _ -> engine_placeholder(engine, idx)
+    // Match: sqlode.arg|narg|slice(...), in any letter case
+    [
+      lexer.Ident(module_name) as module_token,
+      lexer.Dot,
+      lexer.Ident(kind),
+      lexer.LParen,
+      ..rest
+    ] ->
+      case macro_kind(module_name, kind) {
+        Error(Nil) ->
+          expand_macro_loop(
+            list.drop(tokens, 1),
+            idx,
+            [module_token, ..token_acc],
+            macro_acc,
+          )
+        Ok(kind) -> {
+          // Collect tokens inside parens to extract the argument name
+          let #(arg_tokens, remaining) = collect_macro_arg_tokens(rest, 1, [])
+          let name = extract_arg_name(arg_tokens)
+          let placeholder = case kind {
+            "slice" -> runtime.slice_marker(idx)
+            _ -> runtime.param_marker(idx)
+          }
+          let macro_entry = case kind {
+            "narg" -> model.MacroNarg(index: idx, name:)
+            "slice" -> model.MacroSlice(index: idx, name:)
+            _ -> model.MacroArg(index: idx, name:)
+          }
+          expand_macro_loop(
+            remaining,
+            idx + 1,
+            [lexer.Placeholder(placeholder), ..token_acc],
+            [macro_entry, ..macro_acc],
+          )
+        }
       }
-      let macro_entry = case kind {
-        "narg" -> model.MacroNarg(index: idx, name:)
-        "slice" -> model.MacroSlice(index: idx, name:)
-        _ -> model.MacroArg(index: idx, name:)
-      }
-      expand_macro_loop(
-        engine,
-        remaining,
-        idx + 1,
-        [lexer.Placeholder(placeholder), ..token_acc],
-        [macro_entry, ..macro_acc],
-      )
-    }
 
     [token, ..rest] ->
-      expand_macro_loop(engine, rest, idx, [token, ..token_acc], macro_acc)
+      expand_macro_loop(rest, idx, [token, ..token_acc], macro_acc)
+  }
+}
+
+/// The macro name of the first `sqlc.arg/narg/slice/embed(...)` left in
+/// the query. sqlode only expands the `sqlode.` spelling, and a sqlc
+/// macro left in place would reach the database as a function call.
+fn find_sqlc_macro(tokens: List(lexer.Token)) -> Result(String, Nil) {
+  case tokens {
+    [] -> Error(Nil)
+    [
+      lexer.Ident(module_name),
+      lexer.Dot,
+      lexer.Ident(kind),
+      lexer.LParen,
+      ..rest
+    ] ->
+      case string.lowercase(module_name), string.lowercase(kind) {
+        "sqlc", "arg" as kind
+        | "sqlc", "narg" as kind
+        | "sqlc", "slice" as kind
+        | "sqlc", "embed" as kind
+        -> Ok(kind)
+        _, _ -> find_sqlc_macro(rest)
+      }
+    [_, ..rest] -> find_sqlc_macro(rest)
+  }
+}
+
+/// The lowercased macro name when `module_name.kind` is a sqlode macro.
+fn macro_kind(module_name: String, kind: String) -> Result(String, Nil) {
+  case string.lowercase(module_name), string.lowercase(kind) {
+    "sqlode", "arg" as kind
+    | "sqlode", "narg" as kind
+    | "sqlode", "slice" as kind
+    -> Ok(kind)
+    _, _ -> Error(Nil)
   }
 }
 
@@ -850,7 +868,7 @@ fn collect_macro_arg_tokens(
 fn extract_arg_name(tokens: List(lexer.Token)) -> String {
   case tokens {
     [lexer.Ident(name)] -> name
-    [lexer.StringLit(name)] -> name
+    [lexer.StringLit(value: name, ..)] -> name
     [lexer.QuotedIdent(name)] -> name
     _ ->
       // Fallback: render tokens to text
@@ -858,24 +876,11 @@ fn extract_arg_name(tokens: List(lexer.Token)) -> String {
       |> list.filter_map(fn(t) {
         case t {
           lexer.Ident(n) -> Ok(n)
-          lexer.StringLit(n) -> Ok(n)
+          lexer.StringLit(value: n, ..) -> Ok(n)
           lexer.QuotedIdent(n) -> Ok(n)
           _ -> Error(Nil)
         }
       })
       |> string.join("")
   }
-}
-
-fn engine_placeholder(_engine: model.Engine, index: Int) -> String {
-  // Emit an engine-agnostic marker for every parameter position. The
-  // runtime walks these markers and substitutes the engine-specific
-  // placeholder (e.g. `$3`, `?3`, `?`) at prepare-time, which fixes
-  // both MySQL's bare-`?` expansion and placeholder-like text inside
-  // string literals or comments being rewritten by string.replace.
-  runtime.param_marker(index)
-}
-
-fn engine_slice_placeholder(_engine: model.Engine, index: Int) -> String {
-  runtime.slice_marker(index)
 }

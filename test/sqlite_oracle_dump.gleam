@@ -24,6 +24,7 @@ import simplifile
 import sqlode/internal/model
 import sqlode/internal/naming
 import sqlode/internal/query_analyzer
+import sqlode/internal/query_analyzer/context
 import sqlode/internal/query_parser
 import sqlode/internal/schema_parser
 import sqlode/runtime
@@ -37,10 +38,7 @@ pub fn main() -> Nil {
   let assert Ok(query_text) = simplifile.read(query_path)
     as "the query file is readable"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files_with_engine(
-      [#(schema_path, schema_text)],
-      model.SQLite,
-    )
+    schema_parser.parse_files([#(schema_path, schema_text)], model.SQLite)
     as "the schema parses"
   let assert Ok(parsed) =
     query_parser.parse_file(query_path, model.SQLite, naming_ctx, query_text)
@@ -65,7 +63,7 @@ pub fn main() -> Nil {
           <> string.replace(query.base.sql, "\n", " ")
           <> "\t"
           <> string.replace(
-            query_analyzer.analysis_error_to_string(error, model.SQLite),
+            context.analysis_error_to_string(error, model.SQLite),
             "\n",
             " ",
           ),

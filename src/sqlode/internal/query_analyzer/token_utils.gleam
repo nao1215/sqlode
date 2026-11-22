@@ -392,129 +392,62 @@ fn find_equality_loop(
 ) -> List(EqualityMatch) {
   case tokens {
     [] -> acc
-
-    // table.column op placeholder (comparison operators)
-    [
-      lexer.Ident(t),
-      lexer.Dot,
-      lexer.Ident(c),
-      lexer.Operator(op),
-      lexer.Placeholder(p),
-      ..rest
-    ]
-      if op == "="
-      || op == "!="
-      || op == "<>"
-      || op == "<"
-      || op == ">"
-      || op == "<="
-      || op == ">="
-    ->
-      find_equality_loop(rest, [
-        EqualityMatch(
-          column_name: naming.normalize_identifier(c),
-          table_qualifier: Some(string.lowercase(t)),
-          placeholder: p,
-        ),
-        ..acc
-      ])
-
-    [
-      lexer.Ident(t),
-      lexer.Dot,
-      lexer.QuotedIdent(c),
-      lexer.Operator(op),
-      lexer.Placeholder(p),
-      ..rest
-    ]
-      if op == "="
-      || op == "!="
-      || op == "<>"
-      || op == "<"
-      || op == ">"
-      || op == "<="
-      || op == ">="
-    ->
-      find_equality_loop(rest, [
-        EqualityMatch(
-          column_name: naming.normalize_identifier(c),
-          table_qualifier: Some(string.lowercase(t)),
-          placeholder: p,
-        ),
-        ..acc
-      ])
-
-    // column op placeholder
-    [lexer.Ident(c), lexer.Operator(op), lexer.Placeholder(p), ..rest]
-      if op == "="
-      || op == "!="
-      || op == "<>"
-      || op == "<"
-      || op == ">"
-      || op == "<="
-      || op == ">="
-    ->
-      find_equality_loop(rest, [
-        EqualityMatch(
-          column_name: naming.normalize_identifier(c),
-          table_qualifier: None,
-          placeholder: p,
-        ),
-        ..acc
-      ])
-
-    [lexer.QuotedIdent(c), lexer.Operator(op), lexer.Placeholder(p), ..rest]
-      if op == "="
-      || op == "!="
-      || op == "<>"
-      || op == "<"
-      || op == ">"
-      || op == "<="
-      || op == ">="
-    ->
-      find_equality_loop(rest, [
-        EqualityMatch(
-          column_name: naming.normalize_identifier(c),
-          table_qualifier: None,
-          placeholder: p,
-        ),
-        ..acc
-      ])
-
-    // table.column LIKE/ILIKE placeholder
-    [
-      lexer.Ident(t),
-      lexer.Dot,
-      lexer.Ident(c),
-      lexer.Keyword(kw),
-      lexer.Placeholder(p),
-      ..rest
-    ]
-      if kw == "like" || kw == "ilike"
-    ->
-      find_equality_loop(rest, [
-        EqualityMatch(
-          column_name: naming.normalize_identifier(c),
-          table_qualifier: Some(string.lowercase(t)),
-          placeholder: p,
-        ),
-        ..acc
-      ])
-
-    // column LIKE/ILIKE placeholder
-    [lexer.Ident(c), lexer.Keyword(kw), lexer.Placeholder(p), ..rest]
-      if kw == "like" || kw == "ilike"
-    ->
-      find_equality_loop(rest, [
-        EqualityMatch(
-          column_name: naming.normalize_identifier(c),
-          table_qualifier: None,
-          placeholder: p,
-        ),
-        ..acc
-      ])
-
+    // table.column <op> placeholder
+    [lexer.Ident(t), lexer.Dot, column, op, lexer.Placeholder(p), ..rest] ->
+      case column_token_name(column), is_equality_token(op) {
+        Some(c), True ->
+          find_equality_loop(rest, [
+            EqualityMatch(
+              column_name: naming.normalize_identifier(c),
+              table_qualifier: Some(string.lowercase(t)),
+              placeholder: p,
+            ),
+            ..acc
+          ])
+        _, _ -> find_equality_loop(list.drop(tokens, 1), acc)
+      }
+    // column <op> placeholder
+    [column, op, lexer.Placeholder(p), ..rest] ->
+      case column_token_name(column), is_equality_token(op) {
+        Some(c), True ->
+          find_equality_loop(rest, [
+            EqualityMatch(
+              column_name: naming.normalize_identifier(c),
+              table_qualifier: None,
+              placeholder: p,
+            ),
+            ..acc
+          ])
+        _, _ -> find_equality_loop(list.drop(tokens, 1), acc)
+      }
     [_, ..rest] -> find_equality_loop(rest, acc)
+  }
+}
+
+/// A comparison operator, `LIKE` or `ILIKE`.
+fn is_equality_token(token: lexer.Token) -> Bool {
+  case token {
+    lexer.Operator(op) -> is_comparison_operator(op)
+    lexer.Keyword("like") | lexer.Keyword("ilike") -> True
+    _ -> False
+  }
+}
+
+/// `=`, `!=`, `<>`, `<`, `>`, `<=` and `>=`.
+pub fn is_comparison_operator(op: String) -> Bool {
+  case op {
+    "=" | "!=" | "<>" | "<" | ">" | "<=" | ">=" -> True
+    _ -> False
+  }
+}
+
+/// The comparisons plus the PostgreSQL JSONB / array operators that
+/// also yield a boolean (`@>`, `<@`, `?|`, `?&`, `&&`).
+pub fn is_boolean_operator(op: String) -> Bool {
+  is_comparison_operator(op)
+  || case op {
+    "@>" | "<@" | "?|" | "?&" | "&&" -> True
+    _ -> False
   }
 }
 
@@ -681,38 +614,25 @@ fn find_in_loop(
 
     // column IN (placeholder)
     [
-      lexer.Ident(c),
+      column,
       lexer.Keyword("in"),
       lexer.LParen,
       lexer.Placeholder(p),
       lexer.RParen,
       ..rest
     ] ->
-      find_in_loop(rest, [
-        EqualityMatch(
-          column_name: naming.normalize_identifier(c),
-          table_qualifier: None,
-          placeholder: p,
-        ),
-        ..acc
-      ])
-
-    [
-      lexer.QuotedIdent(c),
-      lexer.Keyword("in"),
-      lexer.LParen,
-      lexer.Placeholder(p),
-      lexer.RParen,
-      ..rest
-    ] ->
-      find_in_loop(rest, [
-        EqualityMatch(
-          column_name: naming.normalize_identifier(c),
-          table_qualifier: None,
-          placeholder: p,
-        ),
-        ..acc
-      ])
+      case column_token_name(column) {
+        Some(c) ->
+          find_in_loop(rest, [
+            EqualityMatch(
+              column_name: naming.normalize_identifier(c),
+              table_qualifier: None,
+              placeholder: p,
+            ),
+            ..acc
+          ])
+        None -> find_in_loop(list.drop(tokens, 1), acc)
+      }
 
     [_, ..rest] -> find_in_loop(rest, acc)
   }

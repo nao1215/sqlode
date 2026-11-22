@@ -367,7 +367,7 @@ pub fn mysql_limit_offset_comma_runtime_expansion_test() {
 fn load_mysql_catalog(path: String) -> model.Catalog {
   let assert Ok(content) = simplifile.read(path)
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files_with_engine([#(path, content)], model.MySQL)
+    schema_parser.parse_files([#(path, content)], model.MySQL)
   catalog
 }
 
@@ -381,7 +381,8 @@ fn string_contains_all(haystack: String, needles: List(String)) -> Bool {
 
 fn load_catalog(path: String) -> model.Catalog {
   let assert Ok(content) = simplifile.read(path)
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#(path, content)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#(path, content)], model.PostgreSQL)
   catalog
 }
 

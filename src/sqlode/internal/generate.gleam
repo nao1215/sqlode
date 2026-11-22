@@ -1,7 +1,7 @@
 import filepath
+import gleam/bool
 import gleam/dict.{type Dict}
 import gleam/int
-import gleam/io
 import gleam/list
 import gleam/option
 import gleam/result
@@ -16,6 +16,7 @@ import sqlode/internal/config
 import sqlode/internal/model
 import sqlode/internal/naming
 import sqlode/internal/query_analyzer
+import sqlode/internal/query_analyzer/context
 import sqlode/internal/query_ir
 import sqlode/internal/query_parser
 import sqlode/internal/query_validation
@@ -27,10 +28,17 @@ import sqlode/internal/writer
 pub type GenerateError {
   ConfigError(config.ConfigError)
   SchemaReadError(path: String, detail: String)
-  SchemaParseError(detail: String)
+  SchemaParseFailed(schema_parser.ParseError)
+  /// `strict_views` is set and the schema produced warnings.
+  StrictViewsFailed(List(schema_parser.SchemaWarning))
   QueryReadError(path: String, detail: String)
-  QueryParseError(path: String, detail: String)
-  QueryAnalysisError(detail: String)
+  QueryParseFailed(query_parser.ParseError)
+  QueryAnalysisFailed(error: context.AnalysisError, engine: model.Engine)
+  ValidationFailed(query_validation.ValidationError)
+  EnumValueRejected(type_mapping.EnumValueError)
+  /// A table, column or parameter name does not turn into a Gleam
+  /// name, typically because it is written in a non-Latin script.
+  UnnamableIdentifier(kind: NameKind, name: String, gleam_name: String)
   NoQueriesGenerated(
     output: String,
     parsed_query_count: Int,
@@ -38,39 +46,54 @@ pub type GenerateError {
     query_paths: List(String),
     schema_paths: List(String),
   )
-  DuplicateQueryName(name: String, paths: List(String))
-  NormalizedQueryNameCollision(
-    function_name: String,
-    names: List(String),
-    paths: List(String),
-  )
-  UnsupportedAnnotation(query_name: String, command: String, detail: String)
   InvalidOutPath(path: String)
   WriteError(writer.WriteError)
   VendorRuntimeNotFound
-  UnsupportedArrayForEngine(query_name: String, engine: String)
-  SliceInsideQuantifier(query_name: String)
 }
 
-pub fn run(config_path: String) -> Result(List(String), GenerateError) {
-  use cfg <- result.try(
-    config.load(config_path)
-    |> result.map_error(ConfigError),
+/// What an unnamable name belongs to; each has its own fix.
+pub type NameKind {
+  TableName
+  TableColumn(table: String)
+  QueryColumn(query: String)
+  QueryParameter(query: String)
+}
+
+/// Something worth telling the user that does not stop generation.
+pub type Warning {
+  SchemaWarning(schema_parser.SchemaWarning)
+  /// A custom `gleam_type` without codec hooks is encoded and decoded
+  /// as its underlying type.
+  CustomTypeAlias(gleam_type: String, type_name: String, underlying: String)
+}
+
+/// What `run` produced: the written paths, or the error that stopped
+/// it, and the warnings gathered on the way in either case.
+pub type Generation {
+  Generation(
+    result: Result(List(String), GenerateError),
+    warnings: List(Warning),
   )
-
-  let config_dir = filepath.directory_name(config_path)
-  let resolved = resolve_config_paths(cfg, config_dir)
-  generate_config(resolved)
 }
 
-/// Resolve the paths in `cfg` against the directory of the config file,
+pub fn run(config_path: String) -> Generation {
+  case config.load(config_path) {
+    Error(error) -> Generation(result: Error(ConfigError(error)), warnings: [])
+    Ok(config) -> {
+      let config_dir = filepath.directory_name(config_path)
+      generate_config(resolve_config_paths(config, config_dir))
+    }
+  }
+}
+
+/// Resolve the paths in `config` against the directory of the config file,
 /// as `generate` and `verify` both read them.
 pub fn resolve_config_paths(
-  cfg: model.Config,
+  config: model.Config,
   base_dir: String,
 ) -> model.Config {
   let sql =
-    list.map(cfg.sql, fn(block) {
+    list.map(config.sql, fn(block) {
       let schema = list.map(block.schema, resolve_path(base_dir, _))
       let queries = list.map(block.queries, resolve_path(base_dir, _))
       let gleam =
@@ -80,7 +103,7 @@ pub fn resolve_config_paths(
         )
       model.SqlBlock(..block, schema:, queries:, gleam:)
     })
-  model.Config(..cfg, sql:)
+  model.Config(..config, sql:)
 }
 
 fn resolve_path(base_dir: String, path: String) -> String {
@@ -94,72 +117,216 @@ fn resolve_path(base_dir: String, path: String) -> String {
   }
 }
 
-pub fn generate_config(
-  cfg: model.Config,
-) -> Result(List(String), GenerateError) {
-  let naming_ctx = naming.new()
-  use files <- result.try(
-    cfg.sql
-    |> list.try_map(generate_sql_block(naming_ctx, _))
-    |> result.map(list.flatten),
-  )
+pub fn generate_config(config: model.Config) -> Generation {
+  let #(files, warnings) = generate_blocks(naming.new(), config.sql, [], [])
+  let result =
+    result.try(files, fn(files) {
+      writer.write_all(files) |> result.map_error(WriteError)
+    })
+  Generation(result:, warnings: list.unique(warnings))
+}
 
-  writer.write_all(files)
-  |> result.map_error(WriteError)
+/// Render every block, stopping at the first error. The warnings of
+/// the blocks read so far are kept either way.
+fn generate_blocks(
+  naming_ctx: naming.NamingContext,
+  blocks: List(model.SqlBlock),
+  files: List(writer.GeneratedFile),
+  warnings: List(Warning),
+) -> #(Result(List(writer.GeneratedFile), GenerateError), List(Warning)) {
+  case blocks {
+    [] -> #(Ok(files), warnings)
+    [block, ..rest] -> {
+      let #(block_files, block_warnings) = generate_sql_block(naming_ctx, block)
+      let warnings = list.append(warnings, block_warnings)
+      case block_files {
+        Ok(block_files) ->
+          generate_blocks(
+            naming_ctx,
+            rest,
+            list.append(files, block_files),
+            warnings,
+          )
+        Error(error) -> #(Error(error), warnings)
+      }
+    }
+  }
+}
+
+pub fn warning_to_string(warning: Warning) -> String {
+  case warning {
+    SchemaWarning(inner) -> schema_parser.warning_to_string(inner)
+    CustomTypeAlias(gleam_type:, type_name:, underlying:) ->
+      "Warning: custom gleam_type \""
+      <> gleam_type
+      <> "\" will use the encoder/decoder for the underlying \""
+      <> underlying
+      <> "\" type. Ensure \""
+      <> type_name
+      <> "\" is defined as a transparent type alias (e.g., pub type "
+      <> type_name
+      <> " = "
+      <> underlying
+      <> "), or provide explicit `encode` / `decode` codec hooks "
+      <> "in `overrides.types` to support opaque types."
+  }
 }
 
 fn generate_sql_block(
   naming_ctx: naming.NamingContext,
   block: model.SqlBlock,
-) -> Result(List(writer.GeneratedFile), GenerateError) {
-  use Nil <- result.try(validate_out_path(block.gleam.out))
-  use catalog <- result.try(load_and_prepare_catalog(block))
-  use #(queries, analyzed) <- result.try(load_and_analyze_queries(
-    naming_ctx,
-    block,
-    catalog,
-  ))
-  render_output_files(naming_ctx, block, catalog, queries, analyzed)
+) -> #(Result(List(writer.GeneratedFile), GenerateError), List(Warning)) {
+  case validate_out_path(block.gleam.out) {
+    Error(error) -> #(Error(error), [])
+    Ok(Nil) ->
+      case load_catalog(block) {
+        Error(error) -> #(Error(error), [])
+        Ok(#(catalog, warnings)) -> #(
+          {
+            use queries <- result.try(load_queries(naming_ctx, block))
+            use analyzed <- result.try(
+              query_analyzer.analyze_queries(
+                block.engine,
+                catalog,
+                naming_ctx,
+                queries,
+              )
+              |> result.map_error(QueryAnalysisFailed(_, block.engine)),
+            )
+            use analyzed <- result.try(check_analyzed(
+              naming_ctx,
+              block,
+              catalog,
+              analyzed,
+            ))
+            render_output_files(naming_ctx, block, catalog, queries, analyzed)
+          },
+          warnings,
+        )
+      }
+  }
 }
 
-fn load_and_prepare_catalog(
+/// Read and parse the block's schema, then apply the type overrides.
+/// Shared with `verify`, so both commands accept the same schemas.
+pub fn load_catalog(
   block: model.SqlBlock,
-) -> Result(model.Catalog, GenerateError) {
-  use raw_catalog <- result.try(load_catalog(
+) -> Result(#(model.Catalog, List(Warning)), GenerateError) {
+  use entries <- result.try(read_sql_files(
     block.schema,
-    block.engine,
-    block.gleam.strict_views,
+    "schema",
+    SchemaReadError,
   ))
-  Ok(apply_type_overrides(raw_catalog, block.overrides.type_overrides))
+  use #(catalog, schema_warnings) <- result.try(
+    schema_parser.parse_files(entries, block.engine)
+    |> result.map_error(SchemaParseFailed),
+  )
+  use Nil <- result.try(case block.gleam.strict_views, schema_warnings {
+    True, [_, ..] -> Error(StrictViewsFailed(schema_warnings))
+    _, _ -> Ok(Nil)
+  })
+  use Nil <- result.try(
+    type_mapping.validate_enum_values(catalog.enums)
+    |> result.map_error(EnumValueRejected),
+  )
+  let #(catalog, override_warnings) =
+    apply_type_overrides(catalog, block.overrides.type_overrides)
+  Ok(#(
+    catalog,
+    list.append(list.map(schema_warnings, SchemaWarning), override_warnings),
+  ))
 }
 
-fn load_and_analyze_queries(
+/// Read and parse the block's query files and reject duplicate names.
+pub fn load_queries(
+  naming_ctx: naming.NamingContext,
+  block: model.SqlBlock,
+) -> Result(List(query_ir.TokenizedQuery), GenerateError) {
+  use entries <- result.try(read_sql_files(
+    block.queries,
+    "query",
+    QueryReadError,
+  ))
+  use queries <- result.try(
+    entries
+    |> list.try_map(fn(entry) {
+      let #(path, content) = entry
+      query_parser.parse_file(path, block.engine, naming_ctx, content)
+      |> result.map_error(QueryParseFailed)
+    })
+    |> result.map(list.flatten),
+  )
+  use Nil <- result.try(
+    query_validation.validate_no_duplicate_names(queries)
+    |> result.map_error(ValidationFailed),
+  )
+  Ok(queries)
+}
+
+/// The checks that need analysed queries, then the column renames and
+/// parameter name disambiguation that codegen relies on.
+pub fn check_analyzed(
   naming_ctx: naming.NamingContext,
   block: model.SqlBlock,
   catalog: model.Catalog,
-) -> Result(
-  #(List(query_ir.TokenizedQuery), List(model.AnalyzedQuery)),
-  GenerateError,
-) {
-  use queries <- result.try(load_queries(naming_ctx, block))
-  use analyzed <- result.try(
-    query_analyzer.analyze_queries(block.engine, catalog, naming_ctx, queries)
-    |> result.map_error(fn(error) {
-      QueryAnalysisError(detail: query_analyzer.analysis_error_to_string(
-        error,
-        block.engine,
-      ))
-    }),
-  )
-  use Nil <- result.try(validate_unsupported_annotations(analyzed))
-  use Nil <- result.try(validate_array_engine_support(block.engine, analyzed))
+  analyzed: List(model.AnalyzedQuery),
+) -> Result(List(model.AnalyzedQuery), GenerateError) {
   use Nil <- result.try(
-    query_validation.validate_slice_placement(analyzed)
-    |> result.map_error(wrap_validation_error),
+    {
+      use Nil <- result.try(query_validation.validate_unsupported_annotations(
+        analyzed,
+      ))
+      use Nil <- result.try(query_validation.validate_array_engine_support(
+        block.engine,
+        analyzed,
+      ))
+      use Nil <- result.try(query_validation.validate_slice_placement(
+        block.engine,
+        analyzed,
+      ))
+      case block.gleam.runtime {
+        model.Native -> query_validation.validate_native_annotations(analyzed)
+        model.Raw -> Ok(Nil)
+      }
+    }
+    |> result.map_error(ValidationFailed),
   )
-  let analyzed = apply_column_renames(analyzed, block.overrides.column_renames)
-  let analyzed = disambiguate_param_names(analyzed)
-  Ok(#(queries, analyzed))
+  // Names are checked on what codegen sees: after the renames, which
+  // can give a result column a valid name, and the `_2` suffixes.
+  let analyzed =
+    analyzed
+    |> apply_column_renames(block.overrides.column_renames)
+    |> disambiguate_param_names
+  use Nil <- result.try(validate_gleam_names(
+    naming_ctx,
+    catalog,
+    analyzed,
+    block.gleam.emit_exact_table_names,
+  ))
+  Ok(analyzed)
+}
+
+/// Expand directories and read every `.sql` file. `kind` names the
+/// files in the read error, which `read_error` wraps.
+fn read_sql_files(
+  paths: List(String),
+  kind: String,
+  read_error: fn(String, String) -> GenerateError,
+) -> Result(List(#(String, String)), GenerateError) {
+  use expanded <- result.try(sql_paths.expand(paths, read_error))
+  list.try_map(expanded, fn(path) {
+    simplifile.read(path)
+    |> result.map(fn(content) { #(path, content) })
+    |> result.map_error(fn(error) {
+      read_error(
+        path,
+        "Failed to read "
+          <> kind
+          <> " file: "
+          <> simplifile.describe_error(error),
+      )
+    })
+  })
 }
 
 fn render_output_files(
@@ -200,8 +367,7 @@ fn render_output_files(
 
       case gleam.runtime {
         model.Raw -> Ok(base_files)
-        model.Native -> {
-          use Nil <- result.try(validate_native_annotations(analyzed))
+        model.Native ->
           Ok(
             list.append(base_files, [
               writer.GeneratedFile(
@@ -216,7 +382,6 @@ fn render_output_files(
               ),
             ]),
           )
-        }
       }
     }
   }
@@ -415,159 +580,44 @@ fn enum_name(scalar_type: model.ScalarType) -> Result(String, Nil) {
   }
 }
 
-fn load_catalog(
-  paths: List(String),
-  engine: model.Engine,
-  strict_views: Bool,
-) -> Result(model.Catalog, GenerateError) {
-  use expanded <- result.try(
-    sql_paths.expand(paths, fn(path, detail) { SchemaReadError(path:, detail:) }),
-  )
-  use entries <- result.try(
-    expanded
-    |> list.try_map(fn(path) {
-      simplifile.read(path)
-      |> result.map(fn(content) { #(path, content) })
-      |> result.map_error(fn(error) {
-        SchemaReadError(
-          path:,
-          detail: "Failed to read schema file: "
-            <> simplifile.describe_error(error),
-        )
-      })
-    }),
-  )
-
-  use #(catalog, warnings) <- result.try(
-    schema_parser.parse_files_with_engine(entries, engine)
-    |> result.map_error(fn(error) {
-      SchemaParseError(detail: schema_parser.error_to_string(error))
-    }),
-  )
-
-  case strict_views, warnings {
-    True, [_, ..] -> {
-      let detail =
-        "SQD2005: strict_views is enabled but the schema produced resolution warnings:\n  "
-        <> string.join(
-          list.map(warnings, schema_parser.warning_to_string),
-          "\n  ",
-        )
-      Error(SchemaParseError(detail:))
-    }
-    _, _ -> {
-      list.each(warnings, fn(w) {
-        io.println_error(schema_parser.warning_to_string(w))
-      })
-      Ok(catalog)
-    }
-  }
-}
-
-fn load_queries(
-  naming_ctx: naming.NamingContext,
-  block: model.SqlBlock,
-) -> Result(List(query_ir.TokenizedQuery), GenerateError) {
-  let model.SqlBlock(engine:, queries:, ..) = block
-
-  use expanded <- result.try(
-    sql_paths.expand(queries, fn(path, detail) {
-      QueryReadError(path:, detail:)
-    }),
-  )
-
-  expanded
-  |> list.try_map(fn(path) {
-    use content <- result.try(
-      simplifile.read(path)
-      |> result.map_error(fn(error) {
-        QueryReadError(
-          path:,
-          detail: "Failed to read query file: "
-            <> simplifile.describe_error(error),
-        )
-      }),
-    )
-
-    query_parser.parse_file(path, engine, naming_ctx, content)
-    |> result.map_error(fn(error) {
-      QueryParseError(path:, detail: query_parser.error_to_string(error))
-    })
-  })
-  |> result.map(list.flatten)
-  |> result.try(validate_no_duplicate_query_names)
-}
-
-fn validate_no_duplicate_query_names(
-  queries: List(query_ir.TokenizedQuery),
-) -> Result(List(query_ir.TokenizedQuery), GenerateError) {
-  query_validation.validate_no_duplicate_names(queries)
-  |> result.map_error(wrap_validation_error)
-  |> result.map(fn(_) { queries })
-}
-
-fn wrap_validation_error(
-  err: query_validation.ValidationError,
-) -> GenerateError {
-  case err {
-    query_validation.DuplicateName(name:, paths:) ->
-      DuplicateQueryName(name:, paths:)
-    query_validation.NormalizedNameCollision(function_name:, names:, paths:) ->
-      NormalizedQueryNameCollision(function_name:, names:, paths:)
-    query_validation.UnsupportedAnnotation(query_name:, command:, detail:) ->
-      UnsupportedAnnotation(query_name:, command:, detail:)
-    query_validation.UnsupportedArrayForEngine(query_name:, engine:) ->
-      UnsupportedArrayForEngine(query_name:, engine:)
-    query_validation.SliceInsideQuantifier(query_name:) ->
-      SliceInsideQuantifier(query_name:)
-  }
-}
-
-pub fn apply_type_overrides(
+/// Apply the `overrides.types` entries to the catalog's columns. A
+/// column override wins over a database-type override.
+fn apply_type_overrides(
   catalog: model.Catalog,
   overrides: List(model.TypeOverride),
-) -> model.Catalog {
+) -> #(model.Catalog, List(Warning)) {
   case overrides {
-    [] -> catalog
+    [] -> #(catalog, [])
     _ -> {
-      let tables =
-        list.map(catalog.tables, fn(table) {
-          let columns =
-            list.map(table.columns, fn(col) {
-              case find_column_override(table.name, col.name, overrides) {
-                Ok(#(gleam_type, codec)) ->
-                  model.Column(
-                    ..col,
-                    scalar_type: gleam_type_to_scalar(
-                      gleam_type,
-                      codec,
-                      col.scalar_type,
-                    ),
+      let #(warnings, tables) =
+        list.map_fold(catalog.tables, [], fn(warnings, table) {
+          let #(warnings, columns) =
+            list.map_fold(table.columns, warnings, fn(warnings, col) {
+              let override =
+                find_column_override(table.name, col.name, overrides)
+                |> result.lazy_or(fn() {
+                  find_db_type_override(
+                    col.scalar_type,
+                    col.nullable,
+                    overrides,
                   )
-                Error(_) ->
-                  case
-                    find_db_type_override(
-                      col.scalar_type,
-                      col.nullable,
-                      overrides,
-                    )
-                  {
-                    Ok(#(gleam_type, codec)) ->
-                      model.Column(
-                        ..col,
-                        scalar_type: gleam_type_to_scalar(
-                          gleam_type,
-                          codec,
-                          col.scalar_type,
-                        ),
-                      )
-                    Error(_) -> col
+                })
+              case override {
+                Error(Nil) -> #(warnings, col)
+                Ok(#(gleam_type, codec)) -> {
+                  let #(scalar_type, warning) =
+                    gleam_type_to_scalar(gleam_type, codec, col.scalar_type)
+                  let warnings = case warning {
+                    option.Some(warning) -> [warning, ..warnings]
+                    option.None -> warnings
                   }
+                  #(warnings, model.Column(..col, scalar_type:))
+                }
               }
             })
-          model.Table(..table, columns:)
+          #(warnings, model.Table(..table, columns:))
         })
-      model.Catalog(..catalog, tables:)
+      #(model.Catalog(..catalog, tables:), list.reverse(warnings))
     }
   }
 }
@@ -577,8 +627,8 @@ fn find_column_override(
   column_name: String,
   overrides: List(model.TypeOverride),
 ) -> Result(#(String, option.Option(model.CodecHooks)), Nil) {
-  list.find_map(overrides, fn(ovr) {
-    case ovr {
+  list.find_map(overrides, fn(override) {
+    case override {
       model.ColumnOverride(table:, column:, gleam_type:, codec:) ->
         case
           string.lowercase(table) == string.lowercase(table_name)
@@ -599,8 +649,8 @@ fn find_db_type_override(
 ) -> Result(#(String, option.Option(model.CodecHooks)), Nil) {
   let type_name = type_mapping.scalar_type_to_db_name(scalar_type)
 
-  list.find_map(overrides, fn(ovr) {
-    case ovr {
+  list.find_map(overrides, fn(override) {
+    case override {
       model.DbTypeOverride(db_type:, gleam_type:, nullable:, codec:) ->
         case string.lowercase(db_type) == type_name {
           True ->
@@ -623,13 +673,13 @@ fn gleam_type_to_scalar(
   gleam_type: String,
   codec: option.Option(model.CodecHooks),
   underlying: model.ScalarType,
-) -> model.ScalarType {
+) -> #(model.ScalarType, option.Option(Warning)) {
   case string.lowercase(gleam_type) {
-    "int" -> model.IntType
-    "float" -> model.FloatType
-    "bool" -> model.BoolType
-    "string" -> model.StringType
-    "bitarray" -> model.BytesType
+    "int" -> #(model.IntType, option.None)
+    "float" -> #(model.FloatType, option.None)
+    "bool" -> #(model.BoolType, option.None)
+    "string" -> #(model.StringType, option.None)
+    "bitarray" -> #(model.BytesType, option.None)
     _ -> {
       let #(module, type_name) = parse_module_qualified_type(gleam_type)
       // Suppress the transparent-alias warning when the user supplied
@@ -637,32 +687,22 @@ fn gleam_type_to_scalar(
       // opaque domain types (issue #529). Without hooks, keep the
       // existing warning so users aren't surprised when the generated
       // code calls primitive encoders directly on a wrapped value.
-      case codec {
-        option.Some(_) -> Nil
-        option.None -> {
-          let underlying_name =
-            type_mapping.scalar_type_to_gleam_type(
+      let warning = case codec {
+        option.Some(_) -> option.None
+        option.None ->
+          option.Some(CustomTypeAlias(
+            gleam_type:,
+            type_name:,
+            underlying: type_mapping.scalar_type_to_gleam_type(
               underlying,
               model.StringMapping,
-            )
-          io.println_error(
-            "Warning: custom gleam_type \""
-            <> gleam_type
-            <> "\" will use the encoder/decoder for the underlying \""
-            <> underlying_name
-            <> "\" type. Ensure \""
-            <> type_name
-            <> "\" is defined as a transparent type alias (e.g., pub type "
-            <> type_name
-            <> " = "
-            <> underlying_name
-            <> "), or provide explicit `encode` / `decode` codec hooks "
-            <> "in `overrides.types` to support opaque types.",
-          )
-          Nil
-        }
+            ),
+          ))
       }
-      model.CustomType(name: type_name, module:, underlying:, codec:)
+      #(
+        model.CustomType(name: type_name, module:, underlying:, codec:),
+        warning,
+      )
     }
   }
 }
@@ -730,7 +770,7 @@ fn disambiguate_query_params(
   model.AnalyzedQuery(..query, params: list.reverse(renamed_reversed))
 }
 
-pub fn apply_column_renames(
+fn apply_column_renames(
   queries: List(model.AnalyzedQuery),
   renames: List(model.ColumnRename),
 ) -> List(model.AnalyzedQuery) {
@@ -776,36 +816,69 @@ fn find_column_rename(
   })
 }
 
+/// The generated modules import each other by `out`'s module path, so
+/// it must not be absolute or relative, and must not keep a `..`
+/// segment that the path resolution could not fold away.
 pub fn validate_out_path(out: String) -> Result(Nil, GenerateError) {
   let module_path = common.out_to_module_path(out)
   case
-    string.starts_with(module_path, "/") || string.starts_with(module_path, ".")
+    string.starts_with(module_path, "/")
+    || string.starts_with(module_path, ".")
+    || list.contains(string.split(module_path, "/"), "..")
   {
     True -> Error(InvalidOutPath(path: out))
     False -> Ok(Nil)
   }
 }
 
-fn validate_unsupported_annotations(
-  queries: List(model.AnalyzedQuery),
+/// Every table, column and parameter becomes a Gleam type, field or
+/// label. Stop with a clear error when one would not be a valid Gleam
+/// name instead of writing code that does not compile.
+fn validate_gleam_names(
+  naming_ctx: naming.NamingContext,
+  catalog: model.Catalog,
+  analyzed: List(model.AnalyzedQuery),
+  emit_exact_table_names: Bool,
 ) -> Result(Nil, GenerateError) {
-  query_validation.validate_unsupported_annotations(queries)
-  |> result.map_error(wrap_validation_error)
-}
-
-fn validate_array_engine_support(
-  engine: model.Engine,
-  queries: List(model.AnalyzedQuery),
-) -> Result(Nil, GenerateError) {
-  query_validation.validate_array_engine_support(engine, queries)
-  |> result.map_error(wrap_validation_error)
-}
-
-fn validate_native_annotations(
-  queries: List(model.AnalyzedQuery),
-) -> Result(Nil, GenerateError) {
-  query_validation.validate_native_annotations(queries)
-  |> result.map_error(wrap_validation_error)
+  let check = fn(kind, name, gleam_name, valid) {
+    case valid {
+      True -> Ok(Nil)
+      False -> Error(UnnamableIdentifier(kind:, name:, gleam_name:))
+    }
+  }
+  let label = fn(kind, name) {
+    let gleam_name = naming.to_snake_case(naming_ctx, name)
+    check(kind, name, gleam_name, naming.is_label(gleam_name))
+  }
+  use Nil <- result.try(
+    list.try_each(catalog.tables, fn(table) {
+      let type_name =
+        naming.table_type_name(naming_ctx, table.name, emit_exact_table_names)
+      use Nil <- result.try(check(
+        TableName,
+        table.name,
+        type_name,
+        naming.is_type_name(type_name),
+      ))
+      list.try_each(table.columns, fn(column) {
+        label(TableColumn(table.name), column.name)
+      })
+    }),
+  )
+  list.try_each(analyzed, fn(query) {
+    let kind = QueryColumn(query.base.name)
+    use Nil <- result.try(
+      list.try_each(query.params, fn(param) {
+        label(QueryParameter(query.base.name), param.field_name)
+      }),
+    )
+    list.try_each(query.result_columns, fn(item) {
+      case item {
+        model.ScalarResult(column) -> label(kind, column.name)
+        model.EmbeddedResult(embedded) -> label(kind, embedded.name)
+      }
+    })
+  })
 }
 
 fn adapter_filename(engine: model.Engine) -> String {
@@ -838,7 +911,7 @@ fn try_match_query_to_table(
   emit_exact_table_names: Bool,
 ) -> Result(#(String, String), Nil) {
   // Only result-returning commands can match a table
-  use <- guard_result(model.is_result_command(query.base.command))
+  use <- bool.guard(!model.is_result_command(query.base.command), Error(Nil))
 
   // Queries with embedded columns never match a single table
   let has_embed =
@@ -848,7 +921,7 @@ fn try_match_query_to_table(
         model.ScalarResult(..) -> False
       }
     })
-  use <- guard_result(!has_embed)
+  use <- bool.guard(has_embed, Error(Nil))
 
   // Extract the source table from the first result column
   use table_name <- result.try(case query.result_columns {
@@ -868,26 +941,19 @@ fn try_match_query_to_table(
         model.EmbeddedResult(..) -> False
       }
     })
-  use <- guard_result(all_same_table)
+  use <- bool.guard(!all_same_table, Error(Nil))
 
   // The table must exist and columns must match exactly
   use table <- result.try(find_table(catalog, table_name))
-  use <- guard_result(columns_match(query.result_columns, table.columns))
+  use <- bool.guard(
+    !columns_match(query.result_columns, table.columns),
+    Error(Nil),
+  )
 
   Ok(#(
     query.base.function_name,
     naming.table_type_name(naming_ctx, table_name, emit_exact_table_names),
   ))
-}
-
-fn guard_result(
-  condition: Bool,
-  next: fn() -> Result(a, Nil),
-) -> Result(a, Nil) {
-  case condition {
-    True -> next()
-    False -> Error(Nil)
-  }
 }
 
 fn find_table(
@@ -929,10 +995,46 @@ pub fn error_to_string(error: GenerateError) -> String {
   case error {
     ConfigError(inner) -> config.error_to_string(inner)
     SchemaReadError(path:, detail:) -> "SQD2001: " <> path <> ": " <> detail
-    SchemaParseError(detail:) -> detail
+    SchemaParseFailed(inner) -> schema_parser.error_to_string(inner)
+    StrictViewsFailed(warnings) ->
+      "SQD2005: strict_views is enabled but the schema produced resolution warnings:\n  "
+      <> string.join(
+        list.map(warnings, schema_parser.warning_to_string),
+        "\n  ",
+      )
     QueryReadError(path:, detail:) -> "SQD3001: " <> path <> ": " <> detail
-    QueryParseError(detail:, ..) -> detail
-    QueryAnalysisError(detail:) -> detail
+    QueryParseFailed(inner) -> query_parser.error_to_string(inner)
+    QueryAnalysisFailed(error:, engine:) ->
+      context.analysis_error_to_string(error, engine)
+    ValidationFailed(inner) -> query_validation.error_to_string(inner)
+    EnumValueRejected(inner) -> type_mapping.enum_value_error_to_string(inner)
+    UnnamableIdentifier(kind:, name:, gleam_name:) -> {
+      let #(owner, hint) = case kind {
+        TableName -> #("table", "rename the table in the schema")
+        // overrides.renames only renames result columns, so a table's
+        // own field can only be fixed in the schema.
+        TableColumn(table:) -> #(
+          "column of table " <> table,
+          "rename the column in the schema",
+        )
+        QueryColumn(query:) -> #(
+          "column of query " <> query,
+          "give the column an ASCII alias with AS in the query, or rename it with overrides.renames",
+        )
+        QueryParameter(query:) -> #(
+          "parameter of query " <> query,
+          "rename the parameter in the query",
+        )
+      }
+      "SQD5005: "
+      <> owner
+      <> " \""
+      <> name
+      <> "\" cannot become a Gleam name (it would be \""
+      <> gleam_name
+      <> "\"). Gleam names use ASCII letters, digits and '_'; "
+      <> hint
+    }
     NoQueriesGenerated(
       output:,
       parsed_query_count:,
@@ -963,23 +1065,6 @@ pub fn error_to_string(error: GenerateError) -> String {
               "\n  Hint: Queries were parsed but none produced output. Check that your schema defines the tables referenced in your queries"
           }
       }
-    DuplicateQueryName(name:, paths:) ->
-      query_validation.error_to_string(query_validation.DuplicateName(
-        name:,
-        paths:,
-      ))
-    NormalizedQueryNameCollision(function_name:, names:, paths:) ->
-      query_validation.error_to_string(query_validation.NormalizedNameCollision(
-        function_name:,
-        names:,
-        paths:,
-      ))
-    UnsupportedAnnotation(query_name:, command:, detail:) ->
-      query_validation.error_to_string(query_validation.UnsupportedAnnotation(
-        query_name:,
-        command:,
-        detail:,
-      ))
     InvalidOutPath(path:) ->
       "SQD5002: Invalid output path \""
       <> path
@@ -987,13 +1072,5 @@ pub fn error_to_string(error: GenerateError) -> String {
     WriteError(inner) -> writer.error_to_string(inner)
     VendorRuntimeNotFound ->
       "SQD5004: vendor_runtime is enabled but the sqlode/runtime source file could not be found. Tried: src/sqlode/runtime.gleam, build/packages/sqlode/src/sqlode/runtime.gleam, build/dev/erlang/sqlode/src/sqlode/runtime.gleam"
-    UnsupportedArrayForEngine(query_name:, engine:) ->
-      query_validation.error_to_string(
-        query_validation.UnsupportedArrayForEngine(query_name:, engine:),
-      )
-    SliceInsideQuantifier(query_name:) ->
-      query_validation.error_to_string(query_validation.SliceInsideQuantifier(
-        query_name:,
-      ))
   }
 }

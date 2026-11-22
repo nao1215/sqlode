@@ -1,7 +1,5 @@
 import gleam/dict.{type Dict}
-import gleam/int
 import gleam/list
-import gleam/option
 import gleam/string
 import sqlode/internal/codegen/builder
 import sqlode/internal/codegen/common
@@ -252,7 +250,7 @@ fn render_adapter(
         True -> ["import " <> module_path <> "/models"]
         False -> []
       },
-      case list.any(queries, fn(q) { !list.is_empty(q.params) }) {
+      case has_params {
         True -> ["import " <> module_path <> "/params"]
         False -> []
       },
@@ -284,57 +282,92 @@ fn render_adapter_function(
   query: model.AnalyzedQuery,
 ) -> String {
   let fn_name = query.base.function_name
-  let has_params = !list.is_empty(query.params)
+  let config = ctx.config
 
   let comment = case ctx.emit_sql_as_comment {
     True -> "// SQL: " <> query.base.sql <> "\n"
     False -> ""
   }
 
-  comment
-  <> case query.base.command {
+  let #(return_type, body) = case query.base.command {
     runtime.One | runtime.BatchOne ->
-      render_adapter_one(ctx, query, fn_name, has_params)
+      render_row_body(ctx, query, "Option", config.render_one_result())
     runtime.Many | runtime.BatchMany ->
-      render_adapter_many(ctx, query, fn_name, has_params)
-    runtime.Exec | runtime.ExecResult | runtime.BatchExec | runtime.CopyFrom ->
-      render_adapter_exec(
-        ctx.naming_ctx,
-        query,
-        fn_name,
-        has_params,
-        ctx.config,
-      )
-    runtime.ExecRows ->
-      render_adapter_exec_rows(
-        ctx.naming_ctx,
-        query,
-        fn_name,
-        has_params,
-        ctx.config,
-      )
-    runtime.ExecLastId ->
-      render_adapter_exec_last_id(
-        ctx.naming_ctx,
-        query,
-        fn_name,
-        has_params,
-        ctx.config,
-      )
+      render_row_body(ctx, query, "List", config.render_many_result())
+    runtime.Exec | runtime.ExecResult | runtime.BatchExec | runtime.CopyFrom -> #(
+      "Nil",
+      list.append(
+        config.render_query_call("decode.success(Nil)", query.params),
+        ["  |> result.map(fn(_) { Nil })"],
+      ),
+    )
+    runtime.ExecRows -> #(
+      "Int",
+      list.append(
+        config.render_query_call(config.exec_rows_decoder, query.params),
+        config.render_exec_rows_result(),
+      ),
+    )
+    runtime.ExecLastId -> #("Int", config.render_exec_last_id(query.params))
   }
+
+  comment
+  <> builder.concat([
+    builder.line(
+      "pub fn "
+      <> fn_name
+      <> "(db: "
+      <> config.connection_type
+      <> render_params_arg(ctx.naming_ctx, query)
+      <> ") -> Result("
+      <> return_type
+      <> ", "
+      <> config.error_type
+      <> ") {",
+    ),
+    builder.line("  let q = queries." <> fn_name <> "()"),
+    builder.lines(body),
+    builder.line("}"),
+  ])
+  |> builder.render
+}
+
+/// The return type and body of a query that returns rows, wrapped in
+/// `Option` or `List`.
+fn render_row_body(
+  ctx: RenderContext,
+  query: model.AnalyzedQuery,
+  return_type_wrapper: String,
+  result_lines: List(String),
+) -> #(String, List(String)) {
+  let type_name =
+    naming.to_pascal_case(ctx.naming_ctx, query.base.name) <> "Row"
+  let constructor_name = case
+    dict.get(ctx.table_matches, query.base.function_name)
+  {
+    Ok(table_type) -> table_type
+    Error(_) -> type_name
+  }
+  let decoder = render_decoder(ctx, query, constructor_name)
+  #(
+    return_type_wrapper <> "(models." <> type_name <> ")",
+    list.append(
+      ctx.config.render_query_call(decoder, query.params),
+      result_lines,
+    ),
+  )
 }
 
 fn render_params_arg(
   naming_ctx: naming.NamingContext,
   query: model.AnalyzedQuery,
-  has_params: Bool,
 ) -> String {
-  case has_params {
-    True ->
+  case query.params {
+    [] -> ""
+    [_, ..] ->
       ", p: params."
       <> naming.to_pascal_case(naming_ctx, query.base.name)
       <> "Params"
-    False -> ""
   }
 }
 
@@ -346,56 +379,15 @@ fn render_decoder(
   case query.result_columns {
     [] -> "decode.success(Nil)"
     columns -> {
-      let #(_, field_lines) =
-        list.fold(columns, #(0, []), fn(acc, col) {
-          let #(idx, lines) = acc
-          case col {
-            model.ScalarResult(model.ResultColumn(
-              name:,
-              scalar_type:,
-              nullable:,
-              ..,
-            )) -> {
-              let line =
-                render_field_decode_line(
-                  naming.to_snake_case(ctx.naming_ctx, name),
-                  idx,
-                  scalar_type,
-                  nullable,
-                  ctx.config,
-                  ctx.type_mapping,
-                )
-              #(idx + 1, list.append(lines, [line]))
-            }
-            model.EmbeddedResult(model.EmbeddedColumn(
-              name: embed_name,
-              table_name:,
-              columns: embed_cols,
-            )) -> {
-              let #(new_idx, embed_lines) =
-                render_embedded_column_lines(
-                  ctx,
-                  embed_name,
-                  table_name,
-                  embed_cols,
-                  idx,
-                )
-              #(new_idx, list.append(lines, embed_lines))
-            }
-          }
-        })
-
-      let constructor_fields =
-        columns
-        |> list.map(fn(col) {
-          case col {
-            model.ScalarResult(model.ResultColumn(name:, ..)) ->
-              naming.to_snake_case(ctx.naming_ctx, name) <> ":"
-            model.EmbeddedResult(model.EmbeddedColumn(name:, ..)) ->
-              naming.to_snake_case(ctx.naming_ctx, name) <> ":"
-          }
-        })
-        |> string.join(", ")
+      let #(field_lines, constructor_fields) =
+        common.render_row_decoder_body(
+          ctx.naming_ctx,
+          columns,
+          ctx.config.decoder_function,
+          ctx.type_mapping,
+          ctx.emit_exact_table_names,
+          "    ",
+        )
 
       builder.concat([
         builder.line("{"),
@@ -412,286 +404,6 @@ fn render_decoder(
       |> builder.render
     }
   }
-}
-
-fn render_base_decoder(
-  scalar_type: model.ScalarType,
-  config: AdapterConfig,
-  type_mapping: model.TypeMapping,
-) -> String {
-  case scalar_type {
-    model.EnumType(_) | model.SetType(_) ->
-      common.render_enum_or_set_decoder(scalar_type, config.decoder_function)
-    // Custom override with explicit codec hooks (issue #529): compose
-    // the user's `decode` function on top of the underlying primitive
-    // decoder so the row value is reconstructed inside the opaque
-    // wrapper. The underlying decoder is still chosen via
-    // `config.decoder_function`, which already routes `CustomType` to
-    // its underlying primitive.
-    model.CustomType(module:, codec: option.Some(hooks), ..) ->
-      "decode.map("
-      <> config.decoder_function(scalar_type)
-      <> ", "
-      <> common.qualified_hook_call(module, hooks.decode)
-      <> ")"
-    _ ->
-      case
-        type_mapping == model.StrongMapping
-        && type_mapping.is_rich_type(scalar_type)
-      {
-        True -> {
-          let constructor =
-            type_mapping.scalar_type_to_gleam_type(
-              scalar_type,
-              model.StrongMapping,
-            )
-          "decode.map("
-          <> config.decoder_function(scalar_type)
-          <> ", models."
-          <> constructor
-          <> ")"
-        }
-        False -> config.decoder_function(scalar_type)
-      }
-  }
-}
-
-fn wrap_nullable_decoder(base_decoder: String, nullable: Bool) -> String {
-  case nullable {
-    True -> "decode.optional(" <> base_decoder <> ")"
-    False -> base_decoder
-  }
-}
-
-fn render_field_decode_line(
-  field_name: String,
-  idx: Int,
-  scalar_type: model.ScalarType,
-  nullable: Bool,
-  config: AdapterConfig,
-  type_mapping: model.TypeMapping,
-) -> String {
-  let full_decoder =
-    render_base_decoder(scalar_type, config, type_mapping)
-    |> wrap_nullable_decoder(nullable)
-  "    use "
-  <> field_name
-  <> " <- decode.field("
-  <> int.to_string(idx)
-  <> ", "
-  <> full_decoder
-  <> ")"
-}
-
-fn render_embedded_column_lines(
-  ctx: RenderContext,
-  embed_name: String,
-  table_name: String,
-  embed_cols: List(model.Column),
-  start_idx: Int,
-) -> #(Int, List(String)) {
-  let embed_field_name = naming.to_snake_case(ctx.naming_ctx, embed_name)
-  let embed_type_name =
-    naming.table_type_name(
-      ctx.naming_ctx,
-      table_name,
-      ctx.emit_exact_table_names,
-    )
-  let embed_lines =
-    list.index_map(embed_cols, fn(embed_col, embed_idx) {
-      let full_decoder =
-        render_base_decoder(embed_col.scalar_type, ctx.config, ctx.type_mapping)
-        |> wrap_nullable_decoder(embed_col.nullable)
-      "    use "
-      <> naming.to_snake_case(ctx.naming_ctx, embed_col.name)
-      <> " <- decode.field("
-      <> int.to_string(start_idx + embed_idx)
-      <> ", "
-      <> full_decoder
-      <> ")"
-    })
-  let embed_constructor_fields =
-    list.map(embed_cols, fn(c) {
-      naming.to_snake_case(ctx.naming_ctx, c.name) <> ":"
-    })
-    |> string.join(", ")
-  let constructor_line =
-    "    let "
-    <> embed_field_name
-    <> " = models."
-    <> embed_type_name
-    <> "("
-    <> embed_constructor_fields
-    <> ")"
-  let all_lines = list.append(embed_lines, [constructor_line])
-  #(start_idx + list.length(embed_cols), all_lines)
-}
-
-fn render_adapter_one(
-  ctx: RenderContext,
-  query: model.AnalyzedQuery,
-  fn_name: String,
-  has_params: Bool,
-) -> String {
-  render_adapter_query_result(
-    ctx,
-    query,
-    fn_name,
-    has_params,
-    "Option",
-    ctx.config.render_one_result,
-  )
-}
-
-fn render_adapter_many(
-  ctx: RenderContext,
-  query: model.AnalyzedQuery,
-  fn_name: String,
-  has_params: Bool,
-) -> String {
-  render_adapter_query_result(
-    ctx,
-    query,
-    fn_name,
-    has_params,
-    "List",
-    ctx.config.render_many_result,
-  )
-}
-
-fn render_adapter_query_result(
-  ctx: RenderContext,
-  query: model.AnalyzedQuery,
-  fn_name: String,
-  has_params: Bool,
-  return_type_wrapper: String,
-  render_result: fn() -> List(String),
-) -> String {
-  let type_name =
-    naming.to_pascal_case(ctx.naming_ctx, query.base.name) <> "Row"
-  let constructor_name = case
-    dict.get(ctx.table_matches, query.base.function_name)
-  {
-    Ok(table_type) -> table_type
-    Error(_) -> type_name
-  }
-  let params_arg = render_params_arg(ctx.naming_ctx, query, has_params)
-  let decoder = render_decoder(ctx, query, constructor_name)
-  let return_type = return_type_wrapper <> "(models." <> type_name <> ")"
-
-  builder.concat([
-    builder.line(query_fn_signature(
-      fn_name,
-      ctx.config.connection_type,
-      params_arg,
-      return_type,
-      ctx.config.error_type,
-    )),
-    builder.line("  let q = queries." <> fn_name <> "()"),
-    builder.lines(ctx.config.render_query_call(decoder, query.params)),
-    builder.lines(render_result()),
-    builder.line("}"),
-  ])
-  |> builder.render
-}
-
-/// Render the `pub fn name(db: Conn, p: Params) -> Result(R, E) {` line
-/// shared by every adapter query function. Keeping the signature in a
-/// dedicated helper keeps the callers free of deep `<>` chains.
-fn query_fn_signature(
-  fn_name: String,
-  connection_type: String,
-  params_arg: String,
-  return_type: String,
-  error_type: String,
-) -> String {
-  "pub fn "
-  <> fn_name
-  <> "(db: "
-  <> connection_type
-  <> params_arg
-  <> ") -> Result("
-  <> return_type
-  <> ", "
-  <> error_type
-  <> ") {"
-}
-
-fn render_adapter_exec(
-  naming_ctx: naming.NamingContext,
-  query: model.AnalyzedQuery,
-  fn_name: String,
-  has_params: Bool,
-  config: AdapterConfig,
-) -> String {
-  let params_arg = render_params_arg(naming_ctx, query, has_params)
-
-  builder.concat([
-    builder.line(query_fn_signature(
-      fn_name,
-      config.connection_type,
-      params_arg,
-      "Nil",
-      config.error_type,
-    )),
-    builder.line("  let q = queries." <> fn_name <> "()"),
-    builder.lines(config.render_query_call("decode.success(Nil)", query.params)),
-    builder.line("  |> result.map(fn(_) { Nil })"),
-    builder.line("}"),
-  ])
-  |> builder.render
-}
-
-fn render_adapter_exec_rows(
-  naming_ctx: naming.NamingContext,
-  query: model.AnalyzedQuery,
-  fn_name: String,
-  has_params: Bool,
-  config: AdapterConfig,
-) -> String {
-  let params_arg = render_params_arg(naming_ctx, query, has_params)
-
-  builder.concat([
-    builder.line(query_fn_signature(
-      fn_name,
-      config.connection_type,
-      params_arg,
-      "Int",
-      config.error_type,
-    )),
-    builder.line("  let q = queries." <> fn_name <> "()"),
-    builder.lines(config.render_query_call(
-      config.exec_rows_decoder,
-      query.params,
-    )),
-    builder.lines(config.render_exec_rows_result()),
-    builder.line("}"),
-  ])
-  |> builder.render
-}
-
-fn render_adapter_exec_last_id(
-  naming_ctx: naming.NamingContext,
-  query: model.AnalyzedQuery,
-  fn_name: String,
-  has_params: Bool,
-  config: AdapterConfig,
-) -> String {
-  let params_arg = render_params_arg(naming_ctx, query, has_params)
-
-  builder.concat([
-    builder.line(query_fn_signature(
-      fn_name,
-      config.connection_type,
-      params_arg,
-      "Int",
-      config.error_type,
-    )),
-    builder.line("  let q = queries." <> fn_name <> "()"),
-    builder.lines(config.render_exec_last_id(query.params)),
-    builder.line("}"),
-  ])
-  |> builder.render
 }
 
 // ============================================================

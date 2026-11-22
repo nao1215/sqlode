@@ -26,8 +26,12 @@ pub type Token {
   Ident(String)
   /// Quoted identifier: "name", `name`, [name] (quotes stripped)
   QuotedIdent(String)
-  /// String literal (quotes stripped): 'value', $$dollar$$
-  StringLit(String)
+  /// String literal with its quotes stripped: 'value', E'value',
+  /// $$dollar$$. A doubled quote inside the literal is read as one
+  /// quote. When `escapes` is `BackslashEscapes`, a backslash and the
+  /// character after it are kept in `value` exactly as written, so the
+  /// literal can be written back without changing its meaning.
+  StringLit(value: String, prefix: StringPrefix, escapes: StringEscapes)
   /// Numeric literal: 42, 3.14
   NumberLit(String)
   /// Parameter placeholder: $1, ?, :name, @name
@@ -40,6 +44,30 @@ pub type Token {
   Semicolon
   Dot
   Star
+}
+
+/// The letter written in front of a string literal.
+pub type StringPrefix {
+  NoPrefix
+  /// PostgreSQL E'...' (C-style escapes)
+  EscapePrefix
+  /// U&'...' (Unicode escapes)
+  UnicodePrefix
+  /// X'...' (hex blob)
+  HexPrefix
+  /// B'...' (bit string)
+  BitPrefix
+  /// N'...' (national character set)
+  NationalPrefix
+}
+
+/// How a quote character can appear inside a string literal.
+pub type StringEscapes {
+  /// Only a doubled quote ('') stands for a quote.
+  QuoteDoubling
+  /// A backslash escapes the next character as well (MySQL strings,
+  /// PostgreSQL E'...').
+  BackslashEscapes
 }
 
 /// Tokenize a SQL string into a list of tokens.
@@ -61,7 +89,8 @@ fn do_tokenize(
     [g, ..rest] ->
       case g {
         // Whitespace — skip
-        " " | "\t" | "\n" | "\r" -> do_tokenize(rest, engine, acc)
+        // On Erlang "\r\n" is one grapheme, so it is listed apart.
+        " " | "\t" | "\n" | "\r" | "\r\n" -> do_tokenize(rest, engine, acc)
 
         // Line comment: --
         "-" ->
@@ -108,8 +137,12 @@ fn do_tokenize(
 
         // Single-quoted string literal
         "'" -> {
-          let #(content, remaining) = read_single_quoted_string(rest, [])
-          do_tokenize(remaining, engine, [StringLit(content), ..acc])
+          let escapes = string_escapes(engine, NoPrefix)
+          let #(content, remaining) = read_quoted(rest, "'", escapes, [])
+          do_tokenize(remaining, engine, [
+            StringLit(content, NoPrefix, escapes),
+            ..acc
+          ])
         }
 
         // Dollar-quoted string (PostgreSQL)
@@ -120,7 +153,10 @@ fn do_tokenize(
                 Ok(#(tag, after_tag)) -> {
                   let #(content, remaining) =
                     read_dollar_quoted_string(after_tag, tag, [])
-                  do_tokenize(remaining, engine, [StringLit(content), ..acc])
+                  do_tokenize(remaining, engine, [
+                    StringLit(content, NoPrefix, QuoteDoubling),
+                    ..acc
+                  ])
                 }
                 Error(_) -> {
                   // Could be placeholder $1, $name
@@ -140,18 +176,23 @@ fn do_tokenize(
         "\"" ->
           case engine {
             model.MySQL -> {
-              let #(content, remaining) = read_quoted(rest, "\"", [])
-              do_tokenize(remaining, engine, [StringLit(content), ..acc])
+              let #(content, remaining) =
+                read_quoted(rest, "\"", BackslashEscapes, [])
+              do_tokenize(remaining, engine, [
+                StringLit(content, NoPrefix, BackslashEscapes),
+                ..acc
+              ])
             }
             _ -> {
-              let #(content, remaining) = read_quoted(rest, "\"", [])
+              let #(content, remaining) =
+                read_quoted(rest, "\"", QuoteDoubling, [])
               do_tokenize(remaining, engine, [QuotedIdent(content), ..acc])
             }
           }
 
         // Backtick-quoted identifier (MySQL)
         "`" -> {
-          let #(content, remaining) = read_quoted(rest, "`", [])
+          let #(content, remaining) = read_quoted(rest, "`", QuoteDoubling, [])
           do_tokenize(remaining, engine, [QuotedIdent(content), ..acc])
         }
 
@@ -159,7 +200,8 @@ fn do_tokenize(
         "[" ->
           case engine {
             model.SQLite -> {
-              let #(content, remaining) = read_quoted(rest, "]", [])
+              let #(content, remaining) =
+                read_quoted(rest, "]", QuoteDoubling, [])
               do_tokenize(remaining, engine, [QuotedIdent(content), ..acc])
             }
             _ -> {
@@ -237,8 +279,9 @@ fn do_tokenize(
 
         // Numbers
         _ ->
-          case char_utils.is_digit(g) {
-            True ->
+          case char_utils.is_unicode_space(g), char_utils.is_digit(g) {
+            True, _ -> do_tokenize(rest, engine, acc)
+            False, True ->
               case g, rest {
                 // 0x/0X hex literal (MySQL, SQLite). Treat as a single
                 // numeric token so downstream sees one NumberLit, not
@@ -255,14 +298,18 @@ fn do_tokenize(
                   do_tokenize(remaining, engine, [NumberLit(num), ..acc])
                 }
               }
-            False ->
+            False, False ->
               case char_utils.is_alpha_or_underscore(g) {
                 True ->
                   case detect_string_literal_prefix(g, rest) {
-                    option.Some(#(after_prefix, _kind)) -> {
+                    option.Some(#(after_prefix, prefix)) -> {
+                      let escapes = string_escapes(engine, prefix)
                       let #(content, remaining) =
-                        read_single_quoted_string(after_prefix, [])
-                      do_tokenize(remaining, engine, [StringLit(content), ..acc])
+                        read_quoted(after_prefix, "'", escapes, [])
+                      do_tokenize(remaining, engine, [
+                        StringLit(content, prefix, escapes),
+                        ..acc
+                      ])
                     }
                     option.None -> {
                       let #(word, remaining) = read_word(rest, [g])
@@ -286,7 +333,7 @@ fn do_tokenize(
 fn skip_line_comment(input: List(String)) -> List(String) {
   case input {
     [] -> []
-    ["\n", ..rest] -> rest
+    ["\n", ..rest] | ["\r\n", ..rest] -> rest
     [_, ..rest] -> skip_line_comment(rest)
   }
 }
@@ -313,22 +360,6 @@ fn skip_block_comment_loop(input: List(String), depth: Int) -> List(String) {
 }
 
 // --- String literal helpers ---
-
-fn read_single_quoted_string(
-  input: List(String),
-  acc: List(String),
-) -> #(String, List(String)) {
-  case input {
-    [] -> #(acc |> list.reverse |> string.concat, [])
-    ["'", "'", ..rest] ->
-      // Escaped quote '' → single '
-      read_single_quoted_string(rest, ["'", ..acc])
-    ["'", ..rest] ->
-      // End of string
-      #(acc |> list.reverse |> string.concat, rest)
-    [g, ..rest] -> read_single_quoted_string(rest, [g, ..acc])
-  }
-}
 
 fn read_dollar_quoted_string(
   input: List(String),
@@ -405,41 +436,54 @@ fn match_tag_then_dollar_lex(
   }
 }
 
+/// MySQL reads a backslash in every string literal as an escape;
+/// PostgreSQL only in E'...'. Hex and bit strings hold digits only.
+fn string_escapes(engine: model.Engine, prefix: StringPrefix) -> StringEscapes {
+  case prefix, engine {
+    EscapePrefix, _ -> BackslashEscapes
+    NoPrefix, model.MySQL | NationalPrefix, model.MySQL -> BackslashEscapes
+    NoPrefix, _ | NationalPrefix, _ | UnicodePrefix, _ -> QuoteDoubling
+    HexPrefix, _ | BitPrefix, _ -> QuoteDoubling
+  }
+}
+
 fn read_quoted(
   input: List(String),
   closer: String,
+  escapes: StringEscapes,
   acc: List(String),
 ) -> #(String, List(String)) {
-  case input {
-    [] -> #(acc |> list.reverse |> string.concat, [])
+  case input, escapes {
+    [], _ -> #(acc |> list.reverse |> string.concat, [])
+    // The escaped character is kept with its backslash so that the
+    // literal is written back as it was read.
+    ["\\", g, ..rest], BackslashEscapes ->
+      read_quoted(rest, closer, escapes, [g, "\\", ..acc])
     // SQL standard: a doubled closer inside the quotes is an escaped literal.
     // SQLite bracket identifiers ([...]) have no escape mechanism for ].
-    [g, g2, ..rest] if g == closer && g2 == closer && closer != "]" ->
-      read_quoted(rest, closer, [g, ..acc])
-    [g, ..rest] ->
+    [g, g2, ..rest], _ if g == closer && g2 == closer && closer != "]" ->
+      read_quoted(rest, closer, escapes, [g, ..acc])
+    [g, ..rest], _ ->
       case g == closer {
         True -> #(acc |> list.reverse |> string.concat, rest)
-        False -> read_quoted(rest, closer, [g, ..acc])
+        False -> read_quoted(rest, closer, escapes, [g, ..acc])
       }
   }
 }
 
 /// Detect SQL prefixed string literals: E'..', U&'..', B'..', X'..', N'..'.
-/// Returns the tokens after the prefix and a tag describing the kind, so
-/// the caller can read the body via read_single_quoted_string. Case
+/// Returns the input after the opening quote and the prefix. Case
 /// insensitive on the prefix character.
 fn detect_string_literal_prefix(
   g: String,
   rest: List(String),
-) -> option.Option(#(List(String), String)) {
-  case g, rest {
-    p, ["'", ..after] if p == "E" || p == "e" -> option.Some(#(after, "escape"))
-    p, ["'", ..after] if p == "B" || p == "b" -> option.Some(#(after, "bit"))
-    p, ["'", ..after] if p == "X" || p == "x" -> option.Some(#(after, "hex"))
-    p, ["'", ..after] if p == "N" || p == "n" ->
-      option.Some(#(after, "national"))
-    p, ["&", "'", ..after] if p == "U" || p == "u" ->
-      option.Some(#(after, "unicode"))
+) -> option.Option(#(List(String), StringPrefix)) {
+  case string.uppercase(g), rest {
+    "E", ["'", ..after] -> option.Some(#(after, EscapePrefix))
+    "B", ["'", ..after] -> option.Some(#(after, BitPrefix))
+    "X", ["'", ..after] -> option.Some(#(after, HexPrefix))
+    "N", ["'", ..after] -> option.Some(#(after, NationalPrefix))
+    "U", ["&", "'", ..after] -> option.Some(#(after, UnicodePrefix))
     _, _ -> option.None
   }
 }
@@ -789,16 +833,19 @@ fn token_to_string(token: Token, options: TokenRenderOptions) -> String {
       case options.preserve_quotes {
         True ->
           case options.engine {
-            option.Some(model.MySQL) -> "`" <> name <> "`"
-            _ -> "\"" <> name <> "\""
+            option.Some(model.MySQL) ->
+              "`" <> string.replace(name, "`", "``") <> "`"
+            _ -> "\"" <> string.replace(name, "\"", "\"\"") <> "\""
           }
         False -> name
       }
-    StringLit(value) ->
-      case options.preserve_quotes {
-        True -> "'" <> string.replace(value, "'", "''") <> "'"
-        False -> "'" <> value <> "'"
+    StringLit(value:, prefix:, escapes:) -> {
+      let body = case options.preserve_quotes {
+        True -> escape_string_body(value, escapes)
+        False -> value
       }
+      prefix_to_string(prefix) <> "'" <> body <> "'"
+    }
     NumberLit(n) -> n
     Placeholder(p) -> p
     Operator(op) -> op
@@ -808,5 +855,40 @@ fn token_to_string(token: Token, options: TokenRenderOptions) -> String {
     Semicolon -> ";"
     Dot -> "."
     Star -> "*"
+  }
+}
+
+fn prefix_to_string(prefix: StringPrefix) -> String {
+  case prefix {
+    NoPrefix -> ""
+    EscapePrefix -> "E"
+    UnicodePrefix -> "U&"
+    HexPrefix -> "X"
+    BitPrefix -> "B"
+    NationalPrefix -> "N"
+  }
+}
+
+/// Double every quote that is not already escaped by a backslash. A
+/// backslash pair read by `read_quoted` is written back unchanged.
+fn escape_string_body(value: String, escapes: StringEscapes) -> String {
+  case escapes {
+    QuoteDoubling -> string.replace(value, "'", "''")
+    BackslashEscapes ->
+      escape_backslash_body(string.to_graphemes(value), [])
+      |> list.reverse
+      |> string.concat
+  }
+}
+
+fn escape_backslash_body(
+  input: List(String),
+  acc: List(String),
+) -> List(String) {
+  case input {
+    [] -> acc
+    ["\\", g, ..rest] -> escape_backslash_body(rest, [g, "\\", ..acc])
+    ["'", ..rest] -> escape_backslash_body(rest, ["''", ..acc])
+    [g, ..rest] -> escape_backslash_body(rest, [g, ..acc])
   }
 }

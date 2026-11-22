@@ -49,7 +49,7 @@ fn generated(
       overrides: model.Overrides(type_overrides: [], column_renames: []),
     )
   let assert Ok(files) =
-    generate.generate_config(model.Config(version: 2, sql: [block]))
+    generate.generate_config(model.Config(version: 2, sql: [block])).result
     as "the snapshot fixtures generate"
   files
   |> list.sort(string.compare)

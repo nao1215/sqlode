@@ -27,7 +27,7 @@ pub fn main() -> Nil {
   case glint.execute(cli.app(), args) {
     Error(message) -> {
       io.println_error(rewrite_error(args, message))
-      exit(1)
+      cli.halt(1)
     }
     Ok(glint.Help(text)) -> io.println(text)
     Ok(glint.Out(_)) -> Nil
@@ -84,13 +84,4 @@ fn classify_invocation(args: List(String)) -> String {
           <> "'. Run 'sqlode --help' to see available commands."
       }
   }
-}
-
-@target(erlang)
-@external(erlang, "sqlode_ffi", "halt")
-fn exit(status: Int) -> Nil
-
-@target(javascript)
-fn exit(_status: Int) -> Nil {
-  Nil
 }

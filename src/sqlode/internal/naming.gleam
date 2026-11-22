@@ -2,6 +2,7 @@ import gleam/list
 import gleam/regexp
 import gleam/result
 import gleam/string
+import sqlode/internal/char_utils
 
 pub type NamingContext {
   NamingContext(
@@ -14,6 +15,7 @@ pub type NamingContext {
 pub fn new() -> NamingContext {
   // nolint: assert_ok_pattern -- the regex literal is a compile-time constant
   let assert Ok(word_separator) = regexp.from_string("[_\\-\\s./]+")
+    as "word separator regex is a valid constant"
   // Word-split rule for camelCase / PascalCase / mixed input. The
   // four alternatives, in priority order:
   //
@@ -41,9 +43,11 @@ pub fn new() -> NamingContext {
     regexp.from_string(
       "([A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+[0-9]*|[A-Z]+[0-9]*|[0-9]+)",
     )
+    as "camel case regex is a valid constant"
   // nolint: assert_ok_pattern -- the regex literal is a compile-time constant
   let assert Ok(underscore_before_caps) =
     regexp.from_string("([a-z0-9])([A-Z])")
+    as "underscore regex is a valid constant"
   NamingContext(word_separator:, camel_case:, underscore_before_caps:)
 }
 
@@ -52,6 +56,34 @@ pub fn to_pascal_case(ctx: NamingContext, input: String) -> String {
   |> split_words(ctx)
   |> list.map(capitalize)
   |> string.join("")
+}
+
+/// A Gleam field or label: a lowercase ASCII letter, then lowercase
+/// letters, digits and underscores.
+pub fn is_label(name: String) -> Bool {
+  case string.to_graphemes(name) {
+    [first, ..rest] ->
+      char_utils.is_lowercase_letter(first)
+      && list.all(rest, fn(g) {
+        char_utils.is_lowercase_letter(g) || char_utils.is_digit(g) || g == "_"
+      })
+    [] -> False
+  }
+}
+
+/// A Gleam type name: an uppercase ASCII letter, then ASCII letters
+/// and digits.
+pub fn is_type_name(name: String) -> Bool {
+  case string.to_graphemes(name) {
+    [first, ..rest] ->
+      char_utils.is_uppercase_letter(first)
+      && list.all(rest, fn(g) {
+        char_utils.is_uppercase_letter(g)
+        || char_utils.is_lowercase_letter(g)
+        || char_utils.is_digit(g)
+      })
+    [] -> False
+  }
 }
 
 pub fn to_snake_case(ctx: NamingContext, input: String) -> String {

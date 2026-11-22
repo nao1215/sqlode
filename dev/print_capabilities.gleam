@@ -6,7 +6,7 @@
 ////
 //// or directly:
 ////
-////   gleam run -m sqlode/scripts/print_capabilities > doc/capabilities.md
+////   gleam run -m print_capabilities > doc/capabilities.md
 ////
 //// The output is exactly what `test/capabilities_test.gleam` pins against
 //// the tracked file.

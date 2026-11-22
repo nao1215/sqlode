@@ -38,6 +38,7 @@
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/string
 import sqlode/internal/lexer
 import sqlode/internal/model
@@ -441,7 +442,7 @@ fn is_expr_end(token: lexer.Token) -> Bool {
     lexer.RParen -> True
     lexer.Ident(_) -> True
     lexer.QuotedIdent(_) -> True
-    lexer.StringLit(_) -> True
+    lexer.StringLit(..) -> True
     lexer.NumberLit(_) -> True
     lexer.Placeholder(_) -> True
     lexer.Star -> True
@@ -1053,51 +1054,64 @@ fn parse_or(
   tokens: List(lexer.Token),
   engine: model.Engine,
 ) -> #(query_ir.Expr, List(lexer.Token)) {
-  let #(left, rest) = parse_and(tokens, engine)
-  parse_or_tail(left, rest, engine)
-}
-
-fn parse_or_tail(
-  left: query_ir.Expr,
-  tokens: List(lexer.Token),
-  engine: model.Engine,
-) -> #(query_ir.Expr, List(lexer.Token)) {
-  case tokens {
-    [lexer.Keyword("or"), ..rest] -> {
-      let #(right, after) = parse_and(rest, engine)
-      parse_or_tail(
-        query_ir.Binary(op: "or", left: left, right: right),
-        after,
-        engine,
-      )
+  parse_left_assoc(tokens, engine, parse_and, fn(token) {
+    case token {
+      lexer.Keyword("or") -> Ok("or")
+      _ -> Error(Nil)
     }
-    _ -> #(left, tokens)
-  }
+  })
 }
 
 fn parse_and(
   tokens: List(lexer.Token),
   engine: model.Engine,
 ) -> #(query_ir.Expr, List(lexer.Token)) {
-  let #(left, rest) = parse_not(tokens, engine)
-  parse_and_tail(left, rest, engine)
+  parse_left_assoc(tokens, engine, parse_not, fn(token) {
+    case token {
+      lexer.Keyword("and") -> Ok("and")
+      _ -> Error(Nil)
+    }
+  })
 }
 
-fn parse_and_tail(
+/// Parse `operand (operator operand)*` and fold it to the left, as
+/// every binary precedence level does. `operator` returns the operator
+/// a token stands for at this level.
+fn parse_left_assoc(
+  tokens: List(lexer.Token),
+  engine: model.Engine,
+  operand: fn(List(lexer.Token), model.Engine) ->
+    #(query_ir.Expr, List(lexer.Token)),
+  operator: fn(lexer.Token) -> Result(String, Nil),
+) -> #(query_ir.Expr, List(lexer.Token)) {
+  let #(left, rest) = operand(tokens, engine)
+  left_assoc_tail(left, rest, engine, operand, operator)
+}
+
+fn left_assoc_tail(
   left: query_ir.Expr,
   tokens: List(lexer.Token),
   engine: model.Engine,
+  operand: fn(List(lexer.Token), model.Engine) ->
+    #(query_ir.Expr, List(lexer.Token)),
+  operator: fn(lexer.Token) -> Result(String, Nil),
 ) -> #(query_ir.Expr, List(lexer.Token)) {
-  case tokens {
-    [lexer.Keyword("and"), ..rest] -> {
-      let #(right, after) = parse_not(rest, engine)
-      parse_and_tail(
-        query_ir.Binary(op: "and", left: left, right: right),
+  let next = case tokens {
+    [token, ..rest] -> result.map(operator(token), fn(op) { #(op, rest) })
+    [] -> Error(Nil)
+  }
+  case next {
+    Ok(#(op, rest)) -> {
+      let #(right, after) = operand(rest, engine)
+      left_assoc_tail(
+        query_ir.Binary(op:, left:, right:),
         after,
         engine,
+        operand,
+        operator,
       )
     }
-    _ -> #(left, tokens)
+    Error(Nil) -> #(left, tokens)
   }
 }
 
@@ -1128,66 +1142,27 @@ fn parse_comparison_tail(
   engine: model.Engine,
 ) -> #(query_ir.Expr, List(lexer.Token)) {
   case tokens {
-    [lexer.Operator(op), ..rest]
-      if op == "="
-      || op == "<>"
-      || op == "!="
-      || op == "<"
-      || op == ">"
-      || op == "<="
-      || op == ">="
-      || op == "@>"
-      || op == "<@"
-      || op == "?|"
-      || op == "?&"
-      || op == "&&"
-    -> {
-      case rest {
-        [lexer.Keyword("any"), lexer.LParen, ..after_lp] -> {
-          let #(inner, after) = token_utils.collect_paren_contents(after_lp)
-          let right = parse_expr(inner, engine)
-          #(
-            query_ir.Quantified(
-              op: op,
-              left: left,
-              quantifier: query_ir.QAny,
-              right: right,
-            ),
-            after,
-          )
-        }
-        [lexer.Keyword("all"), lexer.LParen, ..after_lp] -> {
-          let #(inner, after) = token_utils.collect_paren_contents(after_lp)
-          let right = parse_expr(inner, engine)
-          #(
-            query_ir.Quantified(
-              op: op,
-              left: left,
-              quantifier: query_ir.QAll,
-              right: right,
-            ),
-            after,
-          )
-        }
-        [lexer.Keyword("some"), lexer.LParen, ..after_lp] -> {
-          let #(inner, after) = token_utils.collect_paren_contents(after_lp)
-          let right = parse_expr(inner, engine)
-          #(
-            query_ir.Quantified(
-              op: op,
-              left: left,
-              quantifier: query_ir.QSome,
-              right: right,
-            ),
-            after,
-          )
-        }
-        _ -> {
-          let #(right, after) = parse_additive(rest, engine)
-          #(query_ir.Binary(op: op, left: left, right: right), after)
-        }
+    [lexer.Operator(op), ..rest] ->
+      case token_utils.is_boolean_operator(op), rest {
+        False, _ -> #(left, tokens)
+        True, [lexer.Keyword(keyword), lexer.LParen, ..after_lp] ->
+          case quantifier(keyword) {
+            Ok(quantifier) -> {
+              let #(inner, after) = token_utils.collect_paren_contents(after_lp)
+              #(
+                query_ir.Quantified(
+                  op:,
+                  left:,
+                  quantifier:,
+                  right: parse_expr(inner, engine),
+                ),
+                after,
+              )
+            }
+            Error(Nil) -> parse_binary_comparison(left, op, rest, engine)
+          }
+        True, _ -> parse_binary_comparison(left, op, rest, engine)
       }
-    }
     [lexer.Keyword("is"), lexer.Keyword("not"), lexer.Keyword("null"), ..rest] -> #(
       query_ir.IsCheck(expr: left, predicate: query_ir.IsNull, negated: True),
       rest,
@@ -1245,6 +1220,26 @@ fn parse_comparison_tail(
     [lexer.Keyword("ilike"), ..rest] ->
       parse_like_tail(left, rest, query_ir.Ilike, False, engine)
     _ -> #(left, tokens)
+  }
+}
+
+fn parse_binary_comparison(
+  left: query_ir.Expr,
+  op: String,
+  rest: List(lexer.Token),
+  engine: model.Engine,
+) -> #(query_ir.Expr, List(lexer.Token)) {
+  let #(right, after) = parse_additive(rest, engine)
+  #(query_ir.Binary(op:, left:, right:), after)
+}
+
+/// `ANY`, `ALL` and `SOME` before a parenthesised operand.
+fn quantifier(keyword: String) -> Result(query_ir.Quantifier, Nil) {
+  case keyword {
+    "any" -> Ok(query_ir.QAny)
+    "all" -> Ok(query_ir.QAll)
+    "some" -> Ok(query_ir.QSome)
+    _ -> Error(Nil)
   }
 }
 
@@ -1367,68 +1362,31 @@ fn parse_additive(
   tokens: List(lexer.Token),
   engine: model.Engine,
 ) -> #(query_ir.Expr, List(lexer.Token)) {
-  let #(left, rest) = parse_multiplicative(tokens, engine)
-  parse_additive_tail(left, rest, engine)
-}
-
-fn parse_additive_tail(
-  left: query_ir.Expr,
-  tokens: List(lexer.Token),
-  engine: model.Engine,
-) -> #(query_ir.Expr, List(lexer.Token)) {
-  case tokens {
-    [lexer.Operator(op), ..rest]
-      if op == "+"
-      || op == "-"
-      || op == "||"
-      || op == "->"
-      || op == "->>"
-      || op == "#>"
-      || op == "#>>"
-    -> {
-      let #(right, after) = parse_multiplicative(rest, engine)
-      parse_additive_tail(
-        query_ir.Binary(op: op, left: left, right: right),
-        after,
-        engine,
-      )
+  parse_left_assoc(tokens, engine, parse_multiplicative, fn(token) {
+    case token {
+      lexer.Operator("+" as op)
+      | lexer.Operator("-" as op)
+      | lexer.Operator("||" as op)
+      | lexer.Operator("->" as op)
+      | lexer.Operator("->>" as op)
+      | lexer.Operator("#>" as op)
+      | lexer.Operator("#>>" as op) -> Ok(op)
+      _ -> Error(Nil)
     }
-    _ -> #(left, tokens)
-  }
+  })
 }
 
 fn parse_multiplicative(
   tokens: List(lexer.Token),
   engine: model.Engine,
 ) -> #(query_ir.Expr, List(lexer.Token)) {
-  let #(left, rest) = parse_unary(tokens, engine)
-  parse_multiplicative_tail(left, rest, engine)
-}
-
-fn parse_multiplicative_tail(
-  left: query_ir.Expr,
-  tokens: List(lexer.Token),
-  engine: model.Engine,
-) -> #(query_ir.Expr, List(lexer.Token)) {
-  case tokens {
-    [lexer.Star, ..rest] -> {
-      let #(right, after) = parse_unary(rest, engine)
-      parse_multiplicative_tail(
-        query_ir.Binary(op: "*", left: left, right: right),
-        after,
-        engine,
-      )
+  parse_left_assoc(tokens, engine, parse_unary, fn(token) {
+    case token {
+      lexer.Star -> Ok("*")
+      lexer.Operator("/" as op) | lexer.Operator("%" as op) -> Ok(op)
+      _ -> Error(Nil)
     }
-    [lexer.Operator(op), ..rest] if op == "/" || op == "%" -> {
-      let #(right, after) = parse_unary(rest, engine)
-      parse_multiplicative_tail(
-        query_ir.Binary(op: op, left: left, right: right),
-        after,
-        engine,
-      )
-    }
-    _ -> #(left, tokens)
-  }
+  })
 }
 
 fn parse_unary(
@@ -1526,7 +1484,10 @@ fn parse_atom(
     [lexer.Keyword("null"), ..rest] -> #(query_ir.NullLit, rest)
     [lexer.Keyword("true"), ..rest] -> #(query_ir.BoolLit(value: True), rest)
     [lexer.Keyword("false"), ..rest] -> #(query_ir.BoolLit(value: False), rest)
-    [lexer.StringLit(v), ..rest] -> #(query_ir.StringLit(value: v), rest)
+    [lexer.StringLit(value: v, ..), ..rest] -> #(
+      query_ir.StringLit(value: v),
+      rest,
+    )
     [lexer.NumberLit(n), ..rest] -> #(query_ir.NumberLit(value: n), rest)
     [lexer.Placeholder(raw), ..rest] -> {
       let idx = decode_placeholder(raw)
@@ -1610,7 +1571,7 @@ fn parse_atom(
         )
       }
     }
-    [lexer.Keyword("interval"), lexer.StringLit(val), ..rest] -> #(
+    [lexer.Keyword("interval"), lexer.StringLit(value: val, ..), ..rest] -> #(
       query_ir.Func(
         name: "interval",
         args: [query_ir.FuncArg(expr: query_ir.StringLit(value: val))],
