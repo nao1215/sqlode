@@ -1509,10 +1509,10 @@ fn infer_expression_type_token_path(
     // --- SQL function calls (now Ident tokens after #319) ---
     [lexer.Ident(fn_name), lexer.LParen, ..rest] -> {
       let lowered = string.lowercase(fn_name)
-      case classify_function(lowered) {
-        FnCount -> Ok(#(model.IntType, False))
-        FnAvg -> Ok(#(model.FloatType, True))
-        FnAggregateInner -> {
+      case type_inference.classify_function(lowered) {
+        type_inference.FnCount -> Ok(#(model.IntType, False))
+        type_inference.FnAvg -> Ok(#(model.FloatType, True))
+        type_inference.FnAggregateInner -> {
           let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
           let first_arg = tok_first_comma_group(inner_tokens)
           case
@@ -1522,9 +1522,9 @@ fn infer_expression_type_token_path(
             None -> Ok(#(model.IntType, True))
           }
         }
-        FnWindowInt -> Ok(#(model.IntType, False))
-        FnWindowFloat -> Ok(#(model.FloatType, False))
-        FnWindowFirstArg -> {
+        type_inference.FnWindowInt -> Ok(#(model.IntType, False))
+        type_inference.FnWindowFloat -> Ok(#(model.FloatType, False))
+        type_inference.FnWindowFirstArg -> {
           let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
           let first_arg = tok_first_comma_group(inner_tokens)
           case
@@ -1541,7 +1541,7 @@ fn infer_expression_type_token_path(
               |> result.map(fn(pair) { #(pair.0, True) })
           }
         }
-        FnCoalesce -> {
+        type_inference.FnCoalesce -> {
           let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
           let first_arg = tok_first_comma_group(inner_tokens)
           case
@@ -1558,7 +1558,7 @@ fn infer_expression_type_token_path(
               |> result.map(fn(pair) { #(pair.0, False) })
           }
         }
-        FnGreatestLeast -> {
+        type_inference.FnGreatestLeast -> {
           let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
           let first_arg = tok_first_comma_group(inner_tokens)
           case
@@ -1575,9 +1575,9 @@ fn infer_expression_type_token_path(
               |> result.map(fn(pair) { #(pair.0, True) })
           }
         }
-        FnString -> Ok(#(model.StringType, False))
-        FnLength -> Ok(#(model.IntType, False))
-        FnMath -> {
+        type_inference.FnString -> Ok(#(model.StringType, False))
+        type_inference.FnLength -> Ok(#(model.IntType, False))
+        type_inference.FnMath -> {
           let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
           let first_arg = tok_first_comma_group(inner_tokens)
           case
@@ -1587,8 +1587,9 @@ fn infer_expression_type_token_path(
             None -> Ok(#(model.FloatType, False))
           }
         }
-        FnDatetime -> Ok(#(infer_datetime_return_type(lowered), False))
-        FnNullif -> {
+        type_inference.FnDatetime ->
+          Ok(#(type_inference.datetime_return_type(lowered), False))
+        type_inference.FnNullif -> {
           let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
           let first_arg = tok_first_comma_group(inner_tokens)
           case
@@ -1605,7 +1606,7 @@ fn infer_expression_type_token_path(
               |> result.map(fn(pair) { #(pair.0, True) })
           }
         }
-        FnUnknown ->
+        type_inference.FnUnknown ->
           // Unknown function call — fall through to scan-based inference
           infer_by_scanning(tokens, catalog, table_names, query_name)
       }
@@ -1615,7 +1616,7 @@ fn infer_expression_type_token_path(
     [lexer.Ident(fn_name)] -> {
       let lowered = string.lowercase(fn_name)
       case is_datetime_identifier(lowered) {
-        True -> Ok(#(infer_datetime_return_type(lowered), False))
+        True -> Ok(#(type_inference.datetime_return_type(lowered), False))
         False ->
           Error(UnsupportedExpression(
             query_name:,
@@ -1651,110 +1652,6 @@ fn infer_expression_type_token_path(
 // Function classification helpers
 // ============================================================
 
-type FunctionClass {
-  FnCount
-  FnAggregateInner
-  FnAvg
-  FnWindowInt
-  FnWindowFloat
-  FnWindowFirstArg
-  FnCoalesce
-  FnGreatestLeast
-  FnString
-  FnLength
-  FnMath
-  FnDatetime
-  FnNullif
-  FnUnknown
-}
-
-fn classify_function(lowered_name: String) -> FunctionClass {
-  case lowered_name {
-    "count" | "last_insert_rowid" -> FnCount
-    "sum" | "min" | "max" -> FnAggregateInner
-    "avg" -> FnAvg
-    "row_number" | "rank" | "dense_rank" | "ntile" -> FnWindowInt
-    "percent_rank" | "cume_dist" -> FnWindowFloat
-    "lag" | "lead" | "first_value" | "last_value" | "nth_value" ->
-      FnWindowFirstArg
-    "coalesce" -> FnCoalesce
-    "greatest" | "least" -> FnGreatestLeast
-    "replace"
-    | "lower"
-    | "upper"
-    | "trim"
-    | "ltrim"
-    | "rtrim"
-    | "substr"
-    | "substring"
-    | "concat"
-    | "reverse"
-    | "lpad"
-    | "rpad"
-    | "left"
-    | "right"
-    | "repeat"
-    | "initcap"
-    | "translate"
-    | "to_char"
-    | "format"
-    | "quote_literal"
-    | "quote_ident"
-    | "md5"
-    | "encode"
-    | "decode" -> FnString
-    "length"
-    | "char_length"
-    | "character_length"
-    | "octet_length"
-    | "bit_length"
-    | "position"
-    | "strpos"
-    | "ascii" -> FnLength
-    "abs"
-    | "round"
-    | "floor"
-    | "ceil"
-    | "ceiling"
-    | "mod"
-    | "power"
-    | "sqrt"
-    | "sign"
-    | "trunc"
-    | "log"
-    | "ln"
-    | "exp"
-    | "random"
-    | "pi"
-    | "degrees"
-    | "radians"
-    | "div" -> FnMath
-    "now"
-    | "current_timestamp"
-    | "current_date"
-    | "current_time"
-    | "date"
-    | "time"
-    | "timestamp"
-    | "date_trunc"
-    | "date_part"
-    | "extract"
-    | "age"
-    | "make_date"
-    | "make_time"
-    | "make_timestamp"
-    | "to_timestamp"
-    | "to_date"
-    | "clock_timestamp"
-    | "statement_timestamp"
-    | "timeofday"
-    | "localtime"
-    | "localtimestamp" -> FnDatetime
-    "nullif" | "ifnull" | "nvl" -> FnNullif
-    _ -> FnUnknown
-  }
-}
-
 fn is_datetime_identifier(lowered: String) -> Bool {
   case lowered {
     "now"
@@ -1764,16 +1661,6 @@ fn is_datetime_identifier(lowered: String) -> Bool {
     | "localtime"
     | "localtimestamp" -> True
     _ -> False
-  }
-}
-
-fn infer_datetime_return_type(lowered: String) -> model.ScalarType {
-  case lowered {
-    "current_date" | "date" | "make_date" | "to_date" -> model.DateType
-    "current_time" | "time" | "make_time" | "localtime" -> model.TimeType
-    "date_part" | "extract" -> model.FloatType
-    "to_char" -> model.StringType
-    _ -> model.DateTimeType
   }
 }
 
