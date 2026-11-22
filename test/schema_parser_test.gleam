@@ -1167,3 +1167,34 @@ pub fn crlf_schema_parses_like_lf_test() {
   schema_parser.parse_files([#("s.sql", crlf)], model.PostgreSQL)
   |> should.equal(schema_parser.parse_files([#("s.sql", lf)], model.PostgreSQL))
 }
+
+// Table options after the column list hold their own parentheses and
+// commas; they must not be split into columns.
+pub fn table_options_after_column_list_are_ignored_test() {
+  let assert Ok(#(pg, _)) =
+    schema_parser.parse_files(
+      [
+        #(
+          "s.sql",
+          "CREATE TABLE t (a integer NOT NULL, b integer) PARTITION BY HASH (a, b);",
+        ),
+      ],
+      model.PostgreSQL,
+    )
+  let assert [t] = pg.tables
+  list.map(t.columns, fn(c) { #(c.name, c.scalar_type, c.nullable) })
+  |> should.equal([#("a", model.IntType, False), #("b", model.IntType, True)])
+
+  let assert Ok(#(my, _)) =
+    schema_parser.parse_files(
+      [
+        #(
+          "s.sql",
+          "CREATE TABLE t (id INT NOT NULL, y INT) ENGINE=InnoDB PARTITION BY RANGE (y) (PARTITION p0 VALUES LESS THAN (1991), PARTITION p1 VALUES LESS THAN MAXVALUE);",
+        ),
+      ],
+      model.MySQL,
+    )
+  let assert [t] = my.tables
+  list.map(t.columns, fn(c) { c.name }) |> should.equal(["id", "y"])
+}

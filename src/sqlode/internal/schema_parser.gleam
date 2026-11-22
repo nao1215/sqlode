@@ -1288,8 +1288,11 @@ fn parse_create_table_tokens(
         }),
       )
 
-      // Strip trailing RParen from body
-      let body_tokens = strip_trailing_rparen(body)
+      // The column list ends at the `)` that closes the first `(`.
+      // Table options after it (`PARTITION BY HASH (a, b)`, MySQL
+      // `ENGINE=...`) have their own parentheses and commas.
+      let #(body_tokens, _table_options) =
+        token_utils.collect_paren_contents(body)
 
       use #(columns, new_enums) <- result.try(parse_columns_tokens(
         path,
@@ -1326,21 +1329,6 @@ fn find_last_ident(tokens: List(lexer.Token)) -> Result(String, Nil) {
     }
   })
   |> list.last
-}
-
-/// Strip trailing RParen from token list.
-fn strip_trailing_rparen(tokens: List(lexer.Token)) -> List(lexer.Token) {
-  tokens
-  |> list.reverse
-  |> drop_trailing_rparens
-  |> list.reverse
-}
-
-fn drop_trailing_rparens(rev_tokens: List(lexer.Token)) -> List(lexer.Token) {
-  case rev_tokens {
-    [lexer.RParen, ..rest] -> rest
-    _ -> rev_tokens
-  }
 }
 
 fn parse_columns_tokens(
