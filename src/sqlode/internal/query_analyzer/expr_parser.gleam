@@ -441,7 +441,7 @@ fn is_expr_end(token: lexer.Token) -> Bool {
     lexer.RParen -> True
     lexer.Ident(_) -> True
     lexer.QuotedIdent(_) -> True
-    lexer.StringLit(_) -> True
+    lexer.StringLit(..) -> True
     lexer.NumberLit(_) -> True
     lexer.Placeholder(_) -> True
     lexer.Star -> True
@@ -1526,7 +1526,10 @@ fn parse_atom(
     [lexer.Keyword("null"), ..rest] -> #(query_ir.NullLit, rest)
     [lexer.Keyword("true"), ..rest] -> #(query_ir.BoolLit(value: True), rest)
     [lexer.Keyword("false"), ..rest] -> #(query_ir.BoolLit(value: False), rest)
-    [lexer.StringLit(v), ..rest] -> #(query_ir.StringLit(value: v), rest)
+    [lexer.StringLit(value: v, ..), ..rest] -> #(
+      query_ir.StringLit(value: v),
+      rest,
+    )
     [lexer.NumberLit(n), ..rest] -> #(query_ir.NumberLit(value: n), rest)
     [lexer.Placeholder(raw), ..rest] -> {
       let idx = decode_placeholder(raw)
@@ -1610,7 +1613,7 @@ fn parse_atom(
         )
       }
     }
-    [lexer.Keyword("interval"), lexer.StringLit(val), ..rest] -> #(
+    [lexer.Keyword("interval"), lexer.StringLit(value: val, ..), ..rest] -> #(
       query_ir.Func(
         name: "interval",
         args: [query_ir.FuncArg(expr: query_ir.StringLit(value: val))],

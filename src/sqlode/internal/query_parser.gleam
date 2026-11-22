@@ -850,7 +850,7 @@ fn collect_macro_arg_tokens(
 fn extract_arg_name(tokens: List(lexer.Token)) -> String {
   case tokens {
     [lexer.Ident(name)] -> name
-    [lexer.StringLit(name)] -> name
+    [lexer.StringLit(value: name, ..)] -> name
     [lexer.QuotedIdent(name)] -> name
     _ ->
       // Fallback: render tokens to text
@@ -858,7 +858,7 @@ fn extract_arg_name(tokens: List(lexer.Token)) -> String {
       |> list.filter_map(fn(t) {
         case t {
           lexer.Ident(n) -> Ok(n)
-          lexer.StringLit(n) -> Ok(n)
+          lexer.StringLit(value: n, ..) -> Ok(n)
           lexer.QuotedIdent(n) -> Ok(n)
           _ -> Error(Nil)
         }

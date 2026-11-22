@@ -249,7 +249,7 @@ fn extract_enum_values(
 ) -> List(String) {
   case tokens {
     [] -> list.reverse(acc)
-    [lexer.StringLit(value), ..rest] ->
+    [lexer.StringLit(value: value, ..), ..rest] ->
       extract_enum_values(rest, [value, ..acc])
     [_, ..rest] -> extract_enum_values(rest, acc)
   }
@@ -498,7 +498,7 @@ fn infer_view_expression_type(
     }
 
     // Literals
-    [lexer.StringLit(_), ..] -> Some(#(model.StringType, False))
+    [lexer.StringLit(..), ..] -> Some(#(model.StringType, False))
     [lexer.NumberLit(n), ..] ->
       case string.contains(n, ".") {
         True -> Some(#(model.FloatType, False))

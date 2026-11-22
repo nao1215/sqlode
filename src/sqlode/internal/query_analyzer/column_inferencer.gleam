@@ -682,7 +682,7 @@ fn infer_literal_type_with_nullability(
       Ok(#(type_inference.number_type(n), False))
     [lexer.Operator("+"), lexer.NumberLit(n)] ->
       Ok(#(type_inference.number_type(n), False))
-    [lexer.StringLit(_)] -> Ok(#(model.StringType, False))
+    [lexer.StringLit(..)] -> Ok(#(model.StringType, False))
     [lexer.Keyword("true")] | [lexer.Keyword("false")] ->
       Ok(#(model.BoolType, False))
     [lexer.Keyword("null")] -> Ok(#(model.StringType, True))
@@ -1646,7 +1646,7 @@ fn infer_expression_type_token_path(
     }
 
     // --- Literals ---
-    [lexer.StringLit(_)] -> Ok(#(model.StringType, False))
+    [lexer.StringLit(..)] -> Ok(#(model.StringType, False))
 
     [lexer.NumberLit(n)] ->
       case string.contains(n, ".") {

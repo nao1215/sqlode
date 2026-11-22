@@ -653,7 +653,7 @@ fn render_token(token: lexer.Token) -> String {
     lexer.Keyword(k) -> k
     lexer.Ident(n) -> n
     lexer.QuotedIdent(n) -> "\"" <> n <> "\""
-    lexer.StringLit(s) -> "'" <> s <> "'"
+    lexer.StringLit(value: s, ..) -> "'" <> s <> "'"
     lexer.NumberLit(n) -> n
     lexer.Placeholder(p) -> p
     lexer.Operator(o) -> o

@@ -1,10 +1,15 @@
 import gleam/list
 import gleam/option
+import gleam/string
 import gleeunit
 import gleeunit/should
+import metamon
+import metamon/generator
+import metamon/generator/range
 import sqlode/internal/lexer.{
-  Comma, Dot, Ident, Keyword, LParen, NumberLit, Operator, Placeholder,
-  QuotedIdent, RParen, Semicolon, Star, StringLit,
+  BackslashEscapes, BitPrefix, Comma, Dot, EscapePrefix, HexPrefix, Ident,
+  Keyword, LParen, NationalPrefix, NoPrefix, NumberLit, Operator, Placeholder,
+  QuoteDoubling, QuotedIdent, RParen, Semicolon, Star, StringLit, UnicodePrefix,
 }
 import sqlode/internal/model
 
@@ -65,19 +70,25 @@ pub fn create_table_test() {
 
 pub fn string_literal_test() {
   lexer.tokenize("SELECT 'hello world'", model.PostgreSQL)
-  |> should.equal([Keyword("select"), StringLit("hello world")])
+  |> should.equal([
+    Keyword("select"),
+    StringLit("hello world", NoPrefix, QuoteDoubling),
+  ])
 }
 
 pub fn escaped_single_quote_test() {
   lexer.tokenize("SELECT 'it''s'", model.PostgreSQL)
-  |> should.equal([Keyword("select"), StringLit("it's")])
+  |> should.equal([
+    Keyword("select"),
+    StringLit("it's", NoPrefix, QuoteDoubling),
+  ])
 }
 
 pub fn dollar_quoted_string_postgresql_test() {
   lexer.tokenize("SELECT $$hello 'world' -- not comment$$", model.PostgreSQL)
   |> should.equal([
     Keyword("select"),
-    StringLit("hello 'world' -- not comment"),
+    StringLit("hello 'world' -- not comment", NoPrefix, QuoteDoubling),
   ])
 }
 
@@ -85,7 +96,7 @@ pub fn tagged_dollar_quoted_string_postgresql_test() {
   lexer.tokenize("SELECT $tag$hello $1 world$tag$, id", model.PostgreSQL)
   |> should.equal([
     Keyword("select"),
-    StringLit("hello $1 world"),
+    StringLit("hello $1 world", NoPrefix, QuoteDoubling),
     Comma,
     Ident("id"),
   ])
@@ -98,7 +109,7 @@ pub fn nested_dollar_quoted_tags_postgresql_test() {
   )
   |> should.equal([
     Keyword("select"),
-    StringLit("contains $$inner$$ text"),
+    StringLit("contains $$inner$$ text", NoPrefix, QuoteDoubling),
   ])
 }
 
@@ -199,7 +210,10 @@ pub fn backtick_identifier_with_escaped_backtick_mysql_test() {
 
 pub fn mysql_double_quoted_string_with_escaped_quote_test() {
   lexer.tokenize("SELECT \"hi\"\"there\"", model.MySQL)
-  |> should.equal([Keyword("select"), StringLit("hi\"there")])
+  |> should.equal([
+    Keyword("select"),
+    StringLit("hi\"there", NoPrefix, BackslashEscapes),
+  ])
 }
 
 // Bracket identifiers in SQLite have no escape mechanism for ];
@@ -233,11 +247,11 @@ pub fn json_arrow_extract_operators_test() {
   |> should.equal([
     Ident("data"),
     Operator("->"),
-    StringLit("a"),
+    StringLit("a", NoPrefix, QuoteDoubling),
     Operator("#>"),
-    StringLit("{b,c}"),
+    StringLit("{b,c}", NoPrefix, QuoteDoubling),
     Operator("#>>"),
-    StringLit("{d}"),
+    StringLit("{d}", NoPrefix, QuoteDoubling),
   ])
 }
 
@@ -288,33 +302,48 @@ pub fn bare_question_mark_still_placeholder_test() {
 
 pub fn pg_escape_string_literal_test() {
   lexer.tokenize("SELECT E'hello'", model.PostgreSQL)
-  |> should.equal([Keyword("select"), StringLit("hello")])
+  |> should.equal([
+    Keyword("select"),
+    StringLit("hello", EscapePrefix, BackslashEscapes),
+  ])
 }
 
 pub fn pg_escape_string_lowercase_e_test() {
   lexer.tokenize("SELECT e'hello'", model.PostgreSQL)
-  |> should.equal([Keyword("select"), StringLit("hello")])
+  |> should.equal([
+    Keyword("select"),
+    StringLit("hello", EscapePrefix, BackslashEscapes),
+  ])
 }
 
 pub fn bit_string_literal_test() {
   lexer.tokenize("SELECT B'1010'", model.PostgreSQL)
-  |> should.equal([Keyword("select"), StringLit("1010")])
+  |> should.equal([
+    Keyword("select"),
+    StringLit("1010", BitPrefix, QuoteDoubling),
+  ])
 }
 
 pub fn hex_string_literal_test() {
   lexer.tokenize("SELECT X'ff'", model.PostgreSQL)
-  |> should.equal([Keyword("select"), StringLit("ff")])
+  |> should.equal([Keyword("select"), StringLit("ff", HexPrefix, QuoteDoubling)])
 }
 
 pub fn unicode_string_literal_test() {
   lexer.tokenize("SELECT U&'\\0061'", model.PostgreSQL)
-  |> should.equal([Keyword("select"), StringLit("\\0061")])
+  |> should.equal([
+    Keyword("select"),
+    StringLit("\\0061", UnicodePrefix, QuoteDoubling),
+  ])
 }
 
 pub fn national_string_literal_test() {
   // SQL standard N'...' for national character strings.
   lexer.tokenize("SELECT N'hello'", model.MySQL)
-  |> should.equal([Keyword("select"), StringLit("hello")])
+  |> should.equal([
+    Keyword("select"),
+    StringLit("hello", NationalPrefix, BackslashEscapes),
+  ])
 }
 
 // `Email` (Ident starting with E) must still tokenize as Ident, not as
@@ -426,7 +455,7 @@ pub fn json_operators_test() {
   |> should.equal([
     Ident("data"),
     Operator("->>"),
-    StringLit("key"),
+    StringLit("key", NoPrefix, QuoteDoubling),
   ])
 }
 
@@ -466,7 +495,7 @@ pub fn semicolon_in_string_literal_test() {
     Ident("t"),
     Keyword("values"),
     LParen,
-    StringLit("a;b;c"),
+    StringLit("a;b;c", NoPrefix, QuoteDoubling),
     RParen,
   ])
 }
@@ -541,9 +570,9 @@ pub fn enum_with_escaped_quotes_test() {
     Keyword("as"),
     Keyword("enum"),
     LParen,
-    StringLit("it's"),
+    StringLit("it's", NoPrefix, QuoteDoubling),
     Comma,
-    StringLit("ok"),
+    StringLit("ok", NoPrefix, QuoteDoubling),
     RParen,
     Semicolon,
   ])
@@ -551,7 +580,10 @@ pub fn enum_with_escaped_quotes_test() {
 
 pub fn mysql_double_quote_as_string_test() {
   lexer.tokenize("SELECT \"hello\"", model.MySQL)
-  |> should.equal([Keyword("select"), StringLit("hello")])
+  |> should.equal([
+    Keyword("select"),
+    StringLit("hello", NoPrefix, BackslashEscapes),
+  ])
 }
 
 pub fn table_alias_tokens_test() {
@@ -649,4 +681,112 @@ pub fn insert_or_fail_renders_consistently_lowercased_test() {
     |> lexer.tokenize(model.SQLite)
     |> lexer.tokens_to_string(opts)
   rendered |> should.equal("insert or fail into t values(1)")
+}
+
+// --- Round trip: tokens written back by tokens_to_string lex the same ---
+
+/// Pieces that may appear inside a string literal. The tricky ones are
+/// quotes, backslashes and text that looks like a placeholder.
+fn string_body_piece(
+  engine: model.Engine,
+  prefix: String,
+) -> generator.Generator(String) {
+  let plain = ["a", "Z", " ", "\"", "`", "$1", "?", ":n", "--", "/*"]
+  let escaped = case engine, prefix {
+    model.MySQL, _ | _, "E" -> ["\\'", "\\\\", "\\n", "\\\"", "''"]
+    _, _ -> ["''", "\\"]
+  }
+  generator.element_of(list.append(plain, escaped))
+}
+
+fn string_literal(engine: model.Engine) -> generator.Generator(String) {
+  let prefixes = case engine {
+    model.PostgreSQL -> ["", "E", "e", "N", "U&"]
+    model.MySQL -> ["", "N"]
+    model.SQLite -> [""]
+  }
+  use prefix <- generator.bind(generator.element_of(prefixes))
+  use pieces <- generator.map(generator.list_of(
+    string_body_piece(engine, string.uppercase(prefix)),
+    range.constant(0, 5),
+  ))
+  prefix <> "'" <> string.concat(pieces) <> "'"
+}
+
+fn quoted_identifier(engine: model.Engine) -> generator.Generator(String) {
+  let #(open, close, pieces) = case engine {
+    model.MySQL -> #("`", "`", ["a", "``", "\"", " ", "'"])
+    _ -> #("\"", "\"", ["a", "\"\"", "`", " ", "'"])
+  }
+  use parts <- generator.map(generator.list_of(
+    generator.element_of(pieces),
+    range.constant(1, 4),
+  ))
+  open <> string.concat(parts) <> close
+}
+
+fn sql_fragment(engine: model.Engine) -> generator.Generator(String) {
+  let placeholder = case engine {
+    model.PostgreSQL -> "$1"
+    model.MySQL -> "?"
+    model.SQLite -> "?1"
+  }
+  generator.one_of([
+    string_literal(engine),
+    quoted_identifier(engine),
+    generator.element_of([
+      "SELECT", "id", "=", placeholder, ",", "(", ")", "AND", "X'ff'", "42",
+    ]),
+  ])
+}
+
+fn assert_round_trip(engine: model.Engine) -> Nil {
+  metamon.forall(
+    generator.list_of(sql_fragment(engine), range.constant(1, 8)),
+    fn(fragments) {
+      let tokens = lexer.tokenize(string.join(fragments, " "), engine)
+      let written =
+        lexer.tokens_to_string(
+          tokens,
+          lexer.TokenRenderOptions(
+            uppercase_keywords: False,
+            preserve_quotes: True,
+            engine: option.Some(engine),
+          ),
+        )
+      lexer.tokenize(written, engine) == tokens
+    },
+  )
+}
+
+pub fn tokens_round_trip_postgresql_test() {
+  assert_round_trip(model.PostgreSQL)
+}
+
+pub fn tokens_round_trip_mysql_test() {
+  assert_round_trip(model.MySQL)
+}
+
+pub fn tokens_round_trip_sqlite_test() {
+  assert_round_trip(model.SQLite)
+}
+
+pub fn mysql_backslash_escapes_are_kept_in_value_test() {
+  lexer.tokenize("SELECT 'it\\'s', ?", model.MySQL)
+  |> should.equal([
+    Keyword("select"),
+    StringLit("it\\'s", NoPrefix, BackslashEscapes),
+    Comma,
+    Placeholder("?"),
+  ])
+}
+
+pub fn postgresql_escape_string_backslash_quote_test() {
+  lexer.tokenize("SELECT E'a\\'b', $1", model.PostgreSQL)
+  |> should.equal([
+    Keyword("select"),
+    StringLit("a\\'b", EscapePrefix, BackslashEscapes),
+    Comma,
+    Placeholder("$1"),
+  ])
 }

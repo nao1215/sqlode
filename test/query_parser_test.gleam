@@ -1332,3 +1332,89 @@ SELECT id FROM users;"
   string.contains(q1.sql, "from notes") |> should.be_true()
   q2.name |> should.equal("GetUsers")
 }
+
+// --- Literals and quoted identifiers written back into the generated SQL ---
+
+fn parse_single(engine: model.Engine, sql: String) -> model.ParsedQuery {
+  let assert Ok([query]) =
+    parse_file("q.sql", engine, naming.new(), "-- name: GetT :one\n" <> sql)
+  query
+}
+
+pub fn hex_blob_literal_keeps_its_prefix_test() {
+  let query =
+    parse_single(
+      model.SQLite,
+      "SELECT id FROM t WHERE b = X'DEADBEEF' AND id = ?1;",
+    )
+  query.sql
+  |> should.equal("select id from t where b = X'DEADBEEF' and id = ?1;")
+  query.param_count |> should.equal(1)
+}
+
+pub fn every_string_prefix_is_written_back_test() {
+  let query =
+    parse_single(
+      model.PostgreSQL,
+      "SELECT E'a', U&'d\\0061t', B'101', N'n' FROM t WHERE id = $1;",
+    )
+  query.sql
+  |> should.equal(
+    "select E'a', U&'d\\0061t', B'101', N'n' from t where id = $1;",
+  )
+}
+
+pub fn mysql_backslash_quote_does_not_swallow_placeholder_test() {
+  let query =
+    parse_single(
+      model.MySQL,
+      "SELECT id FROM t WHERE name = 'it\\'s' AND id = ?;",
+    )
+  query.sql
+  |> should.equal("select id from t where name = 'it\\'s' and id = ?;")
+  query.param_count |> should.equal(1)
+}
+
+pub fn mysql_escaped_backslash_ends_the_string_test() {
+  let query =
+    parse_single(model.MySQL, "SELECT id FROM t WHERE p = 'C:\\\\' AND id = ?;")
+  query.sql
+  |> should.equal("select id from t where p = 'C:\\\\' and id = ?;")
+  query.param_count |> should.equal(1)
+}
+
+pub fn postgresql_escape_string_backslash_quote_test() {
+  let query =
+    parse_single(
+      model.PostgreSQL,
+      "SELECT id FROM t WHERE name = E'a\\'b' AND id = $1;",
+    )
+  query.sql
+  |> should.equal("select id from t where name = E'a\\'b' and id = $1;")
+  query.param_count |> should.equal(1)
+}
+
+// A backslash is plain text in a standard PostgreSQL string, so the
+// quote after it closes the literal.
+pub fn postgresql_standard_string_backslash_is_text_test() {
+  let query =
+    parse_single(
+      model.PostgreSQL,
+      "SELECT id FROM t WHERE p = 'C:\\' AND id = $1;",
+    )
+  query.sql
+  |> should.equal("select id from t where p = 'C:\\' and id = $1;")
+  query.param_count |> should.equal(1)
+}
+
+pub fn quoted_identifier_doubles_inner_quote_test() {
+  let query =
+    parse_single(model.PostgreSQL, "SELECT \"we\"\"ird\" FROM t WHERE id = $1;")
+  query.sql
+  |> should.equal("select \"we\"\"ird\" from t where id = $1;")
+}
+
+pub fn mysql_backtick_identifier_doubles_inner_backtick_test() {
+  let query = parse_single(model.MySQL, "SELECT `we``ird` FROM t WHERE id = ?;")
+  query.sql |> should.equal("select `we``ird` from t where id = ?;")
+}
