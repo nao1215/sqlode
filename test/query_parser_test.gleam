@@ -39,11 +39,11 @@ pub fn parse_queries_from_sqlc_annotations_test() {
   let assert [get_author, list_authors] = queries
   get_author.name |> should.equal("GetAuthor")
   get_author.function_name |> should.equal("get_author")
-  get_author.command |> should.equal(runtime.One)
+  get_author.command |> should.equal(model.Command(runtime.One))
   get_author.param_count |> should.equal(1)
   get_author.macros |> should.equal([])
   list_authors.function_name |> should.equal("list_authors")
-  list_authors.command |> should.equal(runtime.Many)
+  list_authors.command |> should.equal(model.Command(runtime.Many))
 }
 
 pub fn reject_query_without_sql_body_test() {
@@ -344,11 +344,11 @@ INSERT INTO t VALUES (1);"
 
   let assert [q1, q2, q3] = queries
   q1.name |> should.equal("Q1")
-  q1.command |> should.equal(runtime.One)
+  q1.command |> should.equal(model.Command(runtime.One))
   q2.name |> should.equal("Q2")
-  q2.command |> should.equal(runtime.Many)
+  q2.command |> should.equal(model.Command(runtime.Many))
   q3.name |> should.equal("Q3")
-  q3.command |> should.equal(runtime.Exec)
+  q3.command |> should.equal(model.Command(runtime.Exec))
 }
 
 pub fn all_command_types_test() {
@@ -372,12 +372,12 @@ SELECT 1;"
   list.length(queries) |> should.equal(6)
 
   let assert [a, b, c, d, e, f] = queries
-  a.command |> should.equal(runtime.One)
-  b.command |> should.equal(runtime.Many)
-  c.command |> should.equal(runtime.Exec)
-  d.command |> should.equal(runtime.ExecResult)
-  e.command |> should.equal(runtime.ExecRows)
-  f.command |> should.equal(runtime.ExecLastId)
+  a.command |> should.equal(model.Command(runtime.One))
+  b.command |> should.equal(model.Command(runtime.Many))
+  c.command |> should.equal(model.Command(runtime.Exec))
+  d.command |> should.equal(model.Command(runtime.ExecResult))
+  e.command |> should.equal(model.Command(runtime.ExecRows))
+  f.command |> should.equal(model.Command(runtime.ExecLastId))
 }
 
 pub fn multiline_sql_body_test() {
@@ -704,7 +704,7 @@ SELECT id FROM authors;
   list.length(queries) |> should.equal(1)
   let assert [query] = queries
   query.name |> should.equal("KeptQuery")
-  query.command |> should.equal(runtime.Many)
+  query.command |> should.equal(model.Command(runtime.Many))
 }
 
 pub fn skip_annotation_all_queries_skipped_test() {
@@ -759,7 +759,7 @@ pub fn parse_block_annotation_one_test() {
   let assert [query] = queries
   query.name |> should.equal("GetAuthor")
   query.function_name |> should.equal("get_author")
-  query.command |> should.equal(runtime.One)
+  query.command |> should.equal(model.Command(runtime.One))
   query.param_count |> should.equal(1)
 }
 
@@ -771,7 +771,7 @@ pub fn parse_block_annotation_many_test() {
     parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
   query.name |> should.equal("ListAll")
-  query.command |> should.equal(runtime.Many)
+  query.command |> should.equal(model.Command(runtime.Many))
 }
 
 pub fn parse_block_annotation_exec_test() {
@@ -782,7 +782,7 @@ pub fn parse_block_annotation_exec_test() {
     parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
   query.name |> should.equal("InsertRow")
-  query.command |> should.equal(runtime.Exec)
+  query.command |> should.equal(model.Command(runtime.Exec))
 }
 
 pub fn parse_block_annotation_whitespace_tolerance_test() {
@@ -793,7 +793,7 @@ pub fn parse_block_annotation_whitespace_tolerance_test() {
     parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
   query.name |> should.equal("Spaced")
-  query.command |> should.equal(runtime.One)
+  query.command |> should.equal(model.Command(runtime.One))
 }
 
 pub fn parse_block_annotation_no_inner_space_test() {
@@ -804,7 +804,7 @@ pub fn parse_block_annotation_no_inner_space_test() {
     parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
   query.name |> should.equal("Tight")
-  query.command |> should.equal(runtime.One)
+  query.command |> should.equal(model.Command(runtime.One))
 }
 
 pub fn parse_mixed_line_and_block_annotations_test() {
@@ -826,11 +826,11 @@ INSERT INTO t VALUES (1);
 
   let assert [q1, q2, q3] = queries
   q1.name |> should.equal("First")
-  q1.command |> should.equal(runtime.One)
+  q1.command |> should.equal(model.Command(runtime.One))
   q2.name |> should.equal("Second")
-  q2.command |> should.equal(runtime.Many)
+  q2.command |> should.equal(model.Command(runtime.Many))
   q3.name |> should.equal("Third")
-  q3.command |> should.equal(runtime.Exec)
+  q3.command |> should.equal(model.Command(runtime.Exec))
 }
 
 pub fn parse_block_annotation_multiline_body_test() {
@@ -886,7 +886,7 @@ pub fn parse_block_comment_other_directive_ignored_test() {
     parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
   query.name |> should.equal("Real")
-  query.command |> should.equal(runtime.One)
+  query.command |> should.equal(model.Command(runtime.One))
 }
 
 pub fn parse_block_annotation_inline_sql_not_annotation_test() {
@@ -965,7 +965,7 @@ SELECT 2;
     parse_file("block.sql", model.PostgreSQL, naming_ctx, content)
   let assert [query] = queries
   query.name |> should.equal("Kept")
-  query.command |> should.equal(runtime.Many)
+  query.command |> should.equal(model.Command(runtime.Many))
 }
 
 pub fn reject_colon_named_placeholder_for_mysql_test() {
@@ -1295,7 +1295,7 @@ ORDER BY created_at DESC;"
   // Should produce exactly one query, not two
   let assert [query] = queries
   query.name |> should.equal("GetUserNotes")
-  query.command |> should.equal(runtime.Many)
+  query.command |> should.equal(model.Command(runtime.Many))
   // The ORDER BY should be part of the query body (lowercased by lexer)
   string.contains(query.sql, "order by") |> should.be_true()
 }

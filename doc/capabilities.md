@@ -42,9 +42,8 @@ update the capabilities module and run `just regen-capabilities`.
 
 ### Parsed but rejected at generation time
 
-These annotations exist in sqlc and are still parseable in
-`.sql` files, but sqlode currently refuses to emit code for
-them. See `validate_unsupported_annotations` in `generate.gleam`.
+sqlc has these annotations. sqlode reads them and stops generation
+with an error.
 
 - `:batchone`
 - `:batchmany`

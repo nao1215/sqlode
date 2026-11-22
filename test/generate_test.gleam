@@ -2561,7 +2561,7 @@ fn make_query(params: List(model.QueryParam)) -> model.AnalyzedQuery {
     base: model.ParsedQuery(
       name: "Test",
       function_name: "test",
-      command: runtime.Many,
+      command: model.Command(runtime.Many),
       sql: "",
       source_path: "fixture.sql",
       param_count: list.length(params),

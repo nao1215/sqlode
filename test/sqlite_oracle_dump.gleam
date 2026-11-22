@@ -83,12 +83,18 @@ fn has_slice(macros: List(model.Macro)) -> Bool {
 
 fn line(query: model.AnalyzedQuery) -> String {
   let sql =
-    runtime.expand_slice_placeholders(
-      query.base.sql,
-      [],
-      query.base.param_count,
-      runtime.QuestionNumbered,
-    )
+    runtime.prepare(
+      runtime.RawQuery(
+        name: query.base.name,
+        sql: query.base.sql,
+        command: model.generated_command(query.base.command),
+        param_count: query.base.param_count,
+        placeholder_style: runtime.QuestionNumbered,
+        encode: fn(_) { [] },
+        slice_info: fn(_) { [] },
+      ),
+      Nil,
+    ).0
     |> string.replace("\n", " ")
     |> string.replace("\t", " ")
   let columns =

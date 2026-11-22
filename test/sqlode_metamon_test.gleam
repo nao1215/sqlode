@@ -1,11 +1,7 @@
-//// metamon property tests for `sqlode/runtime` and
-//// `sqlode/internal/naming`. Pin the algebraic invariants the
-//// public surface is documented to hold so a future refactor of
-//// the value encoders or the regex-driven word splitter surfaces
-//// a regression here instead of cascading into the generated
-//// code.
+//// metamon property tests for the `sqlode/runtime` markers and
+//// `sqlode/internal/naming`, so a change to the word splitter surfaces
+//// here instead of in the generated code.
 
-import gleam/list
 import gleam/string
 import metamon
 import metamon/generator
@@ -13,96 +9,11 @@ import metamon/generator/range
 import sqlode/internal/naming
 import sqlode/runtime
 
-// ---------- runtime.Value encoders ----------
-
-pub fn null_returns_sql_null_test() -> Nil {
-  assert runtime.null() == runtime.Null
-}
-
-pub fn string_round_trips_through_sql_string_test() -> Nil {
-  metamon.forall(
-    generator.string_alphanumeric(range.constant(0, 16)),
-    fn(value) { runtime.string(value) == runtime.String(value) },
-  )
-}
-
-pub fn int_round_trips_through_sql_int_test() -> Nil {
-  metamon.forall(generator.int(range.constant(-1000, 1000)), fn(value) {
-    runtime.int(value) == runtime.Int(value)
-  })
-}
-
-pub fn bool_round_trips_through_sql_bool_test() -> Nil {
-  metamon.forall(generator.bool(), fn(value) {
-    runtime.bool(value) == runtime.Bool(value)
-  })
-}
-
-pub fn bytes_round_trips_through_sql_bytes_test() -> Nil {
-  metamon.forall(generator.bit_array(range.constant(0, 32)), fn(value) {
-    runtime.bytes(value) == runtime.Bytes(value)
-  })
-}
-
-pub fn array_preserves_length_test() -> Nil {
-  metamon.forall(
-    generator.list_of(
-      generator.int(range.constant(-50, 50)),
-      range.constant(0, 6),
-    ),
-    fn(values) {
-      let encoded = list.map(values, runtime.int)
-      case runtime.array(encoded) {
-        runtime.Array(items) -> list.length(items) == list.length(values)
-        _ -> False
-      }
-    },
-  )
-}
-
-// ---------- runtime.param_marker_checked / slice_marker_checked ----------
-
-pub fn param_marker_checked_accepts_positive_indices_test() -> Nil {
-  metamon.forall(generator.int(range.constant(1, 100)), fn(index) {
-    case runtime.param_marker_checked(index) {
-      Ok(marker) -> string.starts_with(marker, "__sqlode_param_")
-      Error(_) -> False
-    }
-  })
-}
-
-pub fn param_marker_checked_rejects_zero_and_negative_test() -> Nil {
-  metamon.forall(generator.int(range.constant(-50, 0)), fn(index) {
-    case runtime.param_marker_checked(index) {
-      Error(runtime.MarkerIndexNonPositive(index: actual)) -> actual == index
-      _ -> False
-    }
-  })
-}
-
-pub fn slice_marker_checked_accepts_positive_indices_test() -> Nil {
-  metamon.forall(generator.int(range.constant(1, 100)), fn(index) {
-    case runtime.slice_marker_checked(index) {
-      Ok(marker) -> string.starts_with(marker, "__sqlode_slice_")
-      Error(_) -> False
-    }
-  })
-}
-
-pub fn slice_marker_checked_rejects_zero_and_negative_test() -> Nil {
-  metamon.forall(generator.int(range.constant(-50, 0)), fn(index) {
-    case runtime.slice_marker_checked(index) {
-      Error(runtime.MarkerIndexNonPositive(index: actual)) -> actual == index
-      _ -> False
-    }
-  })
-}
+// ---------- runtime markers ----------
 
 pub fn param_and_slice_markers_have_distinct_prefixes_test() -> Nil {
   metamon.forall(generator.int(range.constant(1, 50)), fn(index) {
-    let assert Ok(param) = runtime.param_marker_checked(index)
-    let assert Ok(slice) = runtime.slice_marker_checked(index)
-    param != slice
+    runtime.param_marker(index) != runtime.slice_marker(index)
   })
 }
 

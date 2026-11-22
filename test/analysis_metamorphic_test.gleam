@@ -27,7 +27,6 @@ import sqlode/internal/naming
 import sqlode/internal/query_analyzer
 import sqlode/internal/query_parser
 import sqlode/internal/schema_parser
-import sqlode/runtime
 
 type Case {
   Case(engine: model.Engine, schema: String, queries: String)
@@ -72,7 +71,7 @@ const cases = [
 type Analysis {
   Analysis(
     name: String,
-    command: runtime.QueryCommand,
+    command: model.Annotation,
     params: List(model.QueryParam),
     result_columns: List(model.ResultItem),
   )

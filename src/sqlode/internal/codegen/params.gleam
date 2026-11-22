@@ -181,20 +181,20 @@ fn param_accessors(
 /// Describes how a parameter value should be encoded, separating
 /// the *what* (encoding strategy) from the *how* (Gleam source rendering).
 type ValueEncoder {
-  /// A direct runtime call: `runtime.string(value)`
+  /// A direct runtime call: `runtime.String(value)`
   DirectEncode(runtime_fn: String)
-  /// Unwrap through a model function first: `runtime.int(models.unwrap(value))`
+  /// Unwrap through a model function first: `runtime.Int(models.unwrap(value))`
   UnwrapEncode(runtime_fn: String, unwrap_fn: String)
-  /// Encode an enum: `runtime.string(models.status_to_string(value))`
+  /// Encode an enum: `runtime.String(models.status_to_string(value))`
   EnumEncode(runtime_fn: String, to_string_fn: String)
   /// Pipe the value through a user-provided codec hook before the
-  /// runtime encoder: `runtime.int(types.user_id_to_int(value))`. Used
-  /// for `CustomType` overrides that opted into explicit codec hooks
-  /// (issue #529 — opaque domain types). The hook is rendered
+  /// runtime encoder: `runtime.Int(types.user_id_to_int(value))`. Used
+  /// for `CustomType` overrides that opted into explicit codec hooks,
+  /// such as opaque domain types. The hook is rendered
   /// module-qualified when the type's `gleam_type` carried a module
   /// prefix, matching the import shape of `custom_type_imports`.
   HookEncode(runtime_fn: String, hook_call: String)
-  /// Encode an array: `runtime.array(list.map(value, element_encoder))`
+  /// Encode an array: `runtime.Array(list.map(value, element_encoder))`
   ArrayEncode(element_encoder: ValueEncoder)
 }
 
@@ -212,7 +212,7 @@ fn plan_encoding(
     // SetType reuses the EnumEncode shape: project the
     // `List(<Name>Value)` field through `<name>_set_to_string` (the
     // helper emitted by `codegen/models.gleam`) before handing the
-    // resulting comma-joined `String` to `runtime.string`.
+    // resulting comma-joined `String` to `runtime.String`.
     model.SetType(name) -> {
       let runtime_fn = type_mapping.scalar_type_to_runtime_function(scalar_type)
       let to_str = "models." <> type_mapping.set_to_string_fn(name)
@@ -222,7 +222,7 @@ fn plan_encoding(
       let inner = plan_encoding(element, type_mapping_mode)
       ArrayEncode(element_encoder: inner)
     }
-    // Custom override with explicit codec hooks (issue #529): pipe
+    // Custom override with explicit codec hooks: pipe
     // the user value through the encode hook before the underlying
     // runtime encoder. Branches above ArrayType / EnumType fall
     // through to the legacy paths so wrapped collections still work.
@@ -258,7 +258,7 @@ fn render_encoder_fn(encoder: ValueEncoder) -> String {
       "fn(v) { " <> runtime_fn <> "(" <> hook_call <> "(v)) }"
     ArrayEncode(element_encoder:) -> {
       let mapper = render_encoder_fn(element_encoder)
-      "fn(v) { runtime.array(list.map(v, " <> mapper <> ")) }"
+      "fn(v) { runtime.Array(list.map(v, " <> mapper <> ")) }"
     }
   }
 }
@@ -275,7 +275,7 @@ fn render_encoder_apply(encoder: ValueEncoder, value_expr: String) -> String {
       runtime_fn <> "(" <> hook_call <> "(" <> value_expr <> "))"
     ArrayEncode(element_encoder:) -> {
       let mapper = render_encoder_fn(element_encoder)
-      "runtime.array(list.map(" <> value_expr <> ", " <> mapper <> "))"
+      "runtime.Array(list.map(" <> value_expr <> ", " <> mapper <> "))"
     }
   }
 }

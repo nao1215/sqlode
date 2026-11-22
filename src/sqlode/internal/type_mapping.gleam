@@ -43,7 +43,7 @@ fn resolve_type(scalar_type: ScalarType) -> TypeResolution {
       LeafType(ScalarTypeInfo(
         gleam_type: "Int",
         rich_type: option.None,
-        runtime_fn: "runtime.int",
+        runtime_fn: "runtime.Int",
         db_name: "int",
         decoder: "decode.int",
         unwrap_fn: option.None,
@@ -52,7 +52,7 @@ fn resolve_type(scalar_type: ScalarType) -> TypeResolution {
       LeafType(ScalarTypeInfo(
         gleam_type: "Float",
         rich_type: option.None,
-        runtime_fn: "runtime.float",
+        runtime_fn: "runtime.Float",
         db_name: "float",
         decoder: "decode.float",
         unwrap_fn: option.None,
@@ -61,7 +61,7 @@ fn resolve_type(scalar_type: ScalarType) -> TypeResolution {
       LeafType(ScalarTypeInfo(
         gleam_type: "Bool",
         rich_type: option.None,
-        runtime_fn: "runtime.bool",
+        runtime_fn: "runtime.Bool",
         db_name: "bool",
         decoder: "decode.bool",
         unwrap_fn: option.None,
@@ -70,7 +70,7 @@ fn resolve_type(scalar_type: ScalarType) -> TypeResolution {
       LeafType(ScalarTypeInfo(
         gleam_type: "String",
         rich_type: option.None,
-        runtime_fn: "runtime.string",
+        runtime_fn: "runtime.String",
         db_name: "string",
         decoder: "decode.string",
         unwrap_fn: option.None,
@@ -79,7 +79,7 @@ fn resolve_type(scalar_type: ScalarType) -> TypeResolution {
       LeafType(ScalarTypeInfo(
         gleam_type: "BitArray",
         rich_type: option.None,
-        runtime_fn: "runtime.bytes",
+        runtime_fn: "runtime.Bytes",
         db_name: "bytes",
         decoder: "decode.bit_array",
         unwrap_fn: option.None,
@@ -88,7 +88,7 @@ fn resolve_type(scalar_type: ScalarType) -> TypeResolution {
       LeafType(ScalarTypeInfo(
         gleam_type: "String",
         rich_type: option.Some("SqlTimestamp"),
-        runtime_fn: "runtime.string",
+        runtime_fn: "runtime.String",
         db_name: "datetime",
         decoder: "decode.string",
         unwrap_fn: option.Some("sql_timestamp_to_string"),
@@ -97,7 +97,7 @@ fn resolve_type(scalar_type: ScalarType) -> TypeResolution {
       LeafType(ScalarTypeInfo(
         gleam_type: "String",
         rich_type: option.Some("SqlDate"),
-        runtime_fn: "runtime.string",
+        runtime_fn: "runtime.String",
         db_name: "date",
         decoder: "decode.string",
         unwrap_fn: option.Some("sql_date_to_string"),
@@ -106,7 +106,7 @@ fn resolve_type(scalar_type: ScalarType) -> TypeResolution {
       LeafType(ScalarTypeInfo(
         gleam_type: "String",
         rich_type: option.Some("SqlTime"),
-        runtime_fn: "runtime.string",
+        runtime_fn: "runtime.String",
         db_name: "time",
         decoder: "decode.string",
         unwrap_fn: option.Some("sql_time_to_string"),
@@ -115,7 +115,7 @@ fn resolve_type(scalar_type: ScalarType) -> TypeResolution {
       LeafType(ScalarTypeInfo(
         gleam_type: "String",
         rich_type: option.Some("SqlUuid"),
-        runtime_fn: "runtime.string",
+        runtime_fn: "runtime.String",
         db_name: "uuid",
         decoder: "decode.string",
         unwrap_fn: option.Some("sql_uuid_to_string"),
@@ -124,7 +124,7 @@ fn resolve_type(scalar_type: ScalarType) -> TypeResolution {
       LeafType(ScalarTypeInfo(
         gleam_type: "String",
         rich_type: option.Some("SqlJson"),
-        runtime_fn: "runtime.string",
+        runtime_fn: "runtime.String",
         db_name: "json",
         decoder: "decode.string",
         unwrap_fn: option.Some("sql_json_to_string"),
@@ -133,7 +133,7 @@ fn resolve_type(scalar_type: ScalarType) -> TypeResolution {
       LeafType(ScalarTypeInfo(
         gleam_type: "String",
         rich_type: option.Some("SqlDecimal"),
-        runtime_fn: "runtime.string",
+        runtime_fn: "runtime.String",
         db_name: "decimal",
         decoder: "decode.string",
         unwrap_fn: option.Some("sql_decimal_to_string"),
@@ -190,8 +190,8 @@ pub fn strong_type_unwrap_fn(scalar_type: ScalarType) -> option.Option(String) {
 pub fn scalar_type_to_runtime_function(scalar_type: ScalarType) -> String {
   case resolve_type(scalar_type) {
     LeafType(info) -> info.runtime_fn
-    EnumResolution(_) -> "runtime.string"
-    SetResolution(_) -> "runtime.string"
+    EnumResolution(_) -> "runtime.String"
+    SetResolution(_) -> "runtime.String"
     CustomResolution(_, _, underlying) ->
       scalar_type_to_runtime_function(underlying)
     ArrayResolution(element) -> scalar_type_to_runtime_function(element)

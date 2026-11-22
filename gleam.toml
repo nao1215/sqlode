@@ -100,15 +100,11 @@ error_context_lost = "off"
 # user packages — every public type and function in this module is
 # intentional API surface for those external callers. glinter cannot
 # see the generated callers, so `unused_exports` would mis-flag them
-# as dead. The module is one of the three SemVer-tracked top-level
-# entry points listed in #520.
+# as dead.
 #
-# `expand_slice_placeholders` also rejects malformed `slices` input
-# (negative length, index outside `[1, total_params]`) with a
-# structured panic. The silently-accepted invalid input would emit
-# broken SQL the engine can't parse, which is harder to diagnose than
-# a panic. Callers who need the non-panicking variant use
-# `expand_slice_placeholders_checked`.
+# `prepare` panics on malformed `slice_info` output (negative length,
+# index outside `1..param_count`). Accepting it would emit broken SQL
+# that the database reports far from the cause.
 "src/sqlode/runtime.gleam" = [
   "unused_exports",
   "avoid_panic",

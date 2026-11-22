@@ -1,10 +1,5 @@
-//// Worked examples of `runtime.raw_query` in use. Custom-adapter
-//// authors and property-test authors can lift the patterns here directly.
-////
-//// The helper is identical to invoking the `RawQuery(...)` constructor;
-//// it exists to make the intent ("hand-rolled RawQuery, not codegen
-//// output") obvious at the call site. Production code should always use
-//// codegen-emitted `RawQuery` values.
+//// Properties of `runtime.prepare` across placeholder styles and marker
+//// text.
 
 import gleam/int
 import gleam/list
@@ -15,42 +10,17 @@ import metamon/generator
 import metamon/generator/range
 import sqlode/runtime
 
-// ---------------------------------------------------------------------------
-// Example 1 — minimal RawQuery for a single-parameter SELECT, run through
-// `prepare` to obtain the final SQL and value list.
-// ---------------------------------------------------------------------------
+// The same slice metadata gives three different placeholder shapes.
 
-pub fn raw_query_minimal_prepare_test() {
-  let query =
-    runtime.raw_query(
-      name: "GetUser",
-      sql: "SELECT * FROM users WHERE id = " <> runtime.param_marker(1),
-      command: runtime.One,
-      param_count: 1,
-      placeholder_style: runtime.DollarNumbered,
-      encode: fn(id) { [runtime.int(id)] },
-      slice_info: fn(_) { [] },
-    )
-  let #(sql, values) = runtime.prepare(query, 42)
-  sql |> should.equal("SELECT * FROM users WHERE id = $1")
-  values |> should.equal([runtime.Int(42)])
-}
-
-// ---------------------------------------------------------------------------
-// Example 2 — RawQuery exercising slice expansion across the three
-// placeholder styles. Demonstrates the equivariance the runtime
-// guarantees: same slice metadata, three different on-the-wire shapes.
-// ---------------------------------------------------------------------------
-
-pub fn raw_query_across_placeholder_styles_test() {
+pub fn prepare_across_placeholder_styles_test() {
   let make_query = fn(style) {
-    runtime.raw_query(
+    runtime.RawQuery(
       name: "GetByIds",
       sql: "SELECT * FROM users WHERE id IN (" <> runtime.slice_marker(1) <> ")",
       command: runtime.Many,
       param_count: 1,
       placeholder_style: style,
-      encode: fn(ids) { list.map(ids, runtime.int) },
+      encode: fn(ids) { list.map(ids, runtime.Int) },
       slice_info: fn(ids) { [#(1, list.length(ids))] },
     )
   }
@@ -68,32 +38,9 @@ pub fn raw_query_across_placeholder_styles_test() {
   sql_mysql |> should.equal("SELECT * FROM users WHERE id IN (?, ?)")
 }
 
-// ---------------------------------------------------------------------------
-// Example 3 — RawQuery with a zero-length slice, exercising the
-// `IN (NULL)` rewrite without going through the codegen pipeline.
-// ---------------------------------------------------------------------------
-
-pub fn raw_query_zero_length_slice_collapses_to_null_test() {
-  let query =
-    runtime.raw_query(
-      name: "GetByIds",
-      sql: "SELECT * FROM users WHERE id IN (" <> runtime.slice_marker(1) <> ")",
-      command: runtime.Many,
-      param_count: 1,
-      placeholder_style: runtime.DollarNumbered,
-      encode: fn(_) { [] },
-      slice_info: fn(_) { [#(1, 0)] },
-    )
-  let #(sql, values) = runtime.prepare(query, [])
-  sql |> should.equal("SELECT * FROM users WHERE id IN (NULL)")
-  values |> should.equal([])
-}
-
-// ---------------------------------------------------------------------------
-// expand_slice_placeholders replaces markers in one pass. It must give
-// the same SQL as replacing each marker in turn, including around text
-// that only looks like a marker.
-// ---------------------------------------------------------------------------
+// `prepare` replaces markers in one pass. It must give the same SQL as
+// replacing each marker in turn, including around text that only looks
+// like a marker.
 
 fn indices(from: Int, to: Int) -> List(Int) {
   int.range(from:, to: to + 1, with: [], run: fn(acc, i) { [i, ..acc] })
@@ -158,8 +105,17 @@ pub fn one_pass_expansion_matches_sequential_replace_test() {
       let #(fragments, slice_length) = input
       let sql = string.concat(fragments)
       let slices = [#(2, slice_length)]
-      runtime.expand_slice_placeholders(sql, slices, 3, runtime.DollarNumbered)
-      == sequential_expand(sql, slices, 3)
+      let query =
+        runtime.RawQuery(
+          name: "Query",
+          sql:,
+          command: runtime.Many,
+          param_count: 3,
+          placeholder_style: runtime.DollarNumbered,
+          encode: fn(_) { [] },
+          slice_info: fn(_) { slices },
+        )
+      runtime.prepare(query, Nil).0 == sequential_expand(sql, slices, 3)
     },
   )
 }

@@ -32,29 +32,21 @@ import runtime_test
 pub fn main() {
   io.println("=== sqlode/runtime laws on the JavaScript target ===")
 
-  // --- Value encoders -----------------------------------------------------
-  runtime_test.null_value_test()
-  runtime_test.string_value_test()
-  runtime_test.int_value_test()
-  runtime_test.float_value_test()
-  runtime_test.bool_value_test()
-  runtime_test.bytes_value_test()
-  runtime_test.array_value_test()
-  runtime_test.array_empty_test()
-  runtime_test.array_nested_types_test()
-
-  // --- prepare(): placeholder + slice expansion ---------------------------
   runtime_test.prepare_no_slices_test()
   runtime_test.prepare_with_slices_test()
   runtime_test.prepare_mixed_params_test()
   runtime_test.prepare_mysql_slice_expands_to_positional_test()
   runtime_test.prepare_mysql_mixed_params_and_slice_test()
   runtime_test.prepare_sqlite_reads_style_from_raw_query_test()
+  runtime_test.prepare_preserves_string_literal_with_placeholder_text_test()
+  runtime_test.prepare_preserves_comment_with_placeholder_text_test()
+  runtime_test.prepare_mysql_with_placeholder_literal_test()
+  runtime_test.prepare_zero_length_collapses_to_null_test()
+  runtime_test.param_marker_accepts_one_test()
+  runtime_test.slice_marker_accepts_one_test()
+  runtime_test.param_marker_round_trips_for_index_one_test()
+  runtime_test.slice_marker_round_trips_for_index_one_test()
+  runtime_test.nullable_encodes_some_and_none_test()
 
-  // --- expand_slice_placeholders edge cases -------------------------------
-  runtime_test.expand_slice_placeholders_preserves_string_literal_with_placeholder_text_test()
-  runtime_test.expand_slice_placeholders_preserves_comment_with_placeholder_text_test()
-  runtime_test.expand_slice_placeholders_mysql_with_placeholder_literal_test()
-
-  io.println("All 18 runtime laws passed on the JavaScript target.")
+  io.println("All 15 runtime tests passed on the JavaScript target.")
 }
