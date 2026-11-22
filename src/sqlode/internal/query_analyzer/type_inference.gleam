@@ -20,6 +20,7 @@ import sqlode/internal/model
 import sqlode/internal/query_analyzer/context.{
   type AnalysisError, UnsupportedExpression,
 }
+import sqlode/internal/query_analyzer/token_utils
 import sqlode/internal/query_ir
 
 /// Inferred type and nullability for an expression.
@@ -230,18 +231,6 @@ fn infer_binary(
 ) -> Result(InferredType, AnalysisError) {
   case op {
     "and" | "or" -> ok(model.BoolType, False)
-    "="
-    | "<>"
-    | "!="
-    | "<"
-    | ">"
-    | "<="
-    | ">="
-    | "@>"
-    | "<@"
-    | "?|"
-    | "?&"
-    | "&&" -> ok(model.BoolType, False)
     "||" -> {
       // String concatenation. Treat as non-nullable for compatibility
       // with the existing analyzer behaviour — `||` short-circuits at
@@ -265,10 +254,14 @@ fn infer_binary(
     "->" | "#>" -> ok(model.JsonType, True)
     "->>" | "#>>" -> ok(model.StringType, True)
     _ ->
-      Error(UnsupportedExpression(
-        query_name: scope.query_name,
-        expression: "binary operator " <> op,
-      ))
+      case token_utils.is_boolean_operator(op) {
+        True -> ok(model.BoolType, False)
+        False ->
+          Error(UnsupportedExpression(
+            query_name: scope.query_name,
+            expression: "binary operator " <> op,
+          ))
+      }
   }
 }
 

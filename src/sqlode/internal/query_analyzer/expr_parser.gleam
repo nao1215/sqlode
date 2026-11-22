@@ -1128,66 +1128,27 @@ fn parse_comparison_tail(
   engine: model.Engine,
 ) -> #(query_ir.Expr, List(lexer.Token)) {
   case tokens {
-    [lexer.Operator(op), ..rest]
-      if op == "="
-      || op == "<>"
-      || op == "!="
-      || op == "<"
-      || op == ">"
-      || op == "<="
-      || op == ">="
-      || op == "@>"
-      || op == "<@"
-      || op == "?|"
-      || op == "?&"
-      || op == "&&"
-    -> {
-      case rest {
-        [lexer.Keyword("any"), lexer.LParen, ..after_lp] -> {
-          let #(inner, after) = token_utils.collect_paren_contents(after_lp)
-          let right = parse_expr(inner, engine)
-          #(
-            query_ir.Quantified(
-              op: op,
-              left: left,
-              quantifier: query_ir.QAny,
-              right: right,
-            ),
-            after,
-          )
-        }
-        [lexer.Keyword("all"), lexer.LParen, ..after_lp] -> {
-          let #(inner, after) = token_utils.collect_paren_contents(after_lp)
-          let right = parse_expr(inner, engine)
-          #(
-            query_ir.Quantified(
-              op: op,
-              left: left,
-              quantifier: query_ir.QAll,
-              right: right,
-            ),
-            after,
-          )
-        }
-        [lexer.Keyword("some"), lexer.LParen, ..after_lp] -> {
-          let #(inner, after) = token_utils.collect_paren_contents(after_lp)
-          let right = parse_expr(inner, engine)
-          #(
-            query_ir.Quantified(
-              op: op,
-              left: left,
-              quantifier: query_ir.QSome,
-              right: right,
-            ),
-            after,
-          )
-        }
-        _ -> {
-          let #(right, after) = parse_additive(rest, engine)
-          #(query_ir.Binary(op: op, left: left, right: right), after)
-        }
+    [lexer.Operator(op), ..rest] ->
+      case token_utils.is_boolean_operator(op), rest {
+        False, _ -> #(left, tokens)
+        True, [lexer.Keyword(keyword), lexer.LParen, ..after_lp] ->
+          case quantifier(keyword) {
+            Ok(quantifier) -> {
+              let #(inner, after) = token_utils.collect_paren_contents(after_lp)
+              #(
+                query_ir.Quantified(
+                  op:,
+                  left:,
+                  quantifier:,
+                  right: parse_expr(inner, engine),
+                ),
+                after,
+              )
+            }
+            Error(Nil) -> parse_binary_comparison(left, op, rest, engine)
+          }
+        True, _ -> parse_binary_comparison(left, op, rest, engine)
       }
-    }
     [lexer.Keyword("is"), lexer.Keyword("not"), lexer.Keyword("null"), ..rest] -> #(
       query_ir.IsCheck(expr: left, predicate: query_ir.IsNull, negated: True),
       rest,
@@ -1245,6 +1206,26 @@ fn parse_comparison_tail(
     [lexer.Keyword("ilike"), ..rest] ->
       parse_like_tail(left, rest, query_ir.Ilike, False, engine)
     _ -> #(left, tokens)
+  }
+}
+
+fn parse_binary_comparison(
+  left: query_ir.Expr,
+  op: String,
+  rest: List(lexer.Token),
+  engine: model.Engine,
+) -> #(query_ir.Expr, List(lexer.Token)) {
+  let #(right, after) = parse_additive(rest, engine)
+  #(query_ir.Binary(op:, left:, right:), after)
+}
+
+/// `ANY`, `ALL` and `SOME` before a parenthesised operand.
+fn quantifier(keyword: String) -> Result(query_ir.Quantifier, Nil) {
+  case keyword {
+    "any" -> Ok(query_ir.QAny)
+    "all" -> Ok(query_ir.QAll)
+    "some" -> Ok(query_ir.QSome)
+    _ -> Error(Nil)
   }
 }
 

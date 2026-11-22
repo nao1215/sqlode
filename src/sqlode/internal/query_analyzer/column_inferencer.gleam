@@ -1938,22 +1938,23 @@ fn find_pattern_loop(
   }
 }
 
+fn classify_top_level_operator(op: String) -> TopLevelPattern {
+  case op {
+    "->>" | "#>>" -> PatJsonText
+    "->" | "#>" -> PatJson
+    "||" -> PatConcat
+    "+" | "-" | "*" | "/" -> PatArithmetic
+    _ -> PatNone
+  }
+}
+
 fn classify_top_level_token(token: lexer.Token) -> TopLevelPattern {
   case token {
-    lexer.Operator(op)
-      if op == "="
-      || op == "!="
-      || op == "<>"
-      || op == "<"
-      || op == ">"
-      || op == "<="
-      || op == ">="
-      || op == "@>"
-      || op == "<@"
-      || op == "?|"
-      || op == "?&"
-      || op == "&&"
-    -> PatBool
+    lexer.Operator(op) ->
+      case token_utils.is_boolean_operator(op) {
+        True -> PatBool
+        False -> classify_top_level_operator(op)
+      }
     lexer.Keyword(kw)
       if kw == "and"
       || kw == "or"
@@ -1965,11 +1966,6 @@ fn classify_top_level_token(token: lexer.Token) -> TopLevelPattern {
       || kw == "not"
       || kw == "exists"
     -> PatBool
-    lexer.Operator(op) if op == "->>" || op == "#>>" -> PatJsonText
-    lexer.Operator(op) if op == "->" || op == "#>" -> PatJson
-    lexer.Operator("||") -> PatConcat
-    lexer.Operator(op) if op == "+" || op == "-" || op == "*" || op == "/" ->
-      PatArithmetic
     // The lexer emits `Star` (not `Operator("*")`) for `*`, so an
     // expression like `price * quantity` reaches here with a Star token.
     // Inside an expression context the wildcard has already been

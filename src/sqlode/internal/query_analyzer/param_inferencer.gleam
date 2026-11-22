@@ -205,7 +205,7 @@ fn equality_match(
 ) -> Option(List(token_utils.EqualityMatch)) {
   case expr {
     query_ir.Binary(op:, left:, right:) ->
-      case is_comparison_op(op) {
+      case token_utils.is_comparison_operator(op) {
         True -> comparison_match(left, right) |> option.map(list.wrap)
         False -> None
       }
@@ -419,16 +419,6 @@ fn children(expr: query_ir.Expr) -> List(Child) {
 
 fn is_arithmetic_op(op: String) -> Bool {
   op == "+" || op == "-" || op == "*" || op == "/" || op == "%"
-}
-
-fn is_comparison_op(op: String) -> Bool {
-  op == "="
-  || op == "!="
-  || op == "<>"
-  || op == "<"
-  || op == ">"
-  || op == "<="
-  || op == ">="
 }
 
 /// Emit a match for `ColumnRef <op> Param` or the reversed operand
