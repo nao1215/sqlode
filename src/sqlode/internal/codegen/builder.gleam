@@ -16,11 +16,6 @@ pub opaque type Block {
   Block(lines: List(String))
 }
 
-/// A block containing no lines at all. Useful for conditional sections.
-pub fn empty() -> Block {
-  Block([])
-}
-
 /// A block containing a single line of text.
 pub fn line(value: String) -> Block {
   Block([value])

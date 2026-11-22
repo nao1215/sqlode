@@ -6,12 +6,6 @@ pub fn main() {
   gleeunit.main()
 }
 
-pub fn render_empty_block_test() {
-  builder.empty()
-  |> builder.render
-  |> should.equal("")
-}
-
 pub fn render_line_test() {
   builder.line("pub fn greet() -> String {")
   |> builder.render
@@ -30,8 +24,8 @@ pub fn render_blank_emits_empty_line_test() {
   |> should.equal("a\n\nb")
 }
 
-pub fn empty_block_is_identity_under_concat_test() {
-  builder.concat([builder.line("a"), builder.empty(), builder.line("b")])
+pub fn empty_lines_block_is_identity_under_concat_test() {
+  builder.concat([builder.line("a"), builder.lines([]), builder.line("b")])
   |> builder.render
   |> should.equal("a\nb")
 }

@@ -13,7 +13,10 @@ pub fn main() {
 pub fn parse_create_table_columns_test() {
   let assert Ok(content) = simplifile.read("test/fixtures/schema.sql")
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("test/fixtures/schema.sql", content)])
+    schema_parser.parse_files(
+      [#("test/fixtures/schema.sql", content)],
+      model.PostgreSQL,
+    )
 
   list.length(catalog.tables) |> should.equal(1)
   let assert [table] = catalog.tables
@@ -32,9 +35,12 @@ pub fn parse_create_table_columns_test() {
 pub fn parse_extended_types_test() {
   let assert Ok(content) = simplifile.read("test/fixtures/extended_schema.sql")
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([
-      #("test/fixtures/extended_schema.sql", content),
-    ])
+    schema_parser.parse_files(
+      [
+        #("test/fixtures/extended_schema.sql", content),
+      ],
+      model.PostgreSQL,
+    )
 
   let assert [table] = catalog.tables
   table.name |> should.equal("events")
@@ -66,27 +72,28 @@ pub fn parse_extended_types_test() {
 // Error and boundary tests
 
 pub fn empty_schema_content_test() {
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("empty.sql", "")])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("empty.sql", "")], model.PostgreSQL)
   catalog.tables |> should.equal([])
 }
 
 pub fn schema_with_only_whitespace_test() {
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("blank.sql", "   \n  \n  ")])
+    schema_parser.parse_files([#("blank.sql", "   \n  \n  ")], model.PostgreSQL)
   catalog.tables |> should.equal([])
 }
 
 pub fn schema_with_comments_only_test() {
   let content = "-- This is a comment\n-- Another comment\n"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("comments.sql", content)])
+    schema_parser.parse_files([#("comments.sql", content)], model.PostgreSQL)
   catalog.tables |> should.equal([])
 }
 
 pub fn schema_missing_parenthesis_test() {
   let content = "CREATE TABLE broken name TEXT NOT NULL;"
   let assert Error(error) =
-    schema_parser.parse_files([#("broken.sql", content)])
+    schema_parser.parse_files([#("broken.sql", content)], model.PostgreSQL)
   let msg = schema_parser.error_to_string(error)
   string.contains(msg, "parenthesis") |> should.be_true()
 }
@@ -98,7 +105,7 @@ pub fn schema_if_not_exists_test() {
   name TEXT NOT NULL
 );"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("ifne.sql", content)])
+    schema_parser.parse_files([#("ifne.sql", content)], model.PostgreSQL)
   let assert [table] = catalog.tables
   table.name |> should.equal("users")
   list.length(table.columns) |> should.equal(2)
@@ -111,7 +118,7 @@ pub fn schema_quoted_table_name_test() {
   name TEXT NOT NULL
 );"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("quoted.sql", content)])
+    schema_parser.parse_files([#("quoted.sql", content)], model.PostgreSQL)
   let assert [table] = catalog.tables
   table.name |> should.equal("mytable")
 }
@@ -120,7 +127,10 @@ pub fn schema_multiple_files_test() {
   let file1 = "CREATE TABLE a (id BIGSERIAL PRIMARY KEY);"
   let file2 = "CREATE TABLE b (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("a.sql", file1), #("b.sql", file2)])
+    schema_parser.parse_files(
+      [#("a.sql", file1), #("b.sql", file2)],
+      model.PostgreSQL,
+    )
   list.length(catalog.tables) |> should.equal(2)
 }
 
@@ -133,7 +143,7 @@ pub fn schema_table_with_constraints_test() {
   FOREIGN KEY (user_id) REFERENCES users(id)
 );"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("fk.sql", content)])
+    schema_parser.parse_files([#("fk.sql", content)], model.PostgreSQL)
   let assert [table] = catalog.tables
   table.name |> should.equal("orders")
   // FOREIGN KEY constraint should not be parsed as a column
@@ -148,7 +158,7 @@ CREATE TABLE people (
   current_mood mood NOT NULL
 );"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("enum.sql", content)])
+    schema_parser.parse_files([#("enum.sql", content)], model.PostgreSQL)
   let assert [enum] = catalog.enums
   enum.name |> should.equal("mood")
   enum.values |> should.equal(["happy", "sad", "neutral"])
@@ -171,10 +181,7 @@ pub fn mysql_inline_enum_and_set_columns_test() {
   tags SET('red', 'green', 'blue')
 );"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files_with_engine(
-      [#("items.sql", content)],
-      model.MySQL,
-    )
+    schema_parser.parse_files([#("items.sql", content)], model.MySQL)
 
   let assert [table] = catalog.tables
   table.name |> should.equal("items")
@@ -203,7 +210,7 @@ pub fn view_with_cast_expression_test() {
     "CREATE TABLE t (x TEXT NOT NULL, y TEXT NOT NULL);
 CREATE VIEW v AS SELECT CAST(x AS TEXT) AS col_a, y AS col_b FROM t;"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("cast_view.sql", content)])
+    schema_parser.parse_files([#("cast_view.sql", content)], model.PostgreSQL)
 
   let assert Ok(view) = list.find(catalog.tables, fn(tbl) { tbl.name == "v" })
   let col_names = list.map(view.columns, fn(c) { c.name })
@@ -221,7 +228,7 @@ pub fn view_basic_select_test() {
     "CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT);
 CREATE VIEW active_users AS SELECT id, name FROM users;"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("view.sql", content)])
+    schema_parser.parse_files([#("view.sql", content)], model.PostgreSQL)
 
   let assert Ok(view) =
     list.find(catalog.tables, fn(tbl) { tbl.name == "active_users" })
@@ -235,7 +242,7 @@ pub fn view_with_alias_test() {
     "CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);
 CREATE VIEW user_names AS SELECT id, name AS display_name FROM users;"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("view_alias.sql", content)])
+    schema_parser.parse_files([#("view_alias.sql", content)], model.PostgreSQL)
 
   let assert Ok(view) =
     list.find(catalog.tables, fn(tbl) { tbl.name == "user_names" })
@@ -253,7 +260,7 @@ pub fn view_star_test() {
     "CREATE TABLE items (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);
 CREATE VIEW all_items AS SELECT * FROM items;"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("view_star.sql", content)])
+    schema_parser.parse_files([#("view_star.sql", content)], model.PostgreSQL)
 
   let assert Ok(view) =
     list.find(catalog.tables, fn(tbl) { tbl.name == "all_items" })
@@ -265,7 +272,7 @@ pub fn view_or_replace_test() {
     "CREATE TABLE t (id BIGSERIAL PRIMARY KEY, val TEXT NOT NULL);
 CREATE OR REPLACE VIEW v AS SELECT id FROM t;"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("or_replace.sql", content)])
+    schema_parser.parse_files([#("or_replace.sql", content)], model.PostgreSQL)
 
   let assert Ok(view) = list.find(catalog.tables, fn(tbl) { tbl.name == "v" })
   list.length(view.columns) |> should.equal(1)
@@ -274,7 +281,7 @@ CREATE OR REPLACE VIEW v AS SELECT id FROM t;"
 pub fn view_nonexistent_table_test() {
   let content = "CREATE VIEW v AS SELECT id FROM nonexistent;"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("noexist.sql", content)])
+    schema_parser.parse_files([#("noexist.sql", content)], model.PostgreSQL)
 
   // View referencing nonexistent table: all columns are unresolvable and
   // skipped, so the view itself is omitted (no columns → no table entry).
@@ -306,7 +313,10 @@ pub fn parse_error_carries_source_path_test() {
   // Truncated CREATE TABLE surfaces with the originating file path so
   // users with multiple schema files can locate the issue.
   let assert Error(err) =
-    schema_parser.parse_files([#("db/main.sql", "CREATE TABLE")])
+    schema_parser.parse_files(
+      [#("db/main.sql", "CREATE TABLE")],
+      model.PostgreSQL,
+    )
   case err {
     schema_parser.InvalidCreateTable(path:, ..) ->
       path |> should.equal("db/main.sql")
@@ -320,7 +330,8 @@ pub fn unrecognized_sql_type_returns_error_test() {
   id BIGSERIAL PRIMARY KEY,
   shape GEOMETRY NOT NULL
 );"
-  let assert Error(error) = schema_parser.parse_files([#("geo.sql", content)])
+  let assert Error(error) =
+    schema_parser.parse_files([#("geo.sql", content)], model.PostgreSQL)
   let msg = schema_parser.error_to_string(error)
   string.contains(msg, "geo") |> should.be_true()
   string.contains(msg, "GEOMETRY") |> should.be_true()
@@ -334,7 +345,8 @@ pub fn alter_table_add_column_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
 ALTER TABLE users ADD COLUMN email TEXT;"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("test.sql", sql)], model.PostgreSQL)
   let assert [table] = catalog.tables
   table.name |> should.equal("users")
   list.length(table.columns) |> should.equal(3)
@@ -348,7 +360,8 @@ pub fn alter_table_add_column_with_keyword_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY);
 ALTER TABLE users ADD COLUMN status TEXT NOT NULL;"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("test.sql", sql)], model.PostgreSQL)
   let assert [table] = catalog.tables
   list.length(table.columns) |> should.equal(2)
   let assert [_, status] = table.columns
@@ -360,7 +373,8 @@ pub fn alter_table_add_without_column_keyword_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY);
 ALTER TABLE users ADD bio TEXT;"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("test.sql", sql)], model.PostgreSQL)
   let assert [table] = catalog.tables
   list.length(table.columns) |> should.equal(2)
   let assert [_, bio] = table.columns
@@ -371,7 +385,8 @@ pub fn alter_table_add_column_nonexistent_table_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY);
 ALTER TABLE posts ADD COLUMN title TEXT;"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("test.sql", sql)], model.PostgreSQL)
   // posts table does not exist, so ALTER TABLE is silently ignored
   let assert [table] = catalog.tables
   table.name |> should.equal("users")
@@ -382,7 +397,8 @@ pub fn alter_table_add_constraint_ignored_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT);
 ALTER TABLE users ADD CONSTRAINT unique_email UNIQUE (email);"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("test.sql", sql)], model.PostgreSQL)
   let assert [table] = catalog.tables
   // ADD CONSTRAINT should not add a column
   list.length(table.columns) |> should.equal(2)
@@ -398,7 +414,8 @@ pub fn alter_table_add_column_if_not_exists_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS age INT;"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("test.sql", sql)], model.PostgreSQL)
   let assert [table] = catalog.tables
   list.length(table.columns) |> should.equal(2)
   let assert [_, age] = table.columns
@@ -413,7 +430,8 @@ pub fn alter_table_add_if_not_exists_without_column_keyword_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY);
 ALTER TABLE users ADD IF NOT EXISTS bio TEXT;"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("test.sql", sql)], model.PostgreSQL)
   let assert [table] = catalog.tables
   list.length(table.columns) |> should.equal(2)
   let assert [_, bio] = table.columns
@@ -426,7 +444,7 @@ pub fn view_with_count_expression_test() {
     "CREATE TABLE authors (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);
 CREATE VIEW author_counts AS SELECT COUNT(*) AS total FROM authors;"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("count_view.sql", content)])
+    schema_parser.parse_files([#("count_view.sql", content)], model.PostgreSQL)
 
   let assert Ok(view) =
     list.find(catalog.tables, fn(tbl) { tbl.name == "author_counts" })
@@ -440,7 +458,7 @@ pub fn view_with_sum_expression_test() {
     "CREATE TABLE orders (id BIGSERIAL PRIMARY KEY, amount INTEGER NOT NULL);
 CREATE VIEW order_totals AS SELECT SUM(amount) AS total_amount FROM orders;"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("sum_view.sql", content)])
+    schema_parser.parse_files([#("sum_view.sql", content)], model.PostgreSQL)
 
   let assert Ok(view) =
     list.find(catalog.tables, fn(tbl) { tbl.name == "order_totals" })
@@ -455,7 +473,7 @@ pub fn view_with_avg_expression_test() {
     "CREATE TABLE products (id BIGSERIAL PRIMARY KEY, price REAL NOT NULL);
 CREATE VIEW avg_prices AS SELECT AVG(price) AS avg_price FROM products;"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("avg_view.sql", content)])
+    schema_parser.parse_files([#("avg_view.sql", content)], model.PostgreSQL)
 
   let assert Ok(view) =
     list.find(catalog.tables, fn(tbl) { tbl.name == "avg_prices" })
@@ -469,7 +487,10 @@ pub fn view_with_coalesce_expression_test() {
     "CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, bio TEXT);
 CREATE VIEW user_display AS SELECT id, COALESCE(bio, 'N/A') AS bio_text FROM users;"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("coalesce_view.sql", content)])
+    schema_parser.parse_files(
+      [#("coalesce_view.sql", content)],
+      model.PostgreSQL,
+    )
 
   let assert Ok(view) =
     list.find(catalog.tables, fn(tbl) { tbl.name == "user_display" })
@@ -483,7 +504,10 @@ pub fn view_with_literal_expression_test() {
     "CREATE TABLE t (id BIGSERIAL PRIMARY KEY);
 CREATE VIEW v AS SELECT 42 AS magic, 'hello' AS greeting FROM t;"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("literal_view.sql", content)])
+    schema_parser.parse_files(
+      [#("literal_view.sql", content)],
+      model.PostgreSQL,
+    )
 
   let assert Ok(view) = list.find(catalog.tables, fn(tbl) { tbl.name == "v" })
   let assert Ok(magic) = list.find(view.columns, fn(c) { c.name == "magic" })
@@ -505,7 +529,7 @@ pub fn serial_types_are_implicitly_not_null_test() {
 "
 
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("serial.sql", content)])
+    schema_parser.parse_files([#("serial.sql", content)], model.PostgreSQL)
 
   let assert [table] = catalog.tables
   let assert [a, b, c, d] = table.columns
@@ -526,7 +550,7 @@ CREATE VIEW user_orders AS SELECT u.name, o.amount FROM users u JOIN orders o ON
 "
 
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("join_view.sql", content)])
+    schema_parser.parse_files([#("join_view.sql", content)], model.PostgreSQL)
 
   let assert Ok(view) =
     list.find(catalog.tables, fn(tbl) { tbl.name == "user_orders" })
@@ -549,7 +573,7 @@ CREATE VIEW user_profiles AS SELECT u.name, p.bio FROM users u LEFT JOIN profile
 "
 
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("left_join.sql", content)])
+    schema_parser.parse_files([#("left_join.sql", content)], model.PostgreSQL)
 
   let assert Ok(view) =
     list.find(catalog.tables, fn(tbl) { tbl.name == "user_profiles" })
@@ -565,7 +589,7 @@ CREATE VIEW v AS SELECT * FROM t1 JOIN t2 ON t1.a = t2.c;
 "
 
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("star_join.sql", content)])
+    schema_parser.parse_files([#("star_join.sql", content)], model.PostgreSQL)
 
   let assert Ok(view) = list.find(catalog.tables, fn(tbl) { tbl.name == "v" })
   let col_names = list.map(view.columns, fn(c) { c.name })
@@ -575,21 +599,25 @@ CREATE VIEW v AS SELECT * FROM t1 JOIN t2 ON t1.a = t2.c;
 // --- Malformed DDL robustness ---
 
 pub fn schema_empty_input_produces_empty_catalog_test() {
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("empty.sql", "")])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("empty.sql", "")], model.PostgreSQL)
   catalog.tables |> should.equal([])
   catalog.enums |> should.equal([])
 }
 
 pub fn schema_truncated_create_table_test() {
   let assert Error(_) =
-    schema_parser.parse_files([#("trunc.sql", "CREATE TABLE")])
+    schema_parser.parse_files(
+      [#("trunc.sql", "CREATE TABLE")],
+      model.PostgreSQL,
+    )
 }
 
 pub fn schema_only_keyword_create_does_not_panic_test() {
   // "CREATE" alone is not a recognized DDL statement; the parser should
   // silently produce an empty catalog rather than panic.
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("create.sql", "CREATE")])
+    schema_parser.parse_files([#("create.sql", "CREATE")], model.PostgreSQL)
   catalog.tables |> should.equal([])
 }
 
@@ -602,7 +630,10 @@ pub fn schema_duplicate_table_across_files_test() {
   let file2 =
     "CREATE TABLE shared (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("one.sql", file1), #("two.sql", file2)])
+    schema_parser.parse_files(
+      [#("one.sql", file1), #("two.sql", file2)],
+      model.PostgreSQL,
+    )
   // Both definitions currently coexist — this test pins the behavior so
   // future changes (dedup, error, or merge) surface as a test failure.
   list.length(catalog.tables) |> should.equal(2)
@@ -618,7 +649,8 @@ pub fn schema_duplicate_table_across_files_test() {
 pub fn check_constraint_inline_test() {
   let sql =
     "CREATE TABLE products (id INT PRIMARY KEY, price NUMERIC NOT NULL CHECK (price > 0));"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("p.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("p.sql", sql)], model.PostgreSQL)
   let assert [table] = catalog.tables
   table.name |> should.equal("products")
   let assert [id, price] = table.columns
@@ -632,7 +664,8 @@ pub fn check_constraint_table_level_test() {
   // skip it without dropping the real columns.
   let sql =
     "CREATE TABLE orders (id INT, qty INT, price NUMERIC, CHECK (qty > 0 AND price > 0));"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("o.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("o.sql", sql)], model.PostgreSQL)
   let assert [table] = catalog.tables
   list.length(table.columns) |> should.equal(3)
 }
@@ -640,7 +673,8 @@ pub fn check_constraint_table_level_test() {
 pub fn composite_primary_key_test() {
   let sql =
     "CREATE TABLE memberships (user_id INT, group_id INT, joined_at TIMESTAMP, PRIMARY KEY (user_id, group_id));"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("m.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("m.sql", sql)], model.PostgreSQL)
   let assert [table] = catalog.tables
   list.length(table.columns) |> should.equal(3)
   let assert [user_id, group_id, _joined] = table.columns
@@ -651,7 +685,8 @@ pub fn composite_primary_key_test() {
 pub fn composite_foreign_key_test() {
   let sql =
     "CREATE TABLE orders (id INT PRIMARY KEY, customer_region INT, customer_id INT, FOREIGN KEY (customer_region, customer_id) REFERENCES customers (region, id) ON DELETE CASCADE);"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("fk.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("fk.sql", sql)], model.PostgreSQL)
   let assert [table] = catalog.tables
   list.length(table.columns) |> should.equal(3)
 }
@@ -662,7 +697,8 @@ pub fn generated_column_stored_test() {
   // metadata that codegen does not consume.
   let sql =
     "CREATE TABLE invoices (qty INT, price NUMERIC, total NUMERIC GENERATED ALWAYS AS (qty * price) STORED);"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("i.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("i.sql", sql)], model.PostgreSQL)
   let assert [table] = catalog.tables
   let assert [qty, price, total] = table.columns
   qty.scalar_type |> should.equal(model.IntType)
@@ -675,7 +711,8 @@ pub fn mysql_on_update_current_timestamp_test() {
   // the column type (DATETIME → DateTimeType) must still be picked up.
   let sql =
     "CREATE TABLE entries (id INT PRIMARY KEY, updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP);"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("r.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("r.sql", sql)], model.PostgreSQL)
   let assert [table] = catalog.tables
   let assert [_id, updated] = table.columns
   updated.scalar_type |> should.equal(model.DateTimeType)
@@ -687,7 +724,8 @@ pub fn create_index_is_skipped_test() {
   // parser when followed by a real CREATE TABLE.
   let sql =
     "CREATE INDEX idx_authors_name ON authors(name); CREATE TABLE authors (id INT PRIMARY KEY, name TEXT NOT NULL);"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("idx.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("idx.sql", sql)], model.PostgreSQL)
   let assert [table] = catalog.tables
   table.name |> should.equal("authors")
   list.length(table.columns) |> should.equal(2)
@@ -696,7 +734,8 @@ pub fn create_index_is_skipped_test() {
 pub fn create_unique_index_is_skipped_test() {
   let sql =
     "CREATE UNIQUE INDEX idx_authors_name ON authors(name); CREATE TABLE authors (id INT PRIMARY KEY, name TEXT NOT NULL);"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("uidx.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("uidx.sql", sql)], model.PostgreSQL)
   let assert [table] = catalog.tables
   table.name |> should.equal("authors")
 }
@@ -704,7 +743,8 @@ pub fn create_unique_index_is_skipped_test() {
 pub fn partition_by_clause_does_not_break_table_test() {
   let sql =
     "CREATE TABLE measurements (id INT, ts TIMESTAMP NOT NULL, value NUMERIC) PARTITION BY RANGE (ts);"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("part.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("part.sql", sql)], model.PostgreSQL)
   let assert [table] = catalog.tables
   table.name |> should.equal("measurements")
   list.length(table.columns) |> should.equal(3)
@@ -716,13 +756,15 @@ pub fn drop_table_removes_table_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
 DROP TABLE users;"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("test.sql", sql)], model.PostgreSQL)
   list.length(catalog.tables) |> should.equal(0)
 }
 
 pub fn drop_table_if_exists_nonexistent_test() {
   let sql = "DROP TABLE IF EXISTS users;"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("test.sql", sql)], model.PostgreSQL)
   list.length(catalog.tables) |> should.equal(0)
 }
 
@@ -731,7 +773,8 @@ pub fn drop_view_removes_view_test() {
     "CREATE TABLE authors (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
 CREATE VIEW author_list AS SELECT id, name FROM authors;
 DROP VIEW author_list;"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("test.sql", sql)], model.PostgreSQL)
   list.length(catalog.tables) |> should.equal(1)
   let assert [table] = catalog.tables
   table.name |> should.equal("authors")
@@ -741,7 +784,8 @@ pub fn drop_type_removes_enum_test() {
   let sql =
     "CREATE TYPE status AS ENUM ('active', 'inactive');
 DROP TYPE status;"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("test.sql", sql)], model.PostgreSQL)
   list.length(catalog.enums) |> should.equal(0)
 }
 
@@ -749,7 +793,8 @@ pub fn alter_table_drop_column_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
 ALTER TABLE users DROP COLUMN name;"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("test.sql", sql)], model.PostgreSQL)
   let assert [table] = catalog.tables
   list.length(table.columns) |> should.equal(1)
   let assert [col] = table.columns
@@ -760,7 +805,8 @@ pub fn alter_table_if_exists_drop_column_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
 ALTER TABLE IF EXISTS users DROP COLUMN name;"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("test.sql", sql)], model.PostgreSQL)
   let assert [table] = catalog.tables
   list.length(table.columns) |> should.equal(1)
 }
@@ -769,7 +815,8 @@ pub fn alter_table_rename_column_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
 ALTER TABLE users RENAME COLUMN name TO full_name;"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("test.sql", sql)], model.PostgreSQL)
   let assert [table] = catalog.tables
   let assert [_, col2] = table.columns
   col2.name |> should.equal("full_name")
@@ -779,7 +826,8 @@ pub fn alter_table_rename_to_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY);
 ALTER TABLE users RENAME TO accounts;"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("test.sql", sql)], model.PostgreSQL)
   let assert [table] = catalog.tables
   table.name |> should.equal("accounts")
 }
@@ -788,7 +836,8 @@ pub fn alter_table_set_not_null_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY, created_at TIMESTAMP);
 ALTER TABLE users ALTER COLUMN created_at SET NOT NULL;"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("test.sql", sql)], model.PostgreSQL)
   let assert [table] = catalog.tables
   let assert [_, col2] = table.columns
   col2.name |> should.equal("created_at")
@@ -799,7 +848,8 @@ pub fn alter_table_drop_not_null_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
 ALTER TABLE users ALTER COLUMN name DROP NOT NULL;"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("test.sql", sql)], model.PostgreSQL)
   let assert [table] = catalog.tables
   let assert [_, col2] = table.columns
   col2.name |> should.equal("name")
@@ -810,7 +860,8 @@ pub fn alter_table_alter_column_type_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY, score INTEGER NOT NULL);
 ALTER TABLE users ALTER COLUMN score TYPE TEXT;"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("test.sql", sql)], model.PostgreSQL)
   let assert [table] = catalog.tables
   let assert [_, col2] = table.columns
   col2.name |> should.equal("score")
@@ -827,7 +878,8 @@ pub fn alter_table_alter_column_type_with_using_cast_test() {
   let sql =
     "CREATE TABLE users (id TEXT NOT NULL);
 ALTER TABLE users ALTER COLUMN id TYPE UUID USING id::uuid;"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("test.sql", sql)], model.PostgreSQL)
   let assert [table] = catalog.tables
   let assert [id] = table.columns
   id.scalar_type |> should.equal(model.UuidType)
@@ -841,7 +893,8 @@ pub fn alter_table_alter_column_type_unsupported_fails_fast_test() {
   let sql =
     "CREATE TABLE users (id TEXT NOT NULL);
 ALTER TABLE users ALTER COLUMN id TYPE nonexistent_type;"
-  let assert Error(error) = schema_parser.parse_files([#("bad.sql", sql)])
+  let assert Error(error) =
+    schema_parser.parse_files([#("bad.sql", sql)], model.PostgreSQL)
   let msg = schema_parser.error_to_string(error)
   string.contains(msg, "ALTER COLUMN") |> should.be_true()
   string.contains(msg, "nonexistent_type") |> should.be_true()
@@ -851,7 +904,8 @@ pub fn alter_table_drop_constraint_stays_silent_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT NOT NULL);
 ALTER TABLE users DROP CONSTRAINT unique_email;"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("test.sql", sql)], model.PostgreSQL)
   let assert [table] = catalog.tables
   list.length(table.columns) |> should.equal(2)
 }
@@ -860,14 +914,16 @@ pub fn comment_on_stays_silent_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY);
 COMMENT ON TABLE users IS 'account records';"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("test.sql", sql)], model.PostgreSQL)
   let assert [table] = catalog.tables
   table.name |> should.equal("users")
 }
 
 pub fn transaction_control_stays_silent_test() {
   let sql = "BEGIN;\nCREATE TABLE users (id INTEGER PRIMARY KEY);\nCOMMIT;"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("test.sql", sql)], model.PostgreSQL)
   let assert [table] = catalog.tables
   table.name |> should.equal("users")
 }
@@ -882,7 +938,7 @@ pub fn mysql_migration_history_resolves_to_expected_catalog_test() {
   let assert Ok(alter) =
     simplifile.read("test/fixtures/mysql_migration_002_alter_authors.sql")
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files_with_engine(
+    schema_parser.parse_files(
       [
         #("001_create_authors.sql", create),
         #("002_alter_authors.sql", alter),
@@ -911,7 +967,7 @@ pub fn mysql_snapshot_matches_migration_history_test() {
     simplifile.read("test/fixtures/mysql_snapshot_authors.sql")
 
   let assert Ok(#(history_catalog, _)) =
-    schema_parser.parse_files_with_engine(
+    schema_parser.parse_files(
       [
         #("001_create_authors.sql", create),
         #("002_alter_authors.sql", alter),
@@ -919,10 +975,7 @@ pub fn mysql_snapshot_matches_migration_history_test() {
       model.MySQL,
     )
   let assert Ok(#(snapshot_catalog, _)) =
-    schema_parser.parse_files_with_engine(
-      [#("snapshot.sql", snapshot)],
-      model.MySQL,
-    )
+    schema_parser.parse_files([#("snapshot.sql", snapshot)], model.MySQL)
 
   let history_columns =
     history_catalog.tables
@@ -943,10 +996,7 @@ pub fn mysql_alter_modify_changes_column_type_test() {
 ALTER TABLE `events` MODIFY COLUMN `payload` JSON NOT NULL;"
 
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files_with_engine(
-      [#("events.sql", create)],
-      model.MySQL,
-    )
+    schema_parser.parse_files([#("events.sql", create)], model.MySQL)
 
   let assert [table] = catalog.tables
   let assert Ok(payload_col) =
@@ -965,7 +1015,7 @@ pub fn mysql_alter_change_renames_and_retypes_column_test() {
 ALTER TABLE `notes` CHANGE COLUMN `body` `content` LONGTEXT NULL;"
 
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files_with_engine([#("notes.sql", create)], model.MySQL)
+    schema_parser.parse_files([#("notes.sql", create)], model.MySQL)
 
   let assert [table] = catalog.tables
   let column_names = list.map(table.columns, fn(c) { c.name })
@@ -988,7 +1038,7 @@ pub fn mysql_alter_modify_decimal_uses_lossless_contract_test() {
 ALTER TABLE `prices` MODIFY COLUMN `amount` DECIMAL(20,6) NOT NULL;"
 
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files_with_engine([#("prices.sql", sql)], model.MySQL)
+    schema_parser.parse_files([#("prices.sql", sql)], model.MySQL)
 
   let assert [table] = catalog.tables
   let assert Ok(amount) = list.find(table.columns, fn(c) { c.name == "amount" })
@@ -1003,7 +1053,7 @@ pub fn mysql_create_view_with_backticks_test() {
 CREATE VIEW `post_titles` AS SELECT `id`, `title` FROM `posts`;"
 
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files_with_engine([#("posts.sql", sql)], model.MySQL)
+    schema_parser.parse_files([#("posts.sql", sql)], model.MySQL)
 
   list.length(catalog.tables) |> should.equal(2)
   let assert Ok(view) =
@@ -1021,7 +1071,7 @@ pub fn mysql_unsupported_ddl_fails_fast_test() {
 RENAME TABLE `events` TO `events_archive`;"
 
   let assert Error(error) =
-    schema_parser.parse_files_with_engine([#("events.sql", sql)], model.MySQL)
+    schema_parser.parse_files([#("events.sql", sql)], model.MySQL)
   let msg = schema_parser.error_to_string(error)
   string.contains(msg, "events.sql") |> should.be_true()
   string.contains(msg, "Unsupported MySQL DDL") |> should.be_true()
@@ -1037,10 +1087,7 @@ pub fn mysql_unknown_statement_for_postgresql_stays_silent_test() {
 GRANT SELECT ON events TO some_role;"
 
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files_with_engine(
-      [#("events.sql", sql)],
-      model.PostgreSQL,
-    )
+    schema_parser.parse_files([#("events.sql", sql)], model.PostgreSQL)
   list.length(catalog.tables) |> should.equal(1)
 }
 
@@ -1056,7 +1103,7 @@ pub fn mysql_create_table_strips_auto_increment_and_charset_noise_test() {
 );"
 
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files_with_engine([#("posts.sql", sql)], model.MySQL)
+    schema_parser.parse_files([#("posts.sql", sql)], model.MySQL)
 
   let assert [table] = catalog.tables
   let column_names = list.map(table.columns, fn(c) { c.name })
@@ -1074,7 +1121,8 @@ pub fn alter_column_type_keyword_in_mixed_case_test() {
   let sql =
     "CREATE TABLE users (id INTEGER PRIMARY KEY, score INTEGER NOT NULL);
 ALTER TABLE users ALTER COLUMN score tYpE TEXT;"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("test.sql", sql)], model.PostgreSQL)
   let assert [table] = catalog.tables
   let assert [_, score] = table.columns
   score.scalar_type |> should.equal(model.StringType)
@@ -1084,7 +1132,8 @@ pub fn create_type_keyword_in_mixed_case_test() {
   let sql =
     "create tYpe mood AS ENUM ('happy', 'sad');
 CREATE TABLE t (id integer NOT NULL, m mood);"
-  let assert Ok(#(catalog, _)) = schema_parser.parse_files([#("test.sql", sql)])
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("test.sql", sql)], model.PostgreSQL)
   let assert [mood] = catalog.enums
   mood.values |> should.equal(["happy", "sad"])
   let assert [table] = catalog.tables

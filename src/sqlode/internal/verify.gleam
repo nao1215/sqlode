@@ -20,6 +20,7 @@ import sqlode/internal/generate
 import sqlode/internal/model
 import sqlode/internal/naming
 import sqlode/internal/query_analyzer
+import sqlode/internal/query_analyzer/context
 import sqlode/internal/query_ir
 import sqlode/internal/query_parser
 import sqlode/internal/query_validation
@@ -118,7 +119,7 @@ fn guard_out_path(out: String, next: fn() -> List(Finding)) -> List(Finding) {
 
 fn load_catalog(block: model.SqlBlock) -> Result(model.Catalog, String) {
   use entries <- result.try(read_files(block.schema, generate.SchemaReadError))
-  case schema_parser.parse_files_with_engine(entries, block.engine) {
+  case schema_parser.parse_files(entries, block.engine) {
     Ok(#(catalog, warnings)) -> {
       let catalog =
         generate.apply_type_overrides(catalog, block.overrides.type_overrides)
@@ -179,7 +180,7 @@ fn analyze_each(
     list.filter_map(results, fn(analysis) {
       case analysis {
         Error(error) ->
-          Ok(query_analyzer.analysis_error_to_string(error, block.engine))
+          Ok(context.analysis_error_to_string(error, block.engine))
         Ok(_) -> Error(Nil)
       }
     })

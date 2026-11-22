@@ -37,12 +37,6 @@ type ViewColumn {
 
 pub fn parse_files(
   entries: List(#(String, String)),
-) -> Result(#(model.Catalog, List(SchemaWarning)), ParseError) {
-  parse_files_with_engine(entries, model.PostgreSQL)
-}
-
-pub fn parse_files_with_engine(
-  entries: List(#(String, String)),
   engine: model.Engine,
 ) -> Result(#(model.Catalog, List(SchemaWarning)), ParseError) {
   entries

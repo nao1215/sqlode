@@ -4,7 +4,7 @@ gleam = ">= 1.14.0"
 description = "Generate type-safe Gleam code from SQL schemas and queries"
 licences = ["MIT"]
 repository = { type = "github", user = "nao1215", repo = "sqlode" }
-internal_modules = ["sqlode/cli", "sqlode/internal/**", "sqlode/scripts/**"]
+internal_modules = ["sqlode/cli", "sqlode/internal/**"]
 links = [
   { title = "Homepage", href = "https://github.com/nao1215/sqlode" },
   { title = "Documentation", href = "https://hexdocs.pm/sqlode" },
@@ -32,7 +32,7 @@ birdie = ">= 2.0.2 and < 3.0.0"
 # stays honest about the strictness contract.
 [tools.glinter]
 warnings_as_errors = true
-include = ["src/", "test/"]
+include = ["src/", "test/", "dev/"]
 
 [tools.glinter.rules]
 # `label_possible` flags any positional parameter that could carry a

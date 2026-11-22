@@ -330,7 +330,7 @@ CREATE TABLE users (
 );"
 
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("enum.sql", schema)])
+    schema_parser.parse_files([#("enum.sql", schema)], model.PostgreSQL)
 
   let assert [table] = catalog.tables
   let assert [_id, _name, status_col] = table.columns
@@ -583,7 +583,7 @@ SELECT id FROM authors;"
       naming_ctx,
       queries,
     )
-  let msg = query_analyzer.analysis_error_to_string(err, model.PostgreSQL)
+  let msg = context.analysis_error_to_string(err, model.PostgreSQL)
   msg |> string.contains("2") |> should.be_true()
   msg |> string.contains("1") |> should.be_true()
   msg |> string.contains("BadUnion") |> should.be_true()
@@ -634,7 +634,10 @@ SELECT id, name, bio FROM authors;"
 fn test_catalog() -> model.Catalog {
   let assert Ok(content) = simplifile.read("test/fixtures/schema.sql")
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("test/fixtures/schema.sql", content)])
+    schema_parser.parse_files(
+      [#("test/fixtures/schema.sql", content)],
+      model.PostgreSQL,
+    )
 
   catalog
 }
@@ -671,7 +674,10 @@ pub fn type_cast_infers_param_type_test() {
 fn typecast_catalog() -> model.Catalog {
   let assert Ok(content) = simplifile.read("test/fixtures/typecast_schema.sql")
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("test/fixtures/typecast_schema.sql", content)])
+    schema_parser.parse_files(
+      [#("test/fixtures/typecast_schema.sql", content)],
+      model.PostgreSQL,
+    )
 
   catalog
 }
@@ -723,7 +729,7 @@ pub fn table_not_found_takes_priority_over_parameter_type_test() {
       table_name: "bookmarks",
     )) -> Nil
     Error(other) -> {
-      let msg = query_analyzer.analysis_error_to_string(other, model.PostgreSQL)
+      let msg = context.analysis_error_to_string(other, model.PostgreSQL)
       panic as { "expected TableNotFound, got: " <> msg }
     }
     Ok(_) ->
@@ -752,7 +758,7 @@ pub fn table_not_found_insert_test() {
       table_name: "bookmarks",
     )) -> Nil
     Error(other) -> {
-      let msg = query_analyzer.analysis_error_to_string(other, model.PostgreSQL)
+      let msg = context.analysis_error_to_string(other, model.PostgreSQL)
       panic as { "expected TableNotFound, got: " <> msg }
     }
     Ok(_) -> panic as "expected TableNotFound on INSERT INTO unknown table"
@@ -761,7 +767,7 @@ pub fn table_not_found_insert_test() {
 
 pub fn analysis_error_to_string_table_not_found_test() {
   let error = context.TableNotFound(query_name: "GetUsers", table_name: "users")
-  let msg = query_analyzer.analysis_error_to_string(error, model.PostgreSQL)
+  let msg = context.analysis_error_to_string(error, model.PostgreSQL)
   string.contains(msg, "GetUsers") |> should.be_true()
   string.contains(msg, "users") |> should.be_true()
   string.contains(msg, "not found") |> should.be_true()
@@ -774,7 +780,7 @@ pub fn analysis_error_to_string_column_not_found_test() {
       table_name: "users",
       column_name: "email",
     )
-  let msg = query_analyzer.analysis_error_to_string(error, model.PostgreSQL)
+  let msg = context.analysis_error_to_string(error, model.PostgreSQL)
   string.contains(msg, "GetUser") |> should.be_true()
   string.contains(msg, "email") |> should.be_true()
   string.contains(msg, "users") |> should.be_true()
@@ -818,7 +824,7 @@ pub fn unrecognized_cast_type_error_test() {
 pub fn analysis_error_to_string_parameter_not_inferred_test() {
   let error =
     context.ParameterTypeNotInferred(query_name: "Bare", param_index: 1)
-  let msg = query_analyzer.analysis_error_to_string(error, model.PostgreSQL)
+  let msg = context.analysis_error_to_string(error, model.PostgreSQL)
   string.contains(msg, "Bare") |> should.be_true()
   string.contains(msg, "$1") |> should.be_true()
 }
@@ -830,7 +836,7 @@ pub fn analysis_error_to_string_unrecognized_cast_test() {
       param_index: 1,
       cast_type: "geometry",
     )
-  let msg = query_analyzer.analysis_error_to_string(error, model.PostgreSQL)
+  let msg = context.analysis_error_to_string(error, model.PostgreSQL)
   string.contains(msg, "BadCast") |> should.be_true()
   string.contains(msg, "geometry") |> should.be_true()
 }
@@ -846,7 +852,7 @@ pub fn analysis_error_to_string_unrecognized_cast_test() {
 pub fn parameter_not_inferred_postgres_uses_dollar_cast_hint_test() {
   let error =
     context.ParameterTypeNotInferred(query_name: "Bare", param_index: 1)
-  let msg = query_analyzer.analysis_error_to_string(error, model.PostgreSQL)
+  let msg = context.analysis_error_to_string(error, model.PostgreSQL)
   string.contains(msg, "$1") |> should.be_true()
   string.contains(msg, "$1::int") |> should.be_true()
 }
@@ -857,7 +863,7 @@ pub fn parameter_not_inferred_sqlite_uses_cast_as_integer_hint_test() {
   // cast uses ANSI-shaped `CAST(? AS INTEGER)`.
   let error =
     context.ParameterTypeNotInferred(query_name: "Bare", param_index: 1)
-  let msg = query_analyzer.analysis_error_to_string(error, model.SQLite)
+  let msg = context.analysis_error_to_string(error, model.SQLite)
   string.contains(msg, "?1") |> should.be_true()
   string.contains(msg, "CAST(? AS INTEGER)") |> should.be_true()
   string.contains(msg, "$1") |> should.be_false()
@@ -867,7 +873,7 @@ pub fn parameter_not_inferred_sqlite_uses_cast_as_integer_hint_test() {
 pub fn parameter_not_inferred_mysql_uses_cast_as_signed_hint_test() {
   let error =
     context.ParameterTypeNotInferred(query_name: "Bare", param_index: 2)
-  let msg = query_analyzer.analysis_error_to_string(error, model.MySQL)
+  let msg = context.analysis_error_to_string(error, model.MySQL)
   string.contains(msg, "?2") |> should.be_true()
   string.contains(msg, "CAST(? AS SIGNED)") |> should.be_true()
   string.contains(msg, "$2") |> should.be_false()
@@ -883,7 +889,7 @@ pub fn unrecognized_cast_sqlite_uses_question_mark_label_test() {
       param_index: 3,
       cast_type: "geometry",
     )
-  let msg = query_analyzer.analysis_error_to_string(error, model.SQLite)
+  let msg = context.analysis_error_to_string(error, model.SQLite)
   string.contains(msg, "?3") |> should.be_true()
   string.contains(msg, "$3") |> should.be_false()
 }
@@ -896,7 +902,7 @@ pub fn parameter_type_conflict_mysql_uses_question_mark_label_test() {
       type_a: model.IntType,
       type_b: model.StringType,
     )
-  let msg = query_analyzer.analysis_error_to_string(error, model.MySQL)
+  let msg = context.analysis_error_to_string(error, model.MySQL)
   string.contains(msg, "?5") |> should.be_true()
   string.contains(msg, "$5") |> should.be_false()
 }
@@ -1127,7 +1133,10 @@ SELECT id FROM authors WHERE id = @id OR id > @id;"
 fn join_catalog() -> model.Catalog {
   let assert Ok(content) = simplifile.read("test/fixtures/join_schema.sql")
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("test/fixtures/join_schema.sql", content)])
+    schema_parser.parse_files(
+      [#("test/fixtures/join_schema.sql", content)],
+      model.PostgreSQL,
+    )
 
   catalog
 }
@@ -1548,7 +1557,7 @@ pub fn unsupported_expression_error_message_test() {
       query_name: "BadQuery",
       expression: "my_custom_udf(id)",
     )
-  let msg = query_analyzer.analysis_error_to_string(error, model.PostgreSQL)
+  let msg = context.analysis_error_to_string(error, model.PostgreSQL)
   string.contains(msg, "unsupported expression") |> should.be_true()
   string.contains(msg, "BadQuery") |> should.be_true()
 }
@@ -1734,9 +1743,12 @@ pub fn all_subquery_in_where_test() {
 fn extended_catalog() -> model.Catalog {
   let assert Ok(content) = simplifile.read("test/fixtures/extended_schema.sql")
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([
-      #("test/fixtures/extended_schema.sql", content),
-    ])
+    schema_parser.parse_files(
+      [
+        #("test/fixtures/extended_schema.sql", content),
+      ],
+      model.PostgreSQL,
+    )
   catalog
 }
 
@@ -1879,10 +1891,7 @@ pub fn sqlite_upsert_with_excluded_test() {
   let assert Ok(content) =
     simplifile.read("test/fixtures/sqlite_extended_schema.sql")
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files_with_engine(
-      [#("schema.sql", content)],
-      model.SQLite,
-    )
+    schema_parser.parse_files([#("schema.sql", content)], model.SQLite)
   let sql =
     "-- name: UpsertAuthorSqlite :one\nINSERT INTO authors (id, name, bio) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET name = excluded.name RETURNING id, name, bio;"
   let assert Ok(queries) =
@@ -2633,9 +2642,12 @@ pub fn ambiguous_unqualified_param_column_is_rejected_test() {
   let assert Ok(schema_content) =
     simplifile.read("test/fixtures/ambiguous_param_schema.sql")
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([
-      #("test/fixtures/ambiguous_param_schema.sql", schema_content),
-    ])
+    schema_parser.parse_files(
+      [
+        #("test/fixtures/ambiguous_param_schema.sql", schema_content),
+      ],
+      model.PostgreSQL,
+    )
 
   let assert Ok(sql) =
     simplifile.read("test/fixtures/ambiguous_param_query.sql")
@@ -2678,10 +2690,7 @@ fn authors_posts_catalog() -> model.Catalog {
     "CREATE TABLE authors (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
 CREATE TABLE posts (id INTEGER PRIMARY KEY, author_id INTEGER NOT NULL, title TEXT NOT NULL);"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files_with_engine(
-      [#("schema.sql", schema)],
-      model.SQLite,
-    )
+    schema_parser.parse_files([#("schema.sql", schema)], model.SQLite)
   catalog
 }
 
@@ -3165,7 +3174,10 @@ fn blob_catalog() -> model.Catalog {
       body BLOB NOT NULL
     );"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("inline_schema.sql", schema)])
+    schema_parser.parse_files(
+      [#("inline_schema.sql", schema)],
+      model.PostgreSQL,
+    )
   catalog
 }
 
@@ -3231,7 +3243,10 @@ fn insert_or_action_catalog() -> model.Catalog {
       tag TEXT NOT NULL
     );"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("inline_schema.sql", schema)])
+    schema_parser.parse_files(
+      [#("inline_schema.sql", schema)],
+      model.PostgreSQL,
+    )
   catalog
 }
 
@@ -3310,7 +3325,10 @@ pub fn column_named_type_resolves_in_select_test() {
       created_at TEXT NOT NULL
     );"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("inline_schema.sql", schema)])
+    schema_parser.parse_files(
+      [#("inline_schema.sql", schema)],
+      model.PostgreSQL,
+    )
 
   let sql =
     "-- name: GetBlobById :one\nSELECT id, size, type, created_at FROM blobs WHERE id = ?;"
@@ -3340,7 +3358,10 @@ pub fn column_named_type_in_create_table_parses_test() {
   let schema =
     "CREATE TABLE blobs (id INTEGER PRIMARY KEY, type TEXT NOT NULL);"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("inline_schema.sql", schema)])
+    schema_parser.parse_files(
+      [#("inline_schema.sql", schema)],
+      model.PostgreSQL,
+    )
 
   let assert [table] = catalog.tables
   table.name |> should.equal("blobs")
@@ -3355,7 +3376,10 @@ pub fn create_type_enum_still_parses_test() {
   // `TYPE` slot.
   let schema = "CREATE TYPE status AS ENUM ('active', 'inactive');"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("inline_schema.sql", schema)])
+    schema_parser.parse_files(
+      [#("inline_schema.sql", schema)],
+      model.PostgreSQL,
+    )
 
   let assert [enum_def] = catalog.enums
   enum_def.name |> should.equal("status")
@@ -3663,12 +3687,15 @@ pub fn missing_select_column_reports_column_not_found_test() {
   // "name", cannot infer result type. Use CAST ...`, which points at the
   // wrong fix.
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([
-      #(
-        "renamed.sql",
-        "CREATE TABLE authors (id INTEGER PRIMARY KEY, full_name TEXT NOT NULL, bio2 TEXT);",
-      ),
-    ])
+    schema_parser.parse_files(
+      [
+        #(
+          "renamed.sql",
+          "CREATE TABLE authors (id INTEGER PRIMARY KEY, full_name TEXT NOT NULL, bio2 TEXT);",
+        ),
+      ],
+      model.PostgreSQL,
+    )
   [
     #("SELECT id, name FROM authors;", "name"),
     #("SELECT a.id, a.name FROM authors a;", "name"),
@@ -3691,7 +3718,7 @@ pub fn missing_select_column_reports_column_not_found_test() {
       )
     let assert Error(error) =
       query_analyzer.analyze_queries(model.SQLite, catalog, naming_ctx, queries)
-    let message = query_analyzer.analysis_error_to_string(error, model.SQLite)
+    let message = context.analysis_error_to_string(error, model.SQLite)
     string.contains(message, "column \"" <> column <> "\" not found")
     |> should.be_true()
     string.contains(message, "CAST") |> should.be_false()
@@ -3768,7 +3795,10 @@ pub fn placeholder_in_arithmetic_with_numeric_column_test() {
     );
     CREATE TABLE counters (name TEXT PRIMARY KEY, n INTEGER NOT NULL);"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("inline_schema.sql", schema)])
+    schema_parser.parse_files(
+      [#("inline_schema.sql", schema)],
+      model.PostgreSQL,
+    )
   [
     #(
       model.PostgreSQL,
@@ -3852,7 +3882,10 @@ pub fn placeholder_quantified_over_array_column_is_an_element_test() {
       scores INTEGER[]
     );"
   let assert Ok(#(catalog, _)) =
-    schema_parser.parse_files([#("inline_schema.sql", schema)])
+    schema_parser.parse_files(
+      [#("inline_schema.sql", schema)],
+      model.PostgreSQL,
+    )
   [
     #("SELECT id FROM posts WHERE $1 = ANY(tags);", model.StringType),
     #("SELECT id FROM posts WHERE $1 = ANY(posts.tags);", model.StringType),

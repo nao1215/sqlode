@@ -116,10 +116,7 @@ fn fixtures() -> List(Fixture) {
     let assert Ok(schema_text) = simplifile.read("test/fixtures/" <> c.schema)
       as "the fixture schema is readable"
     let assert Ok(#(catalog, _)) =
-      schema_parser.parse_files_with_engine(
-        [#(c.schema, schema_text)],
-        c.engine,
-      )
+      schema_parser.parse_files([#(c.schema, schema_text)], c.engine)
       as "the fixture schema parses"
     let assert Ok(text) = simplifile.read("test/fixtures/" <> c.queries)
       as "the fixture queries are readable"

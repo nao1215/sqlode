@@ -16,6 +16,7 @@ import sqlode/internal/config
 import sqlode/internal/model
 import sqlode/internal/naming
 import sqlode/internal/query_analyzer
+import sqlode/internal/query_analyzer/context
 import sqlode/internal/query_ir
 import sqlode/internal/query_parser
 import sqlode/internal/query_validation
@@ -153,7 +154,7 @@ fn load_and_analyze_queries(
   use analyzed <- result.try(
     query_analyzer.analyze_queries(block.engine, catalog, naming_ctx, queries)
     |> result.map_error(fn(error) {
-      QueryAnalysisError(detail: query_analyzer.analysis_error_to_string(
+      QueryAnalysisError(detail: context.analysis_error_to_string(
         error,
         block.engine,
       ))
@@ -453,7 +454,7 @@ fn load_catalog(
   )
 
   use #(catalog, warnings) <- result.try(
-    schema_parser.parse_files_with_engine(entries, engine)
+    schema_parser.parse_files(entries, engine)
     |> result.map_error(fn(error) {
       SchemaParseError(detail: schema_parser.error_to_string(error))
     }),

@@ -14,22 +14,12 @@ import sqlode/internal/query_analyzer/placeholder
 import sqlode/internal/query_analyzer/token_utils
 import sqlode/internal/query_ir
 
-pub type AnalysisError =
-  context.AnalysisError
-
-pub fn analysis_error_to_string(
-  error: AnalysisError,
-  engine: model.Engine,
-) -> String {
-  context.analysis_error_to_string(error, engine)
-}
-
 pub fn analyze_queries(
   engine: model.Engine,
   catalog: model.Catalog,
   naming_ctx: naming.NamingContext,
   queries: List(query_ir.TokenizedQuery),
-) -> Result(List(model.AnalyzedQuery), AnalysisError) {
+) -> Result(List(model.AnalyzedQuery), context.AnalysisError) {
   let ctx = context.new(naming_ctx)
   list.try_map(queries, analyze_query(ctx, engine, catalog, _))
 }
@@ -39,7 +29,7 @@ fn analyze_query(
   engine: model.Engine,
   catalog: model.Catalog,
   tq: query_ir.TokenizedQuery,
-) -> Result(model.AnalyzedQuery, AnalysisError) {
+) -> Result(model.AnalyzedQuery, context.AnalysisError) {
   let query_ir.TokenizedQuery(base: query, tokens: tokens) = tq
   let statement = token_utils.structure_tokens(tokens)
   // Surface virtual tables the outer query references — CTEs, VALUES
