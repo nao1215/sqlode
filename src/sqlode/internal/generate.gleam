@@ -38,7 +38,7 @@ pub type GenerateError {
   EnumValueRejected(type_mapping.EnumValueError)
   /// A table, column or parameter name does not turn into a Gleam
   /// name, typically because it is written in a non-Latin script.
-  UnnamableIdentifier(kind: String, name: String, gleam_name: String)
+  UnnamableIdentifier(kind: NameKind, name: String, gleam_name: String)
   NoQueriesGenerated(
     output: String,
     parsed_query_count: Int,
@@ -49,6 +49,14 @@ pub type GenerateError {
   InvalidOutPath(path: String)
   WriteError(writer.WriteError)
   VendorRuntimeNotFound
+}
+
+/// What an unnamable name belongs to; each has its own fix.
+pub type NameKind {
+  TableName
+  TableColumn(table: String)
+  QueryColumn(query: String)
+  QueryParameter(query: String)
 }
 
 /// Something worth telling the user that does not stop generation.
@@ -263,12 +271,6 @@ pub fn check_analyzed(
   catalog: model.Catalog,
   analyzed: List(model.AnalyzedQuery),
 ) -> Result(List(model.AnalyzedQuery), GenerateError) {
-  use Nil <- result.try(validate_gleam_names(
-    naming_ctx,
-    catalog,
-    analyzed,
-    block.gleam.emit_exact_table_names,
-  ))
   use Nil <- result.try(
     {
       use Nil <- result.try(query_validation.validate_unsupported_annotations(
@@ -289,10 +291,19 @@ pub fn check_analyzed(
     }
     |> result.map_error(ValidationFailed),
   )
-  analyzed
-  |> apply_column_renames(block.overrides.column_renames)
-  |> disambiguate_param_names
-  |> Ok
+  // Names are checked on what codegen sees: after the renames, which
+  // can give a result column a valid name, and the `_2` suffixes.
+  let analyzed =
+    analyzed
+    |> apply_column_renames(block.overrides.column_renames)
+    |> disambiguate_param_names
+  use Nil <- result.try(validate_gleam_names(
+    naming_ctx,
+    catalog,
+    analyzed,
+    block.gleam.emit_exact_table_names,
+  ))
+  Ok(analyzed)
 }
 
 /// Expand directories and read every `.sql` file. `kind` names the
@@ -844,21 +855,21 @@ fn validate_gleam_names(
       let type_name =
         naming.table_type_name(naming_ctx, table.name, emit_exact_table_names)
       use Nil <- result.try(check(
-        "table",
+        TableName,
         table.name,
         type_name,
         naming.is_type_name(type_name),
       ))
       list.try_each(table.columns, fn(column) {
-        label("column of table " <> table.name, column.name)
+        label(TableColumn(table.name), column.name)
       })
     }),
   )
   list.try_each(analyzed, fn(query) {
-    let kind = "column of query " <> query.base.name
+    let kind = QueryColumn(query.base.name)
     use Nil <- result.try(
       list.try_each(query.params, fn(param) {
-        label("parameter of query " <> query.base.name, param.field_name)
+        label(QueryParameter(query.base.name), param.field_name)
       }),
     )
     list.try_each(query.result_columns, fn(item) {
@@ -997,14 +1008,33 @@ pub fn error_to_string(error: GenerateError) -> String {
       context.analysis_error_to_string(error, engine)
     ValidationFailed(inner) -> query_validation.error_to_string(inner)
     EnumValueRejected(inner) -> type_mapping.enum_value_error_to_string(inner)
-    UnnamableIdentifier(kind:, name:, gleam_name:) ->
+    UnnamableIdentifier(kind:, name:, gleam_name:) -> {
+      let #(owner, hint) = case kind {
+        TableName -> #("table", "rename the table in the schema")
+        // overrides.renames only renames result columns, so a table's
+        // own field can only be fixed in the schema.
+        TableColumn(table:) -> #(
+          "column of table " <> table,
+          "rename the column in the schema",
+        )
+        QueryColumn(query:) -> #(
+          "column of query " <> query,
+          "give the column an ASCII alias with AS in the query, or rename it with overrides.renames",
+        )
+        QueryParameter(query:) -> #(
+          "parameter of query " <> query,
+          "rename the parameter in the query",
+        )
+      }
       "SQD5005: "
-      <> kind
+      <> owner
       <> " \""
       <> name
       <> "\" cannot become a Gleam name (it would be \""
       <> gleam_name
-      <> "\"). Gleam names use ASCII letters, digits and '_'; rename it, or give the column an ASCII alias with AS in the query"
+      <> "\"). Gleam names use ASCII letters, digits and '_'; "
+      <> hint
+    }
     NoQueriesGenerated(
       output:,
       parsed_query_count:,

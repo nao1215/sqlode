@@ -2744,7 +2744,7 @@ pub fn non_ascii_column_name_is_rejected_test() {
   )
   |> generate_error
   |> should.equal(
-    "SQD5005: column of table users \"名前\" cannot become a Gleam name (it would be \"名前\"). Gleam names use ASCII letters, digits and '_'; rename it, or give the column an ASCII alias with AS in the query",
+    "SQD5005: column of table users \"名前\" cannot become a Gleam name (it would be \"名前\"). Gleam names use ASCII letters, digits and '_'; rename the column in the schema",
   )
 }
 
@@ -2754,10 +2754,42 @@ pub fn non_ascii_result_column_is_rejected_test() {
     "-- name: GetUser :one\nSELECT name AS 名前 FROM users WHERE id = $1;",
   )
   |> generate_error
-  |> string.starts_with(
-    "SQD5005: column of query GetUser \"名前\" cannot become a Gleam name",
+  |> should.equal(
+    "SQD5005: column of query GetUser \"名前\" cannot become a Gleam name (it would be \"名前\"). Gleam names use ASCII letters, digits and '_'; give the column an ASCII alias with AS in the query, or rename it with overrides.renames",
   )
+}
+
+// overrides.renames is applied before the names are checked, so a
+// rename to a valid name clears SQD5005.
+pub fn renamed_result_column_passes_the_name_check_test() {
+  let block =
+    names_block(
+      "CREATE TABLE users (id integer NOT NULL, name text NOT NULL);",
+      "-- name: GetUser :one\nSELECT users.name AS 名前 FROM users WHERE id = $1;",
+    )
+  let block =
+    model.SqlBlock(
+      ..block,
+      overrides: model.Overrides(type_overrides: [], column_renames: [
+        model.ColumnRename(table: "users", column: "名前", rename_to: "jp_name"),
+      ]),
+    )
+  let assert Ok(_) =
+    generate.generate_config(model.Config(version: 2, sql: [block])).result
+  string.contains(read_generated("models.gleam"), "GetUserRow(jp_name: String)")
   |> should.be_true
+  cleanup()
+}
+
+pub fn non_ascii_macro_parameter_is_rejected_test() {
+  names_block(
+    "CREATE TABLE users (id integer NOT NULL, name text NOT NULL);",
+    "-- name: GetUser :one\nSELECT id FROM users WHERE id = sqlode.arg(番号);",
+  )
+  |> generate_error
+  |> should.equal(
+    "SQD5005: parameter of query GetUser \"番号\" cannot become a Gleam name (it would be \"番号\"). Gleam names use ASCII letters, digits and '_'; rename the parameter in the query",
+  )
 }
 
 // A `..` the path resolution cannot fold away (the config sits in a

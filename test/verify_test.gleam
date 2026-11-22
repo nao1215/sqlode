@@ -15,6 +15,7 @@ import gleam/option
 import gleam/string
 import gleeunit
 import gleeunit/should
+import simplifile
 import sqlode/internal/model
 import sqlode/internal/verify
 
@@ -506,4 +507,40 @@ pub fn verify_reports_an_out_path_generate_rejects_test() {
     ])
   let assert [finding] = verify.verify_config(cfg).findings
   string.starts_with(finding.detail, "SQD5002: ") |> should.be_true()
+}
+
+// verify checks Gleam names after overrides.renames, like generate.
+pub fn verify_accepts_a_result_column_renamed_to_a_valid_name_test() {
+  let dir = "test_output/verify_rename_names"
+  let _delete_result = simplifile.delete(dir)
+  let assert Ok(Nil) = simplifile.create_directory_all(dir)
+  let assert Ok(Nil) =
+    simplifile.write(
+      dir <> "/schema.sql",
+      "CREATE TABLE users (id integer NOT NULL, name text NOT NULL);",
+    )
+  let assert Ok(Nil) =
+    simplifile.write(
+      dir <> "/query.sql",
+      "-- name: GetUser :one\nSELECT users.name AS 名前 FROM users WHERE id = $1;",
+    )
+  let block =
+    make_block(
+      dir <> "/schema.sql",
+      dir <> "/query.sql",
+      "src/verify_rename_out",
+      option.None,
+    )
+  let renamed =
+    model.SqlBlock(
+      ..block,
+      overrides: model.Overrides(type_overrides: [], column_renames: [
+        model.ColumnRename(table: "users", column: "名前", rename_to: "jp_name"),
+      ]),
+    )
+  let assert [finding] =
+    verify.verify_config(model.Config(version: 2, sql: [block])).findings
+  string.starts_with(finding.detail, "SQD5005: ") |> should.be_true
+  verify.verify_config(model.Config(version: 2, sql: [renamed])).findings
+  |> should.equal([])
 }
