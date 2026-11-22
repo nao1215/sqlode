@@ -208,6 +208,7 @@ fn run_verify(flag_value: String) -> Nil {
           halt(1)
         }
         Ok(report) -> {
+          print_warnings(report.warnings)
           io.println(verify.report_to_string(report))
           case report.findings {
             [] -> Nil
@@ -217,6 +218,12 @@ fn run_verify(flag_value: String) -> Nil {
       }
     }
   }
+}
+
+fn print_warnings(warnings: List(generate.Warning)) -> Nil {
+  list.each(warnings, fn(warning) {
+    io.println_error(generate.warning_to_string(warning))
+  })
 }
 
 /// Help text of a subcommand: paragraphs, then one example per line.
@@ -253,7 +260,9 @@ fn run_generate(flag_value: String) -> Nil {
     Ok(config_path) -> {
       io.println("Loading config from: " <> config_path)
 
-      case generate.run(config_path) {
+      let generation = generate.run(config_path)
+      print_warnings(generation.warnings)
+      case generation.result {
         Ok(written) -> {
           io.println("")
           io.println(

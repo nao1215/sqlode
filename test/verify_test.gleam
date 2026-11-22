@@ -142,17 +142,20 @@ pub fn report_to_string_joins_findings_with_block_tag_test() {
   // The report renderer must prefix every finding with the block
   // out directory so multi-block reports stay attributable.
   let report =
-    verify.Report(findings: [
-      verify.Finding(block_out: "src/one", detail: "a"),
-      verify.Finding(block_out: "src/two", detail: "b"),
-    ])
+    verify.Report(
+      findings: [
+        verify.Finding(block_out: "src/one", detail: "a"),
+        verify.Finding(block_out: "src/two", detail: "b"),
+      ],
+      warnings: [],
+    )
   let rendered = verify.report_to_string(report)
   string.contains(rendered, "[src/one] a") |> should.be_true()
   string.contains(rendered, "[src/two] b") |> should.be_true()
 }
 
 pub fn report_to_string_reports_all_clear_on_empty_findings_test() {
-  let report = verify.Report(findings: [])
+  let report = verify.Report(findings: [], warnings: [])
   verify.report_to_string(report) |> should.equal("All checks passed.")
 }
 
