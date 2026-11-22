@@ -278,7 +278,10 @@ pub fn check_analyzed(
         block.engine,
         analyzed,
       ))
-      use Nil <- result.try(query_validation.validate_slice_placement(analyzed))
+      use Nil <- result.try(query_validation.validate_slice_placement(
+        block.engine,
+        analyzed,
+      ))
       case block.gleam.runtime {
         model.Native -> query_validation.validate_native_annotations(analyzed)
         model.Raw -> Ok(Nil)

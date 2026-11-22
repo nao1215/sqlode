@@ -7,6 +7,7 @@ import simplifile
 import sqlode/internal/model
 import sqlode/internal/naming
 import sqlode/internal/query_parser
+import sqlode/internal/query_validation
 import sqlode/runtime
 
 pub fn main() {
@@ -1476,4 +1477,19 @@ pub fn sqlc_macro_inside_a_string_is_left_alone_test() {
       "SELECT id FROM t WHERE note = 'sqlc.arg(x)' AND id = $1;",
     )
   query.param_count |> should.equal(1)
+}
+
+// The slice-in-ANY check re-reads the generated SQL. Read with the
+// PostgreSQL rules, the MySQL `\'` ended the literal early, the rest
+// of the query became one string and the slice inside ANY was missed.
+pub fn slice_inside_any_is_found_after_a_mysql_backslash_quote_test() {
+  let query =
+    parse_single(
+      model.MySQL,
+      "SELECT id FROM t WHERE name = 'it\\'s' AND id = ANY(sqlode.slice(ids));",
+    )
+  let analyzed =
+    model.AnalyzedQuery(base: query, params: [], result_columns: [])
+  query_validation.validate_slice_placement(model.MySQL, [analyzed])
+  |> should.equal(Error(query_validation.SliceInsideQuantifier("GetT")))
 }

@@ -144,11 +144,12 @@ pub fn validate_array_engine_support(
 /// scalar as "requires array on right side"). The query could never
 /// run, so it is stopped before any code is written.
 pub fn validate_slice_placement(
+  engine: model.Engine,
   queries: List(model.AnalyzedQuery),
 ) -> Result(Nil, ValidationError) {
   case
     list.find(queries, fn(q) {
-      slice_inside_quantifier(lexer.tokenize(q.base.sql, model.PostgreSQL))
+      slice_inside_quantifier(lexer.tokenize(q.base.sql, engine))
     })
   {
     Ok(q) -> Error(SliceInsideQuantifier(query_name: q.base.name))
