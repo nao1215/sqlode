@@ -11,17 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Removed
 
-- `sqlode/runtime` keeps only what generated code and a custom adapter use: `prepare`, `nullable`, and the types `RawQuery`, `QueryInfo`, `QueryCommand`, `Value` and `PlaceholderStyle`. The value helpers `null`, `string`, `int`, `float`, `bool`, `bytes` and `array` are gone; use the `Value` constructors, which are functions too. The `raw_query*` builders are gone; build `RawQuery(...)` directly. `ExpandError`, `MarkerError`, `expand_slice_placeholders`, `expand_slice_placeholders_checked`, `param_marker_checked` and `slice_marker_checked` are gone, and `param_marker`, `slice_marker` and `render_placeholder` are internal. `QueryCommand` lost `BatchOne`, `BatchMany`, `BatchExec` and `CopyFrom`, which no generated query could have. Regenerate your code with this version; hand-written code that called the helpers changes like this:
-
-```gleam
-// before
-runtime.nullable(p.bio, runtime.string)
-runtime.int(p.id)
-
-// after
-runtime.nullable(p.bio, runtime.String)
-runtime.Int(p.id)
-```
+- `sqlode/runtime` keeps only what generated code and a custom adapter use: `prepare`, `nullable`, and the types `RawQuery`, `QueryInfo`, `QueryCommand`, `Value` and `PlaceholderStyle`. The value helpers `null`, `string`, `int`, `float`, `bool`, `bytes` and `array` are gone; use the `Value` constructors, which are functions too. The `raw_query*` builders are gone; build `RawQuery(...)` directly. `ExpandError`, `MarkerError`, `expand_slice_placeholders`, `expand_slice_placeholders_checked`, `param_marker_checked` and `slice_marker_checked` are gone, and `param_marker`, `slice_marker` and `render_placeholder` are internal. `QueryCommand` lost `BatchOne`, `BatchMany`, `BatchExec` and `CopyFrom`, which no generated query could have. Regenerate your code with this version.
 
 ### Fixed
 
