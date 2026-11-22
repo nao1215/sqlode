@@ -200,4 +200,4 @@ A generated file or its directory could not be written. The message names the pa
 
 ## SQD5005
 
-A table, column or parameter name does not turn into a Gleam name, usually because it is written in a script without Latin letters (`名前`). Generated types, fields and labels use ASCII letters, digits and `_`. Rename it in the schema, or give the result column an ASCII alias with `AS` in the query.
+A table, column or parameter name does not turn into a Gleam name, usually because it is written in a script without Latin letters (`名前`). Generated types, fields and labels use ASCII letters, digits and `_`. Rename a table or a table column in the schema; `overrides.renames` does not change the table's own type. Give a query's result column an ASCII alias with `AS`, or rename it with `overrides.renames`, and rename a parameter (`sqlode.arg(name)`, `@name`) in the query.
