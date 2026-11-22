@@ -1,7 +1,6 @@
 import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
-import gleam/option
 import gleam/string
 import sqlode/internal/codegen/common
 import sqlode/internal/model
@@ -354,101 +353,15 @@ fn render_decoder_function(
     Error(_) -> type_name
   }
 
-  let #(_, field_lines) =
-    list.fold(query.result_columns, #(0, []), fn(acc, col) {
-      let #(idx, lines) = acc
-      case col {
-        model.ScalarResult(model.ResultColumn(
-          name:,
-          scalar_type:,
-          nullable:,
-          ..,
-        )) -> {
-          let field_name = naming.to_snake_case(naming_ctx, name)
-          let base =
-            render_raw_base_decoder(engine, scalar_type, type_mapping_mode)
-          let decoder = case nullable {
-            True -> "decode.optional(" <> base <> ")"
-            False -> base
-          }
-          let line =
-            "  use "
-            <> field_name
-            <> " <- decode.field("
-            <> int.to_string(idx)
-            <> ", "
-            <> decoder
-            <> ")"
-          #(idx + 1, list.append(lines, [line]))
-        }
-        model.EmbeddedResult(model.EmbeddedColumn(
-          name: embed_name,
-          columns: embed_cols,
-          table_name: embed_table_name,
-        )) -> {
-          let embed_field_name = naming.to_snake_case(naming_ctx, embed_name)
-          let embed_type_name =
-            naming.table_type_name(
-              naming_ctx,
-              embed_table_name,
-              emit_exact_table_names,
-            )
-          let #(new_idx, decode_lines) =
-            list.fold(embed_cols, #(idx, []), fn(inner_acc, c) {
-              let #(i, ls) = inner_acc
-              let field_name = naming.to_snake_case(naming_ctx, c.name)
-              let base =
-                render_raw_base_decoder(
-                  engine,
-                  c.scalar_type,
-                  type_mapping_mode,
-                )
-              let decoder = case c.nullable {
-                True -> "decode.optional(" <> base <> ")"
-                False -> base
-              }
-              let line =
-                "  use "
-                <> field_name
-                <> " <- decode.field("
-                <> int.to_string(i)
-                <> ", "
-                <> decoder
-                <> ")"
-              #(i + 1, list.append(ls, [line]))
-            })
-          let embed_constructor_fields =
-            list.map(embed_cols, fn(c) {
-              naming.to_snake_case(naming_ctx, c.name) <> ":"
-            })
-            |> string.join(", ")
-          let constructor_line =
-            "  let "
-            <> embed_field_name
-            <> " = models."
-            <> embed_type_name
-            <> "("
-            <> embed_constructor_fields
-            <> ")"
-          let all_lines = list.append(decode_lines, [constructor_line])
-          #(new_idx, list.append(lines, all_lines))
-        }
-      }
-    })
-
-  let constructor_fields =
-    query.result_columns
-    |> list.flat_map(fn(col) {
-      case col {
-        model.ScalarResult(model.ResultColumn(name:, ..)) -> [
-          naming.to_snake_case(naming_ctx, name) <> ":",
-        ]
-        model.EmbeddedResult(model.EmbeddedColumn(name:, ..)) -> [
-          naming.to_snake_case(naming_ctx, name) <> ":",
-        ]
-      }
-    })
-    |> string.join(", ")
+  let #(field_lines, constructor_fields) =
+    common.render_row_decoder_body(
+      naming_ctx,
+      query.result_columns,
+      type_mapping.scalar_type_to_decoder(engine, _),
+      type_mapping_mode,
+      emit_exact_table_names,
+      "  ",
+    )
 
   string.join(
     list.flatten([
@@ -471,57 +384,6 @@ fn render_decoder_function(
     ]),
     "\n",
   )
-}
-
-/// Raw-runtime counterpart of `adapter.gleam`'s `render_base_decoder`.
-/// Under strong type mapping, rich scalar types (TIMESTAMP, DATE,
-/// UUID, etc.) need the decoded primitive wrapped by their generated
-/// `models.<Wrapper>` constructor so the resulting decoder produces
-/// a value the row type can consume. Without this, raw `queries.gleam`
-/// would decode a bare `String` / `Int` and call the row constructor
-/// with a type mismatch — a regression Issue #445 tracks.
-fn render_raw_base_decoder(
-  engine: model.Engine,
-  scalar_type: model.ScalarType,
-  type_mapping_mode: model.TypeMapping,
-) -> String {
-  case scalar_type {
-    model.EnumType(_) | model.SetType(_) ->
-      common.render_enum_or_set_decoder(
-        scalar_type,
-        type_mapping.scalar_type_to_decoder(engine, _),
-      )
-    // Custom override with explicit codec hooks (issue #529): compose
-    // the user-supplied `decode` function on top of the underlying
-    // primitive decoder so the row value is wrapped back into the
-    // opaque domain type. Mirrors the corresponding branch in
-    // `adapter.gleam`'s `render_base_decoder`.
-    model.CustomType(module:, codec: option.Some(hooks), ..) ->
-      "decode.map("
-      <> type_mapping.scalar_type_to_decoder(engine, scalar_type)
-      <> ", "
-      <> common.qualified_hook_call(module, hooks.decode)
-      <> ")"
-    _ ->
-      case
-        type_mapping_mode == model.StrongMapping
-        && type_mapping.is_rich_type(scalar_type)
-      {
-        True -> {
-          let constructor =
-            type_mapping.scalar_type_to_gleam_type(
-              scalar_type,
-              model.StrongMapping,
-            )
-          "decode.map("
-          <> type_mapping.scalar_type_to_decoder(engine, scalar_type)
-          <> ", models."
-          <> constructor
-          <> ")"
-        }
-        False -> type_mapping.scalar_type_to_decoder(engine, scalar_type)
-      }
-  }
 }
 
 fn render_query_info_literal(

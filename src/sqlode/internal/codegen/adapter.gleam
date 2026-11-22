@@ -1,7 +1,5 @@
 import gleam/dict.{type Dict}
-import gleam/int
 import gleam/list
-import gleam/option
 import gleam/string
 import sqlode/internal/codegen/builder
 import sqlode/internal/codegen/common
@@ -346,56 +344,15 @@ fn render_decoder(
   case query.result_columns {
     [] -> "decode.success(Nil)"
     columns -> {
-      let #(_, field_lines) =
-        list.fold(columns, #(0, []), fn(acc, col) {
-          let #(idx, lines) = acc
-          case col {
-            model.ScalarResult(model.ResultColumn(
-              name:,
-              scalar_type:,
-              nullable:,
-              ..,
-            )) -> {
-              let line =
-                render_field_decode_line(
-                  naming.to_snake_case(ctx.naming_ctx, name),
-                  idx,
-                  scalar_type,
-                  nullable,
-                  ctx.config,
-                  ctx.type_mapping,
-                )
-              #(idx + 1, list.append(lines, [line]))
-            }
-            model.EmbeddedResult(model.EmbeddedColumn(
-              name: embed_name,
-              table_name:,
-              columns: embed_cols,
-            )) -> {
-              let #(new_idx, embed_lines) =
-                render_embedded_column_lines(
-                  ctx,
-                  embed_name,
-                  table_name,
-                  embed_cols,
-                  idx,
-                )
-              #(new_idx, list.append(lines, embed_lines))
-            }
-          }
-        })
-
-      let constructor_fields =
-        columns
-        |> list.map(fn(col) {
-          case col {
-            model.ScalarResult(model.ResultColumn(name:, ..)) ->
-              naming.to_snake_case(ctx.naming_ctx, name) <> ":"
-            model.EmbeddedResult(model.EmbeddedColumn(name:, ..)) ->
-              naming.to_snake_case(ctx.naming_ctx, name) <> ":"
-          }
-        })
-        |> string.join(", ")
+      let #(field_lines, constructor_fields) =
+        common.render_row_decoder_body(
+          ctx.naming_ctx,
+          columns,
+          ctx.config.decoder_function,
+          ctx.type_mapping,
+          ctx.emit_exact_table_names,
+          "    ",
+        )
 
       builder.concat([
         builder.line("{"),
@@ -412,119 +369,6 @@ fn render_decoder(
       |> builder.render
     }
   }
-}
-
-fn render_base_decoder(
-  scalar_type: model.ScalarType,
-  config: AdapterConfig,
-  type_mapping: model.TypeMapping,
-) -> String {
-  case scalar_type {
-    model.EnumType(_) | model.SetType(_) ->
-      common.render_enum_or_set_decoder(scalar_type, config.decoder_function)
-    // Custom override with explicit codec hooks (issue #529): compose
-    // the user's `decode` function on top of the underlying primitive
-    // decoder so the row value is reconstructed inside the opaque
-    // wrapper. The underlying decoder is still chosen via
-    // `config.decoder_function`, which already routes `CustomType` to
-    // its underlying primitive.
-    model.CustomType(module:, codec: option.Some(hooks), ..) ->
-      "decode.map("
-      <> config.decoder_function(scalar_type)
-      <> ", "
-      <> common.qualified_hook_call(module, hooks.decode)
-      <> ")"
-    _ ->
-      case
-        type_mapping == model.StrongMapping
-        && type_mapping.is_rich_type(scalar_type)
-      {
-        True -> {
-          let constructor =
-            type_mapping.scalar_type_to_gleam_type(
-              scalar_type,
-              model.StrongMapping,
-            )
-          "decode.map("
-          <> config.decoder_function(scalar_type)
-          <> ", models."
-          <> constructor
-          <> ")"
-        }
-        False -> config.decoder_function(scalar_type)
-      }
-  }
-}
-
-fn wrap_nullable_decoder(base_decoder: String, nullable: Bool) -> String {
-  case nullable {
-    True -> "decode.optional(" <> base_decoder <> ")"
-    False -> base_decoder
-  }
-}
-
-fn render_field_decode_line(
-  field_name: String,
-  idx: Int,
-  scalar_type: model.ScalarType,
-  nullable: Bool,
-  config: AdapterConfig,
-  type_mapping: model.TypeMapping,
-) -> String {
-  let full_decoder =
-    render_base_decoder(scalar_type, config, type_mapping)
-    |> wrap_nullable_decoder(nullable)
-  "    use "
-  <> field_name
-  <> " <- decode.field("
-  <> int.to_string(idx)
-  <> ", "
-  <> full_decoder
-  <> ")"
-}
-
-fn render_embedded_column_lines(
-  ctx: RenderContext,
-  embed_name: String,
-  table_name: String,
-  embed_cols: List(model.Column),
-  start_idx: Int,
-) -> #(Int, List(String)) {
-  let embed_field_name = naming.to_snake_case(ctx.naming_ctx, embed_name)
-  let embed_type_name =
-    naming.table_type_name(
-      ctx.naming_ctx,
-      table_name,
-      ctx.emit_exact_table_names,
-    )
-  let embed_lines =
-    list.index_map(embed_cols, fn(embed_col, embed_idx) {
-      let full_decoder =
-        render_base_decoder(embed_col.scalar_type, ctx.config, ctx.type_mapping)
-        |> wrap_nullable_decoder(embed_col.nullable)
-      "    use "
-      <> naming.to_snake_case(ctx.naming_ctx, embed_col.name)
-      <> " <- decode.field("
-      <> int.to_string(start_idx + embed_idx)
-      <> ", "
-      <> full_decoder
-      <> ")"
-    })
-  let embed_constructor_fields =
-    list.map(embed_cols, fn(c) {
-      naming.to_snake_case(ctx.naming_ctx, c.name) <> ":"
-    })
-    |> string.join(", ")
-  let constructor_line =
-    "    let "
-    <> embed_field_name
-    <> " = models."
-    <> embed_type_name
-    <> "("
-    <> embed_constructor_fields
-    <> ")"
-  let all_lines = list.append(embed_lines, [constructor_line])
-  #(start_idx + list.length(embed_cols), all_lines)
 }
 
 fn render_adapter_one(
