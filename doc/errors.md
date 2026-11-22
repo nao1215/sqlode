@@ -24,7 +24,7 @@ The first argument is not a subcommand sqlode knows. Check the spelling; `sqlode
 
 ## SQD1003
 
-An option was given before any subcommand (`sqlode --config=x generate`). Put the subcommand first: `sqlode generate --config=x`.
+An option was given without a subcommand, such as `sqlode --foo`. Options follow a subcommand: `sqlode generate --config=x`.
 
 ## SQD1004
 
@@ -92,7 +92,7 @@ A MySQL schema contains a DDL statement sqlode does not understand. sqlode stops
 
 ## SQD2005
 
-`strict_views: true` is set and a view column could not be resolved from its source tables. The message lists the columns. Fix the view, or turn `strict_views` off to keep the warning without failing.
+A view column could not be resolved from its source tables. The message lists the columns. Fix the view, or set `strict_views: false` (it defaults to `true`) to drop those columns with a warning.
 
 ## SQD2006
 
@@ -180,7 +180,7 @@ A query takes an array parameter (`col = ANY($1)`, `$1::int[]`), and the engine 
 
 ## SQD4012
 
-`verify` only: a query has more parameters than `query_parameter_limit` allows for its `sql` block. Split the query, or raise the limit.
+`verify` only: a query has more parameters than `gen.gleam.query_parameter_limit` allows. Split the query, or raise the limit.
 
 ## SQD5001
 
