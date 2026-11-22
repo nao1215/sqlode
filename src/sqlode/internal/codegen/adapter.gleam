@@ -289,7 +289,10 @@ fn render_adapter_function(
     False -> ""
   }
 
-  let #(return_type, body) = case model.generated_command(query.base.command) {
+  // nolint: assert_ok_pattern -- generate rejects unsupported annotations first
+  let assert Ok(command) = model.generated_command(query.base.command)
+    as "generate rejects unsupported annotations before codegen"
+  let #(return_type, body) = case command {
     runtime.One ->
       render_row_body(ctx, query, "Option", config.render_one_result())
     runtime.Many ->
@@ -702,5 +705,5 @@ fn adapter_needs_option_constructors(
 }
 
 fn adapter_query_uses_option_constructors(query: model.AnalyzedQuery) -> Bool {
-  model.generated_command(query.base.command) == runtime.One
+  model.generated_command(query.base.command) == Ok(runtime.One)
 }

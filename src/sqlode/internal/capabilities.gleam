@@ -16,6 +16,7 @@
 //// false impression to public users.
 
 import gleam/list
+import gleam/result
 import gleam/string
 import sqlode/internal/model
 
@@ -35,7 +36,9 @@ pub fn supported_type_mappings() -> List(model.TypeMapping) {
 /// analysis, and code generation all complete without the
 /// `validate_unsupported_annotations` guard rejecting them.
 pub fn fully_supported_query_commands() -> List(model.Annotation) {
-  list.filter(model.annotations(), model.is_supported)
+  list.filter(model.annotations(), fn(annotation) {
+    result.is_ok(model.generated_command(annotation))
+  })
 }
 
 /// Query annotations that the parser accepts for sqlc source
@@ -43,7 +46,7 @@ pub fn fully_supported_query_commands() -> List(model.Annotation) {
 /// `UnsupportedAnnotation` error.
 fn planned_query_commands() -> List(model.Annotation) {
   list.filter(model.annotations(), fn(annotation) {
-    !model.is_supported(annotation)
+    result.is_error(model.generated_command(annotation))
   })
 }
 

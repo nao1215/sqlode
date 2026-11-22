@@ -238,31 +238,40 @@ pub fn annotation_text(annotation: Annotation) -> String {
   }
 }
 
-/// The command generated code uses: the annotation's own command, or
-/// for an unsupported annotation the one to use instead.
-pub fn generated_command(annotation: Annotation) -> runtime.QueryCommand {
+/// The command generated code uses, or `Error(Nil)` for an annotation
+/// that generation does not support.
+pub fn generated_command(
+  annotation: Annotation,
+) -> Result(runtime.QueryCommand, Nil) {
   case annotation {
-    Command(command) -> command
-    BatchOne -> runtime.One
-    BatchMany -> runtime.Many
-    BatchExec | CopyFrom -> runtime.Exec
+    Command(command) -> Ok(command)
+    BatchOne | BatchMany | BatchExec | CopyFrom -> Error(Nil)
   }
 }
 
-/// Whether generation supports the annotation.
-pub fn is_supported(annotation: Annotation) -> Bool {
+/// The supported command to suggest in place of an unsupported
+/// annotation, or `Error(Nil)` when the annotation is supported.
+pub fn unsupported_command_alternative(
+  annotation: Annotation,
+) -> Result(runtime.QueryCommand, Nil) {
   case annotation {
-    Command(_) -> True
-    BatchOne | BatchMany | BatchExec | CopyFrom -> False
+    Command(_) -> Error(Nil)
+    BatchOne -> Ok(runtime.One)
+    BatchMany -> Ok(runtime.Many)
+    BatchExec | CopyFrom -> Ok(runtime.Exec)
   }
 }
 
 /// Whether the query returns rows.
 pub fn is_result_command(annotation: Annotation) -> Bool {
-  case generated_command(annotation) {
-    runtime.One | runtime.Many -> True
-    runtime.Exec | runtime.ExecResult | runtime.ExecRows | runtime.ExecLastId ->
-      False
+  case annotation {
+    Command(runtime.One) | Command(runtime.Many) | BatchOne | BatchMany -> True
+    Command(runtime.Exec)
+    | Command(runtime.ExecResult)
+    | Command(runtime.ExecRows)
+    | Command(runtime.ExecLastId)
+    | BatchExec
+    | CopyFrom -> False
   }
 }
 

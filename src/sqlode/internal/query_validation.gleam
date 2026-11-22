@@ -9,6 +9,7 @@
 
 import gleam/dict
 import gleam/list
+import gleam/result
 import gleam/string
 import sqlode/internal/lexer
 import sqlode/internal/model
@@ -80,18 +81,13 @@ pub fn validate_unsupported_annotations(
   queries: List(model.AnalyzedQuery),
 ) -> Result(Nil, ValidationError) {
   let unsupported = fn(query: model.AnalyzedQuery) {
-    case model.is_supported(query.base.command) {
-      True -> Error(Nil)
-      False -> Ok(query)
-    }
+    model.unsupported_command_alternative(query.base.command)
+    |> result.map(fn(alternative) { #(query, alternative) })
   }
   case list.find_map(queries, unsupported) {
-    Ok(q) -> {
+    Ok(#(q, alternative)) -> {
       let command = model.annotation_text(q.base.command)
-      let alternative =
-        model.annotation_text(
-          model.Command(model.generated_command(q.base.command)),
-        )
+      let alternative = model.annotation_text(model.Command(alternative))
       Error(UnsupportedAnnotation(
         query_name: q.base.name,
         command: command,

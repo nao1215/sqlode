@@ -631,3 +631,14 @@ pub fn type_mapping_set_renders_as_list_of_value_test() {
   )
   |> should.equal("List(ItemsTagsValue)")
 }
+
+pub fn generated_command_rejects_unsupported_annotations_test() {
+  model.generated_command(model.Command(runtime.Many))
+  |> should.equal(Ok(runtime.Many))
+  model.generated_command(model.BatchOne) |> should.equal(Error(Nil))
+  model.generated_command(model.CopyFrom) |> should.equal(Error(Nil))
+  model.unsupported_command_alternative(model.BatchExec)
+  |> should.equal(Ok(runtime.Exec))
+  model.unsupported_command_alternative(model.Command(runtime.One))
+  |> should.equal(Error(Nil))
+}

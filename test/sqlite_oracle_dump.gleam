@@ -19,6 +19,7 @@ import argv
 import gleam/int
 import gleam/io
 import gleam/list
+import gleam/result
 import gleam/string
 import simplifile
 import sqlode/internal/model
@@ -87,7 +88,10 @@ fn line(query: model.AnalyzedQuery) -> String {
       runtime.RawQuery(
         name: query.base.name,
         sql: query.base.sql,
-        command: model.generated_command(query.base.command),
+        command: result.unwrap(
+          model.generated_command(query.base.command),
+          runtime.Exec,
+        ),
         param_count: query.base.param_count,
         placeholder_style: runtime.QuestionNumbered,
         encode: fn(_) { [] },

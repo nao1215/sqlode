@@ -180,6 +180,9 @@ fn render_query_function(
 ) -> String {
   let has_params = !list.is_empty(query.params)
 
+  // nolint: assert_ok_pattern -- generate rejects unsupported annotations first
+  let assert Ok(command) = model.generated_command(query.base.command)
+    as "generate rejects unsupported annotations before codegen"
   let comment = case emit_sql_as_comment {
     True -> ["// SQL: " <> query.base.sql]
     False -> []
@@ -228,11 +231,7 @@ fn render_query_function(
         "  runtime.RawQuery(",
         "    name: \"" <> common.escape_string(query.base.name) <> "\",",
         "    sql: \"" <> common.escape_string(query.base.sql) <> "\",",
-        "    command: runtime."
-          <> model.query_command_to_string(model.generated_command(
-          query.base.command,
-        ))
-          <> ",",
+        "    command: runtime." <> model.query_command_to_string(command) <> ",",
         "    param_count: " <> int.to_string(query.base.param_count) <> ",",
         "    placeholder_style: " <> style_expr <> ",",
         encode_line,
@@ -385,12 +384,15 @@ fn render_query_info_literal(
   engine: model.Engine,
 ) -> String {
   let sql = resolve_static_placeholders(query.sql, query.param_count, engine)
+  // nolint: assert_ok_pattern -- generate rejects unsupported annotations first
+  let assert Ok(command) = model.generated_command(query.command)
+    as "generate rejects unsupported annotations before codegen"
   "runtime.QueryInfo(name: \""
   <> common.escape_string(query.name)
   <> "\", sql: \""
   <> common.escape_string(sql)
   <> "\", command: runtime."
-  <> model.query_command_to_string(model.generated_command(query.command))
+  <> model.query_command_to_string(command)
   <> ", param_count: "
   <> int.to_string(query.param_count)
   <> ")"
