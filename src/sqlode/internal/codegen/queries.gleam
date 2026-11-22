@@ -332,7 +332,14 @@ fn param_arg_type(
 fn has_result_columns(query: model.AnalyzedQuery) -> Bool {
   case query.base.command {
     runtime.One | runtime.Many -> !list.is_empty(query.result_columns)
-    _ -> False
+    runtime.Exec
+    | runtime.ExecResult
+    | runtime.ExecRows
+    | runtime.ExecLastId
+    | runtime.BatchOne
+    | runtime.BatchMany
+    | runtime.BatchExec
+    | runtime.CopyFrom -> False
   }
 }
 

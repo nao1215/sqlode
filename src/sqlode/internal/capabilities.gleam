@@ -36,26 +36,18 @@ pub fn supported_type_mappings() -> List(model.TypeMapping) {
 /// analysis, and code generation all complete without the
 /// `validate_unsupported_annotations` guard rejecting them.
 pub fn fully_supported_query_commands() -> List(runtime.QueryCommand) {
-  [
-    runtime.One,
-    runtime.Many,
-    runtime.Exec,
-    runtime.ExecResult,
-    runtime.ExecRows,
-    runtime.ExecLastId,
-  ]
+  list.filter(model.query_commands(), fn(command) {
+    model.unsupported_command_alternative(command) == Error(Nil)
+  })
 }
 
 /// Query annotations that the parser accepts for sqlc source
 /// compatibility but that generation currently refuses with an
 /// `UnsupportedAnnotation` error.
 fn planned_query_commands() -> List(runtime.QueryCommand) {
-  [
-    runtime.BatchOne,
-    runtime.BatchMany,
-    runtime.BatchExec,
-    runtime.CopyFrom,
-  ]
+  list.filter(model.query_commands(), fn(command) {
+    model.unsupported_command_alternative(command) != Error(Nil)
+  })
 }
 
 /// Macro helpers sqlode recognises inside query files. Emitted names
@@ -180,7 +172,7 @@ pub fn manifest_markdown() -> String {
       "",
       bullet_list(
         list.map(fully_supported_query_commands(), fn(command) {
-          "- `" <> command_annotation(command) <> "`"
+          "- `" <> model.query_command_annotation(command) <> "`"
         }),
       ),
       "",
@@ -192,7 +184,7 @@ pub fn manifest_markdown() -> String {
       "",
       bullet_list(
         list.map(planned_query_commands(), fn(command) {
-          "- `" <> command_annotation(command) <> "`"
+          "- `" <> model.query_command_annotation(command) <> "`"
         }),
       ),
       "",
@@ -231,20 +223,5 @@ fn yes_no(supported: Bool) -> String {
   case supported {
     True -> "yes"
     False -> "no"
-  }
-}
-
-fn command_annotation(command: runtime.QueryCommand) -> String {
-  case command {
-    runtime.One -> ":one"
-    runtime.Many -> ":many"
-    runtime.Exec -> ":exec"
-    runtime.ExecResult -> ":execresult"
-    runtime.ExecRows -> ":execrows"
-    runtime.ExecLastId -> ":execlastid"
-    runtime.BatchOne -> ":batchone"
-    runtime.BatchMany -> ":batchmany"
-    runtime.BatchExec -> ":batchexec"
-    runtime.CopyFrom -> ":copyfrom"
   }
 }

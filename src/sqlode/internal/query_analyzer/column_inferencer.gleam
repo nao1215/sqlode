@@ -12,7 +12,6 @@ import sqlode/internal/query_analyzer/expr_parser
 import sqlode/internal/query_analyzer/token_utils
 import sqlode/internal/query_analyzer/type_inference
 import sqlode/internal/query_ir
-import sqlode/runtime
 
 type ExtractedColumn {
   ExtractedColumn(
@@ -31,15 +30,9 @@ pub fn infer_result_columns(
   statement: query_ir.SqlStatement,
   catalog: model.Catalog,
 ) -> Result(List(model.ResultItem), AnalysisError) {
-  case query.command {
-    runtime.Exec
-    | runtime.ExecResult
-    | runtime.ExecRows
-    | runtime.ExecLastId
-    | runtime.BatchExec
-    | runtime.CopyFrom -> Ok([])
-    runtime.One | runtime.Many | runtime.BatchOne | runtime.BatchMany ->
-      infer_columns_from_ir(query.name, tokens, statement, catalog)
+  case model.is_result_command(query.command) {
+    False -> Ok([])
+    True -> infer_columns_from_ir(query.name, tokens, statement, catalog)
   }
 }
 
