@@ -147,7 +147,7 @@ cosign verify-blob --bundle SHA256SUMS.sigstore.json \
 gh attestation verify sqlode --repo nao1215/sqlode
 ```
 
-The Docker image is signed by digest: `cosign verify ghcr.io/nao1215/sqlode:0.36.0 --certificate-identity-regexp '^https://github.com/nao1215/sqlode/' --certificate-oidc-issuer https://token.actions.githubusercontent.com`.
+The Docker image is signed by digest: `cosign verify ghcr.io/nao1215/sqlode:0.37.0 --certificate-identity-regexp '^https://github.com/nao1215/sqlode/' --certificate-oidc-issuer https://token.actions.githubusercontent.com`.
 
 ## License
 
