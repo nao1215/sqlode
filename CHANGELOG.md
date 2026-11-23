@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-11-23
+
 ### Changed
 
 - A result column is typed from its expression, not from its alias or from a column name the expression mentions. `SELECT bio AS name` used to be typed as the `NOT NULL` `name` column and failed to decode a NULL `bio`, and `SELECT length(name)` used to be typed as the `name` column (`String`). Regenerated code can change type where such a query relied on the old guess.
