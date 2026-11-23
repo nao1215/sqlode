@@ -182,6 +182,10 @@ A query takes an array parameter (`col = ANY($1)`, `$1::int[]`), and the engine 
 
 `verify` only: a query has more parameters than `gen.gleam.query_parameter_limit` allows. Split the query, or raise the limit.
 
+## SQD4013
+
+`runtime: "native"` only: a query reads or sends a value that the driver does not carry as the `String` sqlode generates for it. pog returns DATE, TIME and TIMESTAMP values as gleam_time values and a UUID as 16 bytes, and takes dates and times only as gleam_time values; the MySQL driver returns DATE, TIME and DATETIME values as tuples. Select the column as text (`created_at::text AS created_at`, or `CAST(created_at AS CHAR) AS created_at` on MySQL), send a parameter as text and convert it in SQL (`$1::text::timestamptz`), or use `runtime: "raw"` and convert the value with your driver.
+
 ## SQD5001
 
 A `sql` block produced no queries: its query files contain no `-- name:` annotations, or every query was skipped. The message says how many queries and tables were found.

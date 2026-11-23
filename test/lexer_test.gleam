@@ -860,3 +860,58 @@ pub fn non_ascii_punctuation_does_not_join_identifiers_test() {
     Operator("»"),
   ])
 }
+
+// --- Comments and `?` by engine ---
+
+pub fn block_comments_nest_only_in_postgresql_test() {
+  // SQLite and MySQL end a block comment at the first `*/`.
+  let sql = "SELECT id FROM t /* a /* b */ WHERE id = ?"
+  let expected = [
+    Keyword("select"),
+    Ident("id"),
+    Keyword("from"),
+    Ident("t"),
+    Keyword("where"),
+    Ident("id"),
+    Operator("="),
+    Placeholder("?"),
+  ]
+  lexer.tokenize(sql, model.SQLite) |> should.equal(expected)
+  lexer.tokenize(sql, model.MySQL) |> should.equal(expected)
+  lexer.tokenize("SELECT id /* a /* b */ c */ FROM t", model.PostgreSQL)
+  |> should.equal([Keyword("select"), Ident("id"), Keyword("from"), Ident("t")])
+}
+
+pub fn mysql_double_dash_needs_a_space_to_start_a_comment_test() {
+  lexer.tokenize("SELECT 1--1", model.MySQL)
+  |> should.equal([
+    Keyword("select"),
+    NumberLit("1"),
+    Operator("-"),
+    Operator("-"),
+    NumberLit("1"),
+  ])
+  lexer.tokenize("SELECT 1 -- note\n, 2", model.MySQL)
+  |> should.equal([Keyword("select"), NumberLit("1"), Comma, NumberLit("2")])
+  lexer.tokenize("SELECT 1--1", model.SQLite)
+  |> should.equal([Keyword("select"), NumberLit("1")])
+}
+
+pub fn postgresql_question_mark_after_an_operand_is_an_operator_test() {
+  lexer.tokenize("meta ? 'k' AND (x) ? 'y'", model.PostgreSQL)
+  |> should.equal([
+    Ident("meta"),
+    Operator("?"),
+    StringLit("k", NoPrefix, QuoteDoubling),
+    Keyword("and"),
+    LParen,
+    Ident("x"),
+    RParen,
+    Operator("?"),
+    StringLit("y", NoPrefix, QuoteDoubling),
+  ])
+  // A `?` where a value goes stays a placeholder, so the parser can
+  // report that PostgreSQL wants `$1`.
+  lexer.tokenize("id = ?", model.PostgreSQL)
+  |> should.equal([Ident("id"), Operator("="), Placeholder("?")])
+}

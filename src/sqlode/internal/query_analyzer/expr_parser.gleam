@@ -192,11 +192,8 @@ pub fn parse_select_core(
   engine: model.Engine,
 ) -> #(query_ir.SelectCore, List(lexer.Token)) {
   let #(distinct, after_distinct) = case tokens {
-    [lexer.Keyword("select"), lexer.Keyword("distinct"), ..rest] -> #(
-      True,
-      rest,
-    )
-    [lexer.Keyword("select"), ..rest] -> #(False, rest)
+    [lexer.Keyword("select"), ..rest] ->
+      token_utils.skip_select_quantifier(rest)
     _ -> #(False, tokens)
   }
   let #(select_tokens, rest_after_select) =
@@ -1187,23 +1184,6 @@ fn parse_comparison_tail(
       query_ir.IsCheck(expr: left, predicate: query_ir.IsFalse, negated: False),
       rest,
     )
-    [
-      lexer.Keyword("is"),
-      lexer.Keyword("not"),
-      lexer.Keyword("unknown"),
-      ..rest
-    ] -> #(
-      query_ir.IsCheck(expr: left, predicate: query_ir.IsUnknown, negated: True),
-      rest,
-    )
-    [lexer.Keyword("is"), lexer.Keyword("unknown"), ..rest] -> #(
-      query_ir.IsCheck(
-        expr: left,
-        predicate: query_ir.IsUnknown,
-        negated: False,
-      ),
-      rest,
-    )
     [lexer.Keyword("not"), lexer.Keyword("in"), ..rest] ->
       parse_in_tail(left, rest, True, engine)
     [lexer.Keyword("in"), ..rest] -> parse_in_tail(left, rest, False, engine)
@@ -1219,7 +1199,60 @@ fn parse_comparison_tail(
       parse_like_tail(left, rest, query_ir.Ilike, True, engine)
     [lexer.Keyword("ilike"), ..rest] ->
       parse_like_tail(left, rest, query_ir.Ilike, False, engine)
+    [lexer.Keyword("is"), lexer.Keyword("not"), ..rest] ->
+      parse_is_tail(left, tokens, rest, True, engine)
+    [lexer.Keyword("is"), ..rest] ->
+      parse_is_tail(left, tokens, rest, False, engine)
     _ -> #(left, tokens)
+  }
+}
+
+/// `IS [NOT] DISTINCT FROM x` and `IS [NOT] UNKNOWN`. `unknown` is not
+/// a keyword to the lexer, since it is also a common column name.
+fn parse_is_tail(
+  left: query_ir.Expr,
+  tokens: List(lexer.Token),
+  rest: List(lexer.Token),
+  negated: Bool,
+  engine: model.Engine,
+) -> #(query_ir.Expr, List(lexer.Token)) {
+  case rest {
+    [lexer.Keyword("distinct"), lexer.Keyword("from"), ..after] -> {
+      let #(target, after) = parse_additive(after, engine)
+      #(
+        query_ir.IsCheck(
+          expr: left,
+          predicate: query_ir.IsDistinctFrom(target:),
+          negated:,
+        ),
+        after,
+      )
+    }
+    _ ->
+      case take_word(rest, "unknown") {
+        Ok(after) -> #(
+          query_ir.IsCheck(expr: left, predicate: query_ir.IsUnknown, negated:),
+          after,
+        )
+        Error(Nil) -> #(left, tokens)
+      }
+  }
+}
+
+/// The tokens after `word` when the first token is that word, read as
+/// an identifier in any letter case. For the words of SQL syntax that
+/// the lexer leaves as identifiers because they are also column names.
+fn take_word(
+  tokens: List(lexer.Token),
+  word: String,
+) -> Result(List(lexer.Token), Nil) {
+  case tokens {
+    [lexer.Ident(w), ..rest] ->
+      case string.lowercase(w) == word {
+        True -> Ok(rest)
+        False -> Error(Nil)
+      }
+    _ -> Error(Nil)
   }
 }
 
@@ -1339,12 +1372,12 @@ fn parse_like_tail(
   engine: model.Engine,
 ) -> #(query_ir.Expr, List(lexer.Token)) {
   let #(pattern, rest) = parse_additive(tokens, engine)
-  let #(escape, rest2) = case rest {
-    [lexer.Keyword("escape"), ..more] -> {
+  let #(escape, rest2) = case take_word(rest, "escape") {
+    Ok(more) -> {
       let #(esc, after) = parse_additive(more, engine)
       #(Some(esc), after)
     }
-    _ -> #(None, rest)
+    Error(Nil) -> #(None, rest)
   }
   #(
     query_ir.LikeExpr(
@@ -1410,7 +1443,25 @@ fn parse_cast(
   tokens: List(lexer.Token),
   engine: model.Engine,
 ) -> #(query_ir.Expr, List(lexer.Token)) {
-  let #(atom, rest) = parse_atom(tokens, engine)
+  let #(atom, rest) = case tokens {
+    // `INTERVAL '1 day'`. `interval` is also a column name, so the
+    // lexer reads it as an identifier.
+    [lexer.Ident(word), lexer.StringLit(value: val, ..), ..rest] ->
+      case string.lowercase(word) {
+        "interval" -> #(
+          query_ir.Func(
+            name: "interval",
+            args: [query_ir.FuncArg(expr: query_ir.StringLit(value: val))],
+            distinct: False,
+            filter: None,
+            over: None,
+          ),
+          rest,
+        )
+        _ -> parse_atom(tokens, engine)
+      }
+    _ -> parse_atom(tokens, engine)
+  }
   parse_cast_tail(atom, rest)
 }
 
@@ -1571,16 +1622,6 @@ fn parse_atom(
         )
       }
     }
-    [lexer.Keyword("interval"), lexer.StringLit(value: val, ..), ..rest] -> #(
-      query_ir.Func(
-        name: "interval",
-        args: [query_ir.FuncArg(expr: query_ir.StringLit(value: val))],
-        distinct: False,
-        filter: None,
-        over: None,
-      ),
-      rest,
-    )
     [lexer.Ident(s), lexer.Dot, lexer.Ident(name), lexer.LParen, ..rest] ->
       case string.lowercase(s) {
         "sqlode" -> {
@@ -1665,10 +1706,14 @@ fn parse_filter_clause(
   engine: model.Engine,
 ) -> #(Option(query_ir.Expr), List(lexer.Token)) {
   case tokens {
-    [lexer.Keyword("filter"), lexer.LParen, lexer.Keyword("where"), ..rest] -> {
-      let #(inside, after) = collect_parens_after_where(rest)
-      #(Some(parse_expr(inside, engine)), after)
-    }
+    [lexer.Ident(word), lexer.LParen, lexer.Keyword("where"), ..rest] ->
+      case string.lowercase(word) {
+        "filter" -> {
+          let #(inside, after) = collect_parens_after_where(rest)
+          #(Some(parse_expr(inside, engine)), after)
+        }
+        _ -> #(None, tokens)
+      }
     _ -> #(None, tokens)
   }
 }

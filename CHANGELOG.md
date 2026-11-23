@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- A result column is typed from its expression, not from its alias or from a column name the expression mentions. `SELECT bio AS name` used to be typed as the `NOT NULL` `name` column and failed to decode a NULL `bio`, and `SELECT length(name)` used to be typed as the `name` column (`String`). Regenerated code can change type where such a query relied on the old guess.
+- NULL now propagates through `||`, the string, length and date functions (`upper(bio)`, `length(bio)`, `date(at)`), comparisons, `LIKE`, `BETWEEN`, `IN` and `NOT` in a result column, which become `Option(...)` when an operand is nullable. They were `String`, `Int` or `Bool`, and the generated decoder failed with `expected String, got Nil` on the first NULL. `IFNULL` and `NVL` keep their first argument's type and are non-null when an argument is, and a `CAST` of a column is nullable only when the column is.
+- With `runtime: "native"`, a query that reads a DATE, TIME or TIMESTAMP column, or sends such a parameter to PostgreSQL, or reads a PostgreSQL UUID, stops `generate` and `verify` with SQD4013. The generated `String` could not hold what pog and the MySQL driver return (gleam_time values, tuples, 16 bytes), so every call failed with a decode or argument error. The message names the column and the cast that works, such as `created_at::text AS created_at` or `$1::text::timestamptz`.
+
+### Fixed
+
+- Two result columns with the same name (`SELECT *` over a join, `upper(name), name`) generated a row type with a duplicate field, which did not compile. Later ones get `_2`, `_3`, as repeated parameters already did.
+- A block comment ends at the first `*/` in SQLite and MySQL. sqlode nested them as PostgreSQL does, so `/* a /* b */ WHERE id = ?` dropped the `WHERE` clause from the generated SQL without an error.
+- In MySQL, `--` starts a comment only when a space or control character follows, so `1--1` is no longer cut at the dashes.
+- The PostgreSQL jsonb operator `?` (`WHERE meta ? 'admin'`) stopped generation with SQD3004 as if it were a placeholder.
+- A NUMERIC column with a whole value, such as `10`, failed to decode in the pog adapter, which received an Int for a `Float` field.
+- A parameter compared with `BETWEEN`, `IS [NOT] DISTINCT FROM`, or `LIKE ... ESCAPE` stopped `generate` with `could not infer type for parameter`; it takes the column's type now. `FILTER (WHERE ...)`, `IS [NOT] UNKNOWN` and `INTERVAL '...'` are parsed instead of being skipped.
+- A column read through an upper-case `LEFT JOIN` alias (`SELECT B.title FROM authors a LEFT JOIN books B ...`) was generated as non-nullable.
+- `queries.gleam` imported `gleam/option` when only a result column was nullable, which Gleam reports as an unused import. The integration builds now use `--warnings-as-errors`.
+
 ## [0.36.0] - 2026-11-22
 
 ### Removed

@@ -697,6 +697,39 @@ scenarios:
       - assert:
           exit_code: 0
 
+  - name: the pog adapter refuses a timestamp it cannot decode as a String
+    steps:
+      - run:
+          command: |
+            rm -rf "${workdir}/pog-time"
+            mkdir -p "${workdir}/pog-time/db"
+            printf 'CREATE TABLE events (\n  id BIGINT PRIMARY KEY,\n  at TIMESTAMPTZ NOT NULL\n);\n' > "${workdir}/pog-time/db/schema.sql"
+            printf -- '-- name: ListEvents :many\nSELECT id, at FROM events;\n' > "${workdir}/pog-time/db/query.sql"
+            printf 'version: "2"\nsql:\n  - schema: "db/schema.sql"\n    queries: "db/query.sql"\n    engine: "postgresql"\n    gen:\n      gleam:\n        out: "src/db"\n        runtime: "native"\n' > "${workdir}/pog-time/sqlode.yaml"
+            ./spec/support/sqlode.sh generate --config="${workdir}/pog-time/sqlode.yaml"
+      - assert:
+          exit_code: 1
+          stderr:
+            contains:
+              - 'Error: SQD4013: Query "ListEvents"'
+              - at::text AS at
+      - assert:
+          file:
+            path: pog-time/src/db/pog_adapter.gleam
+            exists: false
+      - run:
+          command: ./spec/support/sqlode.sh verify --config="${workdir}/pog-time/sqlode.yaml"
+      - assert:
+          exit_code: 1
+          stdout:
+            contains: 'SQD4013: Query "ListEvents"'
+      - run:
+          command: |
+            printf -- '-- name: ListEvents :many\nSELECT id, at::text AS at FROM events;\n' > "${workdir}/pog-time/db/query.sql"
+            ./spec/support/sqlode.sh generate --config="${workdir}/pog-time/sqlode.yaml"
+      - assert:
+          exit_code: 0
+
   # Whole-output snapshots. The scenarios above check single lines; these
   # pin the full help text and a full verify report, so a reworded flag,
   # a dropped line or a reordered finding shows up in review as a diff of

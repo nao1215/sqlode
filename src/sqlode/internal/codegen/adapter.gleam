@@ -90,7 +90,7 @@ fn pog_adapter_config() -> AdapterConfig {
     library_import: "import pog",
     connection_type: "pog.Connection",
     error_type: "pog.QueryError",
-    decoder_function: type_mapping.scalar_type_to_decoder(model.PostgreSQL, _),
+    decoder_function: pog_decoder,
     render_query_call: render_pog_query_call,
     render_one_result: render_pog_one_result,
     render_many_result: render_pog_many_result,
@@ -99,6 +99,41 @@ fn pog_adapter_config() -> AdapterConfig {
     value_to_driver_helper: pog_value_to_driver_helper(),
     exec_rows_decoder: "decode.success(Nil)",
   )
+}
+
+/// pog returns a NUMERIC whose value is whole as an Int, so a column
+/// generated as `Float` also accepts an Int.
+fn pog_decoder(scalar_type: model.ScalarType) -> String {
+  case scalar_type {
+    model.FloatType -> pog_float_decoder
+    model.ArrayType(element: model.FloatType) ->
+      "decode.list(" <> pog_float_decoder <> ")"
+    _ -> type_mapping.scalar_type_to_decoder(model.PostgreSQL, scalar_type)
+  }
+}
+
+const pog_float_decoder =
+  "decode.one_of(decode.float, [decode.map(decode.int, int.to_float)])"
+
+/// Whether a pog adapter decodes a `Float` column, and so needs
+/// `gleam/int` for `pog_float_decoder`.
+fn pog_reads_float(queries: List(model.AnalyzedQuery)) -> Bool {
+  let is_float = fn(scalar_type) {
+    case scalar_type {
+      model.FloatType | model.ArrayType(element: model.FloatType) -> True
+      _ -> False
+    }
+  }
+  list.any(queries, fn(query) {
+    model.is_result_command(query.base.command)
+    && list.any(query.result_columns, fn(item) {
+      case item {
+        model.ScalarResult(column) -> is_float(column.scalar_type)
+        model.EmbeddedResult(embedded) ->
+          list.any(embedded.columns, fn(column) { is_float(column.scalar_type) })
+      }
+    })
+  })
 }
 
 fn sqlight_adapter_config() -> AdapterConfig {
@@ -236,6 +271,10 @@ fn render_adapter(
         "",
         "import gleam/dynamic/decode",
       ],
+      case block.engine == model.PostgreSQL && pog_reads_float(queries) {
+        True -> ["import gleam/int"]
+        False -> []
+      },
       case has_params {
         True -> ["import gleam/list"]
         False -> []
