@@ -1374,11 +1374,12 @@ pub fn string_concat_infers_string_type_test() {
     )
   let assert [query] = analyzed
 
+  // `bio` is nullable, and `||` is NULL when either side is.
   let assert [model.ScalarResult(col)] = query.result_columns
   let assert model.ResultColumn(
     name: "display",
     scalar_type: model.StringType,
-    nullable: False,
+    nullable: True,
     ..,
   ) = col
 }
@@ -3957,4 +3958,176 @@ pub fn in_list_mixing_literals_and_placeholders_test() {
 SELECT id FROM authors WHERE name IN ('admin', $1, $2::text);",
   )
   |> should.equal([model.StringType, model.StringType])
+}
+
+// --- Result types follow the expression, not the alias ---
+
+fn analyze_with_schema(engine: model.Engine, schema: String, sql: String) {
+  let naming_ctx = naming.new()
+  let assert Ok(#(catalog, _)) =
+    schema_parser.parse_files([#("schema.sql", schema)], engine)
+  let assert Ok(queries) =
+    query_parser.parse_file("query.sql", engine, naming_ctx, sql)
+  query_analyzer.analyze_queries(engine, catalog, naming_ctx, queries)
+}
+
+const books_schema =
+  "CREATE TABLE authors (id BIGINT PRIMARY KEY, name TEXT NOT NULL, bio TEXT);
+CREATE TABLE books (id BIGINT PRIMARY KEY, author_id BIGINT NOT NULL, title TEXT NOT NULL, price NUMERIC);"
+
+fn result_types(
+  engine: model.Engine,
+  sql: String,
+) -> List(#(String, model.ScalarType, Bool)) {
+  let assert Ok([query]) = analyze_with_schema(engine, books_schema, sql)
+  list.map(query.result_columns, fn(item) {
+    let assert model.ScalarResult(column) = item
+    #(column.name, column.scalar_type, column.nullable)
+  })
+}
+
+fn param_types(engine: model.Engine, sql: String) -> List(model.ScalarType) {
+  let assert Ok([query]) = analyze_with_schema(engine, books_schema, sql)
+  list.map(query.params, fn(param) { param.scalar_type })
+}
+
+pub fn alias_named_like_a_column_takes_the_expression_type_test() {
+  // `bio AS name` is the nullable bio, not the NOT NULL name column, and
+  // `length(name) AS id` is an Int because of length, not because of id.
+  result_types(
+    model.PostgreSQL,
+    "-- name: Shadow :many\nSELECT bio AS name, upper(name) AS id, a.bio AS title FROM authors a;",
+  )
+  |> should.equal([
+    #("name", model.StringType, True),
+    #("id", model.StringType, False),
+    #("title", model.StringType, True),
+  ])
+}
+
+pub fn unaliased_expression_takes_the_expression_type_test() {
+  // `length(name)` used to be typed as the `name` column it mentions.
+  result_types(
+    model.SQLite,
+    "-- name: Lengths :many\nSELECT length(name), max(id) FROM authors;",
+  )
+  |> list.map(fn(column) { #(column.1, column.2) })
+  |> should.equal([#(model.IntType, False), #(model.IntType, True)])
+}
+
+pub fn null_propagates_through_operators_and_functions_test() {
+  result_types(
+    model.PostgreSQL,
+    "-- name: Nulls :many\nSELECT name || bio AS a, name || '-' AS b, upper(bio) AS c, length(bio) AS d, bio = 'x' AS e, name = 'x' AS f, bio LIKE 'x%' AS g, CAST(id AS TEXT) AS h, CAST(bio AS TEXT) AS i FROM authors;",
+  )
+  |> list.map(fn(column) { #(column.0, column.2) })
+  |> should.equal([
+    #("a", True),
+    #("b", False),
+    #("c", True),
+    #("d", True),
+    #("e", True),
+    #("f", False),
+    #("g", True),
+    #("h", False),
+    #("i", True),
+  ])
+}
+
+pub fn ifnull_is_not_null_with_a_non_null_fallback_test() {
+  result_types(
+    model.SQLite,
+    "-- name: Fallback :many\nSELECT IFNULL(bio, 'none') AS a, IFNULL(bio, bio) AS b FROM authors;",
+  )
+  |> list.map(fn(column) { #(column.0, column.2) })
+  |> should.equal([#("a", False), #("b", True)])
+}
+
+pub fn between_distinct_from_escape_and_filter_infer_params_test() {
+  param_types(
+    model.PostgreSQL,
+    "-- name: Ranges :many\nSELECT id FROM books WHERE price BETWEEN $1 AND $2 AND title IS DISTINCT FROM $3 AND title LIKE $4 ESCAPE '!';",
+  )
+  |> should.equal([
+    model.FloatType,
+    model.FloatType,
+    model.StringType,
+    model.StringType,
+  ])
+  param_types(
+    model.SQLite,
+    "-- name: Escape :many\nSELECT id FROM authors WHERE name LIKE ? ESCAPE '\\';",
+  )
+  |> should.equal([model.StringType])
+  param_types(
+    model.PostgreSQL,
+    "-- name: Filtered :one\nSELECT count(*) FILTER (WHERE price > $1) AS c FROM books;",
+  )
+  |> should.equal([model.FloatType])
+}
+
+pub fn distinct_on_reads_the_columns_after_it_test() {
+  result_types(
+    model.PostgreSQL,
+    "-- name: Latest :many\nSELECT DISTINCT ON (author_id) author_id, title FROM books ORDER BY author_id, id DESC;",
+  )
+  |> should.equal([
+    #("author_id", model.IntType, False),
+    #("title", model.StringType, False),
+  ])
+}
+
+pub fn postgresql_jsonb_question_mark_is_an_operator_test() {
+  let assert Ok([query]) =
+    analyze_with_schema(
+      model.PostgreSQL,
+      "CREATE TABLE docs (id BIGINT PRIMARY KEY, meta JSONB);",
+      "-- name: Admins :many\nSELECT id, meta ? 'admin' AS is_admin FROM docs WHERE meta ? 'admin' AND id = $1;",
+    )
+  list.map(query.params, fn(param) { param.scalar_type })
+  |> should.equal([model.IntType])
+  string.contains(query.base.sql, "meta ? 'admin'") |> should.be_true
+}
+
+pub fn casts_keep_the_operand_nullability_inside_expressions_test() {
+  // A cast of a NOT NULL column stays NOT NULL inside `||` and
+  // comparisons, and a cast parameter can be NULL.
+  result_types(
+    model.PostgreSQL,
+    "-- name: Casts :many\nSELECT id::text || '-' AS a, upper(CAST(id AS TEXT)) AS b, id::text = 'x' AS c, CAST(bio AS TEXT) || '' AS d FROM authors;",
+  )
+  |> list.map(fn(column) { #(column.0, column.2) })
+  |> should.equal([#("a", False), #("b", False), #("c", False), #("d", True)])
+  result_types(
+    model.PostgreSQL,
+    "-- name: Echo :one\nSELECT $1::int AS echo FROM authors WHERE id = $2;",
+  )
+  |> list.map(fn(column) { #(column.0, column.2) })
+  |> should.equal([#("echo", True)])
+}
+
+pub fn ifnull_keeps_the_first_argument_type_test() {
+  // IFNULL used to be typed from its first argument when the fallback
+  // has another type, and must keep generating.
+  result_types(
+    model.SQLite,
+    "-- name: Seen :many\nSELECT IFNULL(id, 'n/a') AS a FROM authors;",
+  )
+  |> should.equal([#("a", model.IntType, False)])
+}
+
+pub fn between_walks_a_bound_that_is_not_a_parameter_test() {
+  param_types(
+    model.PostgreSQL,
+    "-- name: Upto :many\nSELECT id FROM books WHERE price BETWEEN $1 AND (SELECT max(price) FROM books WHERE author_id = $2);",
+  )
+  |> should.equal([model.FloatType, model.IntType])
+}
+
+pub fn uppercase_left_join_alias_keeps_its_nullability_test() {
+  result_types(
+    model.PostgreSQL,
+    "-- name: Titles :many\nSELECT B.title FROM authors a LEFT JOIN books B ON B.author_id = a.id;",
+  )
+  |> should.equal([#("title", model.StringType, True)])
 }

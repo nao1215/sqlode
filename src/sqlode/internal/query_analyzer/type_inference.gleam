@@ -92,13 +92,16 @@ pub fn infer_expr_type(
       infer_cast(scope, target, inner)
     query_ir.Case(scrutinee: _, branches: branches, else_: else_) ->
       infer_case(scope, branches, else_)
-    query_ir.InExpr(..) -> ok(model.BoolType, False)
+    query_ir.InExpr(expr: subject, ..) ->
+      ok(model.BoolType, any_nullable(scope, [subject]))
     query_ir.Exists(..) -> ok(model.BoolType, False)
     query_ir.ScalarSubquery(core: core) -> infer_scalar_subquery(scope, core)
     query_ir.Quantified(..) -> ok(model.BoolType, False)
-    query_ir.Between(..) -> ok(model.BoolType, False)
+    query_ir.Between(expr: subject, low:, high:, ..) ->
+      ok(model.BoolType, any_nullable(scope, [subject, low, high]))
     query_ir.IsCheck(..) -> ok(model.BoolType, False)
-    query_ir.LikeExpr(..) -> ok(model.BoolType, False)
+    query_ir.LikeExpr(expr: subject, pattern:, ..) ->
+      ok(model.BoolType, any_nullable(scope, [subject, pattern]))
     query_ir.ArrayLit(elements: elems) ->
       case elems {
         [] ->
@@ -213,7 +216,7 @@ fn infer_unary(
   arg: query_ir.Expr,
 ) -> Result(InferredType, AnalysisError) {
   case op {
-    "not" -> ok(model.BoolType, False)
+    "not" -> ok(model.BoolType, any_nullable(scope, [arg]))
     "-" | "+" -> infer_expr_type(scope, arg)
     _ ->
       Error(UnsupportedExpression(
@@ -230,14 +233,12 @@ fn infer_binary(
   right: query_ir.Expr,
 ) -> Result(InferredType, AnalysisError) {
   case op {
-    "and" | "or" -> ok(model.BoolType, False)
+    "and" | "or" -> ok(model.BoolType, any_nullable(scope, [left, right]))
     "||" -> {
-      // String concatenation. Treat as non-nullable for compatibility
-      // with the existing analyzer behaviour — `||` short-circuits at
-      // the emitter level to empty strings in the runtime.
-      use _ <- result.try(infer_expr_type_allow_null(scope, left))
-      use _ <- result.try(infer_expr_type_allow_null(scope, right))
-      ok(model.StringType, False)
+      // String concatenation: NULL when either side is NULL.
+      use lt <- result.try(infer_expr_type_allow_null(scope, left))
+      use rt <- result.try(infer_expr_type_allow_null(scope, right))
+      ok(model.StringType, lt.nullable || rt.nullable)
     }
     "+" | "-" | "*" | "/" | "%" -> {
       use lt <- result.try(infer_expr_type_allow_null(scope, left))
@@ -255,7 +256,8 @@ fn infer_binary(
     "->>" | "#>>" -> ok(model.StringType, True)
     _ ->
       case token_utils.is_boolean_operator(op) {
-        True -> ok(model.BoolType, False)
+        // A comparison with NULL is NULL.
+        True -> ok(model.BoolType, any_nullable(scope, [left, right]))
         False ->
           Error(UnsupportedExpression(
             query_name: scope.query_name,
@@ -272,17 +274,24 @@ fn infer_expr_type_allow_null(
   case expr {
     query_ir.NullLit -> ok_unknown_nullable()
     query_ir.Param(..) -> ok_unknown()
-    query_ir.Cast(target_type: t, ..) ->
-      case model.parse_sql_type(t) {
-        Ok(scalar) -> ok(scalar, True)
-        Error(_) ->
-          Error(UnsupportedExpression(
-            query_name: scope.query_name,
-            expression: "unrecognised cast type \"" <> t <> "\"",
-          ))
-      }
+    query_ir.Cast(target_type: t, expr: inner) -> infer_cast(scope, t, inner)
     _ -> infer_expr_type(scope, expr)
   }
+}
+
+/// Whether any of `exprs` can be NULL. An operand that cannot be typed
+/// counts as not nullable, so a predicate over it keeps its `Bool` type.
+fn any_nullable(scope: Scope, exprs: List(query_ir.Expr)) -> Bool {
+  list.any(exprs, fn(expr) {
+    case infer_expr_type_allow_null(scope, expr) {
+      Ok(InferredType(nullable:, ..)) -> nullable
+      Error(_) -> False
+    }
+  })
+}
+
+fn any_nullable_arg(scope: Scope, args: List(query_ir.FuncArg)) -> Bool {
+  any_nullable(scope, list.map(args, fn(arg) { arg.expr }))
 }
 
 fn ok_unknown() -> Result(InferredType, AnalysisError) {
@@ -317,10 +326,21 @@ fn merge_numeric(
 fn infer_cast(
   scope: Scope,
   target: String,
-  _inner: query_ir.Expr,
+  inner: query_ir.Expr,
 ) -> Result(InferredType, AnalysisError) {
   case model.parse_sql_type(target) {
-    Ok(scalar) -> ok(scalar, True)
+    // A cast is NULL only when its operand is. A parameter, which the
+    // caller may pass as NULL, and an operand that cannot be typed count
+    // as nullable.
+    Ok(scalar) ->
+      case inner {
+        query_ir.Param(..) -> ok(scalar, True)
+        _ ->
+          case infer_expr_type_allow_null(scope, inner) {
+            Ok(InferredType(nullable:, ..)) -> ok(scalar, nullable)
+            Error(_) -> ok(scalar, True)
+          }
+      }
     Error(_) ->
       Error(UnsupportedExpression(
         query_name: scope.query_name,
@@ -427,11 +447,16 @@ fn infer_function_body(
     _, FnWindowFloat -> ok(model.FloatType, False)
     _, FnWindowFirstArg -> infer_window_first(scope, args)
     _, FnCoalesce -> infer_coalesce(scope, args)
+    // IFNULL and NVL take the first argument's type, and are NULL only
+    // when every argument is.
+    "ifnull", _ | "nvl", _ -> infer_ifnull(scope, args)
     _, FnNullif -> infer_first_arg(scope, args, True)
     _, FnMath -> infer_math_first_arg(scope, args)
-    _, FnLength -> ok(model.IntType, False)
-    _, FnString -> ok(model.StringType, False)
-    _, FnDatetime -> ok(datetime_return_type(name), False)
+    // These return NULL when an argument is NULL.
+    _, FnLength -> ok(model.IntType, any_nullable_arg(scope, args))
+    _, FnString -> ok(model.StringType, any_nullable_arg(scope, args))
+    _, FnDatetime ->
+      ok(datetime_return_type(name), any_nullable_arg(scope, args))
     _, FnUnknown ->
       case window {
         True -> ok(model.IntType, False)
@@ -582,6 +607,21 @@ fn infer_first_arg(
         expression: "function call with no arguments",
       ))
   }
+}
+
+fn infer_ifnull(
+  scope: Scope,
+  args: List(query_ir.FuncArg),
+) -> Result(InferredType, AnalysisError) {
+  use first <- result.try(infer_first_arg(scope, args, False))
+  let all_nullable =
+    list.all(args, fn(arg) {
+      case infer_expr_type_allow_null(scope, arg.expr) {
+        Ok(InferredType(nullable:, ..)) -> nullable
+        Error(_) -> True
+      }
+    })
+  ok(first.scalar, all_nullable)
 }
 
 fn infer_math_first_arg(

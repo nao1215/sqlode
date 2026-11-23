@@ -249,9 +249,13 @@ fn derive_column_name_from_tokens(tokens: List(lexer.Token)) -> String {
 fn derive_source_table_from_tokens(
   tokens: List(lexer.Token),
 ) -> Option(String) {
+  // Table names and aliases are compared in lowercase, as
+  // `nullable_tables` holds them.
   case tokens {
-    [lexer.Ident(table), lexer.Dot, lexer.Ident(_col)] -> Some(table)
-    [lexer.Ident(table), lexer.Dot, lexer.QuotedIdent(_col)] -> Some(table)
+    [lexer.Ident(table), lexer.Dot, lexer.Ident(_col)] ->
+      Some(string.lowercase(table))
+    [lexer.Ident(table), lexer.Dot, lexer.QuotedIdent(_col)] ->
+      Some(string.lowercase(table))
     _ -> None
   }
 }
@@ -1204,26 +1208,39 @@ fn resolve_select_columns(
           }
           False -> {
             let normalized_name = string.lowercase(trimmed)
-            // For aliased qualified refs (`t.c AS x`), the alias becomes the
-            // result name but the catalog must be looked up by the real
-            // column. Pull that out of expression_tokens when present.
-            let qualified_lookup_column = case extracted.expression_tokens {
-              Some([lexer.Ident(_), lexer.Dot, lexer.Ident(c)]) -> Some(c)
-              _ -> None
-            }
-            case extracted.source_table {
-              Some(table) -> {
-                let catalog_column = case
-                  context.find_column(catalog, table, normalized_name)
-                {
-                  Some(c) -> Some(c)
+            case column_reference(extracted, normalized_name) {
+              // An expression, aliased or not, is typed from the
+              // expression. Looking its name up as a column would give
+              // `upper(bio) AS name` the type of a `name` column.
+              None ->
+                case extracted.expression_tokens {
+                  Some(expr_tokens) -> {
+                    use #(scalar_type, nullable) <- result.try(
+                      infer_expression_type_from_tokens(
+                        expr_tokens,
+                        catalog,
+                        all_tables,
+                        query_name,
+                      ),
+                    )
+                    Ok([
+                      model.ScalarResult(model.ResultColumn(
+                        name: normalized_name,
+                        scalar_type:,
+                        nullable:,
+                        source_table: None,
+                      )),
+                    ])
+                  }
                   None ->
-                    case qualified_lookup_column {
-                      Some(name) -> context.find_column(catalog, table, name)
-                      None -> None
-                    }
+                    Error(ColumnNotFound(
+                      query_name:,
+                      table_name: primary_table,
+                      column_name: normalized_name,
+                    ))
                 }
-                case catalog_column {
+              Some(#(Some(table), column_name)) ->
+                case context.find_column(catalog, table, column_name) {
                   Some(column) ->
                     Ok([
                       model.ScalarResult(model.ResultColumn(
@@ -1235,46 +1252,27 @@ fn resolve_select_columns(
                       )),
                     ])
                   None ->
-                    case extracted.expression_tokens {
-                      Some(expr_tokens) -> {
-                        use #(scalar_type, nullable) <- result.try(
-                          infer_expression_type_from_tokens(
-                            expr_tokens,
-                            catalog,
-                            all_tables,
-                            query_name,
-                          ),
-                        )
-                        Ok([
-                          model.ScalarResult(model.ResultColumn(
-                            name: normalized_name,
-                            scalar_type:,
-                            nullable:,
-                            source_table: None,
-                          )),
-                        ])
-                      }
-                      None ->
-                        Error(ColumnNotFound(
-                          query_name:,
-                          table_name: table,
-                          column_name: normalized_name,
-                        ))
-                    }
+                    Error(ColumnNotFound(
+                      query_name:,
+                      table_name: table,
+                      column_name:,
+                    ))
                 }
-              }
-              None ->
+              Some(#(None, column_name)) ->
                 case
                   context.find_column_in_tables(
                     catalog,
                     all_tables,
-                    normalized_name,
+                    column_name,
                   )
                 {
                   Ok(Some(#(found_table, column))) ->
                     Ok([
                       model.ScalarResult(model.ResultColumn(
-                        name: column.name,
+                        name: case extracted.expression_tokens {
+                          None -> column.name
+                          Some(_) -> normalized_name
+                        },
                         scalar_type: column.scalar_type,
                         nullable: column.nullable
                           || list.contains(nullable_tables, found_table),
@@ -1284,11 +1282,14 @@ fn resolve_select_columns(
                   Error(matching_tables) ->
                     Error(AmbiguousColumnName(
                       query_name:,
-                      column_name: normalized_name,
+                      column_name:,
                       matching_tables:,
                     ))
                   Ok(None) ->
                     case extracted.expression_tokens {
+                      // A keyword or a name the catalog does not have:
+                      // let the expression path type it or say which
+                      // column is missing.
                       Some(expr_tokens) -> {
                         use #(scalar_type, nullable) <- result.try(
                           infer_expression_type_from_tokens(
@@ -1311,7 +1312,7 @@ fn resolve_select_columns(
                         Error(ColumnNotFound(
                           query_name:,
                           table_name: primary_table,
-                          column_name: normalized_name,
+                          column_name:,
                         ))
                     }
                 }
@@ -1320,6 +1321,24 @@ fn resolve_select_columns(
         }
       })
       |> result.map(list.flatten)
+  }
+}
+
+/// The column a select item reads, as an optional table qualifier and
+/// a column name, or `None` when the item is an expression. An item
+/// without expression tokens is a plain column named `name`.
+fn column_reference(
+  extracted: ExtractedColumn,
+  name: String,
+) -> Option(#(Option(String), String)) {
+  case extracted.expression_tokens {
+    None -> Some(#(extracted.source_table, name))
+    Some([single]) ->
+      column_token_name(single) |> option.map(fn(c) { #(None, c) })
+    Some([lexer.Ident(table), lexer.Dot, column]) ->
+      column_token_name(column)
+      |> option.map(fn(c) { #(Some(string.lowercase(table)), c) })
+    Some(_) -> None
   }
 }
 
@@ -1548,8 +1567,13 @@ fn infer_expression_type_token_path(
               |> result.map(fn(pair) { #(pair.0, True) })
           }
         }
-        type_inference.FnString -> Ok(#(model.StringType, False))
-        type_inference.FnLength -> Ok(#(model.IntType, False))
+        type_inference.FnString ->
+          Ok(#(
+            model.StringType,
+            any_nullable_argument(rest, catalog, table_names),
+          ))
+        type_inference.FnLength ->
+          Ok(#(model.IntType, any_nullable_argument(rest, catalog, table_names)))
         type_inference.FnMath -> {
           let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
           let first_arg = first_comma_group(inner_tokens)
@@ -1561,7 +1585,10 @@ fn infer_expression_type_token_path(
           }
         }
         type_inference.FnDatetime ->
-          Ok(#(type_inference.datetime_return_type(lowered), False))
+          Ok(#(
+            type_inference.datetime_return_type(lowered),
+            any_nullable_argument(rest, catalog, table_names),
+          ))
         type_inference.FnNullif -> {
           let #(inner_tokens, _) = token_utils.collect_paren_contents(rest)
           let first_arg = first_comma_group(inner_tokens)
@@ -1848,6 +1875,23 @@ fn merge_scalar_types(
 
 /// Like `resolve_column_type_from_tokens` but also returns the column's
 /// nullability so callers can propagate `NULL`-ness through expressions.
+/// Whether an argument of the call whose tokens start after `(` is a
+/// nullable column. Other arguments are not looked into.
+fn any_nullable_argument(
+  after_paren: List(lexer.Token),
+  catalog: model.Catalog,
+  table_names: List(String),
+) -> Bool {
+  let #(inner_tokens, _) = token_utils.collect_paren_contents(after_paren)
+  token_utils.split_on_commas(inner_tokens)
+  |> list.any(fn(arg) {
+    case resolve_column_type_nullable_from_tokens(arg, catalog, table_names) {
+      Some(#(_, nullable)) -> nullable
+      None -> False
+    }
+  })
+}
+
 fn resolve_column_type_nullable_from_tokens(
   tokens: List(lexer.Token),
   catalog: model.Catalog,
@@ -2460,19 +2504,7 @@ fn find_select_to_from(tokens: List(lexer.Token)) -> Option(List(lexer.Token)) {
   case tokens {
     [] -> None
     [lexer.Keyword("select"), ..rest] -> {
-      // Skip DISTINCT / DISTINCT ON (...) / ALL
-      let rest2 = case rest {
-        [
-          lexer.Keyword("distinct"),
-          lexer.Keyword("on"),
-          lexer.LParen,
-          ..after_on
-        ] -> token_utils.skip_parens(after_on, 1)
-        [lexer.Keyword("distinct"), ..r] -> r
-        [lexer.Keyword("all"), ..r] -> r
-        _ -> rest
-      }
-      collect_until_from(rest2, 0, [])
+      collect_until_from(token_utils.skip_select_quantifier(rest).1, 0, [])
     }
     [_, ..rest] -> find_select_to_from(rest)
   }

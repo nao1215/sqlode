@@ -77,19 +77,13 @@ pub fn render(
   }
 
   let has_decoders = !list.is_empty(decoder_queries)
+  // `Option` appears only in the `prepare_*` signatures of nullable
+  // scalar parameters. Decoders spell nullable columns with
+  // `decode.optional` and need no import.
   let has_nullable =
-    {
-      has_decoders
-      && list.any(decoder_queries, fn(q) {
-        list.any(q.result_columns, fn(col) {
-          case col {
-            model.ScalarResult(model.ResultColumn(nullable: True, ..)) -> True
-            _ -> False
-          }
-        })
-      })
-    }
-    || list.any(queries, fn(q) { list.any(q.params, fn(p) { p.nullable }) })
+    list.any(queries, fn(q) {
+      list.any(q.params, fn(p) { p.nullable && !p.is_list })
+    })
 
   // Param rich scalars in `prepare_*` signatures flow through
   // `common.qualified_field_type`, which prefixes them with

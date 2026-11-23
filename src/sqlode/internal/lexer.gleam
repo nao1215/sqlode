@@ -92,14 +92,26 @@ fn do_tokenize(
         // On Erlang "\r\n" is one grapheme, so it is listed apart.
         " " | "\t" | "\n" | "\r" | "\r\n" -> do_tokenize(rest, engine, acc)
 
-        // Line comment: --
+        // Line comment: --. MySQL needs a space or a control character
+        // after the dashes, so `1--1` there is `1 - -1`.
         "-" ->
-          case rest {
-            ["-", ..after_dash] -> {
+          case rest, engine {
+            ["-"], _ -> do_tokenize([], engine, acc)
+            ["-", next, ..], model.MySQL
+              if next != " "
+              && next != "\t"
+              && next != "\n"
+              && next != "\r"
+              && next != "\r\n"
+            -> {
+              let #(op, remaining) = read_operator([g, ..rest])
+              do_tokenize(remaining, engine, [Operator(op), ..acc])
+            }
+            ["-", ..after_dash], _ -> {
               let remaining = skip_line_comment(after_dash)
               do_tokenize(remaining, engine, acc)
             }
-            _ -> {
+            _, _ -> {
               let #(op, remaining) = read_operator([g, ..rest])
               do_tokenize(remaining, engine, [Operator(op), ..acc])
             }
@@ -109,7 +121,7 @@ fn do_tokenize(
         "/" ->
           case rest {
             ["*", ..after_star] -> {
-              let remaining = skip_block_comment(after_star)
+              let remaining = skip_block_comment(after_star, engine)
               do_tokenize(remaining, engine, acc)
             }
             _ -> do_tokenize(rest, engine, [Operator("/"), ..acc])
@@ -241,10 +253,26 @@ fn do_tokenize(
               do_tokenize(after, engine, [Operator("?|"), ..acc])
             ["&", ..after] ->
               do_tokenize(after, engine, [Operator("?&"), ..acc])
-            _ -> {
-              let #(ph, remaining) = read_placeholder_question(rest, [g])
-              do_tokenize(remaining, engine, [Placeholder(ph), ..acc])
-            }
+            _ ->
+              case engine, acc {
+                // PostgreSQL has no `?` placeholder. After an operand it
+                // is the jsonb key-exists operator (`meta ? 'admin'`);
+                // anywhere else it stays a placeholder so the parser can
+                // say that PostgreSQL wants `$1`.
+                model.PostgreSQL, [previous, ..] ->
+                  case ends_operand(previous) {
+                    True -> do_tokenize(rest, engine, [Operator("?"), ..acc])
+                    False -> {
+                      let #(ph, remaining) =
+                        read_placeholder_question(rest, [g])
+                      do_tokenize(remaining, engine, [Placeholder(ph), ..acc])
+                    }
+                  }
+                _, _ -> {
+                  let #(ph, remaining) = read_placeholder_question(rest, [g])
+                  do_tokenize(remaining, engine, [Placeholder(ph), ..acc])
+                }
+              }
           }
         ":" ->
           case rest {
@@ -328,6 +356,19 @@ fn do_tokenize(
   }
 }
 
+/// Whether `token` can end an operand, so that an operator may follow.
+fn ends_operand(token: Token) -> Bool {
+  case token {
+    Ident(_)
+    | QuotedIdent(_)
+    | StringLit(..)
+    | NumberLit(_)
+    | Placeholder(_)
+    | RParen -> True
+    Keyword(_) | Operator(_) | LParen | Comma | Semicolon | Star | Dot -> False
+  }
+}
+
 // --- Comment helpers ---
 
 fn skip_line_comment(input: List(String)) -> List(String) {
@@ -338,24 +379,28 @@ fn skip_line_comment(input: List(String)) -> List(String) {
   }
 }
 
-fn skip_block_comment(input: List(String)) -> List(String) {
-  skip_block_comment_loop(input, 1)
+/// Block comments nest in PostgreSQL only. SQLite and MySQL end the
+/// comment at the first `*/`, so `/* a /* b */ WHERE id = ?` keeps its
+/// `WHERE` there.
+fn skip_block_comment(
+  input: List(String),
+  engine: model.Engine,
+) -> List(String) {
+  skip_block_comment_loop(input, 1, engine == model.PostgreSQL)
 }
 
-fn skip_block_comment_loop(input: List(String), depth: Int) -> List(String) {
-  case input {
-    [] -> []
-    _ ->
-      case depth <= 0 {
-        True -> input
-        False ->
-          case input {
-            ["*", "/", ..rest] -> skip_block_comment_loop(rest, depth - 1)
-            ["/", "*", ..rest] -> skip_block_comment_loop(rest, depth + 1)
-            [_, ..rest] -> skip_block_comment_loop(rest, depth)
-            [] -> []
-          }
-      }
+fn skip_block_comment_loop(
+  input: List(String),
+  depth: Int,
+  nests: Bool,
+) -> List(String) {
+  case depth <= 0, input {
+    True, _ -> input
+    False, [] -> []
+    False, ["*", "/", ..rest] -> skip_block_comment_loop(rest, depth - 1, nests)
+    False, ["/", "*", ..rest] if nests ->
+      skip_block_comment_loop(rest, depth + 1, nests)
+    False, [_, ..rest] -> skip_block_comment_loop(rest, depth, nests)
   }
 }
 

@@ -2803,3 +2803,173 @@ pub fn out_path_with_parent_segment_is_rejected_test() {
   generate.validate_out_path("src/db") |> should.equal(Ok(Nil))
   generate.validate_out_path("/abs/project/src/db") |> should.equal(Ok(Nil))
 }
+
+// --- Generated code for result names, imports and native types ---
+
+const inline_out = "test_output/generate_inline"
+
+fn generate_inline(
+  engine: model.Engine,
+  runtime: model.Runtime,
+  schema: String,
+  queries: String,
+) -> Result(List(String), generate.GenerateError) {
+  let _deleted = simplifile.delete(inline_out)
+  let assert Ok(Nil) = simplifile.create_directory_all(inline_out)
+  let assert Ok(Nil) = simplifile.write(inline_out <> "/schema.sql", schema)
+  let assert Ok(Nil) = simplifile.write(inline_out <> "/query.sql", queries)
+  let block =
+    model.SqlBlock(
+      ..base_block(model.empty_overrides()),
+      engine:,
+      schema: [inline_out <> "/schema.sql"],
+      queries: [inline_out <> "/query.sql"],
+      gleam: model.GleamOutput(
+        ..base_block(model.empty_overrides()).gleam,
+        out: inline_out <> "/db",
+        runtime:,
+      ),
+    )
+  generate.generate_config(model.Config(version: 2, sql: [block])).result
+}
+
+fn read_inline(filename: String) -> String {
+  let assert Ok(content) = simplifile.read(inline_out <> "/db/" <> filename)
+  content
+}
+
+const authors_books =
+  "CREATE TABLE authors (id BIGINT PRIMARY KEY, name TEXT NOT NULL, bio TEXT);
+CREATE TABLE books (id BIGINT PRIMARY KEY, author_id BIGINT NOT NULL, title TEXT NOT NULL, price NUMERIC);"
+
+pub fn repeated_result_names_get_a_suffix_test() {
+  // Two `id` columns used to give `StarRow(id: Int, ..., id: Int)`, which
+  // does not compile.
+  let assert Ok(_) =
+    generate_inline(
+      model.SQLite,
+      model.Raw,
+      authors_books,
+      "-- name: Star :many\nSELECT * FROM authors JOIN books ON books.author_id = authors.id;\n\n-- name: Exprs :many\nSELECT upper(name) AS name, name, name AS name_2 FROM authors;\n\n-- name: More :many\nSELECT name, name, name AS name_2, name FROM authors;",
+    )
+  let models = read_inline("models.gleam")
+  string.contains(models, "bio: Option(String), id_2: Int, author_id: Int")
+  |> should.be_true
+  string.contains(
+    models,
+    "ExprsRow(name: String, name_3: String, name_2: String)",
+  )
+  |> should.be_true
+  // A suffix handed out once is not handed out again.
+  string.contains(
+    models,
+    "MoreRow(name: String, name_3: String, name_2: String, name_4: String)",
+  )
+  |> should.be_true
+}
+
+pub fn option_is_imported_only_for_nullable_parameters_test() {
+  // A nullable result column is decoded with `decode.optional` and does
+  // not need `Option` in queries.gleam; importing it was an unused
+  // import warning.
+  let assert Ok(_) =
+    generate_inline(
+      model.PostgreSQL,
+      model.Raw,
+      authors_books,
+      "-- name: Bios :many\nSELECT bio FROM authors WHERE id = $1;",
+    )
+  string.contains(read_inline("queries.gleam"), "import gleam/option")
+  |> should.be_false
+  let assert Ok(_) =
+    generate_inline(
+      model.PostgreSQL,
+      model.Raw,
+      authors_books,
+      "-- name: SetBio :exec\nUPDATE authors SET bio = sqlode.narg(bio) WHERE id = sqlode.arg(id);",
+    )
+  string.contains(
+    read_inline("queries.gleam"),
+    "import gleam/option.{type Option}",
+  )
+  |> should.be_true
+}
+
+pub fn pog_adapter_reads_a_whole_numeric_as_float_test() {
+  // pog returns NUMERIC 10 as the Int 10.
+  let assert Ok(_) =
+    generate_inline(
+      model.PostgreSQL,
+      model.Native,
+      authors_books,
+      "-- name: Prices :many\nSELECT price FROM books;",
+    )
+  let adapter = read_inline("pog_adapter.gleam")
+  string.contains(adapter, "import gleam/int\n") |> should.be_true
+  string.contains(
+    adapter,
+    "decode.optional(decode.one_of(decode.float, [decode.map(decode.int, int.to_float)]))",
+  )
+  |> should.be_true
+}
+
+pub fn native_adapters_stop_on_dates_they_cannot_carry_test() {
+  let schema =
+    "CREATE TABLE events (id UUID PRIMARY KEY, at TIMESTAMP NOT NULL, day DATE NOT NULL);"
+  let rejected = fn(engine, queries) {
+    case generate_inline(engine, model.Native, schema, queries) {
+      Error(generate.ValidationFailed(query_validation.UnsupportedNativeType(
+        subject:,
+        sql_type:,
+        ..,
+      ))) -> Ok(#(subject, sql_type))
+      Error(_) -> Error("another error")
+      Ok(_) -> Error("generated")
+    }
+  }
+  rejected(model.PostgreSQL, "-- name: At :many\nSELECT at FROM events;")
+  |> should.equal(Ok(#("at", "TIMESTAMP")))
+  rejected(model.PostgreSQL, "-- name: Ids :many\nSELECT id FROM events;")
+  |> should.equal(Ok(#("id", "UUID")))
+  rejected(
+    model.PostgreSQL,
+    "-- name: Add :exec\nINSERT INTO events (id, at, day) VALUES ($1, $2, $3);",
+  )
+  |> should.equal(Ok(#("$2", "TIMESTAMP")))
+  rejected(model.MySQL, "-- name: Days :many\nSELECT day FROM events;")
+  |> should.equal(Ok(#("day", "DATE")))
+  // The fixes the message suggests generate.
+  generate_inline(
+    model.PostgreSQL,
+    model.Native,
+    schema,
+    "-- name: Add :exec\nINSERT INTO events (id, at, day) VALUES ($1, $2::text::timestamp, $3::text::date);\n\n-- name: List :many\nSELECT id::text AS id, at::text AS at FROM events;",
+  )
+  |> result_is_ok
+  |> should.be_true
+  // MySQL takes dates as strings, and the raw runtime leaves the driver
+  // to the caller.
+  generate_inline(
+    model.MySQL,
+    model.Native,
+    schema,
+    "-- name: Add :exec\nINSERT INTO events (id, at, day) VALUES (?, ?, ?);",
+  )
+  |> result_is_ok
+  |> should.be_true
+  generate_inline(
+    model.PostgreSQL,
+    model.Raw,
+    schema,
+    "-- name: At :many\nSELECT at FROM events;",
+  )
+  |> result_is_ok
+  |> should.be_true
+}
+
+fn result_is_ok(result: Result(a, b)) -> Bool {
+  case result {
+    Ok(_) -> True
+    Error(_) -> False
+  }
+}

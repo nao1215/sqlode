@@ -176,7 +176,7 @@ integration_generate() {
 }
 
 integration_build() {
-  (cd "$1" && _integration_gleam build)
+  (cd "$1" && _integration_gleam build --warnings-as-errors)
 }
 
 integration_test() {

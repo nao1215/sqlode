@@ -285,7 +285,12 @@ pub fn check_analyzed(
         analyzed,
       ))
       case block.gleam.runtime {
-        model.Native -> query_validation.validate_native_annotations(analyzed)
+        model.Native -> {
+          use Nil <- result.try(query_validation.validate_native_annotations(
+            analyzed,
+          ))
+          query_validation.validate_native_types(block.engine, analyzed)
+        }
         model.Raw -> Ok(Nil)
       }
     }
@@ -297,6 +302,7 @@ pub fn check_analyzed(
     analyzed
     |> apply_column_renames(block.overrides.column_renames)
     |> disambiguate_param_names
+    |> list.map(disambiguate_result_names(naming_ctx, _))
   use Nil <- result.try(validate_gleam_names(
     naming_ctx,
     catalog,
@@ -768,6 +774,66 @@ fn disambiguate_query_params(
       }
     })
   model.AnalyzedQuery(..query, params: list.reverse(renamed_reversed))
+}
+
+/// Give each result field of a query its own name, as the parameters
+/// get theirs: when two result columns would become the same Gleam
+/// field (`SELECT *` over a join, `upper(name), name`), the later ones
+/// get `_2`, `_3` and so on. The decoders read columns by position, so
+/// only the field names change.
+fn disambiguate_result_names(
+  naming_ctx: naming.NamingContext,
+  query: model.AnalyzedQuery,
+) -> model.AnalyzedQuery {
+  let field = naming.to_snake_case(naming_ctx, _)
+  let originals =
+    list.map(query.result_columns, fn(item) {
+      case item {
+        model.ScalarResult(column) -> field(column.name)
+        model.EmbeddedResult(embedded) -> field(embedded.name)
+      }
+    })
+  // `taken` holds every original field name and every suffixed name
+  // handed out so far, so no two fields end up with the same name.
+  let #(_, _, renamed) =
+    list.fold(query.result_columns, #(dict.new(), originals, []), fn(acc, item) {
+      let #(seen, taken, out) = acc
+      let name = case item {
+        model.ScalarResult(column) -> column.name
+        model.EmbeddedResult(embedded) -> embedded.name
+      }
+      let occurrence = case dict.get(seen, field(name)) {
+        Ok(previous) -> previous + 1
+        Error(Nil) -> 1
+      }
+      let seen = dict.insert(seen, field(name), occurrence)
+      case occurrence {
+        1 -> #(seen, taken, [item, ..out])
+        _ -> {
+          let new_name = unused_suffix(field(name), occurrence, taken)
+          let item = case item {
+            model.ScalarResult(column) ->
+              model.ScalarResult(model.ResultColumn(..column, name: new_name))
+            model.EmbeddedResult(embedded) ->
+              model.EmbeddedResult(
+                model.EmbeddedColumn(..embedded, name: new_name),
+              )
+          }
+          #(seen, [new_name, ..taken], [item, ..out])
+        }
+      }
+    })
+  model.AnalyzedQuery(..query, result_columns: list.reverse(renamed))
+}
+
+/// `name_<n>`, or the next free suffix when a column of the query is
+/// already called that.
+fn unused_suffix(name: String, n: Int, taken: List(String)) -> String {
+  let candidate = name <> "_" <> int.to_string(n)
+  case list.contains(taken, candidate) {
+    True -> unused_suffix(name, n + 1, taken)
+    False -> candidate
+  }
 }
 
 fn apply_column_renames(

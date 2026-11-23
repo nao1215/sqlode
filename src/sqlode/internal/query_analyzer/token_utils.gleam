@@ -442,11 +442,11 @@ pub fn is_comparison_operator(op: String) -> Bool {
 }
 
 /// The comparisons plus the PostgreSQL JSONB / array operators that
-/// also yield a boolean (`@>`, `<@`, `?|`, `?&`, `&&`).
+/// also yield a boolean (`@>`, `<@`, `?`, `?|`, `?&`, `&&`).
 pub fn is_boolean_operator(op: String) -> Bool {
   is_comparison_operator(op)
   || case op {
-    "@>" | "<@" | "?|" | "?&" | "&&" -> True
+    "@>" | "<@" | "?" | "?|" | "?&" | "&&" -> True
     _ -> False
   }
 }
@@ -712,10 +712,25 @@ pub fn structure_tokens(tokens: List(lexer.Token)) -> query_ir.SqlStatement {
 
 // --- SELECT structuring ---
 
+/// Drop `DISTINCT`, `DISTINCT ON (...)` or `ALL` after `SELECT`, and
+/// say whether the select was distinct.
+pub fn skip_select_quantifier(
+  tokens: List(lexer.Token),
+) -> #(Bool, List(lexer.Token)) {
+  case tokens {
+    [lexer.Keyword("distinct"), lexer.Keyword("on"), lexer.LParen, ..after_on] -> #(
+      True,
+      skip_parens(after_on, 1),
+    )
+    [lexer.Keyword("distinct"), ..rest] -> #(True, rest)
+    [lexer.Keyword("all"), ..rest] -> #(False, rest)
+    _ -> #(False, tokens)
+  }
+}
+
 fn structure_select(tokens: List(lexer.Token)) -> query_ir.SqlStatement {
   let after_select = case tokens {
-    [lexer.Keyword("select"), lexer.Keyword("distinct"), ..rest] -> rest
-    [lexer.Keyword("select"), ..rest] -> rest
+    [lexer.Keyword("select"), ..rest] -> skip_select_quantifier(rest).1
     _ -> tokens
   }
 

@@ -211,6 +211,27 @@ fn equality_match(
       }
     query_ir.LikeExpr(expr: subject, pattern:, ..) ->
       like_match(subject, pattern) |> option.map(list.wrap)
+    query_ir.IsCheck(
+      expr: subject,
+      predicate: query_ir.IsDistinctFrom(target:),
+      ..,
+    ) -> comparison_match(subject, target) |> option.map(list.wrap)
+    // `col BETWEEN $1 AND $2`: a bound that is a parameter takes the
+    // column's type, and a bound that is not is walked like any
+    // expression, in source order.
+    query_ir.Between(expr: subject, low:, high:, ..) ->
+      case column_of(subject) {
+        Some(#(table, name)) ->
+          Some(
+            list.flat_map([low, high], fn(bound) {
+              case param_of(bound) {
+                Some(raw) -> [build_match(table, name, raw)]
+                None -> walk_expr(bound, equality_match)
+              }
+            }),
+          )
+        None -> None
+      }
     _ -> None
   }
 }
