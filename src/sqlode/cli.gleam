@@ -303,7 +303,8 @@ fn format_generated_files(written: List(String)) -> Nil {
     Ok(Nil) -> io.println("  Formatted generated code")
     Error(formatter.GleamNotFound as error) ->
       io.println_error("  Warning: " <> formatter.error_to_string(error))
-    Error(error) -> {
+    Error(formatter.FormatFailed(..) as error)
+    | Error(formatter.TempDirectoryFailed(..) as error) -> {
       io.println_error("Error: " <> formatter.error_to_string(error))
       halt(1)
     }

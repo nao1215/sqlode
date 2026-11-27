@@ -579,10 +579,10 @@ fn generated_project(dir: String) -> #(model.Config, String) {
       ..block,
       gleam: model.GleamOutput(..block.gleam, runtime: model.Native),
     )
-  let cfg = model.Config(version: 2, sql: [block])
-  let assert Ok(written) = generate.generate_config(cfg).result
+  let config = model.Config(version: 2, sql: [block])
+  let assert Ok(written) = generate.generate_config(config).result
   let assert Ok(Nil) = formatter.format_files(written)
-  #(cfg, out)
+  #(config, out)
 }
 
 fn finding_details(findings: List(verify.Finding)) -> List(String) {
@@ -590,19 +590,19 @@ fn finding_details(findings: List(verify.Finding)) -> List(String) {
 }
 
 pub fn check_generated_passes_on_freshly_generated_files_test() {
-  let #(cfg, _out) = generated_project("test_output/check_generated_fresh")
-  verify.check_generated(cfg) |> should.equal([])
+  let #(config, _out) = generated_project("test_output/check_generated_fresh")
+  verify.check_generated(config) |> should.equal([])
 }
 
 pub fn check_generated_reports_files_a_new_query_would_change_test() {
   let dir = "test_output/check_generated_new_query"
-  let #(cfg, out) = generated_project(dir)
+  let #(config, out) = generated_project(dir)
   let assert Ok(Nil) =
     simplifile.append(
       dir <> "/query.sql",
       "\n-- name: ListAuthors :many\nSELECT id, name FROM authors ORDER BY name;\n",
     )
-  finding_details(verify.check_generated(cfg))
+  finding_details(verify.check_generated(config))
   |> list.contains(
     "SQD5006: " <> out <> "/queries.gleam is out of date; run `sqlode generate`",
   )
@@ -611,10 +611,10 @@ pub fn check_generated_reports_files_a_new_query_would_change_test() {
 
 pub fn check_generated_names_only_the_stale_file_test() {
   let dir = "test_output/check_generated_one_stale"
-  let #(cfg, out) = generated_project(dir)
+  let #(config, out) = generated_project(dir)
   let assert Ok(Nil) =
     simplifile.write(out <> "/models.gleam", "pub type Author\n")
-  let assert [finding] = verify.check_generated(cfg)
+  let assert [finding] = verify.check_generated(config)
   finding.block_out |> should.equal(out)
   finding.detail
   |> should.equal(
@@ -624,9 +624,9 @@ pub fn check_generated_names_only_the_stale_file_test() {
 
 pub fn check_generated_reports_a_whitespace_only_difference_test() {
   let dir = "test_output/check_generated_whitespace"
-  let #(cfg, out) = generated_project(dir)
+  let #(config, out) = generated_project(dir)
   let assert Ok(Nil) = simplifile.append(out <> "/params.gleam", "\n")
-  let assert [finding] = verify.check_generated(cfg)
+  let assert [finding] = verify.check_generated(config)
   finding.detail
   |> should.equal(
     "SQD5006: " <> out <> "/params.gleam is out of date; run `sqlode generate`",
@@ -635,9 +635,9 @@ pub fn check_generated_reports_a_whitespace_only_difference_test() {
 
 pub fn check_generated_reports_a_missing_file_test() {
   let dir = "test_output/check_generated_missing_file"
-  let #(cfg, out) = generated_project(dir)
+  let #(config, out) = generated_project(dir)
   let assert Ok(Nil) = simplifile.delete(out <> "/sqlight_adapter.gleam")
-  let assert [finding] = verify.check_generated(cfg)
+  let assert [finding] = verify.check_generated(config)
   finding.detail
   |> should.equal(
     "SQD5006: "
@@ -648,9 +648,9 @@ pub fn check_generated_reports_a_missing_file_test() {
 
 pub fn check_generated_reports_a_missing_output_directory_once_test() {
   let dir = "test_output/check_generated_missing_dir"
-  let #(cfg, out) = generated_project(dir)
+  let #(config, out) = generated_project(dir)
   let assert Ok(Nil) = simplifile.delete(out)
-  let assert [finding] = verify.check_generated(cfg)
+  let assert [finding] = verify.check_generated(config)
   finding.detail
   |> should.equal(
     "SQD5006: output directory "
@@ -661,12 +661,12 @@ pub fn check_generated_reports_a_missing_output_directory_once_test() {
 
 pub fn check_generated_reports_an_analysis_error_instead_of_comparing_test() {
   let dir = "test_output/check_generated_broken"
-  let #(cfg, _out) = generated_project(dir)
+  let #(config, _out) = generated_project(dir)
   let assert Ok(Nil) =
     simplifile.write(
       dir <> "/query.sql",
       "-- name: GetBook :one\nSELECT id FROM books WHERE id = ?;\n",
     )
-  let assert [finding] = verify.check_generated(cfg)
+  let assert [finding] = verify.check_generated(config)
   string.starts_with(finding.detail, "SQD4") |> should.be_true
 }

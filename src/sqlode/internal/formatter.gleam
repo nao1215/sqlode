@@ -28,9 +28,9 @@ pub type FormatError {
   /// captured stdout+stderr so a syntax error in the generated file
   /// is visible without re-running by hand.
   FormatFailed(exit_code: Int, output: String)
-  /// The temporary copies that `format_sources` formats could not be
-  /// written or read back.
-  TempDirFailed(path: String, detail: String)
+  /// The temporary directory that `format_sources` formats its copies
+  /// in could not be written, read or removed.
+  TempDirectoryFailed(path: String, detail: String)
 }
 
 @target(erlang)
@@ -62,42 +62,49 @@ pub fn format_files(_files: List(String)) -> Result(Nil, FormatError) {
 }
 
 /// Return each source as `gleam format` would leave it, in order,
-/// without touching the files they came from. The sources are written
-/// to a temporary directory, formatted there in one `gleam format`
-/// run, and read back; the directory is removed either way.
+/// without touching the files they came from. Fails when `gleam` is
+/// not on `PATH`, when `gleam format` rejects a source, or when the
+/// temporary directory the copies are formatted in cannot be written,
+/// read or removed.
 pub fn format_sources(
   sources: List(String),
 ) -> Result(List(String), FormatError) {
   case sources {
     [] -> Ok([])
     _ -> {
-      let dir = unique_temp_path()
+      let directory = unique_temp_path()
       let paths =
         list.index_map(sources, fn(_source, index) {
-          dir <> "/source_" <> int.to_string(index) <> ".gleam"
+          directory <> "/source_" <> int.to_string(index) <> ".gleam"
         })
       let formatted = {
         use _ <- result.try(
-          simplifile.create_directory_all(dir)
-          |> result.map_error(temp_dir_error(dir, _)),
+          simplifile.create_directory_all(directory)
+          |> result.map_error(temp_directory_error(directory, _)),
         )
         use _ <- result.try(
           list.zip(paths, sources)
           |> list.try_each(fn(pair) { simplifile.write(pair.0, pair.1) })
-          |> result.map_error(temp_dir_error(dir, _)),
+          |> result.map_error(temp_directory_error(directory, _)),
         )
         use _ <- result.try(format_files(paths))
         list.try_map(paths, simplifile.read)
-        |> result.map_error(temp_dir_error(dir, _))
+        |> result.map_error(temp_directory_error(directory, _))
       }
-      let _delete_result = simplifile.delete(dir)
-      formatted
+      case formatted, simplifile.delete(directory) {
+        Error(error), _ -> Error(error)
+        Ok(_), Error(error) -> Error(temp_directory_error(directory, error))
+        Ok(formatted_sources), Ok(Nil) -> Ok(formatted_sources)
+      }
     }
   }
 }
 
-fn temp_dir_error(dir: String, error: simplifile.FileError) -> FormatError {
-  TempDirFailed(path: dir, detail: simplifile.describe_error(error))
+fn temp_directory_error(
+  directory: String,
+  error: simplifile.FileError,
+) -> FormatError {
+  TempDirectoryFailed(path: directory, detail: simplifile.describe_error(error))
 }
 
 /// Convert a format error to a human-readable string for CLI output.
@@ -116,7 +123,7 @@ pub fn error_to_string(error: FormatError) -> String {
           <> trimmed
       }
     }
-    TempDirFailed(path:, detail:) ->
+    TempDirectoryFailed(path:, detail:) ->
       "could not format a copy of the generated code in "
       <> path
       <> ": "

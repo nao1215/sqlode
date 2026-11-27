@@ -212,4 +212,4 @@ A table, column or parameter name does not turn into a Gleam name, usually becau
 
 ## SQD5007
 
-`verify --check-generated` only: the generated code could not be formatted for the comparison, because `gleam` is not on `PATH` or `gleam format` failed. Install Gleam where `verify` runs.
+`verify --check-generated` only: the generated code could not be formatted for the comparison. `gleam` is not on `PATH`, `gleam format` failed, or the temporary directory the copies are formatted in (under `TMPDIR`, `TEMP`, `TMP` or `/tmp`) could not be written, read or removed. Install Gleam where `verify` runs, or point `TMPDIR` at a writable directory.

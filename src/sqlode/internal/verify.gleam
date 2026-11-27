@@ -6,11 +6,10 @@
 //// runs the same schema parsing and query analysis the generator
 //// uses, collects every failure it can see, and layers additional
 //// static checks on top (today: `query_parameter_limit`
-//// enforcement). It never writes files.
-////
-//// With `check_generated`, it also renders what `generate` would write
-//// and compares it, after `gleam format`, with the files on disk, so CI
-//// fails when a query or schema changed and `generate` was not run.
+//// enforcement). It never writes files. With `check_generated`, it
+//// also compares what `generate` would write, after `gleam format`,
+//// with the files on disk, so CI fails when a query or schema changed
+//// and `generate` was not run.
 
 import filepath
 import gleam/int

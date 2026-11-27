@@ -172,8 +172,9 @@ pub fn warning_to_string(warning: Warning) -> String {
   }
 }
 
-/// The files `generate` writes for one block, without writing them.
-/// The contents are as rendered, before `gleam format`.
+/// Render the files `generate` writes for one block without writing
+/// them. The contents are as rendered, before `gleam format`. Fails
+/// for the same reasons `generate` fails on the block.
 pub fn render_block(
   naming_ctx: naming.NamingContext,
   block: model.SqlBlock,
