@@ -5,7 +5,6 @@ import gleeunit
 import gleeunit/should
 import metamon
 import metamon/generator
-import metamon/generator/range
 import sqlode/internal/lexer.{
   BackslashEscapes, BitPrefix, Comma, Dot, EscapePrefix, HexPrefix, Ident,
   Keyword, LParen, NationalPrefix, NoPrefix, NumberLit, Operator, Placeholder,
@@ -708,7 +707,7 @@ fn string_literal(engine: model.Engine) -> generator.Generator(String) {
   use prefix <- generator.bind(generator.element_of(prefixes))
   use pieces <- generator.map(generator.list_of(
     string_body_piece(engine, string.uppercase(prefix)),
-    range.constant(0, 5),
+    length: generator.range(from: 0, to: 5),
   ))
   prefix <> "'" <> string.concat(pieces) <> "'"
 }
@@ -720,7 +719,7 @@ fn quoted_identifier(engine: model.Engine) -> generator.Generator(String) {
   }
   use parts <- generator.map(generator.list_of(
     generator.element_of(pieces),
-    range.constant(1, 4),
+    length: generator.range(from: 1, to: 4),
   ))
   open <> string.concat(parts) <> close
 }
@@ -742,7 +741,10 @@ fn sql_fragment(engine: model.Engine) -> generator.Generator(String) {
 
 fn assert_round_trip(engine: model.Engine) -> Nil {
   metamon.forall(
-    generator.list_of(sql_fragment(engine), range.constant(1, 8)),
+    generator.list_of(
+      sql_fragment(engine),
+      length: generator.range(from: 1, to: 8),
+    ),
     fn(fragments) {
       let tokens = lexer.tokenize(string.join(fragments, " "), engine)
       let written =
@@ -754,7 +756,7 @@ fn assert_round_trip(engine: model.Engine) -> Nil {
             engine: option.Some(engine),
           ),
         )
-      lexer.tokenize(written, engine) == tokens
+      assert lexer.tokenize(written, engine) == tokens
     },
   )
 }

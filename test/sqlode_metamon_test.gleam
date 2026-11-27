@@ -5,22 +5,24 @@
 import gleam/string
 import metamon
 import metamon/generator
-import metamon/generator/range
 import sqlode/internal/naming
 import sqlode/runtime
 
 // ---------- runtime markers ----------
 
 pub fn param_and_slice_markers_have_distinct_prefixes_test() -> Nil {
-  metamon.forall(generator.int(range.constant(1, 50)), fn(index) {
-    runtime.param_marker(index) != runtime.slice_marker(index)
+  metamon.forall(generator.int(generator.range(from: 1, to: 50)), fn(index) {
+    assert runtime.param_marker(index) != runtime.slice_marker(index)
   })
 }
 
 // ---------- naming case converters ----------
 
 fn word_generator() -> generator.Generator(String) {
-  generator.string_alphanumeric(range.constant(1, 8))
+  generator.string(
+    of: generator.Alphanumeric,
+    length: generator.range(from: 1, to: 8),
+  )
 }
 
 pub fn to_pascal_case_is_idempotent_test() -> Nil {
@@ -28,13 +30,13 @@ pub fn to_pascal_case_is_idempotent_test() -> Nil {
     let ctx = naming.new()
     let once = naming.to_pascal_case(ctx, input)
     let twice = naming.to_pascal_case(ctx, once)
-    once == twice
+    assert once == twice
   })
 }
 
 pub fn to_pascal_case_drops_separators_test() -> Nil {
   metamon.forall(
-    generator.list_of(word_generator(), range.constant(1, 4)),
+    generator.list_of(word_generator(), length: generator.range(from: 1, to: 4)),
     fn(words) {
       let ctx = naming.new()
       let snake_input = string.join(words, "_")
@@ -43,9 +45,9 @@ pub fn to_pascal_case_drops_separators_test() -> Nil {
       let snake = naming.to_pascal_case(ctx, snake_input)
       let kebab = naming.to_pascal_case(ctx, kebab_input)
       let dot = naming.to_pascal_case(ctx, dot_input)
-      !string.contains(snake, "_")
-      && !string.contains(kebab, "-")
-      && !string.contains(dot, ".")
+      assert !string.contains(snake, "_")
+      assert !string.contains(kebab, "-")
+      assert !string.contains(dot, ".")
     },
   )
 }
@@ -55,23 +57,32 @@ pub fn to_snake_case_is_idempotent_test() -> Nil {
     let ctx = naming.new()
     let once = naming.to_snake_case(ctx, input)
     let twice = naming.to_snake_case(ctx, once)
-    once == twice
+    assert once == twice
   })
 }
 
 pub fn to_snake_case_has_no_uppercase_test() -> Nil {
-  metamon.forall(generator.string_alpha(range.constant(0, 8)), fn(input) {
-    let ctx = naming.new()
-    let result = naming.to_snake_case(ctx, input)
-    result == string.lowercase(result)
-  })
+  metamon.forall(
+    generator.string(
+      of: generator.Alphabetic,
+      length: generator.range(from: 0, to: 8),
+    ),
+    fn(input) {
+      let ctx = naming.new()
+      let result = naming.to_snake_case(ctx, input)
+      assert result == string.lowercase(result)
+    },
+  )
 }
 
 pub fn to_snake_case_drops_separators_test() -> Nil {
   metamon.forall(
     generator.list_of(
-      generator.string_alpha(range.constant(1, 6)),
-      range.constant(1, 3),
+      generator.string(
+        of: generator.Alphabetic,
+        length: generator.range(from: 1, to: 6),
+      ),
+      length: generator.range(from: 1, to: 3),
     ),
     fn(words) {
       let ctx = naming.new()
@@ -79,7 +90,8 @@ pub fn to_snake_case_drops_separators_test() -> Nil {
       let dot_input = string.join(words, ".")
       let kebab = naming.to_snake_case(ctx, kebab_input)
       let dot = naming.to_snake_case(ctx, dot_input)
-      !string.contains(kebab, "-") && !string.contains(dot, ".")
+      assert !string.contains(kebab, "-")
+      assert !string.contains(dot, ".")
     },
   )
 }
@@ -88,22 +100,29 @@ pub fn to_snake_case_drops_separators_test() -> Nil {
 
 pub fn normalize_identifier_is_idempotent_test() -> Nil {
   metamon.forall(word_generator(), fn(input) {
-    naming.normalize_identifier(naming.normalize_identifier(input))
-    == naming.normalize_identifier(input)
+    assert naming.normalize_identifier(naming.normalize_identifier(input))
+      == naming.normalize_identifier(input)
   })
 }
 
 pub fn normalize_identifier_lowercases_alpha_test() -> Nil {
-  metamon.forall(generator.string_alpha(range.constant(1, 8)), fn(input) {
-    let result = naming.normalize_identifier(input)
-    result == string.lowercase(result)
-  })
+  metamon.forall(
+    generator.string(
+      of: generator.Alphabetic,
+      length: generator.range(from: 1, to: 8),
+    ),
+    fn(input) {
+      let result = naming.normalize_identifier(input)
+      assert result == string.lowercase(result)
+    },
+  )
 }
 
 // ---------- naming.singularize ----------
 
 pub fn singularize_is_idempotent_test() -> Nil {
   metamon.forall(word_generator(), fn(input) {
-    naming.singularize(naming.singularize(input)) == naming.singularize(input)
+    assert naming.singularize(naming.singularize(input))
+      == naming.singularize(input)
   })
 }

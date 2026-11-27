@@ -20,7 +20,6 @@ import gleam/list
 import gleam/string
 import metamon
 import metamon/generator
-import metamon/generator/range
 import simplifile
 import sqlode/internal/model
 import sqlode/internal/naming
@@ -133,10 +132,10 @@ fn engine_name(engine: model.Engine) -> String {
   }
 }
 
-fn assert_same(f: Fixture, rewritten: String, relation: String) -> Bool {
+fn assert_same(f: Fixture, rewritten: String, relation: String) -> Nil {
   let c = f.case_
   case analysis(c, f.catalog, rewritten) {
-    Ok(got) if got == f.expected -> True
+    Ok(got) if got == f.expected -> Nil
     Ok(_) ->
       panic as {
         relation
@@ -324,12 +323,8 @@ pub fn fixtures_analyse_test() -> Nil {
 
 pub fn keyword_case_does_not_change_analysis_test() -> Nil {
   list.each(fixtures(), fn(f) {
-    assert assert_same(
-      f,
-      flip_keyword_case(f.text, True),
-      "upper-casing the keywords",
-    )
-    assert assert_same(
+    assert_same(f, flip_keyword_case(f.text, True), "upper-casing the keywords")
+    assert_same(
       f,
       flip_keyword_case(f.text, False),
       "lower-casing the keywords",
@@ -341,9 +336,9 @@ pub fn whitespace_does_not_change_analysis_test() -> Nil {
   let separator = generator.element_of([" ", "  ", "\t", "\n", " \n  ", "\n\t"])
   let fixtures = fixtures()
   metamon.forall(
-    generator.list_of(separator, range.constant(1, 6)),
+    generator.list_of(separator, length: generator.range(from: 1, to: 6)),
     fn(choices) {
-      list.all(fixtures, fn(f) {
+      list.each(fixtures, fn(f) {
         assert_same(f, respace(f.text, choices), "changing whitespace")
       })
     },
@@ -368,14 +363,14 @@ pub fn trailing_comment_does_not_change_analysis_test() -> Nil {
         }
       })
       |> string.join("\n")
-    assert assert_same(f, rewritten, "adding end-of-line comments")
+    assert_same(f, rewritten, "adding end-of-line comments")
   })
 }
 
 pub fn query_order_does_not_change_analysis_test() -> Nil {
   let fixtures = fixtures()
-  metamon.forall(generator.int(range.constant(0, 1000)), fn(seed) {
-    list.all(fixtures, fn(f) {
+  metamon.forall(generator.int(generator.range(from: 0, to: 1000)), fn(seed) {
+    list.each(fixtures, fn(f) {
       let #(head, queries) = blocks(f.text)
       let shuffled =
         queries

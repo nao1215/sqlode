@@ -7,7 +7,6 @@ import gleam/string
 import gleeunit/should
 import metamon
 import metamon/generator
-import metamon/generator/range
 import sqlode/runtime
 
 // The same slice metadata gives three different placeholder shapes.
@@ -98,8 +97,8 @@ pub fn one_pass_expansion_matches_sequential_replace_test() {
     ])
   metamon.forall(
     generator.tuple2(
-      generator.list_of(fragment, range.constant(0, 12)),
-      generator.int(range.constant(0, 3)),
+      generator.list_of(fragment, length: generator.range(from: 0, to: 12)),
+      generator.int(generator.range(from: 0, to: 3)),
     ),
     fn(input) {
       let #(fragments, slice_length) = input
@@ -115,7 +114,7 @@ pub fn one_pass_expansion_matches_sequential_replace_test() {
           encode: fn(_) { [] },
           slice_info: fn(_) { slices },
         )
-      runtime.prepare(query, Nil).0 == sequential_expand(sql, slices, 3)
+      assert runtime.prepare(query, Nil).0 == sequential_expand(sql, slices, 3)
     },
   )
 }
