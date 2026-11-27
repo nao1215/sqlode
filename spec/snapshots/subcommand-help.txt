@@ -55,22 +55,30 @@ runs the full analyser pass. Any query-analysis error, schema warning under
 strict_views, or policy violation (for example `query_parameter_limit`) is
 collected into a single report.
 
+With --check-generated, verify also renders what generate would write, formats
+it with gleam format, and reports each generated file that differs from it or is
+missing. Use it in CI after the generated files are committed.
+
 The command exits non-zero when at least one finding is reported — suitable for
 CI gates before the generation step runs.
 
 Examples:
 sqlode verify
 sqlode verify --config=./custom.yaml
+sqlode verify --check-generated
 
 USAGE:
-    sqlode verify [ ARGS ] [ --config=<STRING> ]
+    sqlode verify [ ARGS ] [ --check-generated=<BOOL> --config=<STRING> ]
 
 FLAGS:
-    --config=<STRING>     Path to config file. Default: auto-discover
-                          sqlode.yaml, sqlode.yml, sqlc.yaml, sqlc.yml, or
-                          sqlc.json in the current directory.
+    --check-generated=<BOOL>  Also fail when a generated file differs from what
+                              generate would write, or is missing.
 
-    --help                Print help information
+    --config=<STRING>         Path to config file. Default: auto-discover
+                              sqlode.yaml, sqlode.yml, sqlc.yaml, sqlc.yml, or
+                              sqlc.json in the current directory.
+
+    --help                    Print help information
 == version
 Command: version
 

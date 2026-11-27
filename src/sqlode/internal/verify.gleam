@@ -7,6 +7,10 @@
 //// uses, collects every failure it can see, and layers additional
 //// static checks on top (today: `query_parameter_limit`
 //// enforcement). It never writes files.
+////
+//// With `check_generated`, it also renders what `generate` would write
+//// and compares it, after `gleam format`, with the files on disk, so CI
+//// fails when a query or schema changed and `generate` was not run.
 
 import filepath
 import gleam/int
@@ -14,12 +18,15 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
+import simplifile
 import sqlode/internal/config
+import sqlode/internal/formatter
 import sqlode/internal/generate
 import sqlode/internal/model
 import sqlode/internal/naming
 import sqlode/internal/query_analyzer
 import sqlode/internal/query_ir
+import sqlode/internal/writer
 
 /// Outcome of a single verification pass. A report with an empty
 /// `findings` list means every block in the config parsed, analysed
@@ -44,15 +51,24 @@ pub type VerifyError {
 /// paths the same way `generate.run` does, and returns a report.
 /// The result is `Ok(Report)` even when the project has problems —
 /// only unrecoverable errors (missing config, YAML syntax errors)
-/// surface as `Error`.
-pub fn run(config_path: String) -> Result(Report, VerifyError) {
+/// surface as `Error`. With `check_generated`, a project that passes
+/// the static checks also has its generated files compared with what
+/// `generate` would write (see `check_generated`).
+pub fn run(
+  config_path: String,
+  check_generated check: Bool,
+) -> Result(Report, VerifyError) {
   use config <- result.try(
     config.load(config_path)
     |> result.map_error(ConfigError),
   )
   let base_dir = filepath.directory_name(config_path)
   let resolved = generate.resolve_config_paths(config, base_dir)
-  Ok(verify_config(resolved))
+  let report = verify_config(resolved)
+  case check, report.findings {
+    True, [] -> Ok(Report(..report, findings: check_generated(resolved)))
+    _, _ -> Ok(report)
+  }
 }
 
 /// Verify an already-loaded and path-resolved `model.Config`. Broken
@@ -180,6 +196,79 @@ fn enforce_query_parameter_limit(
             }
           })
       }
+  }
+}
+
+// ============================================================
+// Generated files
+// ============================================================
+
+/// Compare what `generate` would write for each block, formatted as
+/// `generate` formats it, with the files on disk. Each file that
+/// differs (whitespace included) or is missing is one finding; a
+/// missing output directory is one finding for the whole block.
+/// Files in the output directory that `generate` would not write are
+/// left alone, since `generate` does not remove them either.
+pub fn check_generated(config: model.Config) -> List(Finding) {
+  let naming_ctx = naming.new()
+  list.flat_map(config.sql, check_block_output(naming_ctx, _))
+}
+
+fn check_block_output(
+  naming_ctx: naming.NamingContext,
+  block: model.SqlBlock,
+) -> List(Finding) {
+  let out = block.gleam.out
+  let finding = fn(detail) { Finding(block_out: out, detail:) }
+  case generate.render_block(naming_ctx, block) {
+    Error(error) -> [finding(generate.error_to_string(error))]
+    Ok(files) ->
+      case simplifile.is_directory(out) {
+        Ok(True) ->
+          case
+            formatter.format_sources(list.map(files, fn(file) { file.content }))
+          {
+            Error(error) -> [
+              finding(
+                "SQD5007: could not check the generated files: "
+                <> formatter.error_to_string(error),
+              ),
+            ]
+            Ok(expected) ->
+              list.zip(files, expected)
+              |> list.filter_map(fn(pair) { compare_file(pair.0, pair.1) })
+              |> list.map(finding)
+          }
+        _ -> [
+          finding(
+            "SQD5006: output directory "
+            <> out
+            <> " does not exist; run `sqlode generate`",
+          ),
+        ]
+      }
+  }
+}
+
+/// The problem with one generated file, or `Error(Nil)` when the file
+/// on disk is byte for byte what `generate` would write.
+fn compare_file(
+  file: writer.GeneratedFile,
+  expected: String,
+) -> Result(String, Nil) {
+  let path = filepath.join(file.directory, file.path)
+  case simplifile.read(path) {
+    Ok(actual) if actual == expected -> Error(Nil)
+    Ok(_) -> Ok("SQD5006: " <> path <> " is out of date; run `sqlode generate`")
+    Error(simplifile.Enoent) ->
+      Ok("SQD5006: " <> path <> " does not exist; run `sqlode generate`")
+    Error(error) ->
+      Ok(
+        "SQD5006: "
+        <> path
+        <> " could not be read: "
+        <> simplifile.describe_error(error),
+      )
   }
 }
 

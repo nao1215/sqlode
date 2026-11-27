@@ -6,7 +6,7 @@
 %% type for.
 -module(sqlode_ffi).
 
--export([is_stdout_terminal/0, no_color_env/0, find_executable/1, run_executable/2, halt/1, yaml_error_message/1]).
+-export([is_stdout_terminal/0, no_color_env/0, find_executable/1, run_executable/2, halt/1, yaml_error_message/1, unique_temp_path/0]).
 
 %% Stop the runtime with the given exit status. `init:stop/1` only
 %% requests an orderly shutdown and returns at once; when sqlode runs
@@ -44,6 +44,26 @@ no_color_env() ->
             {error, nil};
         Value ->
             {ok, list_to_binary(Value)}
+    end.
+
+%% A path under the system temporary directory that no other call (in
+%% this or another sqlode process) returns. Nothing is created there;
+%% the caller makes the directory and removes it. TMPDIR, TEMP and TMP
+%% are tried in that order, as on Unix and Windows, before /tmp.
+-spec unique_temp_path() -> binary().
+unique_temp_path() ->
+    Base = first_env(["TMPDIR", "TEMP", "TMP"], "/tmp"),
+    Name = "sqlode-" ++ os:getpid() ++ "-"
+        ++ integer_to_list(erlang:unique_integer([positive])),
+    unicode:characters_to_binary(filename:join(Base, Name)).
+
+first_env([], Default) ->
+    Default;
+first_env([Name | Rest], Default) ->
+    case os:getenv(Name) of
+        false -> first_env(Rest, Default);
+        "" -> first_env(Rest, Default);
+        Value -> Value
     end.
 
 %% Locate an executable on `PATH`. Returns `{ok, Path}` (binary) on

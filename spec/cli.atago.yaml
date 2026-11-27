@@ -697,6 +697,69 @@ scenarios:
       - assert:
           exit_code: 0
 
+  # A pull request that edits query.sql and forgets to run generate passed
+  # verify and shipped stale code. `verify --check-generated` compares the
+  # files on disk with what generate would write (after gleam format) and
+  # fails on any file that differs, is missing, or whose output directory
+  # is gone. Plain verify does not look at the output, so it still runs
+  # before the first generate.
+  - name: verify --check-generated fails when the generated files are out of date
+    steps:
+      - run:
+          command: |
+            rm -rf "${workdir}/stale"
+            ./spec/support/sqlode.sh init --engine=sqlite --runtime=native --output="${workdir}/stale/sqlode.yaml" > /dev/null
+            ./spec/support/sqlode.sh generate --config="${workdir}/stale/sqlode.yaml" > /dev/null
+            ./spec/support/sqlode.sh verify --check-generated --config="${workdir}/stale/sqlode.yaml"
+      - assert:
+          exit_code: 0
+          stdout:
+            contains: All checks passed.
+      - run:
+          command: |
+            printf -- '\n-- name: CountAuthors :one\nSELECT COUNT(*) AS total FROM authors;\n' >> "${workdir}/stale/db/query.sql"
+            ./spec/support/sqlode.sh verify --config="${workdir}/stale/sqlode.yaml"
+      - assert:
+          exit_code: 0
+          stdout:
+            contains: All checks passed.
+      - run:
+          command: ./spec/support/sqlode.sh verify --check-generated --config="${workdir}/stale/sqlode.yaml"
+      - assert:
+          exit_code: 1
+          stdout:
+            contains:
+              - "SQD5006: "
+              - "/src/db/queries.gleam is out of date; run `sqlode generate`"
+            not_contains: All checks passed.
+      - run:
+          command: |
+            ./spec/support/sqlode.sh generate --config="${workdir}/stale/sqlode.yaml" > /dev/null
+            printf '\n' >> "${workdir}/stale/src/db/params.gleam"
+            ./spec/support/sqlode.sh verify --check-generated --config="${workdir}/stale/sqlode.yaml"
+      - assert:
+          exit_code: 1
+          stdout:
+            contains: "/src/db/params.gleam is out of date"
+            not_contains: queries.gleam
+      - run:
+          command: |
+            ./spec/support/sqlode.sh generate --config="${workdir}/stale/sqlode.yaml" > /dev/null
+            rm "${workdir}/stale/src/db/sqlight_adapter.gleam"
+            ./spec/support/sqlode.sh verify --check-generated --config="${workdir}/stale/sqlode.yaml"
+      - assert:
+          exit_code: 1
+          stdout:
+            contains: "/src/db/sqlight_adapter.gleam does not exist; run `sqlode generate`"
+      - run:
+          command: |
+            rm -rf "${workdir}/stale/src"
+            ./spec/support/sqlode.sh verify --check-generated --config="${workdir}/stale/sqlode.yaml"
+      - assert:
+          exit_code: 1
+          stdout:
+            contains: "SQD5006: output directory "
+
   - name: the pog adapter refuses a timestamp it cannot decode as a String
     steps:
       - run:

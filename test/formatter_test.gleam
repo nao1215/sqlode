@@ -69,6 +69,7 @@ pub fn format_files_propagates_syntax_errors_test() {
   case formatter.format_files([path]) {
     Ok(Nil) -> should.fail()
     Error(formatter.GleamNotFound) -> should.fail()
+    Error(formatter.TempDirFailed(..)) -> should.fail()
     Error(formatter.FormatFailed(exit_code:, output:)) -> {
       // Non-zero exit and the captured stderr should mention the file
       // so users can find the offending generated source.

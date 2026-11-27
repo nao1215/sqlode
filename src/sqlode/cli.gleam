@@ -164,6 +164,13 @@ fn init_command() -> glint.Command(Nil) {
 fn verify_command() -> glint.Command(Nil) {
   {
     use config_path <- glint.flag(config_flag())
+    use check_generated <- glint.flag(
+      glint.bool_flag("check-generated")
+      |> glint.flag_default(False)
+      |> glint.flag_help(
+        "Also fail when a generated file differs from what generate would write, or is missing.",
+      ),
+    )
 
     glint.command_help(
       command_help_text(
@@ -173,22 +180,31 @@ fn verify_command() -> glint.Command(Nil) {
 use, and runs the full analyser pass. Any query-analysis error,
 schema warning under strict_views, or policy violation (for example
 `query_parameter_limit`) is collected into a single report.",
+          "With --check-generated, verify also renders what generate would write,
+formats it with gleam format, and reports each generated file that
+differs from it or is missing. Use it in CI after the generated files
+are committed.",
           "The command exits non-zero when at least one finding is reported —
 suitable for CI gates before the generation step runs.",
         ],
-        ["sqlode verify", "sqlode verify --config=./custom.yaml"],
+        [
+          "sqlode verify",
+          "sqlode verify --config=./custom.yaml",
+          "sqlode verify --check-generated",
+        ],
       ),
       fn() {
         glint.command(fn(_named_args, _args, flags) {
           let flag_value = config_path(flags) |> result.unwrap("")
-          run_verify(flag_value)
+          let check = check_generated(flags) |> result.unwrap(False)
+          run_verify(flag_value, check)
         })
       },
     )
   }
 }
 
-fn run_verify(flag_value: String) -> Nil {
+fn run_verify(flag_value: String, check_generated: Bool) -> Nil {
   case resolve_config_path(flag_value) {
     Error(message) -> {
       io.println_error("Error: " <> message)
@@ -196,7 +212,7 @@ fn run_verify(flag_value: String) -> Nil {
     }
     Ok(config_path) -> {
       io.println("Verifying config: " <> config_path)
-      case verify.run(config_path) {
+      case verify.run(config_path, check_generated:) {
         Error(err) -> {
           io.println_error("Error: " <> verify.error_to_string(err))
           halt(1)
@@ -287,7 +303,7 @@ fn format_generated_files(written: List(String)) -> Nil {
     Ok(Nil) -> io.println("  Formatted generated code")
     Error(formatter.GleamNotFound as error) ->
       io.println_error("  Warning: " <> formatter.error_to_string(error))
-    Error(formatter.FormatFailed(..) as error) -> {
+    Error(error) -> {
       io.println_error("Error: " <> formatter.error_to_string(error))
       halt(1)
     }
