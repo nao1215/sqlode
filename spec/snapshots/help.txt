@@ -32,6 +32,12 @@ SUBCOMMANDS:
                           `query_parameter_limit`) is collected into a single
                           report.
 
+                          With --check-generated, verify also renders what
+                          generate would write, formats it with gleam format,
+                          and reports each generated file that differs from it
+                          or is missing. Use it in CI after the generated files
+                          are committed.
+
                           The command exits non-zero when at least one finding
                           is reported — suitable for CI gates before the
                           generation step runs.
@@ -39,5 +45,6 @@ SUBCOMMANDS:
                           Examples:
                           sqlode verify
                           sqlode verify --config=./custom.yaml
+                          sqlode verify --check-generated
 
     version               Print the sqlode version and exit.

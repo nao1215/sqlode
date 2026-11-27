@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `sqlode verify` passed when the committed generated files were out of date, so a query added without running `generate` reached CI unnoticed. `sqlode verify --check-generated` compares each file with what `generate` would write after `gleam format` and reports a file that differs, including whitespace, or is missing, and a missing output directory, as SQD5006.
+
 ## [0.37.0] - 2026-11-23
 
 ### Changed

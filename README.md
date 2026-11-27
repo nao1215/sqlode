@@ -119,11 +119,13 @@ Parameter and column types come from the schema. Where sqlode cannot infer a par
 ```console
 sqlode init     [--output=sqlode.yaml] [--engine=postgresql|sqlite|mysql] [--runtime=raw|native]
 sqlode generate [--config=sqlode.yaml]
-sqlode verify   [--config=sqlode.yaml]
+sqlode verify   [--config=sqlode.yaml] [--check-generated]
 sqlode version
 ```
 
 `verify` checks the project like `generate` without writing files and reports every problem. Errors start with a stable code such as `SQD4003`, explained on the [errors](https://hexdocs.pm/sqlode/errors.html) page.
+
+`verify --check-generated` also compares the committed output with what `generate` would write and reports each file that differs or is missing (SQD5006), so CI fails when a query changed without `generate`. It needs `gleam` on `PATH`.
 
 The command runs as `gleam run -m sqlode --`, as a standalone escript from [GitHub Releases](https://github.com/nao1215/sqlode/releases) (needs Erlang/OTP), or with Docker:
 

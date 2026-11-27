@@ -13,7 +13,10 @@
 //// stays green — the JS lane never invokes `sqlode generate`.
 
 import gleam/int
+import gleam/list
+import gleam/result
 import gleam/string
+import simplifile
 
 /// Errors from formatting operations.
 pub type FormatError {
@@ -25,6 +28,9 @@ pub type FormatError {
   /// captured stdout+stderr so a syntax error in the generated file
   /// is visible without re-running by hand.
   FormatFailed(exit_code: Int, output: String)
+  /// The temporary directory that `format_sources` formats its copies
+  /// in could not be written, read or removed.
+  TempDirectoryFailed(path: String, detail: String)
 }
 
 @target(erlang)
@@ -55,6 +61,52 @@ pub fn format_files(_files: List(String)) -> Result(Nil, FormatError) {
   Ok(Nil)
 }
 
+/// Return each source as `gleam format` would leave it, in order,
+/// without touching the files they came from. Fails when `gleam` is
+/// not on `PATH`, when `gleam format` rejects a source, or when the
+/// temporary directory the copies are formatted in cannot be written,
+/// read or removed.
+pub fn format_sources(
+  sources: List(String),
+) -> Result(List(String), FormatError) {
+  case sources {
+    [] -> Ok([])
+    _ -> {
+      let directory = unique_temp_path()
+      let paths =
+        list.index_map(sources, fn(_source, index) {
+          directory <> "/source_" <> int.to_string(index) <> ".gleam"
+        })
+      let formatted = {
+        use _ <- result.try(
+          simplifile.create_directory_all(directory)
+          |> result.map_error(temp_directory_error(directory, _)),
+        )
+        use _ <- result.try(
+          list.zip(paths, sources)
+          |> list.try_each(fn(pair) { simplifile.write(pair.0, pair.1) })
+          |> result.map_error(temp_directory_error(directory, _)),
+        )
+        use _ <- result.try(format_files(paths))
+        list.try_map(paths, simplifile.read)
+        |> result.map_error(temp_directory_error(directory, _))
+      }
+      case formatted, simplifile.delete(directory) {
+        Error(error), _ -> Error(error)
+        Ok(_), Error(error) -> Error(temp_directory_error(directory, error))
+        Ok(formatted_sources), Ok(Nil) -> Ok(formatted_sources)
+      }
+    }
+  }
+}
+
+fn temp_directory_error(
+  directory: String,
+  error: simplifile.FileError,
+) -> FormatError {
+  TempDirectoryFailed(path: directory, detail: simplifile.describe_error(error))
+}
+
 /// Convert a format error to a human-readable string for CLI output.
 pub fn error_to_string(error: FormatError) -> String {
   case error {
@@ -71,6 +123,11 @@ pub fn error_to_string(error: FormatError) -> String {
           <> trimmed
       }
     }
+    TempDirectoryFailed(path:, detail:) ->
+      "could not format a copy of the generated code in "
+      <> path
+      <> ": "
+      <> detail
   }
 }
 
@@ -81,3 +138,15 @@ fn find_executable(name: String) -> Result(String, Nil)
 @target(erlang)
 @external(erlang, "sqlode_ffi", "run_executable")
 fn run_executable(executable: String, args: List(String)) -> #(Int, String)
+
+@target(erlang)
+@external(erlang, "sqlode_ffi", "unique_temp_path")
+fn unique_temp_path() -> String
+
+// The CLI does not run on JavaScript. `format_files` is a no-op there,
+// so `format_sources` round-trips the sources through this directory
+// unchanged.
+@target(javascript)
+fn unique_temp_path() -> String {
+  "sqlode-format"
+}
