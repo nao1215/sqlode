@@ -1,0 +1,90 @@
+name: Mutation testing
+
+# Mutants of the modules a pull request or push changes, with
+# `gleam run -m metamon/mutation`. A survivor that doc/mutation/baseline.json
+# does not list fails the job. The weekly run mutates every module: about
+# 880 mutants, estimated at one hour on four workers (2026-11-28).
+# Until the baseline is recorded, pull requests and pushes skip the run,
+# and the weekly or manual run uploads build/mutation/results.json so the
+# baseline can be recorded from it.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 4 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  mutation:
+    name: Mutation testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          otp-version: "29"
+          gleam-version: "1.x"
+          rebar3-version: "3"
+      - run: gleam deps download
+      - name: Pick the modules to mutate
+        id: files
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ]; then
+            files=all
+          elif [ ! -f doc/mutation/baseline.json ]; then
+            echo "No baseline yet: run this workflow by hand and record it."
+            files=
+          elif [ "$EVENT" = pull_request ]; then
+            files=$(git diff --name-only --diff-filter=AMR "$BASE"...HEAD -- 'src/*.gleam' 'src/**/*.gleam' | tr '\n' ' ')
+          else
+            # Every commit of the push. A new branch has no previous tip.
+            case "$BEFORE" in
+              ""|0000000000000000000000000000000000000000) BEFORE=HEAD~1 ;;
+            esac
+            files=$(git diff --name-only --diff-filter=AMR "$BEFORE" HEAD -- 'src/*.gleam' 'src/**/*.gleam' | tr '\n' ' ')
+          fi
+          echo "files=$files" >> "$GITHUB_OUTPUT"
+      - name: Mutate the modules
+        if: steps.files.outputs.files != ''
+        env:
+          FILES: ${{ steps.files.outputs.files }}
+        run: |
+          set -e
+          if [ "$FILES" = all ]; then
+            gleam run -m metamon/mutation -- run --workers 4
+          else
+            # shellcheck disable=SC2086
+            gleam run -m metamon/mutation -- run --workers 4 $FILES
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.files.outputs.files == 'all'
+        with:
+          name: mutation-results
+          path: build/mutation/results.json
+      - name: Gate
+        if: steps.files.outputs.files != ''
+        run: |
+          if [ -f doc/mutation/baseline.json ]; then
+            gleam run -m metamon/mutation -- doc-check
+            gleam run -m metamon/mutation -- gate
+          else
+            echo "No baseline yet: download mutation-results to build/mutation/results.json and run gleam run -m metamon/mutation -- baseline"
+          fi

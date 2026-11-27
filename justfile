@@ -69,6 +69,16 @@ integration-refresh:
   rm -f integration_test/warmup/manifest.toml
   cd integration_test/warmup && gleam deps download
 
+# Mutation testing of every module, failing on survivors the baseline lacks.
+# Slow (about 880 mutants): CI runs it weekly.
+mutation workers="8":
+  gleam run -m metamon/mutation -- run --workers {{workers}}
+  gleam run -m metamon/mutation -- gate
+
+# Record build/mutation/results.json as the baseline and refresh doc/testing.md
+mutation-record:
+  gleam run -m metamon/mutation -- baseline
+
 regen-capabilities:
   gleam build
   gleam run -m print_capabilities > doc/capabilities.md
