@@ -43,6 +43,10 @@ The `All checks` job runs `integration_test/run.sh` against PostgreSQL 18 (servi
 
 `bench/himorime.yaml` measures the escript (`version`, `generate` on 10 and 1000 queries, `verify` on 1000 queries, and a failing `generate`). `.github/workflows/bench.yml` runs `himorime ci` on each pull request, which measures the base revision and the head in the same job. `bench/README.md` lists what is measured and what is not.
 
+## Coverage
+
+`just coverage` (`gleam build --target erlang`, then `gleam run -m metamon/mutation -- coverage`) runs the tests on the Erlang target with every module under `src/` measured and writes `build/coverage/lcov.info`; `.github/workflows/coverage.yml` reports it with octocov on pull requests and main. The local run on 2026-11-28 reached 82.8% of the lines.
+
 ## Mutation testing
 
 `.github/workflows/mutation.yml` runs `gleam run -m metamon/mutation`, which changes one operator, `!` or boolean literal at a time in a copy of the project and runs `gleam test` after each change. A mutant the suite still passes (a survivor) points at a branch no test pins down. Pull requests and pushes mutate the modules they change, and the weekly run mutates every module (about 880 mutants). The job fails on a survivor that `doc/mutation/baseline.json` does not list.
