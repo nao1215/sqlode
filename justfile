@@ -79,10 +79,11 @@ mutation workers="8":
 mutation-record:
   gleam run -m metamon/mutation -- baseline
 
-# Line coverage of the Erlang test run, written to build/coverage/lcov.info
+# Line coverage of the Erlang test run and the atago CLI suite, written to
+# build/coverage/lcov.info (requires atago on PATH)
 coverage:
   gleam build --target erlang
-  gleam run -m metamon/mutation -- coverage
+  gleam run -m metamon/mutation -- coverage --e2e 'PROJECT_ROOT="$PWD" SQLODE_BIN="$METAMON_COVERAGE_ESCRIPT" atago run --ci --parallel 1 ./spec/cli.atago.yaml'
 
 regen-capabilities:
   gleam build
