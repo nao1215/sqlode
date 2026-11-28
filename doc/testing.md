@@ -45,7 +45,7 @@ The `All checks` job runs `integration_test/run.sh` against PostgreSQL 18 (servi
 
 ## Coverage
 
-`just coverage` (`gleam build --target erlang`, then `gleam run -m metamon/mutation -- coverage`) runs the tests on the Erlang target with every module under `src/` measured and writes `build/coverage/lcov.info`; `.github/workflows/coverage.yml` reports it with octocov on pull requests and main. The local run on 2026-11-28 reached 82.8% of the lines.
+`just coverage` (`gleam build --target erlang`, then `gleam run -m metamon/mutation -- coverage`) runs the tests on the Erlang target with every module under `src/` measured and writes `build/coverage/lcov.info`; `.github/workflows/coverage.yml` reports it with octocov on pull requests and main. The coverage command needs Gleam 1.19 or later, which is newer than the build floor in `gleam.toml`. The local run on 2026-11-28 reached 82.8% of the lines.
 
 ## Mutation testing
 
